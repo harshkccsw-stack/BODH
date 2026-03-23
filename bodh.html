@@ -1,0 +1,2087 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BODH — Discover Your True Career Path</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+<style>
+:root {
+  --white: #ffffff;
+  --bg: #fafbff;
+  --bg-alt: #f0f4ff;
+  --text-primary: #1a1a2e;
+  --text-secondary: #5a5a7a;
+  --text-light: #8888a4;
+  --purple: #6c5ce7;
+  --purple-light: #a29bfe;
+  --blue: #0984e3;
+  --cyan: #00cec9;
+  --pink: #fd79a8;
+  --coral: #ff6b6b;
+  --orange: #fdcb6e;
+  --green: #00b894;
+  --border: #e8e8f0;
+  --border-light: #f0f0f8;
+  --shadow-sm: 0 2px 8px rgba(108,92,231,0.06);
+  --shadow-md: 0 8px 30px rgba(108,92,231,0.08);
+  --shadow-lg: 0 20px 60px rgba(108,92,231,0.12);
+  --radius-sm: 12px;
+  --radius-md: 16px;
+  --radius-lg: 24px;
+  --radius-xl: 32px;
+  --font-heading: 'Space Grotesk', sans-serif;
+  --font-body: 'DM Sans', sans-serif;
+  --transition: all 0.3s ease;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--bg);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  overflow-x: hidden;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--purple-light); border-radius: 3px; }
+
+/* UTILITY */
+.container { max-width: 1140px; margin: 0 auto; padding: 0 24px; }
+
+.section-label {
+  display: inline-block;
+  font-family: var(--font-heading);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--purple);
+  background: rgba(108,92,231,0.08);
+  padding: 6px 16px;
+  border-radius: 100px;
+  margin-bottom: 16px;
+}
+
+.accent-text { color: var(--purple); }
+.accent-text-pink { color: var(--pink); }
+.accent-text-blue { color: var(--blue); }
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-heading);
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 14px 28px;
+  border-radius: var(--radius-sm);
+  border: none;
+  cursor: pointer;
+  text-decoration: none;
+  transition: var(--transition);
+}
+.btn-primary {
+  background: var(--purple);
+  color: white;
+  box-shadow: 0 4px 16px rgba(108,92,231,0.3);
+}
+.btn-primary:hover {
+  background: #5a4bd4;
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(108,92,231,0.4);
+}
+.btn-outline {
+  background: transparent;
+  color: var(--text-primary);
+  border: 2px solid var(--border);
+}
+.btn-outline:hover {
+  border-color: var(--purple);
+  color: var(--purple);
+  transform: translateY(-2px);
+}
+
+/* REVEAL */
+.reveal {
+  opacity: 0;
+  transform: translateY(30px);
+  transition: opacity 0.6s ease, transform 0.6s ease;
+}
+.reveal.visible { opacity: 1; transform: translateY(0); }
+.reveal-delay-1 { transition-delay: 0.1s; }
+.reveal-delay-2 { transition-delay: 0.2s; }
+.reveal-delay-3 { transition-delay: 0.3s; }
+.reveal-delay-4 { transition-delay: 0.4s; }
+
+/* ===== NAVBAR ===== */
+#navbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  padding: 16px 0;
+  transition: var(--transition);
+  background: rgba(250,251,255,0.8);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+#navbar.scrolled {
+  border-bottom: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+  padding: 12px 0;
+}
+.nav-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+.nav-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+}
+.nav-logo-icon {
+  width: 36px;
+  height: 36px;
+  background: var(--purple);
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  color: white;
+}
+.nav-logo-text {
+  font-family: var(--font-heading);
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: 0.02em;
+}
+.nav-links {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+  list-style: none;
+}
+.nav-links a {
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-size: 0.9rem;
+  font-weight: 500;
+  transition: var(--transition);
+}
+.nav-links a:hover { color: var(--purple); }
+.nav-cta { display: flex; align-items: center; gap: 12px; }
+.hamburger { display: none; background: none; border: none; cursor: pointer; }
+.hamburger span {
+  display: block;
+  width: 22px;
+  height: 2px;
+  background: var(--text-primary);
+  margin: 5px 0;
+  transition: var(--transition);
+}
+
+/* ===== HERO ===== */
+#hero {
+  position: relative;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  background: var(--white);
+  overflow: hidden;
+}
+.hero-decoration {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+}
+.hero-deco-1 {
+  width: 500px;
+  height: 500px;
+  background: radial-gradient(circle, rgba(108,92,231,0.06) 0%, transparent 70%);
+  top: -100px;
+  right: -100px;
+}
+.hero-deco-2 {
+  width: 400px;
+  height: 400px;
+  background: radial-gradient(circle, rgba(253,121,168,0.05) 0%, transparent 70%);
+  bottom: -80px;
+  left: -80px;
+}
+.hero-content {
+  position: relative;
+  z-index: 2;
+  text-align: center;
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 140px 24px 80px;
+}
+.hero-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(108,92,231,0.06);
+  border: 1px solid rgba(108,92,231,0.15);
+  border-radius: 100px;
+  padding: 8px 20px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--purple);
+  margin-bottom: 32px;
+}
+.hero-badge-dot {
+  width: 8px;
+  height: 8px;
+  background: var(--green);
+  border-radius: 50%;
+  animation: pulse-dot 1.5s ease-in-out infinite;
+}
+@keyframes pulse-dot {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(0,184,148,0.4); }
+  50% { box-shadow: 0 0 0 6px rgba(0,184,148,0); }
+}
+.hero-title {
+  font-family: var(--font-heading);
+  font-size: clamp(2.4rem, 5.5vw, 3.8rem);
+  font-weight: 700;
+  line-height: 1.15;
+  margin-bottom: 24px;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+}
+.hero-subtitle {
+  font-size: clamp(1rem, 2vw, 1.15rem);
+  color: var(--text-secondary);
+  max-width: 560px;
+  margin: 0 auto 40px;
+  line-height: 1.7;
+}
+.hero-subtitle strong { color: var(--coral); font-weight: 600; }
+.hero-ctas {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 64px;
+}
+.hero-stats {
+  display: flex;
+  justify-content: center;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+.hero-stat-card {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 20px 28px;
+  text-align: center;
+  min-width: 150px;
+  box-shadow: var(--shadow-sm);
+}
+.hero-stat-number {
+  font-family: var(--font-heading);
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--purple);
+}
+.hero-stat-label {
+  font-size: 0.75rem;
+  color: var(--text-light);
+  margin-top: 4px;
+}
+
+/* ===== CRISIS SECTION ===== */
+#crisis {
+  background: var(--bg-alt);
+  padding: 100px 0;
+  position: relative;
+}
+.crisis-header { text-align: center; margin-bottom: 60px; }
+.crisis-title {
+  font-family: var(--font-heading);
+  font-size: clamp(1.6rem, 3.5vw, 2.4rem);
+  font-weight: 700;
+  margin-bottom: 16px;
+  line-height: 1.25;
+}
+.crisis-subtitle {
+  color: var(--text-secondary);
+  font-size: 1rem;
+  max-width: 500px;
+  margin: 0 auto;
+}
+.crisis-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 24px;
+  margin-bottom: 60px;
+}
+.crisis-stat-card {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 36px 32px;
+  text-align: center;
+  box-shadow: var(--shadow-sm);
+  position: relative;
+  overflow: hidden;
+}
+.crisis-stat-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--coral), var(--pink));
+}
+.crisis-stat-number {
+  font-family: var(--font-heading);
+  font-size: 2.8rem;
+  font-weight: 700;
+  color: var(--coral);
+  display: block;
+}
+.crisis-stat-text {
+  font-size: 0.95rem;
+  color: var(--text-secondary);
+  margin-top: 8px;
+  line-height: 1.6;
+}
+.crisis-stat-source {
+  font-size: 0.7rem;
+  color: var(--text-light);
+  margin-top: 12px;
+  font-style: italic;
+}
+.crisis-cta-center { text-align: center; }
+.crisis-warning-text {
+  font-family: var(--font-heading);
+  font-size: clamp(1rem, 2.5vw, 1.35rem);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 32px;
+  line-height: 1.5;
+}
+.crisis-warning-text span { color: var(--coral); }
+
+/* ===== HOW IT WORKS ===== */
+#how-it-works {
+  padding: 100px 0;
+  background: var(--white);
+}
+.section-header { text-align: center; margin-bottom: 70px; }
+.section-title {
+  font-family: var(--font-heading);
+  font-size: clamp(1.6rem, 3.5vw, 2.4rem);
+  font-weight: 700;
+  margin-bottom: 16px;
+  line-height: 1.25;
+}
+.section-desc {
+  color: var(--text-secondary);
+  font-size: 1rem;
+  max-width: 520px;
+  margin: 0 auto;
+  line-height: 1.7;
+}
+.steps-container {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 28px;
+}
+.step-card {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 40px 28px;
+  text-align: center;
+  transition: var(--transition);
+}
+.step-card:hover {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-4px);
+  border-color: rgba(108,92,231,0.2);
+}
+.step-number {
+  font-family: var(--font-heading);
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--purple);
+  letter-spacing: 0.2em;
+  margin-bottom: 20px;
+  display: block;
+}
+.step-icon {
+  width: 72px;
+  height: 72px;
+  border-radius: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.8rem;
+  margin: 0 auto 24px;
+}
+.step-icon-1 { background: rgba(108,92,231,0.08); color: var(--purple); }
+.step-icon-2 { background: rgba(9,132,227,0.08); color: var(--blue); }
+.step-icon-3 { background: rgba(0,184,148,0.08); color: var(--green); }
+.step-title {
+  font-family: var(--font-heading);
+  font-size: 1rem;
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+.step-desc { color: var(--text-secondary); font-size: 0.9rem; line-height: 1.6; }
+.step-detail {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 20px;
+  flex-wrap: wrap;
+}
+.step-tag {
+  background: rgba(108,92,231,0.06);
+  border-radius: 100px;
+  padding: 4px 12px;
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: var(--purple);
+}
+
+/* ===== ASSESSMENTS GRID ===== */
+#assessments {
+  padding: 100px 0;
+  background: var(--bg-alt);
+}
+.assessments-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 24px;
+}
+.assessment-card {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  transition: var(--transition);
+}
+.assessment-card:hover {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-4px);
+  border-color: rgba(108,92,231,0.2);
+}
+.assessment-img {
+  width: 100%;
+  height: 180px;
+  object-fit: cover;
+  display: block;
+}
+.assessment-body { padding: 24px; }
+.assessment-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+.assessment-title {
+  font-family: var(--font-heading);
+  font-size: 0.95rem;
+  font-weight: 700;
+  flex: 1;
+  margin-right: 12px;
+}
+.badge {
+  font-size: 0.65rem;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 100px;
+  white-space: nowrap;
+}
+.badge-easy { background: rgba(0,184,148,0.1); color: var(--green); }
+.badge-medium { background: rgba(253,203,110,0.2); color: #e17e00; }
+.badge-advanced { background: rgba(253,121,168,0.1); color: var(--pink); }
+.assessment-desc { color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 16px; line-height: 1.5; }
+.assessment-meta {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+.assessment-meta-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  color: var(--text-light);
+}
+.assessment-meta-item i { color: var(--blue); font-size: 0.7rem; }
+.assessment-btn {
+  width: 100%;
+  background: rgba(108,92,231,0.06);
+  color: var(--purple);
+  border: 1px solid rgba(108,92,231,0.15);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  font-size: 0.8rem;
+  font-family: var(--font-heading);
+  font-weight: 600;
+  cursor: pointer;
+  transition: var(--transition);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.assessment-btn:hover {
+  background: var(--purple);
+  color: white;
+  border-color: var(--purple);
+}
+
+/* ===== FOR STUDENTS ===== */
+#for-students {
+  padding: 100px 0;
+  background: var(--white);
+}
+.split-section {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 80px;
+  align-items: center;
+}
+@media(max-width: 768px) { .split-section { grid-template-columns: 1fr; gap: 40px; } }
+.split-section-reverse { direction: rtl; }
+.split-section-reverse > * { direction: ltr; }
+.split-title {
+  font-family: var(--font-heading);
+  font-size: clamp(1.6rem, 3vw, 2.2rem);
+  font-weight: 700;
+  margin-bottom: 16px;
+  line-height: 1.25;
+}
+.split-subtitle { color: var(--text-secondary); font-size: 1rem; margin-bottom: 32px; line-height: 1.7; }
+.benefits-list { list-style: none; margin-bottom: 36px; }
+.benefits-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  margin-bottom: 20px;
+}
+.benefit-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9rem;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.benefit-icon-purple { background: rgba(108,92,231,0.08); color: var(--purple); }
+.benefit-icon-cyan { background: rgba(0,206,201,0.08); color: var(--cyan); }
+.benefit-icon-pink { background: rgba(253,121,168,0.08); color: var(--pink); }
+.benefit-icon-gold { background: rgba(253,203,110,0.15); color: #e17e00; }
+.benefit-text strong { display: block; font-size: 0.9rem; margin-bottom: 4px; }
+.benefit-text span { color: var(--text-secondary); font-size: 0.85rem; }
+.split-visual { position: relative; }
+.split-visual img {
+  width: 100%;
+  border-radius: var(--radius-lg);
+  display: block;
+  box-shadow: var(--shadow-md);
+}
+.split-visual-badge {
+  position: absolute;
+  bottom: -16px;
+  left: -16px;
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 14px 18px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  box-shadow: var(--shadow-md);
+}
+.split-visual-badge-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: var(--purple);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.2rem;
+  color: white;
+}
+.split-visual-badge-text strong { display: block; font-size: 1rem; font-family: var(--font-heading); color: var(--green); }
+.split-visual-badge-text span { font-size: 0.75rem; color: var(--text-light); }
+
+/* ===== FOR PARENTS ===== */
+#for-parents {
+  padding: 100px 0;
+  background: var(--bg-alt);
+}
+.trust-signals {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+  margin-top: 32px;
+}
+.trust-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+.trust-item i { color: var(--green); }
+
+/* ===== FOR INSTITUTES ===== */
+#for-institutes {
+  padding: 100px 0;
+  background: var(--white);
+}
+.institutes-features {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 24px;
+  margin-top: 48px;
+}
+.institute-feature-card {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 28px 24px;
+  text-align: center;
+  transition: var(--transition);
+}
+.institute-feature-card:hover {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-4px);
+}
+.institute-feature-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  background: var(--purple);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.3rem;
+  color: white;
+  margin: 0 auto 16px;
+}
+.institute-feature-title {
+  font-family: var(--font-heading);
+  font-size: 0.9rem;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+.institute-feature-desc { color: var(--text-secondary); font-size: 0.8rem; line-height: 1.5; }
+
+/* ===== RESULTS PREVIEW ===== */
+#results {
+  padding: 100px 0;
+  background: var(--bg-alt);
+}
+.results-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 24px;
+}
+.result-card {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 36px 24px;
+  text-align: center;
+  transition: var(--transition);
+}
+.result-card:hover {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-4px);
+}
+.ring-container {
+  position: relative;
+  width: 100px;
+  height: 100px;
+  margin: 0 auto 24px;
+}
+.ring-svg { transform: rotate(-90deg); }
+.ring-track { fill: none; stroke: #f0f0f8; stroke-width: 8; }
+.ring-fill {
+  fill: none;
+  stroke-width: 8;
+  stroke-linecap: round;
+  stroke-dasharray: 251;
+  stroke-dashoffset: 251;
+  transition: stroke-dashoffset 1.5s ease;
+}
+.ring-fill-1 { stroke: var(--purple); }
+.ring-fill-2 { stroke: var(--pink); }
+.ring-fill-3 { stroke: var(--green); }
+.ring-fill-4 { stroke: var(--blue); }
+.ring-percent {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-heading);
+  font-size: 1.3rem;
+  font-weight: 700;
+}
+.ring-percent-purple { color: var(--purple); }
+.ring-percent-pink { color: var(--pink); }
+.ring-percent-green { color: var(--green); }
+.ring-percent-blue { color: var(--blue); }
+.result-title {
+  font-family: var(--font-heading);
+  font-size: 0.9rem;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+.result-desc { color: var(--text-secondary); font-size: 0.8rem; line-height: 1.5; }
+
+/* ===== TESTIMONIALS ===== */
+#testimonials {
+  padding: 100px 0;
+  background: var(--white);
+}
+.testimonials-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 24px;
+}
+.testimonial-card {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 32px 28px;
+  transition: var(--transition);
+}
+.testimonial-card:hover {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-4px);
+}
+.testimonial-stars { color: var(--orange); font-size: 0.9rem; margin-bottom: 16px; letter-spacing: 2px; }
+.testimonial-quote {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  line-height: 1.7;
+  margin-bottom: 24px;
+  font-style: italic;
+}
+.testimonial-quote::before { content: '\201C'; color: var(--purple); font-size: 2rem; line-height: 0; vertical-align: -0.5em; margin-right: 4px; }
+.testimonial-author { display: flex; align-items: center; gap: 14px; }
+.author-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-heading);
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: white;
+  flex-shrink: 0;
+}
+.avatar-1 { background: var(--purple); }
+.avatar-2 { background: var(--pink); }
+.avatar-3 { background: var(--green); }
+.author-info strong { display: block; font-size: 0.9rem; }
+.author-info span { color: var(--text-light); font-size: 0.75rem; }
+
+/* ===== URGENCY BANNER ===== */
+#urgency {
+  padding: 80px 0;
+  background: linear-gradient(135deg, rgba(108,92,231,0.04) 0%, rgba(253,121,168,0.04) 100%);
+  border-top: 1px solid var(--border-light);
+  border-bottom: 1px solid var(--border-light);
+}
+.urgency-inner { text-align: center; }
+.urgency-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255,107,107,0.08);
+  border-radius: 100px;
+  padding: 6px 16px;
+  font-size: 0.75rem;
+  color: var(--coral);
+  font-family: var(--font-heading);
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-bottom: 24px;
+}
+.urgency-title {
+  font-family: var(--font-heading);
+  font-size: clamp(1.4rem, 3vw, 2rem);
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+.urgency-subtitle { color: var(--text-secondary); margin-bottom: 40px; font-size: 0.95rem; }
+.countdown-timer {
+  display: flex;
+  justify-content: center;
+  gap: 14px;
+  margin-bottom: 40px;
+  flex-wrap: wrap;
+}
+.countdown-unit {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 18px 22px;
+  min-width: 80px;
+  text-align: center;
+  box-shadow: var(--shadow-sm);
+}
+.countdown-number {
+  font-family: var(--font-heading);
+  font-size: 1.8rem;
+  font-weight: 700;
+  color: var(--purple);
+  display: block;
+}
+.countdown-label { font-size: 0.65rem; color: var(--text-light); letter-spacing: 0.1em; text-transform: uppercase; }
+.progress-section { max-width: 500px; margin: 0 auto 36px; }
+.progress-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  font-size: 0.8rem;
+}
+.progress-header span:first-child { color: var(--text-secondary); }
+.progress-header span:last-child { color: var(--coral); font-weight: 600; }
+.progress-bar-track {
+  height: 8px;
+  background: var(--border-light);
+  border-radius: 100px;
+  overflow: hidden;
+}
+.progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--coral), var(--purple));
+  border-radius: 100px;
+  width: 0;
+  transition: width 1.5s ease;
+}
+
+/* ===== PRICING ===== */
+#pricing {
+  padding: 100px 0;
+  background: var(--white);
+}
+.pricing-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin: 0 auto 60px;
+}
+.pricing-toggle-label {
+  font-family: var(--font-heading);
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text-light);
+  transition: color 0.3s ease;
+}
+.pricing-toggle-label.active { color: var(--text-primary); font-weight: 600; }
+.toggle-switch {
+  width: 52px;
+  height: 28px;
+  background: var(--border);
+  border-radius: 100px;
+  position: relative;
+  cursor: pointer;
+  transition: var(--transition);
+}
+.toggle-switch.annual { background: var(--purple); }
+.toggle-knob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 22px;
+  height: 22px;
+  background: white;
+  border-radius: 50%;
+  transition: var(--transition);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.15);
+}
+.toggle-switch.annual .toggle-knob { transform: translateX(24px); }
+.save-badge {
+  background: rgba(0,184,148,0.08);
+  border-radius: 100px;
+  padding: 4px 12px;
+  font-size: 0.7rem;
+  color: var(--green);
+  font-family: var(--font-heading);
+  font-weight: 600;
+}
+.pricing-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 24px;
+  align-items: start;
+}
+.pricing-card {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  padding: 40px 32px;
+  position: relative;
+  transition: var(--transition);
+}
+.pricing-card:hover { box-shadow: var(--shadow-md); }
+.pricing-card-featured {
+  border: 2px solid var(--purple);
+  box-shadow: var(--shadow-lg);
+}
+.pricing-popular-badge {
+  position: absolute;
+  top: -14px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--purple);
+  color: white;
+  font-size: 0.7rem;
+  font-family: var(--font-heading);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  padding: 6px 20px;
+  border-radius: 100px;
+  white-space: nowrap;
+}
+.pricing-plan {
+  font-family: var(--font-heading);
+  font-size: 0.75rem;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--purple);
+  margin-bottom: 12px;
+  font-weight: 600;
+}
+.pricing-price {
+  font-family: var(--font-heading);
+  font-size: 2.5rem;
+  font-weight: 700;
+  margin-bottom: 4px;
+  color: var(--text-primary);
+}
+.pricing-price sup { font-size: 1.2rem; vertical-align: top; margin-top: 8px; display: inline-block; }
+.pricing-price-period { font-size: 0.8rem; color: var(--text-light); }
+.pricing-original {
+  font-size: 0.85rem;
+  color: var(--text-light);
+  text-decoration: line-through;
+  display: none;
+  margin-bottom: 4px;
+}
+.pricing-original.show { display: block; }
+.pricing-desc { color: var(--text-secondary); font-size: 0.85rem; margin: 16px 0 28px; line-height: 1.5; }
+.pricing-features { list-style: none; margin-bottom: 32px; }
+.pricing-features li {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 14px;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+.pricing-features li i { color: var(--green); margin-top: 2px; flex-shrink: 0; font-size: 0.8rem; }
+.pricing-features li.disabled { opacity: 0.4; }
+.pricing-features li.disabled i { color: var(--text-light); }
+.pricing-cta {
+  width: 100%;
+  justify-content: center;
+  font-size: 0.85rem;
+  padding: 15px;
+}
+
+/* ===== STRATEGY ===== */
+#strategy {
+  padding: 100px 0;
+  background: var(--bg-alt);
+}
+.strategy-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 24px;
+}
+.strategy-card {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 32px 24px;
+  transition: var(--transition);
+}
+.strategy-card:hover {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-4px);
+}
+.strategy-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.3rem;
+  margin-bottom: 20px;
+}
+.strategy-icon-1 { background: rgba(108,92,231,0.08); color: var(--purple); }
+.strategy-icon-2 { background: rgba(9,132,227,0.08); color: var(--blue); }
+.strategy-icon-3 { background: rgba(253,121,168,0.08); color: var(--pink); }
+.strategy-icon-4 { background: rgba(0,184,148,0.08); color: var(--green); }
+.strategy-title {
+  font-family: var(--font-heading);
+  font-size: 0.9rem;
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+.strategy-desc { color: var(--text-secondary); font-size: 0.85rem; line-height: 1.6; }
+.strategy-stat {
+  margin-top: 16px;
+  font-family: var(--font-heading);
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--purple);
+}
+
+/* ===== FINAL CTA ===== */
+#final-cta {
+  min-height: 70vh;
+  display: flex;
+  align-items: center;
+  background: var(--white);
+  position: relative;
+  overflow: hidden;
+}
+.cta-deco {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+}
+.cta-deco-1 {
+  width: 400px;
+  height: 400px;
+  background: radial-gradient(circle, rgba(108,92,231,0.05) 0%, transparent 70%);
+  top: -80px;
+  left: -80px;
+}
+.cta-deco-2 {
+  width: 300px;
+  height: 300px;
+  background: radial-gradient(circle, rgba(253,121,168,0.04) 0%, transparent 70%);
+  bottom: -60px;
+  right: -60px;
+}
+.final-cta-content {
+  position: relative;
+  z-index: 2;
+  text-align: center;
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 80px 24px;
+}
+.final-cta-title {
+  font-family: var(--font-heading);
+  font-size: clamp(2rem, 5vw, 3.2rem);
+  font-weight: 700;
+  line-height: 1.15;
+  margin-bottom: 20px;
+}
+.final-cta-subtitle {
+  color: var(--text-secondary);
+  font-size: 1.05rem;
+  margin-bottom: 40px;
+  line-height: 1.7;
+}
+.final-cta-btns {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.final-cta-note {
+  margin-top: 24px;
+  font-size: 0.8rem;
+  color: var(--text-light);
+}
+.final-cta-note i { color: var(--green); margin-right: 4px; }
+
+/* ===== FOOTER ===== */
+#footer {
+  background: var(--bg-alt);
+  border-top: 1px solid var(--border);
+  padding: 60px 0 30px;
+}
+.footer-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 1fr;
+  gap: 48px;
+  margin-bottom: 48px;
+}
+@media(max-width: 768px) { .footer-grid { grid-template-columns: 1fr 1fr; gap: 32px; } }
+@media(max-width: 480px) { .footer-grid { grid-template-columns: 1fr; } }
+.footer-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+  margin-bottom: 16px;
+}
+.footer-logo-icon {
+  width: 32px;
+  height: 32px;
+  background: var(--purple);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  color: white;
+}
+.footer-logo-text {
+  font-family: var(--font-heading);
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.footer-tagline { color: var(--text-secondary); font-size: 0.85rem; line-height: 1.6; margin-bottom: 24px; max-width: 260px; }
+.footer-socials { display: flex; gap: 10px; }
+.social-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: var(--white);
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-size: 0.85rem;
+  transition: var(--transition);
+}
+.social-btn:hover { background: var(--purple); color: white; border-color: var(--purple); }
+.footer-col-title {
+  font-family: var(--font-heading);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-primary);
+  margin-bottom: 20px;
+}
+.footer-links { list-style: none; }
+.footer-links li { margin-bottom: 12px; }
+.footer-links a {
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-size: 0.85rem;
+  transition: var(--transition);
+}
+.footer-links a:hover { color: var(--purple); }
+.footer-bottom {
+  border-top: 1px solid var(--border);
+  padding-top: 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.footer-copyright { color: var(--text-light); font-size: 0.8rem; }
+.footer-bottom-links { display: flex; gap: 20px; }
+.footer-bottom-links a { color: var(--text-light); text-decoration: none; font-size: 0.8rem; transition: var(--transition); }
+.footer-bottom-links a:hover { color: var(--purple); }
+
+/* RESPONSIVE */
+@media(max-width: 768px) {
+  .nav-links { display: none; }
+  .nav-cta .btn { display: none; }
+  .hamburger { display: block; }
+  .hero-stats { gap: 12px; }
+  .hero-stat-card { min-width: 120px; padding: 16px 18px; }
+  .split-section-reverse { direction: ltr; }
+  .pricing-grid { grid-template-columns: 1fr; max-width: 400px; margin: 0 auto; }
+  .footer-grid { grid-template-columns: 1fr 1fr; gap: 32px; }
+}
+@media(max-width: 480px) {
+  .hero-ctas { flex-direction: column; align-items: center; }
+  .final-cta-btns { flex-direction: column; align-items: center; }
+  .trust-signals { flex-direction: column; }
+}
+</style>
+</head>
+<body>
+
+<!-- NAVBAR -->
+<nav id="navbar">
+  <div class="container">
+    <div class="nav-inner">
+      <a href="#" class="nav-logo">
+        <div class="nav-logo-icon"><i class="fas fa-brain"></i></div>
+        <span class="nav-logo-text">BODH</span>
+      </a>
+      <ul class="nav-links">
+        <li><a href="#assessments">Assessments</a></li>
+        <li><a href="#for-students">For Students</a></li>
+        <li><a href="#for-parents">For Parents</a></li>
+        <li><a href="#for-institutes">For Institutes</a></li>
+        <li><a href="#pricing">Pricing</a></li>
+      </ul>
+      <div class="nav-cta">
+        <a href="#urgency" class="btn btn-primary"><i class="fas fa-rocket"></i> Start Free</a>
+      </div>
+      <button class="hamburger" aria-label="Menu">
+        <span></span><span></span><span></span>
+      </button>
+    </div>
+  </div>
+</nav>
+
+<!-- HERO -->
+<section id="hero">
+  <div class="hero-decoration hero-deco-1"></div>
+  <div class="hero-decoration hero-deco-2"></div>
+  <div class="container">
+    <div class="hero-content">
+      <div class="hero-badge">
+        <div class="hero-badge-dot"></div>
+        India's #1 AI-Powered Career Assessment Platform
+      </div>
+      <h1 class="hero-title">
+        Your Child's Future Starts<br>
+        With <span class="accent-text">ONE Decision</span>
+      </h1>
+      <p class="hero-subtitle">
+        <strong>85% of students choose the wrong career.</strong> Don't let yours be one of them. Discover the path built for your unique mind — in just 30 minutes.
+      </p>
+      <div class="hero-ctas">
+        <a href="#assessments" class="btn btn-primary">Take Free Assessment <i class="fas fa-arrow-right"></i></a>
+        <a href="#how-it-works" class="btn btn-outline"><i class="fas fa-play-circle"></i> See How It Works</a>
+      </div>
+      <div class="hero-stats">
+        <div class="hero-stat-card">
+          <div class="hero-stat-number"><span class="counter" data-target="50000">0</span>+</div>
+          <div class="hero-stat-label">Students Guided</div>
+        </div>
+        <div class="hero-stat-card">
+          <div class="hero-stat-number"><span class="counter" data-target="94">0</span>%</div>
+          <div class="hero-stat-label">Accuracy Rate</div>
+        </div>
+        <div class="hero-stat-card">
+          <div class="hero-stat-number"><span class="counter" data-target="200">0</span>+</div>
+          <div class="hero-stat-label">Career Paths</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CRISIS SECTION -->
+<section id="crisis">
+  <div class="container">
+    <div class="crisis-header reveal">
+      <div class="section-label">The Hidden Crisis</div>
+      <h2 class="crisis-title">
+        Wrong Career = <span class="accent-text-pink">10 Years Wasted.</span><br>
+        Right Career = <span class="accent-text">Lifetime of Success.</span>
+      </h2>
+      <p class="crisis-subtitle">These numbers are real. They could be your child's story — unless you act today.</p>
+    </div>
+    <div class="crisis-stats-grid">
+      <div class="crisis-stat-card reveal reveal-delay-1">
+        <span class="crisis-stat-number">85%</span>
+        <p class="crisis-stat-text">of Indian graduates are employed in fields unrelated to their degree, leading to years of wasted investment and career regret.</p>
+        <p class="crisis-stat-source">— National Employability Report, Wheebox 2024</p>
+      </div>
+      <div class="crisis-stat-card reveal reveal-delay-2">
+        <span class="crisis-stat-number">73%</span>
+        <p class="crisis-stat-text">of students report feeling "lost" about their career choice by their second year of college, yet only 12% ever sought professional guidance.</p>
+        <p class="crisis-stat-source">— NASSCOM Student Career Survey 2023</p>
+      </div>
+      <div class="crisis-stat-card reveal reveal-delay-3">
+        <span class="crisis-stat-number">&#x20B9;8L+</span>
+        <p class="crisis-stat-text">average cost of pursuing the wrong degree — in tuition, lost earnings, and re-skilling — when students choose careers without proper assessment.</p>
+        <p class="crisis-stat-source">— Education Cost Analysis, EduFund 2024</p>
+      </div>
+    </div>
+    <div class="crisis-cta-center reveal">
+      <p class="crisis-warning-text">The decision your child makes at 16-18 shapes the <span>next 40 years</span> of their life.<br>It's too important to leave to guesswork.</p>
+      <a href="#assessments" class="btn btn-primary"><i class="fas fa-shield-alt"></i> Find the Right Career Now</a>
+    </div>
+  </div>
+</section>
+
+<!-- HOW IT WORKS -->
+<section id="how-it-works">
+  <div class="container">
+    <div class="section-header reveal">
+      <div class="section-label">The Process</div>
+      <h2 class="section-title">Three Steps to <span class="accent-text">Absolute Clarity</span></h2>
+      <p class="section-desc">Our scientifically-designed process takes students from confusion to complete career clarity in under an hour.</p>
+    </div>
+    <div class="steps-container">
+      <div class="step-card reveal reveal-delay-1">
+        <span class="step-number">STEP 01</span>
+        <div class="step-icon step-icon-1"><i class="fas fa-pencil-alt"></i></div>
+        <h3 class="step-title">Take the Assessment</h3>
+        <p class="step-desc">Complete our scientifically designed battery — MCQ, personality profiling, aptitude testing, and interest mapping. Takes 15-30 minutes.</p>
+        <div class="step-detail">
+          <span class="step-tag">15-30 min</span>
+          <span class="step-tag">200+ Questions</span>
+          <span class="step-tag">6 Dimensions</span>
+        </div>
+      </div>
+      <div class="step-card reveal reveal-delay-2">
+        <span class="step-number">STEP 02</span>
+        <div class="step-icon step-icon-2"><i class="fas fa-brain"></i></div>
+        <h3 class="step-title">Get AI Analysis</h3>
+        <p class="step-desc">Our AI engine processes 200+ data points to generate a detailed report: strengths, weaknesses, ideal learning styles, and skill gaps.</p>
+        <div class="step-detail">
+          <span class="step-tag">AI-Powered</span>
+          <span class="step-tag">40-Page Report</span>
+          <span class="step-tag">Instant Results</span>
+        </div>
+      </div>
+      <div class="step-card reveal reveal-delay-3">
+        <span class="step-number">STEP 03</span>
+        <div class="step-icon step-icon-3"><i class="fas fa-road"></i></div>
+        <h3 class="step-title">Chart Your Path</h3>
+        <p class="step-desc">Receive personalized career recommendations, exact college pathways, entrance exam strategies, and a step-by-step 5-year learning roadmap.</p>
+        <div class="step-detail">
+          <span class="step-tag">Career Map</span>
+          <span class="step-tag">College Guide</span>
+          <span class="step-tag">Action Plan</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ASSESSMENTS GRID -->
+<section id="assessments">
+  <div class="container">
+    <div class="section-header reveal">
+      <div class="section-label">Our Assessments</div>
+      <h2 class="section-title">Scientifically Designed <span class="accent-text">Assessments</span></h2>
+      <p class="section-desc">Six rigorously validated tools that together build the most accurate career profile of your child — backed by 50+ years of psychological research.</p>
+    </div>
+    <div class="assessments-grid">
+      <div class="assessment-card reveal reveal-delay-1">
+        <img class="assessment-img" src="https://images.unsplash.com/photo-1509475826633-fed577a2c71b?w=600&q=80&fit=crop" alt="Aptitude Assessment" loading="lazy">
+        <div class="assessment-body">
+          <div class="assessment-header-row">
+            <h3 class="assessment-title">Aptitude Assessment</h3>
+            <span class="badge badge-medium">Medium</span>
+          </div>
+          <p class="assessment-desc">Measures cognitive ability, logical reasoning, numerical aptitude, and spatial intelligence to reveal your natural intellectual strengths.</p>
+          <div class="assessment-meta">
+            <div class="assessment-meta-item"><i class="fas fa-clock"></i> 25 min</div>
+            <div class="assessment-meta-item"><i class="fas fa-question-circle"></i> 60 Qs</div>
+            <div class="assessment-meta-item"><i class="fas fa-layer-group"></i> 4 Sections</div>
+          </div>
+          <button class="assessment-btn"><i class="fas fa-play"></i> Start Assessment</button>
+        </div>
+      </div>
+      <div class="assessment-card reveal reveal-delay-2">
+        <img class="assessment-img" src="https://images.unsplash.com/photo-1522202176988-66273c2fd55f?w=600&q=80&fit=crop" alt="Personality Profiling" loading="lazy">
+        <div class="assessment-body">
+          <div class="assessment-header-row">
+            <h3 class="assessment-title">Personality Profiling</h3>
+            <span class="badge badge-easy">Easy</span>
+          </div>
+          <p class="assessment-desc">MBTI-inspired + Big Five personality model reveals how you think, interact, make decisions, and respond to challenges in the workplace.</p>
+          <div class="assessment-meta">
+            <div class="assessment-meta-item"><i class="fas fa-clock"></i> 20 min</div>
+            <div class="assessment-meta-item"><i class="fas fa-question-circle"></i> 50 Qs</div>
+            <div class="assessment-meta-item"><i class="fas fa-layer-group"></i> 5 Traits</div>
+          </div>
+          <button class="assessment-btn"><i class="fas fa-play"></i> Start Assessment</button>
+        </div>
+      </div>
+      <div class="assessment-card reveal reveal-delay-3">
+        <img class="assessment-img" src="https://images.unsplash.com/photo-1529156069898-49953e39b3ac?w=600&q=80&fit=crop" alt="Interest Inventory" loading="lazy">
+        <div class="assessment-body">
+          <div class="assessment-header-row">
+            <h3 class="assessment-title">Interest Inventory</h3>
+            <span class="badge badge-easy">Easy</span>
+          </div>
+          <p class="assessment-desc">Based on Holland's RIASEC model, this identifies your genuine interest areas — Realistic, Investigative, Artistic, Social, Enterprising, Conventional.</p>
+          <div class="assessment-meta">
+            <div class="assessment-meta-item"><i class="fas fa-clock"></i> 15 min</div>
+            <div class="assessment-meta-item"><i class="fas fa-question-circle"></i> 42 Qs</div>
+            <div class="assessment-meta-item"><i class="fas fa-layer-group"></i> 6 Codes</div>
+          </div>
+          <button class="assessment-btn"><i class="fas fa-play"></i> Start Assessment</button>
+        </div>
+      </div>
+      <div class="assessment-card reveal reveal-delay-1">
+        <img class="assessment-img" src="https://images.unsplash.com/photo-1573497019940-1c28c88b4f3e?w=600&q=80&fit=crop" alt="Emotional Intelligence" loading="lazy">
+        <div class="assessment-body">
+          <div class="assessment-header-row">
+            <h3 class="assessment-title">Emotional Intelligence</h3>
+            <span class="badge badge-medium">Medium</span>
+          </div>
+          <p class="assessment-desc">Measures your EQ across self-awareness, empathy, regulation, and social skills — the #1 predictor of long-term career satisfaction and leadership potential.</p>
+          <div class="assessment-meta">
+            <div class="assessment-meta-item"><i class="fas fa-clock"></i> 20 min</div>
+            <div class="assessment-meta-item"><i class="fas fa-question-circle"></i> 45 Qs</div>
+            <div class="assessment-meta-item"><i class="fas fa-layer-group"></i> 4 Domains</div>
+          </div>
+          <button class="assessment-btn"><i class="fas fa-play"></i> Start Assessment</button>
+        </div>
+      </div>
+      <div class="assessment-card reveal reveal-delay-2">
+        <img class="assessment-img" src="https://images.unsplash.com/photo-1521737604893-d14cc237f11d?w=600&q=80&fit=crop" alt="Career Compatibility" loading="lazy">
+        <div class="assessment-body">
+          <div class="assessment-header-row">
+            <h3 class="assessment-title">Career Compatibility</h3>
+            <span class="badge badge-advanced">Advanced</span>
+          </div>
+          <p class="assessment-desc">AI-powered job-fit matching against 200+ career profiles. Scores your compatibility with each career path and explains the exact why behind each match.</p>
+          <div class="assessment-meta">
+            <div class="assessment-meta-item"><i class="fas fa-clock"></i> 30 min</div>
+            <div class="assessment-meta-item"><i class="fas fa-question-circle"></i> 75 Qs</div>
+            <div class="assessment-meta-item"><i class="fas fa-layer-group"></i> AI-Driven</div>
+          </div>
+          <button class="assessment-btn"><i class="fas fa-play"></i> Start Assessment</button>
+        </div>
+      </div>
+      <div class="assessment-card reveal reveal-delay-3">
+        <img class="assessment-img" src="https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=600&q=80&fit=crop" alt="Skill Gap Analysis" loading="lazy">
+        <div class="assessment-body">
+          <div class="assessment-header-row">
+            <h3 class="assessment-title">Skill Gap Analysis</h3>
+            <span class="badge badge-advanced">Advanced</span>
+          </div>
+          <p class="assessment-desc">Competency mapping against industry-required skills. Reveals exactly which skills to develop, in what order, with recommended resources for each gap.</p>
+          <div class="assessment-meta">
+            <div class="assessment-meta-item"><i class="fas fa-clock"></i> 25 min</div>
+            <div class="assessment-meta-item"><i class="fas fa-question-circle"></i> 55 Qs</div>
+            <div class="assessment-meta-item"><i class="fas fa-layer-group"></i> 8 Domains</div>
+          </div>
+          <button class="assessment-btn"><i class="fas fa-play"></i> Start Assessment</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FOR STUDENTS -->
+<section id="for-students">
+  <div class="container">
+    <div class="split-section">
+      <div class="split-text reveal">
+        <div class="section-label">For Students</div>
+        <h2 class="split-title">Stop Guessing.<br><span class="accent-text">Start Knowing.</span></h2>
+        <p class="split-subtitle">You're one of the smartest generations ever — yet you're being asked to make a 40-year decision at 17. That's not fair. BODH gives you the data, clarity, and confidence you need.</p>
+        <ul class="benefits-list">
+          <li>
+            <div class="benefit-icon benefit-icon-purple"><i class="fas fa-compass"></i></div>
+            <div class="benefit-text">
+              <strong>Instant Career Clarity</strong>
+              <span>Stop second-guessing. Know exactly which careers align with your mind, personality, and ambitions.</span>
+            </div>
+          </li>
+          <li>
+            <div class="benefit-icon benefit-icon-cyan"><i class="fas fa-bolt"></i></div>
+            <div class="benefit-text">
+              <strong>Unshakeable Confidence</strong>
+              <span>Walk into parent meetings, college counselling sessions, and life decisions with data to back your choices.</span>
+            </div>
+          </li>
+          <li>
+            <div class="benefit-icon benefit-icon-pink"><i class="fas fa-map-marked-alt"></i></div>
+            <div class="benefit-text">
+              <strong>A Real Roadmap</strong>
+              <span>Not vague advice — a precise 5-year plan with entrance exams, skills to build, and colleges to target.</span>
+            </div>
+          </li>
+          <li>
+            <div class="benefit-icon benefit-icon-gold"><i class="fas fa-trophy"></i></div>
+            <div class="benefit-text">
+              <strong>Competitive Edge</strong>
+              <span>70% of your peers are still guessing. You'll be the one who actually knows — and that difference is everything.</span>
+            </div>
+          </li>
+        </ul>
+        <a href="#assessments" class="btn btn-primary">Discover My Career Path <i class="fas fa-arrow-right"></i></a>
+      </div>
+      <div class="split-visual reveal reveal-delay-2">
+        <img src="https://images.unsplash.com/photo-1523240795612-9a054b0db644?w=700&q=80&fit=crop" alt="Students collaborating">
+        <div class="split-visual-badge">
+          <div class="split-visual-badge-icon"><i class="fas fa-star"></i></div>
+          <div class="split-visual-badge-text">
+            <strong>94% Accuracy</strong>
+            <span>Career match rate</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FOR PARENTS -->
+<section id="for-parents">
+  <div class="container">
+    <div class="split-section split-section-reverse">
+      <div class="split-visual reveal">
+        <img src="https://images.unsplash.com/photo-1591123120675-6f7f1aae0e5b?w=700&q=80&fit=crop" alt="Parent and child">
+        <div class="split-visual-badge" style="left:auto; right:-16px; bottom:40px;">
+          <div class="split-visual-badge-icon" style="background: var(--pink)"><i class="fas fa-shield-alt"></i></div>
+          <div class="split-visual-badge-text">
+            <strong>50,000+</strong>
+            <span>Families guided</span>
+          </div>
+        </div>
+      </div>
+      <div class="split-text reveal reveal-delay-2">
+        <div class="section-label">For Parents</div>
+        <h2 class="split-title">Every Parent Wants The Best.<br><span class="accent-text">Now You Can Actually Give It.</span></h2>
+        <p class="split-subtitle">You've invested everything in your child's education. Don't let the single most important decision — career choice — be made without data.</p>
+        <ul class="benefits-list">
+          <li>
+            <div class="benefit-icon benefit-icon-purple"><i class="fas fa-peace"></i></div>
+            <div class="benefit-text">
+              <strong>Complete Peace of Mind</strong>
+              <span>Know your child's career direction is backed by science, not peer pressure or Instagram trends.</span>
+            </div>
+          </li>
+          <li>
+            <div class="benefit-icon benefit-icon-cyan"><i class="fas fa-chart-line"></i></div>
+            <div class="benefit-text">
+              <strong>Proven ROI on Education</strong>
+              <span>Students on the right career path earn 2.3x more than those who switch careers mid-way.</span>
+            </div>
+          </li>
+          <li>
+            <div class="benefit-icon benefit-icon-gold"><i class="fas fa-lock"></i></div>
+            <div class="benefit-text">
+              <strong>100% Data Privacy</strong>
+              <span>All assessment data is encrypted and never shared. Your child's profile is yours alone.</span>
+            </div>
+          </li>
+        </ul>
+        <div class="trust-signals">
+          <div class="trust-item"><i class="fas fa-check-circle"></i> Certified Psychologists</div>
+          <div class="trust-item"><i class="fas fa-check-circle"></i> ISO 27001 Data Security</div>
+          <div class="trust-item"><i class="fas fa-check-circle"></i> Validated Methodology</div>
+        </div>
+        <a href="#pricing" class="btn btn-primary" style="margin-top:16px;">Get My Child Assessed <i class="fas fa-arrow-right"></i></a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FOR INSTITUTES -->
+<section id="for-institutes">
+  <div class="container">
+    <div class="section-header reveal">
+      <div class="section-label">For Institutes & Teachers</div>
+      <h2 class="section-title">Transform How You Guide Students —<br><span class="accent-text">With Data, Not Guesswork</span></h2>
+      <p class="section-desc">Join 500+ schools and colleges across India using BODH to provide data-driven career guidance that actually moves the needle on student outcomes.</p>
+    </div>
+    <div class="institutes-features">
+      <div class="institute-feature-card reveal reveal-delay-1">
+        <div class="institute-feature-icon"><i class="fas fa-users"></i></div>
+        <h3 class="institute-feature-title">Bulk Assessments</h3>
+        <p class="institute-feature-desc">Assign assessments to entire classrooms or batches with one click. Track completion rates in real-time.</p>
+      </div>
+      <div class="institute-feature-card reveal reveal-delay-2">
+        <div class="institute-feature-icon" style="background: var(--blue)"><i class="fas fa-chart-bar"></i></div>
+        <h3 class="institute-feature-title">Analytics Dashboard</h3>
+        <p class="institute-feature-desc">Class-wide career trend analysis, aggregate personality profiles, and skill gap identification across your entire student body.</p>
+      </div>
+      <div class="institute-feature-card reveal reveal-delay-3">
+        <div class="institute-feature-icon" style="background: var(--green)"><i class="fas fa-file-alt"></i></div>
+        <h3 class="institute-feature-title">Student Reports</h3>
+        <p class="institute-feature-desc">Individual and comparative reports that counselors can use in parent meetings and student guidance sessions.</p>
+      </div>
+      <div class="institute-feature-card reveal reveal-delay-4">
+        <div class="institute-feature-icon" style="background: var(--pink)"><i class="fas fa-cog"></i></div>
+        <h3 class="institute-feature-title">Custom Assessments</h3>
+        <p class="institute-feature-desc">Build custom assessments aligned with your curriculum and student demographics with our assessment builder.</p>
+      </div>
+    </div>
+    <div style="text-align:center;margin-top:48px;" class="reveal">
+      <a href="#" class="btn btn-primary"><i class="fas fa-calendar-alt"></i> Book a Demo</a>
+      <p style="color:var(--text-secondary);font-size:0.8rem;margin-top:12px;">Free 30-min demo with a product specialist. No commitment required.</p>
+    </div>
+  </div>
+</section>
+
+<!-- RESULTS PREVIEW -->
+<section id="results">
+  <div class="container">
+    <div class="section-header reveal">
+      <div class="section-label">Your Report</div>
+      <h2 class="section-title">What You Get — <span class="accent-text">40 Pages of Clarity</span></h2>
+      <p class="section-desc">Not a vague quiz result. A comprehensive, actionable career intelligence report that changes everything.</p>
+    </div>
+    <div class="results-grid">
+      <div class="result-card reveal reveal-delay-1">
+        <div class="ring-container">
+          <svg class="ring-svg" width="100" height="100" viewBox="0 0 100 100">
+            <circle class="ring-track" cx="50" cy="50" r="40"/>
+            <circle class="ring-fill ring-fill-1" cx="50" cy="50" r="40" data-percent="92"/>
+          </svg>
+          <div class="ring-percent ring-percent-purple">92%</div>
+        </div>
+        <h3 class="result-title">Career Match Score</h3>
+        <p class="result-desc">How well each career path aligns with your unique profile — ranked and scored for every option.</p>
+      </div>
+      <div class="result-card reveal reveal-delay-2">
+        <div class="ring-container">
+          <svg class="ring-svg" width="100" height="100" viewBox="0 0 100 100">
+            <circle class="ring-track" cx="50" cy="50" r="40"/>
+            <circle class="ring-fill ring-fill-2" cx="50" cy="50" r="40" data-percent="88"/>
+          </svg>
+          <div class="ring-percent ring-percent-pink">88%</div>
+        </div>
+        <h3 class="result-title">Strength Profile</h3>
+        <p class="result-desc">Your top 10 strengths ranked by intensity — the unique combination that defines your competitive edge.</p>
+      </div>
+      <div class="result-card reveal reveal-delay-3">
+        <div class="ring-container">
+          <svg class="ring-svg" width="100" height="100" viewBox="0 0 100 100">
+            <circle class="ring-track" cx="50" cy="50" r="40"/>
+            <circle class="ring-fill ring-fill-3" cx="50" cy="50" r="40" data-percent="76"/>
+          </svg>
+          <div class="ring-percent ring-percent-green">76%</div>
+        </div>
+        <h3 class="result-title">Skill Gap Map</h3>
+        <p class="result-desc">Exactly which skills you need to develop for your target career — with a prioritized development plan.</p>
+      </div>
+      <div class="result-card reveal reveal-delay-4">
+        <div class="ring-container">
+          <svg class="ring-svg" width="100" height="100" viewBox="0 0 100 100">
+            <circle class="ring-track" cx="50" cy="50" r="40"/>
+            <circle class="ring-fill ring-fill-4" cx="50" cy="50" r="40" data-percent="95"/>
+          </svg>
+          <div class="ring-percent ring-percent-blue">95%</div>
+        </div>
+        <h3 class="result-title">Learning Roadmap</h3>
+        <p class="result-desc">A personalized 5-year plan: courses, exams, internships, and milestones to reach your target career.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- TESTIMONIALS -->
+<section id="testimonials">
+  <div class="container">
+    <div class="section-header reveal">
+      <div class="section-label">Social Proof</div>
+      <h2 class="section-title">50,000+ Lives Changed.<br><span class="accent-text">Here Are Three Stories.</span></h2>
+    </div>
+    <div class="testimonials-grid">
+      <div class="testimonial-card reveal reveal-delay-1">
+        <div class="testimonial-stars">&#9733;&#9733;&#9733;&#9733;&#9733;</div>
+        <p class="testimonial-quote">I was going to take Commerce just because all my friends were. BODH showed me I was built for UX Design. Now I'm in NID Ahmedabad. I literally can't imagine what my life would have been without this assessment.</p>
+        <div class="testimonial-author">
+          <div class="author-avatar avatar-1">AR</div>
+          <div class="author-info">
+            <strong>Arjun Reddy</strong>
+            <span>Student, NID Ahmedabad — Age 19</span>
+          </div>
+        </div>
+      </div>
+      <div class="testimonial-card reveal reveal-delay-2">
+        <div class="testimonial-stars">&#9733;&#9733;&#9733;&#9733;&#9733;</div>
+        <p class="testimonial-quote">As a parent, I spent &#x20B9;80,000 on coaching for streams my daughter hated. After BODH, we discovered she's a natural in behavioural psychology. She's thriving at TISS. Worth every rupee.</p>
+        <div class="testimonial-author">
+          <div class="author-avatar avatar-2">PM</div>
+          <div class="author-info">
+            <strong>Priya Mehta</strong>
+            <span>Parent, Mumbai — Daughter at TISS</span>
+          </div>
+        </div>
+      </div>
+      <div class="testimonial-card reveal reveal-delay-3">
+        <div class="testimonial-stars">&#9733;&#9733;&#9733;&#9733;&#9733;</div>
+        <p class="testimonial-quote">I use BODH for every batch of Class 11 students. The analytics dashboard alone saves me 40 hours per semester. This is the future of school counselling.</p>
+        <div class="testimonial-author">
+          <div class="author-avatar avatar-3">SK</div>
+          <div class="author-info">
+            <strong>Sunita Krishnan</strong>
+            <span>School Counselor, DPS Bangalore</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- URGENCY BANNER -->
+<section id="urgency">
+  <div class="container">
+    <div class="urgency-inner reveal">
+      <div class="urgency-label"><i class="fas fa-fire"></i> Limited Time Offer</div>
+      <h2 class="urgency-title">Only <span class="accent-text-pink">500 Free Assessments</span> This Month</h2>
+      <p class="urgency-subtitle">We limit free spots to maintain assessment quality and ensure personalized results. Don't miss yours.</p>
+      <div class="countdown-timer">
+        <div class="countdown-unit">
+          <span class="countdown-number" id="cd-days">00</span>
+          <span class="countdown-label">Days</span>
+        </div>
+        <div class="countdown-unit">
+          <span class="countdown-number" id="cd-hours">00</span>
+          <span class="countdown-label">Hours</span>
+        </div>
+        <div class="countdown-unit">
+          <span class="countdown-number" id="cd-minutes">00</span>
+          <span class="countdown-label">Minutes</span>
+        </div>
+        <div class="countdown-unit">
+          <span class="countdown-number" id="cd-seconds">00</span>
+          <span class="countdown-label">Seconds</span>
+        </div>
+      </div>
+      <div class="progress-section">
+        <div class="progress-header">
+          <span>Free spots claimed</span>
+          <span>350 / 500 taken</span>
+        </div>
+        <div class="progress-bar-track">
+          <div class="progress-bar-fill" id="spots-progress" style="width:0%"></div>
+        </div>
+      </div>
+      <a href="#assessments" class="btn btn-primary" style="font-size:0.9rem;padding:16px 36px;">
+        <i class="fas fa-rocket"></i> Claim Your Free Spot Now
+      </a>
+      <p style="color:var(--text-light);font-size:0.75rem;margin-top:12px;"><i class="fas fa-lock" style="color:var(--green)"></i> No credit card required. Completely free.</p>
+    </div>
+  </div>
+</section>
+
+<!-- PRICING -->
+<section id="pricing">
+  <div class="container">
+    <div class="section-header reveal">
+      <div class="section-label">Pricing</div>
+      <h2 class="section-title">Invest in the Right Career.<br><span class="accent-text">Save 10 Years.</span></h2>
+      <p class="section-desc">The cost of the wrong career: &#x20B9;8,00,000+. The cost of knowing the right one: starting at &#x20B9;0.</p>
+    </div>
+    <div class="pricing-toggle reveal">
+      <span class="pricing-toggle-label active" id="monthly-label">Monthly</span>
+      <div class="toggle-switch" id="pricing-toggle">
+        <div class="toggle-knob"></div>
+      </div>
+      <span class="pricing-toggle-label" id="annual-label">Annual</span>
+      <span class="save-badge">Save 40%</span>
+    </div>
+    <div class="pricing-grid">
+      <div class="pricing-card reveal reveal-delay-1">
+        <div class="pricing-plan">Free</div>
+        <div class="pricing-price"><sup>&#x20B9;</sup>0</div>
+        <div class="pricing-price-period">Forever free</div>
+        <p class="pricing-desc">Perfect for students who want to explore career assessment before committing.</p>
+        <ul class="pricing-features">
+          <li><i class="fas fa-check"></i> 1 Basic Assessment (Aptitude)</li>
+          <li><i class="fas fa-check"></i> Basic 5-page career report</li>
+          <li><i class="fas fa-check"></i> Top 3 career suggestions</li>
+          <li class="disabled"><i class="fas fa-times"></i> Full AI analysis</li>
+          <li class="disabled"><i class="fas fa-times"></i> Personality profiling</li>
+          <li class="disabled"><i class="fas fa-times"></i> Career roadmap</li>
+          <li class="disabled"><i class="fas fa-times"></i> Skill gap analysis</li>
+        </ul>
+        <a href="#" class="btn btn-outline pricing-cta">Get Started Free</a>
+      </div>
+      <div class="pricing-card pricing-card-featured reveal reveal-delay-2">
+        <div class="pricing-popular-badge"><i class="fas fa-star"></i> Most Popular</div>
+        <div class="pricing-plan">Student Pro</div>
+        <div class="pricing-original" id="pro-original">&#x20B9;499/mo</div>
+        <div class="pricing-price"><sup>&#x20B9;</sup><span id="pro-price">499</span></div>
+        <div class="pricing-price-period" id="pro-period">per month</div>
+        <p class="pricing-desc">Everything a serious student needs to make the most important decision of their life with confidence.</p>
+        <ul class="pricing-features">
+          <li><i class="fas fa-check"></i> All 6 Assessments unlocked</li>
+          <li><i class="fas fa-check"></i> 40-page AI-powered career report</li>
+          <li><i class="fas fa-check"></i> Full personality + EQ profiling</li>
+          <li><i class="fas fa-check"></i> 5-year learning roadmap</li>
+          <li><i class="fas fa-check"></i> Skill gap analysis + resources</li>
+          <li><i class="fas fa-check"></i> Career compatibility scoring</li>
+          <li><i class="fas fa-check"></i> 1 counsellor session (30 min)</li>
+        </ul>
+        <a href="#" class="btn btn-primary pricing-cta">Start Student Pro</a>
+      </div>
+      <div class="pricing-card reveal reveal-delay-3">
+        <div class="pricing-plan">Institution</div>
+        <div class="pricing-original" id="inst-original">&#x20B9;2999/mo</div>
+        <div class="pricing-price"><sup>&#x20B9;</sup><span id="inst-price">2999</span></div>
+        <div class="pricing-price-period" id="inst-period">per month</div>
+        <p class="pricing-desc">For schools, colleges, and coaching centres that want to transform student outcomes at scale.</p>
+        <ul class="pricing-features">
+          <li><i class="fas fa-check"></i> Unlimited students</li>
+          <li><i class="fas fa-check"></i> All assessments for all students</li>
+          <li><i class="fas fa-check"></i> Analytics dashboard</li>
+          <li><i class="fas fa-check"></i> Custom assessment builder</li>
+          <li><i class="fas fa-check"></i> Bulk report generation</li>
+          <li><i class="fas fa-check"></i> Dedicated support manager</li>
+          <li><i class="fas fa-check"></i> Parent communication portal</li>
+        </ul>
+        <a href="#for-institutes" class="btn btn-outline pricing-cta">Book a Demo</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- STRATEGY -->
+<section id="strategy">
+  <div class="container">
+    <div class="section-header reveal">
+      <div class="section-label">The Strategic Edge</div>
+      <h2 class="section-title">Why <span class="accent-text">Top Students</span> Never Skip This</h2>
+      <p class="section-desc">Career assessment isn't a luxury anymore. It's the strategic move that separates the students who thrive from those who struggle for decades.</p>
+    </div>
+    <div class="strategy-grid">
+      <div class="strategy-card reveal reveal-delay-1">
+        <div class="strategy-icon strategy-icon-1"><i class="fas fa-university"></i></div>
+        <h3 class="strategy-title">Top Colleges Ask For It</h3>
+        <p class="strategy-desc">IIMs, XLRI, and leading international universities increasingly include self-awareness and career clarity assessments in their admission evaluations.</p>
+        <div class="strategy-stat">500+ Colleges</div>
+      </div>
+      <div class="strategy-card reveal reveal-delay-2">
+        <div class="strategy-icon strategy-icon-2"><i class="fas fa-users"></i></div>
+        <h3 class="strategy-title">Parents Demand Data</h3>
+        <p class="strategy-desc">68% of parents who have used career assessments report dramatically reduced family conflict around career decisions.</p>
+        <div class="strategy-stat">68% Less Conflict</div>
+      </div>
+      <div class="strategy-card reveal reveal-delay-3">
+        <div class="strategy-icon strategy-icon-3"><i class="fas fa-chess"></i></div>
+        <h3 class="strategy-title">Competitive Advantage</h3>
+        <p class="strategy-desc">Students who have professional career assessments are 3.2x more likely to be placed in their preferred industry within 2 years of graduation.</p>
+        <div class="strategy-stat">3.2x Better Outcomes</div>
+      </div>
+      <div class="strategy-card reveal reveal-delay-4">
+        <div class="strategy-icon strategy-icon-4"><i class="fas fa-rupee-sign"></i></div>
+        <h3 class="strategy-title">Early Clarity = Higher Earnings</h3>
+        <p class="strategy-desc">Professionals who were in their chosen field by age 25 earn on average &#x20B9;14L more over their first decade than those who switched later.</p>
+        <div class="strategy-stat">&#x20B9;14L More Earned</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FINAL CTA -->
+<section id="final-cta">
+  <div class="cta-deco cta-deco-1"></div>
+  <div class="cta-deco cta-deco-2"></div>
+  <div class="container">
+    <div class="final-cta-content">
+      <div class="section-label">Your Moment</div>
+      <h2 class="final-cta-title reveal">
+        Your Future Self<br>
+        <span class="accent-text">Will Thank You</span>
+      </h2>
+      <p class="final-cta-subtitle reveal reveal-delay-1">Join 50,000+ students who already know exactly where they're going — and why. The best time to start was yesterday. The second best time is right now.</p>
+      <div class="final-cta-btns reveal reveal-delay-2">
+        <a href="#assessments" class="btn btn-primary" style="padding:18px 40px;font-size:0.9rem;"><i class="fas fa-rocket"></i> Start Free Today</a>
+        <a href="#" class="btn btn-outline" style="padding:18px 40px;font-size:0.9rem;"><i class="fas fa-phone"></i> Talk to a Counselor</a>
+      </div>
+      <p class="final-cta-note reveal reveal-delay-3"><i class="fas fa-check-circle"></i> No credit card required &nbsp;&bull;&nbsp; <i class="fas fa-check-circle"></i> Results in 30 minutes &nbsp;&bull;&nbsp; <i class="fas fa-check-circle"></i> Cancel anytime</p>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer id="footer">
+  <div class="container">
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <a href="#" class="footer-logo">
+          <div class="footer-logo-icon"><i class="fas fa-brain"></i></div>
+          <span class="footer-logo-text">BODH</span>
+        </a>
+        <p class="footer-tagline">India's most trusted AI-powered career assessment platform. Guiding 50,000+ students to their right path since 2022.</p>
+        <div class="footer-socials">
+          <a href="#" class="social-btn"><i class="fab fa-instagram"></i></a>
+          <a href="#" class="social-btn"><i class="fab fa-linkedin-in"></i></a>
+          <a href="#" class="social-btn"><i class="fab fa-twitter"></i></a>
+          <a href="#" class="social-btn"><i class="fab fa-youtube"></i></a>
+        </div>
+      </div>
+      <div>
+        <h4 class="footer-col-title">Platform</h4>
+        <ul class="footer-links">
+          <li><a href="#assessments">Assessments</a></li>
+          <li><a href="#results">Sample Report</a></li>
+          <li><a href="#pricing">Pricing</a></li>
+          <li><a href="#">Login</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4 class="footer-col-title">Audiences</h4>
+        <ul class="footer-links">
+          <li><a href="#for-students">For Students</a></li>
+          <li><a href="#for-parents">For Parents</a></li>
+          <li><a href="#for-institutes">For Institutes</a></li>
+          <li><a href="#">For Counselors</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4 class="footer-col-title">Company</h4>
+        <ul class="footer-links">
+          <li><a href="#">About Us</a></li>
+          <li><a href="#">Research</a></li>
+          <li><a href="#">Privacy Policy</a></li>
+          <li><a href="#">Terms of Service</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <p class="footer-copyright">&copy; 2026 BODH Technologies Pvt. Ltd. All rights reserved.</p>
+      <div class="footer-bottom-links">
+        <a href="#">Privacy</a>
+        <a href="#">Terms</a>
+        <a href="#">Contact</a>
+      </div>
+    </div>
+  </div>
+</footer>
+
+<script>
+// NAVBAR SCROLL
+window.addEventListener('scroll', () => {
+  document.getElementById('navbar').classList.toggle('scrolled', window.scrollY > 50);
+});
+
+// SMOOTH SCROLL
+document.querySelectorAll('a[href^="#"]').forEach(a => {
+  a.addEventListener('click', e => {
+    const target = document.querySelector(a.getAttribute('href'));
+    if (target) { e.preventDefault(); target.scrollIntoView({ behavior: 'smooth' }); }
+  });
+});
+
+// SCROLL REVEAL
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      entry.target.classList.add('visible');
+      observer.unobserve(entry.target);
+    }
+  });
+}, { threshold: 0.05 });
+document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+
+// COUNTER ANIMATION
+function animateCounter(el) {
+  const target = parseInt(el.dataset.target);
+  const duration = 2000;
+  const step = target / (duration / 16);
+  let current = 0;
+  const timer = setInterval(() => {
+    current += step;
+    if (current >= target) { current = target; clearInterval(timer); }
+    el.textContent = Math.floor(current).toLocaleString();
+  }, 16);
+}
+const counterObs = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      animateCounter(entry.target);
+      counterObs.unobserve(entry.target);
+    }
+  });
+}, { threshold: 0.5 });
+document.querySelectorAll('.counter').forEach(el => counterObs.observe(el));
+
+// RING ANIMATION
+const ringObs = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      const ring = entry.target;
+      const pct = parseInt(ring.dataset.percent) / 100;
+      const circumference = 251;
+      ring.style.strokeDashoffset = circumference - (circumference * pct);
+      ringObs.unobserve(ring);
+    }
+  });
+}, { threshold: 0.3 });
+document.querySelectorAll('.ring-fill').forEach(el => ringObs.observe(el));
+
+// PROGRESS BAR
+const progressObs = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      setTimeout(() => {
+        document.getElementById('spots-progress').style.width = '70%';
+      }, 300);
+      progressObs.unobserve(entry.target);
+    }
+  });
+}, { threshold: 0.3 });
+const progressBar = document.getElementById('spots-progress');
+if (progressBar) progressObs.observe(progressBar);
+
+// COUNTDOWN TIMER
+function updateCountdown() {
+  const now = new Date();
+  const end = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  const diff = end - now;
+  if (diff <= 0) return;
+  const days = Math.floor(diff / 86400000);
+  const hours = Math.floor((diff % 86400000) / 3600000);
+  const mins = Math.floor((diff % 3600000) / 60000);
+  const secs = Math.floor((diff % 60000) / 1000);
+  const pad = n => String(n).padStart(2, '0');
+  document.getElementById('cd-days').textContent = pad(days);
+  document.getElementById('cd-hours').textContent = pad(hours);
+  document.getElementById('cd-minutes').textContent = pad(mins);
+  document.getElementById('cd-seconds').textContent = pad(secs);
+}
+updateCountdown();
+setInterval(updateCountdown, 1000);
+
+// PRICING TOGGLE
+let isAnnual = false;
+document.getElementById('pricing-toggle').addEventListener('click', () => {
+  isAnnual = !isAnnual;
+  const toggle = document.getElementById('pricing-toggle');
+  toggle.classList.toggle('annual', isAnnual);
+  document.getElementById('monthly-label').classList.toggle('active', !isAnnual);
+  document.getElementById('annual-label').classList.toggle('active', isAnnual);
+  if (isAnnual) {
+    document.getElementById('pro-price').textContent = '299';
+    document.getElementById('inst-price').textContent = '1799';
+    document.getElementById('pro-original').classList.add('show');
+    document.getElementById('inst-original').classList.add('show');
+    document.getElementById('pro-period').textContent = 'per month, billed annually';
+    document.getElementById('inst-period').textContent = 'per month, billed annually';
+  } else {
+    document.getElementById('pro-price').textContent = '499';
+    document.getElementById('inst-price').textContent = '2999';
+    document.getElementById('pro-original').classList.remove('show');
+    document.getElementById('inst-original').classList.remove('show');
+    document.getElementById('pro-period').textContent = 'per month';
+    document.getElementById('inst-period').textContent = 'per month';
+  }
+});
+</script>
+</body>
+</html>

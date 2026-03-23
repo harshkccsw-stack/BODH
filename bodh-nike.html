@@ -1,0 +1,2366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BODH - Discover Your Career Path</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@300;400;500;600;700&family=Bebas+Neue&display=swap" rel="stylesheet">
+    <style>
+        /* ===== RESET & BASE ===== */
+        *, *::before, *::after {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --black: #111111;
+            --white: #ffffff;
+            --accent: #FF6B35;
+            --accent-hover: #e55a28;
+            --light-gray: #f5f5f5;
+            --medium-gray: #757575;
+            --success: #00c853;
+            --font-heading: 'Oswald', 'Bebas Neue', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+            --font-body: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+        }
+
+        html {
+            scroll-behavior: smooth;
+        }
+
+        body {
+            font-family: var(--font-body);
+            color: var(--black);
+            background: var(--white);
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 24px;
+        }
+
+        img {
+            max-width: 100%;
+            display: block;
+        }
+
+        a {
+            text-decoration: none;
+            color: inherit;
+        }
+
+        /* ===== TYPOGRAPHY ===== */
+        h1, h2, h3, h4, h5, h6 {
+            font-family: var(--font-heading);
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.02em;
+            line-height: 1.05;
+        }
+
+        /* ===== BUTTONS ===== */
+        .btn {
+            display: inline-block;
+            font-family: var(--font-heading);
+            font-weight: 600;
+            font-size: 16px;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            padding: 16px 36px;
+            border: 2px solid transparent;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-align: center;
+        }
+
+        .btn-accent {
+            background: var(--accent);
+            color: var(--white);
+            border-color: var(--accent);
+        }
+
+        .btn-accent:hover {
+            background: var(--accent-hover);
+            border-color: var(--accent-hover);
+            transform: translateY(-2px);
+        }
+
+        .btn-white-outline {
+            background: transparent;
+            color: var(--white);
+            border-color: var(--white);
+        }
+
+        .btn-white-outline:hover {
+            background: var(--white);
+            color: var(--black);
+            transform: translateY(-2px);
+        }
+
+        .btn-black {
+            background: var(--black);
+            color: var(--white);
+            border-color: var(--black);
+        }
+
+        .btn-black:hover {
+            background: #333;
+            transform: translateY(-2px);
+        }
+
+        .btn-black-outline {
+            background: transparent;
+            color: var(--black);
+            border-color: var(--black);
+        }
+
+        .btn-black-outline:hover {
+            background: var(--black);
+            color: var(--white);
+            transform: translateY(-2px);
+        }
+
+        /* ===== SCROLL REVEAL ===== */
+        .reveal {
+            opacity: 0;
+            transform: translateY(60px);
+            transition: opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1), transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .reveal.active {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        /* ===== 1. NAVBAR ===== */
+        .navbar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            z-index: 1000;
+            background: var(--black);
+            padding: 0 24px;
+            transition: border-bottom 0.3s ease;
+        }
+
+        .navbar.scrolled {
+            border-bottom: 2px solid var(--accent);
+        }
+
+        .navbar-inner {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            height: 64px;
+        }
+
+        .nav-logo {
+            font-family: var(--font-heading);
+            font-weight: 700;
+            font-size: 28px;
+            color: var(--white);
+            text-transform: uppercase;
+            letter-spacing: 0.15em;
+        }
+
+        .nav-links {
+            display: flex;
+            align-items: center;
+            gap: 32px;
+            list-style: none;
+        }
+
+        .nav-links a {
+            font-family: var(--font-heading);
+            font-weight: 500;
+            font-size: 14px;
+            color: var(--white);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            transition: color 0.3s;
+        }
+
+        .nav-links a:hover {
+            color: var(--accent);
+        }
+
+        .nav-cta {
+            background: var(--accent);
+            color: var(--white) !important;
+            padding: 10px 24px;
+            border-radius: 4px;
+            font-weight: 600 !important;
+            transition: background 0.3s, transform 0.3s !important;
+        }
+
+        .nav-cta:hover {
+            background: var(--accent-hover) !important;
+            color: var(--white) !important;
+            transform: translateY(-1px);
+        }
+
+        .nav-hamburger {
+            display: none;
+            flex-direction: column;
+            gap: 5px;
+            cursor: pointer;
+            background: none;
+            border: none;
+            padding: 4px;
+        }
+
+        .nav-hamburger span {
+            display: block;
+            width: 24px;
+            height: 2px;
+            background: var(--white);
+            transition: all 0.3s;
+        }
+
+        /* ===== 2. HERO ===== */
+        .hero {
+            background: var(--black);
+            color: var(--white);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            padding-top: 64px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .hero::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            right: -20%;
+            width: 600px;
+            height: 600px;
+            background: radial-gradient(circle, rgba(255,107,53,0.12) 0%, transparent 70%);
+            border-radius: 50%;
+            pointer-events: none;
+        }
+
+        .hero-content {
+            text-align: center;
+            padding: 80px 0 40px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .hero-badge {
+            display: inline-block;
+            font-family: var(--font-heading);
+            font-size: 12px;
+            font-weight: 600;
+            letter-spacing: 0.25em;
+            text-transform: uppercase;
+            color: var(--accent);
+            border: 1px solid var(--accent);
+            padding: 8px 20px;
+            margin-bottom: 32px;
+        }
+
+        .hero-title {
+            font-size: clamp(48px, 9vw, 110px);
+            font-weight: 700;
+            line-height: 0.95;
+            margin-bottom: 24px;
+            letter-spacing: -0.02em;
+        }
+
+        .hero-title .accent {
+            color: var(--accent);
+        }
+
+        .hero-subtitle {
+            font-size: 18px;
+            color: var(--medium-gray);
+            max-width: 600px;
+            margin: 0 auto 40px;
+            line-height: 1.7;
+        }
+
+        .hero-buttons {
+            display: flex;
+            gap: 16px;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin-bottom: 60px;
+        }
+
+        .hero-stats {
+            display: flex;
+            justify-content: center;
+            gap: 0;
+            border-top: 1px solid rgba(255,255,255,0.1);
+            padding-top: 40px;
+        }
+
+        .hero-stat {
+            text-align: center;
+            padding: 0 48px;
+            border-right: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .hero-stat:last-child {
+            border-right: none;
+        }
+
+        .hero-stat-number {
+            font-family: var(--font-heading);
+            font-size: 42px;
+            font-weight: 700;
+            color: var(--accent);
+            display: block;
+        }
+
+        .hero-stat-label {
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.15em;
+            color: var(--medium-gray);
+            margin-top: 4px;
+        }
+
+        /* ===== 3. CRISIS SECTION ===== */
+        .crisis {
+            background: var(--white);
+            color: var(--black);
+            padding: 100px 0;
+        }
+
+        .section-label {
+            font-family: var(--font-heading);
+            font-size: 12px;
+            font-weight: 600;
+            letter-spacing: 0.3em;
+            text-transform: uppercase;
+            color: var(--accent);
+            margin-bottom: 16px;
+        }
+
+        .section-title {
+            font-size: clamp(36px, 5vw, 64px);
+            margin-bottom: 60px;
+        }
+
+        .crisis-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 40px;
+            margin-bottom: 48px;
+        }
+
+        .crisis-card {
+            text-align: center;
+            padding: 48px 32px;
+            background: var(--light-gray);
+            border-radius: 4px;
+            position: relative;
+        }
+
+        .crisis-card-number {
+            font-family: var(--font-heading);
+            font-size: 72px;
+            font-weight: 700;
+            color: var(--accent);
+            line-height: 1;
+            margin-bottom: 12px;
+        }
+
+        .crisis-card-title {
+            font-family: var(--font-heading);
+            font-size: 20px;
+            font-weight: 600;
+            text-transform: uppercase;
+            margin-bottom: 12px;
+        }
+
+        .crisis-card-desc {
+            font-size: 15px;
+            color: var(--medium-gray);
+            line-height: 1.6;
+        }
+
+        .crisis-card-source {
+            font-size: 11px;
+            color: #aaa;
+            margin-top: 12px;
+            font-style: italic;
+        }
+
+        .crisis-warning {
+            text-align: center;
+            padding: 32px;
+            background: var(--black);
+            color: var(--white);
+            border-radius: 4px;
+            margin-bottom: 32px;
+        }
+
+        .crisis-warning p {
+            font-family: var(--font-heading);
+            font-size: 22px;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .crisis-warning .accent {
+            color: var(--accent);
+        }
+
+        .crisis-cta {
+            text-align: center;
+        }
+
+        /* ===== 4. HOW IT WORKS ===== */
+        .how-it-works {
+            background: var(--black);
+            color: var(--white);
+            padding: 100px 0;
+        }
+
+        .steps-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 40px;
+        }
+
+        .step-card {
+            text-align: center;
+            padding: 48px 32px;
+            position: relative;
+        }
+
+        .step-number {
+            font-family: var(--font-heading);
+            font-size: 120px;
+            font-weight: 700;
+            color: rgba(255,107,53,0.15);
+            line-height: 1;
+            margin-bottom: -30px;
+            position: relative;
+            z-index: 0;
+        }
+
+        .step-icon {
+            width: 64px;
+            height: 64px;
+            background: var(--accent);
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 24px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .step-icon svg {
+            width: 28px;
+            height: 28px;
+            fill: var(--white);
+        }
+
+        .step-title {
+            font-size: 24px;
+            margin-bottom: 16px;
+        }
+
+        .step-desc {
+            font-size: 15px;
+            color: var(--medium-gray);
+            line-height: 1.7;
+            margin-bottom: 20px;
+        }
+
+        .step-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            justify-content: center;
+        }
+
+        .step-tag {
+            font-family: var(--font-heading);
+            font-size: 11px;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            padding: 6px 14px;
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 2px;
+            color: rgba(255,255,255,0.7);
+        }
+
+        /* ===== 5. ASSESSMENTS GRID ===== */
+        .assessments {
+            background: var(--white);
+            color: var(--black);
+            padding: 100px 0;
+        }
+
+        .assessments-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 32px;
+        }
+
+        .assessment-card {
+            background: var(--white);
+            overflow: hidden;
+            transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .assessment-card:hover {
+            transform: translateY(-8px);
+        }
+
+        .assessment-card-img {
+            position: relative;
+            height: 220px;
+            overflow: hidden;
+        }
+
+        .assessment-card-img img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transition: transform 0.5s;
+        }
+
+        .assessment-card:hover .assessment-card-img img {
+            transform: scale(1.05);
+        }
+
+        .assessment-badge {
+            position: absolute;
+            top: 12px;
+            left: 12px;
+            font-family: var(--font-heading);
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            padding: 6px 12px;
+            background: var(--black);
+            color: var(--white);
+            border-radius: 2px;
+        }
+
+        .assessment-badge.intermediate {
+            background: var(--accent);
+        }
+
+        .assessment-badge.advanced {
+            background: #d32f2f;
+        }
+
+        .assessment-card-body {
+            padding: 20px 4px;
+        }
+
+        .assessment-card-title {
+            font-size: 20px;
+            margin-bottom: 8px;
+        }
+
+        .assessment-card-meta {
+            display: flex;
+            gap: 16px;
+            font-size: 12px;
+            color: var(--medium-gray);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 16px;
+        }
+
+        .assessment-card .btn {
+            width: 100%;
+            padding: 14px;
+            font-size: 14px;
+        }
+
+        /* ===== 6. FOR STUDENTS ===== */
+        .for-students {
+            background: var(--black);
+            color: var(--white);
+            padding: 100px 0;
+        }
+
+        .split-layout {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 64px;
+            align-items: center;
+        }
+
+        .split-content .section-title {
+            margin-bottom: 40px;
+        }
+
+        .benefit-list {
+            list-style: none;
+            margin-bottom: 40px;
+        }
+
+        .benefit-item {
+            display: flex;
+            gap: 16px;
+            margin-bottom: 28px;
+            align-items: flex-start;
+        }
+
+        .benefit-icon {
+            width: 40px;
+            height: 40px;
+            min-width: 40px;
+            background: var(--accent);
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-top: 2px;
+        }
+
+        .benefit-icon svg {
+            width: 20px;
+            height: 20px;
+            fill: var(--white);
+        }
+
+        .benefit-title {
+            font-family: var(--font-heading);
+            font-size: 18px;
+            font-weight: 600;
+            text-transform: uppercase;
+            margin-bottom: 4px;
+        }
+
+        .benefit-desc {
+            font-size: 14px;
+            color: var(--medium-gray);
+            line-height: 1.6;
+        }
+
+        .split-image {
+            position: relative;
+            overflow: hidden;
+            border-radius: 4px;
+        }
+
+        .split-image img {
+            width: 100%;
+            height: 500px;
+            object-fit: cover;
+        }
+
+        .split-image-overlay {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            padding: 32px;
+            background: linear-gradient(transparent, rgba(17,17,17,0.9));
+        }
+
+        .split-image-overlay p {
+            font-family: var(--font-heading);
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--accent);
+        }
+
+        /* ===== 7. FOR PARENTS ===== */
+        .for-parents {
+            background: var(--white);
+            color: var(--black);
+            padding: 100px 0;
+        }
+
+        .for-parents .benefit-icon {
+            background: var(--black);
+        }
+
+        .for-parents .benefit-desc {
+            color: var(--medium-gray);
+        }
+
+        .trust-signals {
+            display: flex;
+            gap: 32px;
+            margin-top: 32px;
+            flex-wrap: wrap;
+        }
+
+        .trust-signal {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .trust-signal-icon {
+            width: 32px;
+            height: 32px;
+            background: var(--success);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .trust-signal-icon svg {
+            width: 16px;
+            height: 16px;
+            fill: var(--white);
+        }
+
+        .trust-signal span {
+            font-family: var(--font-heading);
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            font-weight: 500;
+        }
+
+        /* ===== 8. FOR INSTITUTES ===== */
+        .for-institutes {
+            background: var(--black);
+            color: var(--white);
+            padding: 100px 0;
+        }
+
+        .institute-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 24px;
+            margin-bottom: 48px;
+        }
+
+        .institute-card {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            padding: 40px 24px;
+            text-align: center;
+            border-radius: 4px;
+            transition: border-color 0.3s, transform 0.3s;
+        }
+
+        .institute-card:hover {
+            border-color: var(--accent);
+            transform: translateY(-4px);
+        }
+
+        .institute-card-icon {
+            width: 56px;
+            height: 56px;
+            background: var(--accent);
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 20px;
+        }
+
+        .institute-card-icon svg {
+            width: 24px;
+            height: 24px;
+            fill: var(--white);
+        }
+
+        .institute-card h4 {
+            font-size: 18px;
+            margin-bottom: 8px;
+        }
+
+        .institute-card p {
+            font-size: 14px;
+            color: var(--medium-gray);
+            line-height: 1.6;
+        }
+
+        .institute-cta {
+            text-align: center;
+        }
+
+        /* ===== 9. RESULTS PREVIEW ===== */
+        .results {
+            background: var(--white);
+            color: var(--black);
+            padding: 100px 0;
+        }
+
+        .results-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 40px;
+        }
+
+        .result-card {
+            text-align: center;
+        }
+
+        .ring-chart {
+            position: relative;
+            width: 160px;
+            height: 160px;
+            margin: 0 auto 20px;
+        }
+
+        .ring-chart svg {
+            width: 160px;
+            height: 160px;
+            transform: rotate(-90deg);
+        }
+
+        .ring-chart-bg {
+            fill: none;
+            stroke: var(--light-gray);
+            stroke-width: 10;
+        }
+
+        .ring-chart-fill {
+            fill: none;
+            stroke: var(--accent);
+            stroke-width: 10;
+            stroke-linecap: round;
+            stroke-dasharray: 408;
+            stroke-dashoffset: 408;
+            transition: stroke-dashoffset 1.5s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .ring-chart-text {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-family: var(--font-heading);
+            font-size: 36px;
+            font-weight: 700;
+        }
+
+        .ring-chart-text span {
+            font-size: 18px;
+            color: var(--medium-gray);
+        }
+
+        .result-card h4 {
+            font-size: 16px;
+            letter-spacing: 0.05em;
+        }
+
+        /* ===== 10. TESTIMONIALS ===== */
+        .testimonials {
+            background: var(--black);
+            color: var(--white);
+            padding: 100px 0;
+        }
+
+        .testimonials-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 32px;
+        }
+
+        .testimonial-card {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            padding: 40px 32px;
+            border-radius: 4px;
+            position: relative;
+        }
+
+        .testimonial-quote {
+            font-size: 48px;
+            color: var(--accent);
+            font-family: Georgia, serif;
+            line-height: 1;
+            margin-bottom: 16px;
+        }
+
+        .testimonial-text {
+            font-size: 16px;
+            line-height: 1.7;
+            color: rgba(255,255,255,0.85);
+            margin-bottom: 24px;
+            font-style: italic;
+        }
+
+        .testimonial-author {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .testimonial-avatar {
+            width: 48px;
+            height: 48px;
+            background: var(--accent);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: var(--font-heading);
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--white);
+        }
+
+        .testimonial-name {
+            font-family: var(--font-heading);
+            font-size: 16px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .testimonial-role {
+            font-size: 12px;
+            color: var(--medium-gray);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+        }
+
+        /* ===== 11. URGENCY BANNER ===== */
+        .urgency {
+            background: var(--accent);
+            color: var(--white);
+            padding: 60px 0;
+            text-align: center;
+        }
+
+        .urgency-title {
+            font-size: clamp(28px, 4vw, 48px);
+            margin-bottom: 24px;
+            color: var(--white);
+        }
+
+        .countdown {
+            display: flex;
+            justify-content: center;
+            gap: 24px;
+            margin-bottom: 32px;
+        }
+
+        .countdown-item {
+            text-align: center;
+        }
+
+        .countdown-number {
+            font-family: var(--font-heading);
+            font-size: 48px;
+            font-weight: 700;
+            display: block;
+            line-height: 1;
+            color: var(--black);
+            background: var(--white);
+            width: 72px;
+            height: 72px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 4px;
+            margin-bottom: 8px;
+        }
+
+        .countdown-label {
+            font-family: var(--font-heading);
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.15em;
+        }
+
+        .progress-bar-wrap {
+            max-width: 500px;
+            margin: 0 auto 32px;
+        }
+
+        .progress-bar-label {
+            font-family: var(--font-heading);
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            margin-bottom: 8px;
+            text-align: left;
+        }
+
+        .progress-bar-bg {
+            width: 100%;
+            height: 8px;
+            background: rgba(0,0,0,0.2);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .progress-bar-fill {
+            height: 100%;
+            background: var(--white);
+            border-radius: 4px;
+            width: 0%;
+            transition: width 2s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        /* ===== 12. PRICING ===== */
+        .pricing {
+            background: var(--white);
+            color: var(--black);
+            padding: 100px 0;
+        }
+
+        .pricing-toggle {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 48px;
+        }
+
+        .pricing-toggle span {
+            font-family: var(--font-heading);
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            font-weight: 500;
+        }
+
+        .pricing-toggle span.active-toggle {
+            color: var(--accent);
+        }
+
+        .toggle-switch {
+            width: 52px;
+            height: 28px;
+            background: var(--light-gray);
+            border-radius: 14px;
+            position: relative;
+            cursor: pointer;
+            border: 2px solid var(--black);
+            transition: background 0.3s;
+        }
+
+        .toggle-switch.annual {
+            background: var(--accent);
+            border-color: var(--accent);
+        }
+
+        .toggle-switch::after {
+            content: '';
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            background: var(--white);
+            border-radius: 50%;
+            top: 2px;
+            left: 2px;
+            transition: transform 0.3s;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+        }
+
+        .toggle-switch.annual::after {
+            transform: translateX(24px);
+        }
+
+        .pricing-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 24px;
+            align-items: stretch;
+        }
+
+        .pricing-card {
+            border: 2px solid var(--light-gray);
+            border-radius: 4px;
+            padding: 48px 32px;
+            text-align: center;
+            position: relative;
+            transition: transform 0.3s, border-color 0.3s;
+            background: var(--white);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .pricing-card:hover {
+            transform: translateY(-4px);
+            border-color: var(--black);
+        }
+
+        .pricing-card.featured {
+            background: var(--black);
+            color: var(--white);
+            border-color: var(--black);
+            transform: scale(1.05);
+        }
+
+        .pricing-card.featured:hover {
+            transform: scale(1.05) translateY(-4px);
+        }
+
+        .pricing-popular {
+            position: absolute;
+            top: -14px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--accent);
+            color: var(--white);
+            font-family: var(--font-heading);
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.15em;
+            padding: 6px 20px;
+            border-radius: 2px;
+            font-weight: 600;
+        }
+
+        .pricing-name {
+            font-family: var(--font-heading);
+            font-size: 20px;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            margin-bottom: 16px;
+        }
+
+        .pricing-price {
+            font-family: var(--font-heading);
+            font-size: 56px;
+            font-weight: 700;
+            line-height: 1;
+            margin-bottom: 4px;
+        }
+
+        .pricing-price .currency {
+            font-size: 24px;
+            vertical-align: top;
+        }
+
+        .pricing-period {
+            font-size: 13px;
+            color: var(--medium-gray);
+            margin-bottom: 32px;
+        }
+
+        .pricing-features {
+            list-style: none;
+            text-align: left;
+            margin-bottom: 32px;
+            flex-grow: 1;
+        }
+
+        .pricing-features li {
+            padding: 10px 0;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            border-bottom: 1px solid rgba(128,128,128,0.15);
+        }
+
+        .pricing-features li svg {
+            width: 16px;
+            height: 16px;
+            min-width: 16px;
+            fill: var(--success);
+        }
+
+        .pricing-card.featured .pricing-features li svg {
+            fill: var(--accent);
+        }
+
+        .pricing-card .btn {
+            width: 100%;
+            margin-top: auto;
+        }
+
+        /* ===== 13. STRATEGY ===== */
+        .strategy {
+            background: var(--black);
+            color: var(--white);
+            padding: 100px 0;
+        }
+
+        .strategy-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 24px;
+        }
+
+        .strategy-card {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            padding: 40px 24px;
+            border-radius: 4px;
+            text-align: center;
+            transition: border-color 0.3s, transform 0.3s;
+        }
+
+        .strategy-card:hover {
+            border-color: var(--accent);
+            transform: translateY(-4px);
+        }
+
+        .strategy-card-icon {
+            font-size: 40px;
+            margin-bottom: 20px;
+        }
+
+        .strategy-card h4 {
+            font-size: 18px;
+            margin-bottom: 12px;
+        }
+
+        .strategy-card p {
+            font-size: 14px;
+            color: var(--medium-gray);
+            line-height: 1.6;
+        }
+
+        /* ===== 14. FINAL CTA ===== */
+        .final-cta {
+            background: var(--black);
+            color: var(--white);
+            padding: 120px 0;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .final-cta::before {
+            content: '';
+            position: absolute;
+            bottom: -40%;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 800px;
+            height: 800px;
+            background: radial-gradient(circle, rgba(255,107,53,0.1) 0%, transparent 60%);
+            border-radius: 50%;
+            pointer-events: none;
+        }
+
+        .final-cta-title {
+            font-size: clamp(40px, 7vw, 90px);
+            margin-bottom: 24px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .final-cta-subtitle {
+            font-size: 18px;
+            color: var(--medium-gray);
+            max-width: 600px;
+            margin: 0 auto 40px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .final-cta-buttons {
+            display: flex;
+            gap: 16px;
+            justify-content: center;
+            flex-wrap: wrap;
+            position: relative;
+            z-index: 1;
+        }
+
+        /* ===== 15. FOOTER ===== */
+        .footer {
+            background: var(--black);
+            color: var(--white);
+            padding: 64px 0 32px;
+            border-top: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .footer-grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr 1fr 1fr;
+            gap: 48px;
+            margin-bottom: 48px;
+        }
+
+        .footer-brand p {
+            font-size: 14px;
+            color: var(--medium-gray);
+            line-height: 1.7;
+            margin-top: 16px;
+        }
+
+        .footer h5 {
+            font-size: 14px;
+            letter-spacing: 0.15em;
+            margin-bottom: 20px;
+            color: var(--white);
+        }
+
+        .footer-links {
+            list-style: none;
+        }
+
+        .footer-links li {
+            margin-bottom: 10px;
+        }
+
+        .footer-links a {
+            font-size: 14px;
+            color: var(--medium-gray);
+            transition: color 0.3s;
+        }
+
+        .footer-links a:hover {
+            color: var(--white);
+        }
+
+        .footer-social {
+            display: flex;
+            gap: 16px;
+            margin-top: 24px;
+        }
+
+        .footer-social a {
+            width: 40px;
+            height: 40px;
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: border-color 0.3s, background 0.3s;
+        }
+
+        .footer-social a:hover {
+            border-color: var(--accent);
+            background: var(--accent);
+        }
+
+        .footer-social a svg {
+            width: 16px;
+            height: 16px;
+            fill: var(--white);
+        }
+
+        .footer-bottom {
+            border-top: 1px solid rgba(255,255,255,0.1);
+            padding-top: 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 16px;
+        }
+
+        .footer-bottom p {
+            font-size: 12px;
+            color: var(--medium-gray);
+        }
+
+        .footer-bottom-links {
+            display: flex;
+            gap: 24px;
+        }
+
+        .footer-bottom-links a {
+            font-size: 12px;
+            color: var(--medium-gray);
+            transition: color 0.3s;
+        }
+
+        .footer-bottom-links a:hover {
+            color: var(--white);
+        }
+
+        /* ===== RESPONSIVE ===== */
+        @media (max-width: 1024px) {
+            .institute-grid,
+            .results-grid,
+            .strategy-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        @media (max-width: 768px) {
+            .nav-links {
+                display: none;
+                position: absolute;
+                top: 64px;
+                left: 0;
+                right: 0;
+                background: var(--black);
+                flex-direction: column;
+                padding: 24px;
+                gap: 16px;
+                border-top: 1px solid rgba(255,255,255,0.1);
+            }
+
+            .nav-links.open {
+                display: flex;
+            }
+
+            .nav-hamburger {
+                display: flex;
+            }
+
+            .hero-stats {
+                flex-direction: column;
+                gap: 24px;
+            }
+
+            .hero-stat {
+                border-right: none;
+                border-bottom: 1px solid rgba(255,255,255,0.1);
+                padding: 16px 0;
+            }
+
+            .hero-stat:last-child {
+                border-bottom: none;
+            }
+
+            .crisis-grid,
+            .steps-grid,
+            .assessments-grid,
+            .testimonials-grid,
+            .pricing-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .split-layout {
+                grid-template-columns: 1fr;
+                gap: 40px;
+            }
+
+            .split-layout .split-image {
+                order: -1;
+            }
+
+            .institute-grid,
+            .results-grid,
+            .strategy-grid {
+                grid-template-columns: 1fr 1fr;
+            }
+
+            .footer-grid {
+                grid-template-columns: 1fr 1fr;
+                gap: 32px;
+            }
+
+            .pricing-card.featured {
+                transform: scale(1);
+            }
+
+            .pricing-card.featured:hover {
+                transform: translateY(-4px);
+            }
+
+            .countdown-number {
+                font-size: 36px;
+                width: 56px;
+                height: 56px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .institute-grid,
+            .results-grid,
+            .strategy-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .footer-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .countdown {
+                gap: 12px;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- ===== 1. NAVBAR ===== -->
+    <nav class="navbar" id="navbar">
+        <div class="navbar-inner">
+            <a href="#" class="nav-logo">BODH</a>
+            <ul class="nav-links" id="navLinks">
+                <li><a href="#assessments">Assessments</a></li>
+                <li><a href="#students">For Students</a></li>
+                <li><a href="#parents">For Parents</a></li>
+                <li><a href="#institutes">For Institutes</a></li>
+                <li><a href="#pricing">Pricing</a></li>
+                <li><a href="#hero" class="nav-cta">Start Free</a></li>
+            </ul>
+            <button class="nav-hamburger" id="navHamburger" aria-label="Menu">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+        </div>
+    </nav>
+
+    <!-- ===== 2. HERO ===== -->
+    <section class="hero" id="hero">
+        <div class="container">
+            <div class="hero-content">
+                <div class="hero-badge">INDIA'S #1 AI-POWERED CAREER ASSESSMENT PLATFORM</div>
+                <h1 class="hero-title">YOUR CHILD'S<br>FUTURE STARTS<br>WITH <span class="accent">ONE DECISION</span></h1>
+                <p class="hero-subtitle">85% of Indian students end up in the wrong career. Don't let your child become a statistic. Our AI-powered assessments decode their true potential in just 30 minutes.</p>
+                <div class="hero-buttons">
+                    <a href="#pricing" class="btn btn-accent">Take Free Assessment</a>
+                    <a href="#how-it-works" class="btn btn-white-outline">See How It Works</a>
+                </div>
+                <div class="hero-stats">
+                    <div class="hero-stat">
+                        <span class="hero-stat-number" data-target="50000">0</span>
+                        <span class="hero-stat-label">Students Assessed</span>
+                    </div>
+                    <div class="hero-stat">
+                        <span class="hero-stat-number" data-target="94" data-suffix="%">0</span>
+                        <span class="hero-stat-label">Accuracy Rate</span>
+                    </div>
+                    <div class="hero-stat">
+                        <span class="hero-stat-number" data-target="200" data-suffix="+">0</span>
+                        <span class="hero-stat-label">Career Paths</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ===== 3. CRISIS SECTION ===== -->
+    <section class="crisis" id="crisis">
+        <div class="container">
+            <div class="section-label reveal">The Problem</div>
+            <h2 class="section-title reveal">THE HIDDEN CRISIS</h2>
+            <div class="crisis-grid">
+                <div class="crisis-card reveal">
+                    <div class="crisis-card-number" data-target="85" data-suffix="%">0</div>
+                    <h4 class="crisis-card-title">Wrong Career Choice</h4>
+                    <p class="crisis-card-desc">85% of Indian students end up in careers misaligned with their aptitude and interests, leading to lifelong dissatisfaction.</p>
+                    <p class="crisis-card-source">Source: National Career Service, Govt. of India</p>
+                </div>
+                <div class="crisis-card reveal">
+                    <div class="crisis-card-number" data-target="73" data-suffix="%">0</div>
+                    <h4 class="crisis-card-title">Parental Pressure</h4>
+                    <p class="crisis-card-desc">73% of career decisions are driven by parental expectations rather than the student's own strengths and passions.</p>
+                    <p class="crisis-card-source">Source: ASSOCHAM Education Survey</p>
+                </div>
+                <div class="crisis-card reveal">
+                    <div class="crisis-card-number"><span style="font-size:48px">&#8377;</span>8L+</div>
+                    <h4 class="crisis-card-title">Wasted Investment</h4>
+                    <p class="crisis-card-desc">Families spend over 8 lakhs on education that leads nowhere when career choice is wrong from the start.</p>
+                    <p class="crisis-card-source">Source: KPMG India Education Report</p>
+                </div>
+            </div>
+            <div class="crisis-warning reveal">
+                <p>Every year, <span class="accent">millions of students</span> choose the wrong path. The cost isn't just financial &mdash; it's <span class="accent">years of their life</span>.</p>
+            </div>
+            <div class="crisis-cta reveal">
+                <a href="#pricing" class="btn btn-accent">Don't Let This Be Your Child</a>
+            </div>
+        </div>
+    </section>
+
+    <!-- ===== 4. HOW IT WORKS ===== -->
+    <section class="how-it-works" id="how-it-works">
+        <div class="container">
+            <div style="text-align:center;">
+                <div class="section-label reveal">Simple Process</div>
+                <h2 class="section-title reveal" style="color:var(--white);">HOW IT WORKS</h2>
+            </div>
+            <div class="steps-grid">
+                <div class="step-card reveal">
+                    <div class="step-number">01</div>
+                    <div class="step-icon">
+                        <svg viewBox="0 0 24 24"><path d="M9 2H15C15.55 2 16 2.45 16 3V5H20C21.1 5 22 5.9 22 7V10C22 11.1 21.1 12 20 12H16V14C16 14.55 15.55 15 15 15H9C8.45 15 8 14.55 8 14V12H4C2.9 12 2 11.1 2 10V7C2 5.9 2.9 5 4 5H8V3C8 2.45 8.45 2 9 2ZM10 5H14V4H10V5Z"/></svg>
+                    </div>
+                    <h3 class="step-title">Take Assessment</h3>
+                    <p class="step-desc">Complete our scientifically designed assessment in just 30 minutes. Answer questions across multiple dimensions of your personality, aptitude, and interests.</p>
+                    <div class="step-tags">
+                        <span class="step-tag">30 Minutes</span>
+                        <span class="step-tag">Adaptive AI</span>
+                        <span class="step-tag">6 Dimensions</span>
+                    </div>
+                </div>
+                <div class="step-card reveal">
+                    <div class="step-number">02</div>
+                    <div class="step-icon">
+                        <svg viewBox="0 0 24 24"><path d="M19 3H5C3.9 3 3 3.9 3 5V19C3 20.1 3.9 21 5 21H19C20.1 21 21 20.1 21 19V5C21 3.9 20.1 3 19 3ZM9 17H7V10H9V17ZM13 17H11V7H13V17ZM17 17H15V13H17V17Z"/></svg>
+                    </div>
+                    <h3 class="step-title">Get AI Analysis</h3>
+                    <p class="step-desc">Our advanced AI engine processes your responses against 200+ career paths, analyzing patterns that human counselors might miss.</p>
+                    <div class="step-tags">
+                        <span class="step-tag">AI-Powered</span>
+                        <span class="step-tag">200+ Paths</span>
+                        <span class="step-tag">94% Accurate</span>
+                    </div>
+                </div>
+                <div class="step-card reveal">
+                    <div class="step-number">03</div>
+                    <div class="step-icon">
+                        <svg viewBox="0 0 24 24"><path d="M12 2L4.5 20.29L5.21 21L12 18L18.79 21L19.5 20.29L12 2Z"/></svg>
+                    </div>
+                    <h3 class="step-title">Chart Your Path</h3>
+                    <p class="step-desc">Receive a detailed career roadmap with your top matched careers, required skills, recommended courses, and a step-by-step action plan.</p>
+                    <div class="step-tags">
+                        <span class="step-tag">Roadmap</span>
+                        <span class="step-tag">Action Plan</span>
+                        <span class="step-tag">Mentorship</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ===== 5. ASSESSMENTS GRID ===== -->
+    <section class="assessments" id="assessments">
+        <div class="container">
+            <div style="text-align:center;">
+                <div class="section-label reveal">Our Assessments</div>
+                <h2 class="section-title reveal">FIND YOUR EDGE</h2>
+            </div>
+            <div class="assessments-grid">
+                <div class="assessment-card reveal">
+                    <div class="assessment-card-img">
+                        <img src="https://images.unsplash.com/photo-1509475826633-fed577a2c71b?w=600&q=80&fit=crop" alt="Aptitude Assessment" loading="lazy">
+                        <span class="assessment-badge">Beginner</span>
+                    </div>
+                    <div class="assessment-card-body">
+                        <h4 class="assessment-card-title">Aptitude Assessment</h4>
+                        <div class="assessment-card-meta">
+                            <span>25 Mins</span>
+                            <span>60 Questions</span>
+                            <span>Free</span>
+                        </div>
+                        <a href="#" class="btn btn-black">Start Now</a>
+                    </div>
+                </div>
+                <div class="assessment-card reveal">
+                    <div class="assessment-card-img">
+                        <img src="https://images.unsplash.com/photo-1522202176988-66273c2fd55f?w=600&q=80&fit=crop" alt="Personality Assessment" loading="lazy">
+                        <span class="assessment-badge intermediate">Intermediate</span>
+                    </div>
+                    <div class="assessment-card-body">
+                        <h4 class="assessment-card-title">Personality Assessment</h4>
+                        <div class="assessment-card-meta">
+                            <span>20 Mins</span>
+                            <span>45 Questions</span>
+                            <span>Free</span>
+                        </div>
+                        <a href="#" class="btn btn-black">Start Now</a>
+                    </div>
+                </div>
+                <div class="assessment-card reveal">
+                    <div class="assessment-card-img">
+                        <img src="https://images.unsplash.com/photo-1529156069898-49953e39b3ac?w=600&q=80&fit=crop" alt="Interest Inventory" loading="lazy">
+                        <span class="assessment-badge">Beginner</span>
+                    </div>
+                    <div class="assessment-card-body">
+                        <h4 class="assessment-card-title">Interest Inventory</h4>
+                        <div class="assessment-card-meta">
+                            <span>15 Mins</span>
+                            <span>40 Questions</span>
+                            <span>Free</span>
+                        </div>
+                        <a href="#" class="btn btn-black">Start Now</a>
+                    </div>
+                </div>
+                <div class="assessment-card reveal">
+                    <div class="assessment-card-img">
+                        <img src="https://images.unsplash.com/photo-1573497019940-1c28c88b4f3e?w=600&q=80&fit=crop" alt="Emotional Intelligence" loading="lazy">
+                        <span class="assessment-badge intermediate">Intermediate</span>
+                    </div>
+                    <div class="assessment-card-body">
+                        <h4 class="assessment-card-title">Emotional Intelligence</h4>
+                        <div class="assessment-card-meta">
+                            <span>20 Mins</span>
+                            <span>50 Questions</span>
+                            <span>Pro</span>
+                        </div>
+                        <a href="#" class="btn btn-black">Start Now</a>
+                    </div>
+                </div>
+                <div class="assessment-card reveal">
+                    <div class="assessment-card-img">
+                        <img src="https://images.unsplash.com/photo-1521737604893-d14cc237f11d?w=600&q=80&fit=crop" alt="Career Compatibility" loading="lazy">
+                        <span class="assessment-badge advanced">Advanced</span>
+                    </div>
+                    <div class="assessment-card-body">
+                        <h4 class="assessment-card-title">Career Compatibility</h4>
+                        <div class="assessment-card-meta">
+                            <span>30 Mins</span>
+                            <span>75 Questions</span>
+                            <span>Pro</span>
+                        </div>
+                        <a href="#" class="btn btn-black">Start Now</a>
+                    </div>
+                </div>
+                <div class="assessment-card reveal">
+                    <div class="assessment-card-img">
+                        <img src="https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=600&q=80&fit=crop" alt="Skill Gap Analysis" loading="lazy">
+                        <span class="assessment-badge advanced">Advanced</span>
+                    </div>
+                    <div class="assessment-card-body">
+                        <h4 class="assessment-card-title">Skill Gap Analysis</h4>
+                        <div class="assessment-card-meta">
+                            <span>35 Mins</span>
+                            <span>80 Questions</span>
+                            <span>Pro</span>
+                        </div>
+                        <a href="#" class="btn btn-black">Start Now</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ===== 6. FOR STUDENTS ===== -->
+    <section class="for-students" id="students">
+        <div class="container">
+            <div class="split-layout">
+                <div class="split-content">
+                    <div class="section-label reveal">For Students</div>
+                    <h2 class="section-title reveal" style="color:var(--white);">YOUR FUTURE.<br>YOUR RULES.</h2>
+                    <ul class="benefit-list">
+                        <li class="benefit-item reveal">
+                            <div class="benefit-icon">
+                                <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+                            </div>
+                            <div>
+                                <div class="benefit-title">Instant Career Clarity</div>
+                                <p class="benefit-desc">Stop guessing. Know exactly which careers align with your unique strengths, personality, and interests in 30 minutes flat.</p>
+                            </div>
+                        </li>
+                        <li class="benefit-item reveal">
+                            <div class="benefit-icon">
+                                <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+                            </div>
+                            <div>
+                                <div class="benefit-title">Unshakeable Confidence</div>
+                                <p class="benefit-desc">Walk into every conversation about your future with data-backed certainty. No more "I don't know what I want to do."</p>
+                            </div>
+                        </li>
+                        <li class="benefit-item reveal">
+                            <div class="benefit-icon">
+                                <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+                            </div>
+                            <div>
+                                <div class="benefit-title">A Real Roadmap</div>
+                                <p class="benefit-desc">Get a personalized step-by-step plan: which courses to take, skills to build, colleges to target, and milestones to hit.</p>
+                            </div>
+                        </li>
+                        <li class="benefit-item reveal">
+                            <div class="benefit-icon">
+                                <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+                            </div>
+                            <div>
+                                <div class="benefit-title">Competitive Edge</div>
+                                <p class="benefit-desc">Students who choose careers based on data outperform their peers by 3x in career satisfaction and earnings.</p>
+                            </div>
+                        </li>
+                    </ul>
+                    <a href="#pricing" class="btn btn-accent reveal">Start Your Journey</a>
+                </div>
+                <div class="split-image reveal">
+                    <img src="https://images.unsplash.com/photo-1523240795612-9a054b0db644?w=700&q=80&fit=crop" alt="Students collaborating">
+                    <div class="split-image-overlay">
+                        <p>"Finally, I know exactly where I'm headed." &mdash; Student, Class 12</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ===== 7. FOR PARENTS ===== -->
+    <section class="for-parents" id="parents">
+        <div class="container">
+            <div class="split-layout">
+                <div class="split-image reveal">
+                    <img src="https://images.unsplash.com/photo-1591123120675-6f7f1aae0e5b?w=700&q=80&fit=crop" alt="Parent and child">
+                    <div class="split-image-overlay">
+                        <p>"This gave us the confidence to support our son's choice." &mdash; Parent, Mumbai</p>
+                    </div>
+                </div>
+                <div class="split-content">
+                    <div class="section-label reveal">For Parents</div>
+                    <h2 class="section-title reveal">INVEST IN<br>CERTAINTY.</h2>
+                    <ul class="benefit-list">
+                        <li class="benefit-item reveal">
+                            <div class="benefit-icon">
+                                <svg viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"/></svg>
+                            </div>
+                            <div>
+                                <div class="benefit-title">Peace of Mind</div>
+                                <p class="benefit-desc">Stop worrying about whether your child is on the right path. Get scientific validation that their career choice matches their innate abilities.</p>
+                            </div>
+                        </li>
+                        <li class="benefit-item reveal">
+                            <div class="benefit-icon">
+                                <svg viewBox="0 0 24 24"><path d="M11.8 10.9c-2.27-.59-3-1.2-3-2.15 0-1.09 1.01-1.85 2.7-1.85 1.78 0 2.44.85 2.5 2.1h2.21c-.07-1.72-1.12-3.3-3.21-3.81V3h-3v2.16c-1.94.42-3.5 1.68-3.5 3.61 0 2.31 1.91 3.46 4.7 4.13 2.5.6 3 1.48 3 2.41 0 .69-.49 1.79-2.7 1.79-2.06 0-2.87-.92-2.98-2.1h-2.2c.12 2.19 1.76 3.42 3.68 3.83V21h3v-2.15c1.95-.37 3.5-1.5 3.5-3.55 0-2.84-2.43-3.81-4.7-4.4z"/></svg>
+                            </div>
+                            <div>
+                                <div class="benefit-title">Proven ROI</div>
+                                <p class="benefit-desc">A small investment now saves lakhs in course corrections later. Our assessment costs less than a single tuition class but impacts an entire career.</p>
+                            </div>
+                        </li>
+                        <li class="benefit-item reveal">
+                            <div class="benefit-icon">
+                                <svg viewBox="0 0 24 24"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/></svg>
+                            </div>
+                            <div>
+                                <div class="benefit-title">Data Privacy</div>
+                                <p class="benefit-desc">Your child's data is encrypted and never shared. We are GDPR compliant with bank-grade security protecting every assessment.</p>
+                            </div>
+                        </li>
+                    </ul>
+                    <div class="trust-signals reveal">
+                        <div class="trust-signal">
+                            <div class="trust-signal-icon">
+                                <svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+                            </div>
+                            <span>ISO 27001 Certified</span>
+                        </div>
+                        <div class="trust-signal">
+                            <div class="trust-signal-icon">
+                                <svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+                            </div>
+                            <span>GDPR Compliant</span>
+                        </div>
+                        <div class="trust-signal">
+                            <div class="trust-signal-icon">
+                                <svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+                            </div>
+                            <span>50,000+ Families Trust Us</span>
+                        </div>
+                    </div>
+                    <div style="margin-top:32px;">
+                        <a href="#pricing" class="btn btn-black reveal">Get Started Today</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ===== 8. FOR INSTITUTES ===== -->
+    <section class="for-institutes" id="institutes">
+        <div class="container">
+            <div style="text-align:center;">
+                <div class="section-label reveal">For Institutes</div>
+                <h2 class="section-title reveal" style="color:var(--white);">EMPOWER YOUR<br>INSTITUTION</h2>
+            </div>
+            <div class="institute-grid">
+                <div class="institute-card reveal">
+                    <div class="institute-card-icon">
+                        <svg viewBox="0 0 24 24"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
+                    </div>
+                    <h4>Bulk Assessments</h4>
+                    <p>Assess hundreds of students simultaneously with our scalable platform. Bulk pricing and dedicated support for institutions.</p>
+                </div>
+                <div class="institute-card reveal">
+                    <div class="institute-card-icon">
+                        <svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zM9 17H7v-7h2v7zm4 0h-2V7h2v10zm4 0h-2v-4h2v4z"/></svg>
+                    </div>
+                    <h4>Analytics Dashboard</h4>
+                    <p>Real-time insights on student performance, career trends, and institutional metrics. Make data-driven counseling decisions.</p>
+                </div>
+                <div class="institute-card reveal">
+                    <div class="institute-card-icon">
+                        <svg viewBox="0 0 24 24"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>
+                    </div>
+                    <h4>Student Reports</h4>
+                    <p>Comprehensive individual reports for each student with actionable recommendations that counselors can immediately use.</p>
+                </div>
+                <div class="institute-card reveal">
+                    <div class="institute-card-icon">
+                        <svg viewBox="0 0 24 24"><path d="M22.7 19l-9.1-9.1c.9-2.3.4-5-1.5-6.9-2-2-5-2.4-7.4-1.3L9 6 6 9 1.6 4.7C.4 7.1.9 10.1 2.9 12.1c1.9 1.9 4.6 2.4 6.9 1.5l9.1 9.1c.4.4 1 .4 1.4 0l2.3-2.3c.5-.4.5-1.1.1-1.4z"/></svg>
+                    </div>
+                    <h4>Custom Assessments</h4>
+                    <p>Tailor assessments to your institution's specific needs. Add custom questions, branding, and reporting parameters.</p>
+                </div>
+            </div>
+            <div class="institute-cta reveal">
+                <a href="#" class="btn btn-accent">Book a Demo</a>
+            </div>
+        </div>
+    </section>
+
+    <!-- ===== 9. RESULTS PREVIEW ===== -->
+    <section class="results" id="results">
+        <div class="container">
+            <div style="text-align:center;">
+                <div class="section-label reveal">Your Results</div>
+                <h2 class="section-title reveal">WHAT YOU'LL DISCOVER</h2>
+            </div>
+            <div class="results-grid">
+                <div class="result-card reveal">
+                    <div class="ring-chart" data-percent="92">
+                        <svg viewBox="0 0 140 140">
+                            <circle class="ring-chart-bg" cx="70" cy="70" r="65"/>
+                            <circle class="ring-chart-fill" cx="70" cy="70" r="65"/>
+                        </svg>
+                        <div class="ring-chart-text">92<span>%</span></div>
+                    </div>
+                    <h4>Career Match</h4>
+                </div>
+                <div class="result-card reveal">
+                    <div class="ring-chart" data-percent="88">
+                        <svg viewBox="0 0 140 140">
+                            <circle class="ring-chart-bg" cx="70" cy="70" r="65"/>
+                            <circle class="ring-chart-fill" cx="70" cy="70" r="65"/>
+                        </svg>
+                        <div class="ring-chart-text">88<span>%</span></div>
+                    </div>
+                    <h4>Strength Profile</h4>
+                </div>
+                <div class="result-card reveal">
+                    <div class="ring-chart" data-percent="76">
+                        <svg viewBox="0 0 140 140">
+                            <circle class="ring-chart-bg" cx="70" cy="70" r="65"/>
+                            <circle class="ring-chart-fill" cx="70" cy="70" r="65"/>
+                        </svg>
+                        <div class="ring-chart-text">76<span>%</span></div>
+                    </div>
+                    <h4>Skill Gap</h4>
+                </div>
+                <div class="result-card reveal">
+                    <div class="ring-chart" data-percent="95">
+                        <svg viewBox="0 0 140 140">
+                            <circle class="ring-chart-bg" cx="70" cy="70" r="65"/>
+                            <circle class="ring-chart-fill" cx="70" cy="70" r="65"/>
+                        </svg>
+                        <div class="ring-chart-text">95<span>%</span></div>
+                    </div>
+                    <h4>Learning Roadmap</h4>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ===== 10. TESTIMONIALS ===== -->
+    <section class="testimonials" id="testimonials">
+        <div class="container">
+            <div style="text-align:center;">
+                <div class="section-label reveal">Testimonials</div>
+                <h2 class="section-title reveal" style="color:var(--white);">HEAR FROM<br>OUR ATHLETES</h2>
+            </div>
+            <div class="testimonials-grid">
+                <div class="testimonial-card reveal">
+                    <div class="testimonial-quote">"</div>
+                    <p class="testimonial-text">I was confused between engineering and design. BODH showed me that my strengths align perfectly with UX Design. I'm now studying at NID and loving every minute. This assessment literally changed the trajectory of my life.</p>
+                    <div class="testimonial-author">
+                        <div class="testimonial-avatar">AR</div>
+                        <div>
+                            <div class="testimonial-name">Arjun Reddy</div>
+                            <div class="testimonial-role">Student, Class 12</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="testimonial-card reveal">
+                    <div class="testimonial-quote">"</div>
+                    <p class="testimonial-text">As a parent, I was pushing my daughter towards medicine. The assessment revealed her incredible aptitude for data science. She's now thriving at IIT and we couldn't be happier with the decision.</p>
+                    <div class="testimonial-author">
+                        <div class="testimonial-avatar">PM</div>
+                        <div>
+                            <div class="testimonial-name">Priya Mehta</div>
+                            <div class="testimonial-role">Parent, Mumbai</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="testimonial-card reveal">
+                    <div class="testimonial-quote">"</div>
+                    <p class="testimonial-text">We've integrated BODH across our school network of 15 branches. The analytics dashboard alone has transformed how our counselors guide students. Bulk assessment made it seamless.</p>
+                    <div class="testimonial-author">
+                        <div class="testimonial-avatar">SK</div>
+                        <div>
+                            <div class="testimonial-name">Sunita Krishnan</div>
+                            <div class="testimonial-role">School Counselor, Delhi</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ===== 11. URGENCY BANNER ===== -->
+    <section class="urgency" id="urgency">
+        <div class="container">
+            <h2 class="urgency-title">LIMITED TIME: FREE PRO ASSESSMENT</h2>
+            <p style="font-size:16px; margin-bottom:24px; opacity:0.9;">This offer expires at the end of the month. Don't miss your chance to unlock your full career potential.</p>
+            <div class="countdown" id="countdown">
+                <div class="countdown-item">
+                    <div class="countdown-number" id="countDays">00</div>
+                    <div class="countdown-label">Days</div>
+                </div>
+                <div class="countdown-item">
+                    <div class="countdown-number" id="countHours">00</div>
+                    <div class="countdown-label">Hours</div>
+                </div>
+                <div class="countdown-item">
+                    <div class="countdown-number" id="countMins">00</div>
+                    <div class="countdown-label">Minutes</div>
+                </div>
+                <div class="countdown-item">
+                    <div class="countdown-number" id="countSecs">00</div>
+                    <div class="countdown-label">Seconds</div>
+                </div>
+            </div>
+            <div class="progress-bar-wrap">
+                <div class="progress-bar-label">78% of spots claimed</div>
+                <div class="progress-bar-bg">
+                    <div class="progress-bar-fill" id="progressBar"></div>
+                </div>
+            </div>
+            <a href="#pricing" class="btn btn-black">Claim Your Free Assessment</a>
+        </div>
+    </section>
+
+    <!-- ===== 12. PRICING ===== -->
+    <section class="pricing" id="pricing">
+        <div class="container">
+            <div style="text-align:center;">
+                <div class="section-label reveal">Pricing</div>
+                <h2 class="section-title reveal">CHOOSE YOUR PLAN</h2>
+            </div>
+            <div class="pricing-toggle reveal">
+                <span id="monthlyLabel" class="active-toggle">Monthly</span>
+                <div class="toggle-switch" id="pricingToggle"></div>
+                <span id="annualLabel">Annual <span style="color:var(--accent);font-size:12px;">SAVE 20%</span></span>
+            </div>
+            <div class="pricing-grid">
+                <div class="pricing-card reveal">
+                    <h4 class="pricing-name">Free</h4>
+                    <div class="pricing-price"><span class="currency">&#8377;</span><span class="price-amount" data-monthly="0" data-annual="0">0</span></div>
+                    <div class="pricing-period">Forever free</div>
+                    <ul class="pricing-features">
+                        <li><svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg> 1 Basic Aptitude Assessment</li>
+                        <li><svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg> Top 3 Career Matches</li>
+                        <li><svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg> Basic Personality Report</li>
+                        <li><svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg> Email Support</li>
+                    </ul>
+                    <a href="#" class="btn btn-black-outline">Get Started</a>
+                </div>
+                <div class="pricing-card featured reveal">
+                    <div class="pricing-popular">Most Popular</div>
+                    <h4 class="pricing-name">Student Pro</h4>
+                    <div class="pricing-price"><span class="currency">&#8377;</span><span class="price-amount" data-monthly="499" data-annual="399">499</span></div>
+                    <div class="pricing-period" style="color:rgba(255,255,255,0.5);">per month</div>
+                    <ul class="pricing-features">
+                        <li><svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg> All 6 Assessments</li>
+                        <li><svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg> AI-Powered Career Roadmap</li>
+                        <li><svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg> 200+ Career Path Analysis</li>
+                        <li><svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg> Detailed Skill Gap Report</li>
+                        <li><svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg> 1-on-1 Counselor Session</li>
+                        <li><svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg> Priority Support</li>
+                    </ul>
+                    <a href="#" class="btn btn-accent">Start Pro Trial</a>
+                </div>
+                <div class="pricing-card reveal">
+                    <h4 class="pricing-name">Institution</h4>
+                    <div class="pricing-price"><span class="currency">&#8377;</span><span class="price-amount" data-monthly="2999" data-annual="2399">2999</span></div>
+                    <div class="pricing-period">per month / per 100 students</div>
+                    <ul class="pricing-features">
+                        <li><svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg> Everything in Pro</li>
+                        <li><svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg> Bulk Student Assessments</li>
+                        <li><svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg> Analytics Dashboard</li>
+                        <li><svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg> Custom Branding</li>
+                        <li><svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg> Dedicated Account Manager</li>
+                    </ul>
+                    <a href="#" class="btn btn-black-outline">Contact Sales</a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ===== 13. STRATEGY ===== -->
+    <section class="strategy" id="strategy">
+        <div class="container">
+            <div style="text-align:center;">
+                <div class="section-label reveal">Why Now</div>
+                <h2 class="section-title reveal" style="color:var(--white);">THE WINNING STRATEGY</h2>
+            </div>
+            <div class="strategy-grid">
+                <div class="strategy-card reveal">
+                    <div class="strategy-card-icon">
+                        <svg width="40" height="40" viewBox="0 0 24 24" fill="var(--accent)"><path d="M5 13.18v4L12 21l7-3.82v-4L12 17l-7-3.82zM12 3L1 9l11 6 9-4.91V17h2V9L12 3z"/></svg>
+                    </div>
+                    <h4>Top Colleges</h4>
+                    <p>Students with clear career direction are 2.5x more likely to get into top-tier colleges with focused applications.</p>
+                </div>
+                <div class="strategy-card reveal">
+                    <div class="strategy-card-icon">
+                        <svg width="40" height="40" viewBox="0 0 24 24" fill="var(--accent)"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zM9 17H7v-7h2v7zm4 0h-2V7h2v10zm4 0h-2v-4h2v4z"/></svg>
+                    </div>
+                    <h4>Parents Demand Data</h4>
+                    <p>87% of parents say they would support their child's unconventional career choice if backed by credible assessment data.</p>
+                </div>
+                <div class="strategy-card reveal">
+                    <div class="strategy-card-icon">
+                        <svg width="40" height="40" viewBox="0 0 24 24" fill="var(--accent)"><path d="M16 6l2.29 2.29-4.88 4.88-4-4L2 16.59 3.41 18l6-6 4 4 6.3-6.29L22 12V6z"/></svg>
+                    </div>
+                    <h4>Competitive Advantage</h4>
+                    <p>Early career clarity gives students a 3-5 year head start over peers who figure it out during or after college.</p>
+                </div>
+                <div class="strategy-card reveal">
+                    <div class="strategy-card-icon">
+                        <svg width="40" height="40" viewBox="0 0 24 24" fill="var(--accent)"><path d="M11.8 10.9c-2.27-.59-3-1.2-3-2.15 0-1.09 1.01-1.85 2.7-1.85 1.78 0 2.44.85 2.5 2.1h2.21c-.07-1.72-1.12-3.3-3.21-3.81V3h-3v2.16c-1.94.42-3.5 1.68-3.5 3.61 0 2.31 1.91 3.46 4.7 4.13 2.5.6 3 1.48 3 2.41 0 .69-.49 1.79-2.7 1.79-2.06 0-2.87-.92-2.98-2.1h-2.2c.12 2.19 1.76 3.42 3.68 3.83V21h3v-2.15c1.95-.37 3.5-1.5 3.5-3.55 0-2.84-2.43-3.81-4.7-4.4z"/></svg>
+                    </div>
+                    <h4>Early Clarity = Higher Earnings</h4>
+                    <p>Research shows career-aligned professionals earn 40% more than those who stumbled into their careers by chance.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ===== 14. FINAL CTA ===== -->
+    <section class="final-cta" id="final-cta">
+        <div class="container">
+            <h2 class="final-cta-title reveal">YOUR FUTURE SELF<br>WILL <span style="color:var(--accent);">THANK YOU</span></h2>
+            <p class="final-cta-subtitle reveal">The best time to discover your true career path was yesterday. The second best time is right now. Take the first step today.</p>
+            <div class="final-cta-buttons reveal">
+                <a href="#pricing" class="btn btn-accent">Take Free Assessment</a>
+                <a href="#how-it-works" class="btn btn-white-outline">Learn More</a>
+            </div>
+        </div>
+    </section>
+
+    <!-- ===== 15. FOOTER ===== -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-grid">
+                <div class="footer-brand">
+                    <div class="nav-logo" style="font-size:24px;">BODH</div>
+                    <p>India's leading AI-powered career assessment platform. Helping students discover their true potential and chart a path to a fulfilling career.</p>
+                    <div class="footer-social">
+                        <a href="#" aria-label="Twitter">
+                            <svg viewBox="0 0 24 24"><path d="M22.46 6c-.85.38-1.78.64-2.73.76 1-.6 1.76-1.54 2.12-2.67-.93.55-1.96.95-3.06 1.17-.88-.94-2.13-1.53-3.51-1.53-2.66 0-4.81 2.16-4.81 4.81 0 .38.04.75.13 1.1-4-.2-7.58-2.11-9.96-5.02-.42.72-.66 1.56-.66 2.46 0 1.68.85 3.16 2.14 4.02-.79-.02-1.53-.24-2.18-.6v.06c0 2.35 1.67 4.31 3.88 4.76-.4.1-.83.16-1.27.16-.31 0-.62-.03-.92-.08.63 1.96 2.45 3.39 4.61 3.43-1.69 1.32-3.83 2.1-6.15 2.1-.4 0-.8-.02-1.19-.07 2.19 1.4 4.78 2.22 7.57 2.22 9.07 0 14.02-7.52 14.02-14.02 0-.21 0-.42-.01-.63.96-.69 1.79-1.56 2.45-2.55z"/></svg>
+                        </a>
+                        <a href="#" aria-label="LinkedIn">
+                            <svg viewBox="0 0 24 24"><path d="M19 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14m-.5 15.5v-5.3a3.26 3.26 0 0 0-3.26-3.26c-.85 0-1.84.52-2.32 1.3v-1.11h-2.79v8.37h2.79v-4.93c0-.77.62-1.4 1.39-1.4a1.4 1.4 0 0 1 1.4 1.4v4.93h2.79M6.88 8.56a1.68 1.68 0 0 0 1.68-1.68c0-.93-.75-1.69-1.68-1.69a1.69 1.69 0 0 0-1.69 1.69c0 .93.76 1.68 1.69 1.68m1.39 9.94v-8.37H5.5v8.37h2.77z"/></svg>
+                        </a>
+                        <a href="#" aria-label="Instagram">
+                            <svg viewBox="0 0 24 24"><path d="M7.8 2h8.4C19.4 2 22 4.6 22 7.8v8.4a5.8 5.8 0 0 1-5.8 5.8H7.8C4.6 22 2 19.4 2 16.2V7.8A5.8 5.8 0 0 1 7.8 2m-.2 2A3.6 3.6 0 0 0 4 7.6v8.8C4 18.39 5.61 20 7.6 20h8.8a3.6 3.6 0 0 0 3.6-3.6V7.6C20 5.61 18.39 4 16.4 4H7.6m9.65 1.5a1.25 1.25 0 0 1 1.25 1.25A1.25 1.25 0 0 1 17.25 8 1.25 1.25 0 0 1 16 6.75a1.25 1.25 0 0 1 1.25-1.25M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3z"/></svg>
+                        </a>
+                        <a href="#" aria-label="YouTube">
+                            <svg viewBox="0 0 24 24"><path d="M10 15l5.19-3L10 9v6m11.56-7.83c.13.47.22 1.1.28 1.9.07.8.1 1.49.1 2.09L22 12c0 2.19-.16 3.8-.44 4.83-.25.9-.83 1.48-1.73 1.73-.47.13-1.33.22-2.65.28-1.3.07-2.49.1-3.59.1L12 19c-4.19 0-6.8-.16-7.83-.44-.9-.25-1.48-.83-1.73-1.73-.13-.47-.22-1.1-.28-1.9-.07-.8-.1-1.49-.1-2.09L2 12c0-2.19.16-3.8.44-4.83.25-.9.83-1.48 1.73-1.73.47-.13 1.33-.22 2.65-.28 1.3-.07 2.49-.1 3.59-.1L12 5c4.19 0 6.8.16 7.83.44.9.25 1.48.83 1.73 1.73z"/></svg>
+                        </a>
+                    </div>
+                </div>
+                <div>
+                    <h5>ASSESSMENTS</h5>
+                    <ul class="footer-links">
+                        <li><a href="#">Aptitude Test</a></li>
+                        <li><a href="#">Personality Test</a></li>
+                        <li><a href="#">Interest Inventory</a></li>
+                        <li><a href="#">EQ Assessment</a></li>
+                        <li><a href="#">Career Match</a></li>
+                        <li><a href="#">Skill Gap Analysis</a></li>
+                    </ul>
+                </div>
+                <div>
+                    <h5>COMPANY</h5>
+                    <ul class="footer-links">
+                        <li><a href="#">About Us</a></li>
+                        <li><a href="#">Careers</a></li>
+                        <li><a href="#">Blog</a></li>
+                        <li><a href="#">Press</a></li>
+                        <li><a href="#">Contact</a></li>
+                    </ul>
+                </div>
+                <div>
+                    <h5>SUPPORT</h5>
+                    <ul class="footer-links">
+                        <li><a href="#">Help Center</a></li>
+                        <li><a href="#">FAQs</a></li>
+                        <li><a href="#">Privacy Policy</a></li>
+                        <li><a href="#">Terms of Service</a></li>
+                        <li><a href="#">Refund Policy</a></li>
+                    </ul>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <p>&copy; 2026 BODH. All rights reserved. Made with purpose in India.</p>
+                <div class="footer-bottom-links">
+                    <a href="#">Privacy</a>
+                    <a href="#">Terms</a>
+                    <a href="#">Cookies</a>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <!-- ===== JAVASCRIPT ===== -->
+    <script>
+        // ===== NAVBAR SCROLL EFFECT =====
+        const navbar = document.getElementById('navbar');
+        window.addEventListener('scroll', () => {
+            if (window.scrollY > 50) {
+                navbar.classList.add('scrolled');
+            } else {
+                navbar.classList.remove('scrolled');
+            }
+        });
+
+        // ===== HAMBURGER MENU =====
+        const hamburger = document.getElementById('navHamburger');
+        const navLinks = document.getElementById('navLinks');
+        hamburger.addEventListener('click', () => {
+            navLinks.classList.toggle('open');
+        });
+
+        // ===== SMOOTH SCROLL =====
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function(e) {
+                e.preventDefault();
+                navLinks.classList.remove('open');
+                const target = document.querySelector(this.getAttribute('href'));
+                if (target) {
+                    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            });
+        });
+
+        // ===== INTERSECTION OBSERVER - SCROLL REVEAL =====
+        const revealObserver = new IntersectionObserver((entries) => {
+            entries.forEach((entry, index) => {
+                if (entry.isIntersecting) {
+                    setTimeout(() => {
+                        entry.target.classList.add('active');
+                    }, index * 80);
+                    revealObserver.unobserve(entry.target);
+                }
+            });
+        }, { threshold: 0.1, rootMargin: '0px 0px -50px 0px' });
+
+        document.querySelectorAll('.reveal').forEach(el => revealObserver.observe(el));
+
+        // ===== COUNTER ANIMATION =====
+        function animateCounter(el, target, suffix = '', duration = 2000) {
+            let start = 0;
+            const increment = target / (duration / 16);
+            const timer = setInterval(() => {
+                start += increment;
+                if (start >= target) {
+                    start = target;
+                    clearInterval(timer);
+                }
+                if (target >= 1000) {
+                    el.textContent = Math.floor(start).toLocaleString() + '+';
+                } else {
+                    el.textContent = Math.floor(start) + suffix;
+                }
+            }, 16);
+        }
+
+        const counterObserver = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    const el = entry.target;
+                    const target = parseInt(el.getAttribute('data-target'));
+                    const suffix = el.getAttribute('data-suffix') || '';
+                    if (target) {
+                        animateCounter(el, target, suffix);
+                    }
+                    counterObserver.unobserve(el);
+                }
+            });
+        }, { threshold: 0.5 });
+
+        document.querySelectorAll('[data-target]').forEach(el => counterObserver.observe(el));
+
+        // ===== RING / DONUT CHART ANIMATION =====
+        const circumference = 2 * Math.PI * 65; // r=65
+
+        const ringObserver = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    const chart = entry.target;
+                    const percent = parseInt(chart.getAttribute('data-percent'));
+                    const fill = chart.querySelector('.ring-chart-fill');
+                    const offset = circumference - (percent / 100) * circumference;
+                    fill.style.strokeDasharray = circumference;
+                    fill.style.strokeDashoffset = circumference;
+                    setTimeout(() => {
+                        fill.style.strokeDashoffset = offset;
+                    }, 200);
+                    ringObserver.unobserve(chart);
+                }
+            });
+        }, { threshold: 0.5 });
+
+        document.querySelectorAll('.ring-chart').forEach(chart => ringObserver.observe(chart));
+
+        // ===== COUNTDOWN TIMER =====
+        function updateCountdown() {
+            const now = new Date();
+            const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+            const diff = endOfMonth - now;
+
+            if (diff <= 0) return;
+
+            const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+            const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+            const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+            const secs = Math.floor((diff % (1000 * 60)) / 1000);
+
+            document.getElementById('countDays').textContent = String(days).padStart(2, '0');
+            document.getElementById('countHours').textContent = String(hours).padStart(2, '0');
+            document.getElementById('countMins').textContent = String(mins).padStart(2, '0');
+            document.getElementById('countSecs').textContent = String(secs).padStart(2, '0');
+        }
+
+        updateCountdown();
+        setInterval(updateCountdown, 1000);
+
+        // ===== PROGRESS BAR ANIMATION =====
+        const progressObserver = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    setTimeout(() => {
+                        document.getElementById('progressBar').style.width = '78%';
+                    }, 300);
+                    progressObserver.unobserve(entry.target);
+                }
+            });
+        }, { threshold: 0.5 });
+
+        progressObserver.observe(document.getElementById('progressBar'));
+
+        // ===== PRICING TOGGLE =====
+        const pricingToggle = document.getElementById('pricingToggle');
+        const monthlyLabel = document.getElementById('monthlyLabel');
+        const annualLabel = document.getElementById('annualLabel');
+        let isAnnual = false;
+
+        pricingToggle.addEventListener('click', () => {
+            isAnnual = !isAnnual;
+            pricingToggle.classList.toggle('annual', isAnnual);
+            monthlyLabel.classList.toggle('active-toggle', !isAnnual);
+            annualLabel.classList.toggle('active-toggle', isAnnual);
+
+            document.querySelectorAll('.price-amount').forEach(el => {
+                const monthly = el.getAttribute('data-monthly');
+                const annual = el.getAttribute('data-annual');
+                el.textContent = isAnnual ? annual : monthly;
+            });
+
+            // Update period labels
+            document.querySelectorAll('.pricing-period').forEach((el, i) => {
+                if (i === 0) return; // Skip "Forever free"
+                if (el.textContent.includes('per 100')) {
+                    el.textContent = isAnnual ? 'per month / per 100 students (billed annually)' : 'per month / per 100 students';
+                } else {
+                    el.textContent = isAnnual ? 'per month (billed annually)' : 'per month';
+                }
+            });
+        });
+    </script>
+</body>
+</html>
