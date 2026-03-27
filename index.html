@@ -241,7 +241,127 @@ ul { list-style: none; }
   justify-content: center;
   gap: 16px;
   flex-wrap: wrap;
-  margin-bottom: 80px;
+}
+
+/* ===== DPDP SECTION ===== */
+.dpdp-section {
+  background: #0a0a0f;
+  padding: 80px 0 60px;
+  position: relative;
+  overflow: hidden;
+}
+
+.dpdp-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+
+.dpdp-bg img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.15;
+}
+
+.dpdp-glow {
+  position: absolute;
+  top: -80px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 500px;
+  height: 500px;
+  background: radial-gradient(circle, rgba(99,102,241,0.2) 0%, transparent 70%);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.dpdp-shield {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--blue) 0%, #a78bfa 100%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 16px;
+  box-shadow: 0 8px 40px rgba(99,102,241,0.35);
+}
+
+.dpdp-shield svg { width: 28px; height: 28px; }
+
+.dpdp-section .headline-medium { color: #fff; }
+.dpdp-section .subhead { margin-bottom: 0; }
+
+.dpdp-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-top: 48px;
+}
+
+.dpdp-card {
+  background: rgba(18,18,28,0.95);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 16px;
+  padding: 28px 24px;
+  transition: border-color 0.3s, transform 0.3s, box-shadow 0.3s;
+  position: relative;
+  overflow: hidden;
+}
+
+.dpdp-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 16px;
+  padding: 1px;
+  background: linear-gradient(135deg, rgba(99,102,241,0) 0%, rgba(99,102,241,0.3) 50%, rgba(167,139,250,0) 100%);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+.dpdp-card:hover::before { opacity: 1; }
+
+.dpdp-card:hover {
+  transform: translateY(-3px);
+  border-color: rgba(99,102,241,0.15);
+  box-shadow: 0 8px 32px rgba(99,102,241,0.1);
+}
+
+.dpdp-card-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  background: rgba(99,102,241,0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 14px;
+}
+
+.dpdp-card-icon svg { width: 20px; height: 20px; }
+
+.dpdp-card h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #fff;
+  margin-bottom: 6px;
+}
+
+.dpdp-card p {
+  font-size: 0.88rem;
+  color: #b8b8c8;
+  line-height: 1.55;
+}
+
+@media (max-width: 768px) {
+  .dpdp-grid { grid-template-columns: 1fr; }
+  .dpdp-section { padding: 60px 0 48px; }
 }
 
 /* ===== STATS BAR ===== */
@@ -421,11 +541,12 @@ ul { list-style: none; }
 
 .product-tag {
   display: inline-block;
-  padding: 4px 12px;
+  padding: 6px 14px;
   border-radius: 980px;
-  background: rgba(99,102,241,0.1);
-  color: var(--blue);
+  background: var(--blue);
+  color: #fff;
   font-size: 0.75rem;
+  letter-spacing: 0.02em;
   font-weight: 500;
 }
 
@@ -881,6 +1002,154 @@ ul { list-style: none; }
   .rings-grid { grid-template-columns: 1fr; }
   .footer-grid { grid-template-columns: 1fr; }
 }
+
+/* ===== MODAL ===== */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  background: rgba(0,0,0,0.5);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+
+.modal-overlay.open {
+  opacity: 1;
+  pointer-events: all;
+}
+
+.modal {
+  background: var(--white);
+  border-radius: var(--card-radius);
+  width: 100%;
+  max-width: 520px;
+  padding: 48px 40px;
+  position: relative;
+  transform: translateY(20px) scale(0.97);
+  transition: transform 0.3s ease;
+  box-shadow: 0 32px 80px rgba(0,0,0,0.2);
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.modal-overlay.open .modal {
+  transform: translateY(0) scale(1);
+}
+
+.modal-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: none;
+  background: var(--gray-bg);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.2rem;
+  color: var(--text-secondary);
+  transition: background 0.2s;
+}
+.modal-close:hover { background: #e5e5e7; }
+
+.modal h2 {
+  font-size: 1.6rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  margin-bottom: 8px;
+}
+
+.modal .modal-sub {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  margin-bottom: 32px;
+}
+
+.form-group {
+  margin-bottom: 20px;
+}
+
+.form-group label {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--black);
+  margin-bottom: 6px;
+  letter-spacing: 0.02em;
+}
+
+.form-group input,
+.form-group select,
+.form-group textarea {
+  width: 100%;
+  padding: 12px 16px;
+  border: 1.5px solid var(--border);
+  border-radius: 12px;
+  font-size: 0.95rem;
+  font-family: inherit;
+  color: var(--black);
+  background: var(--gray-bg);
+  transition: border-color 0.2s, box-shadow 0.2s;
+  outline: none;
+}
+
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px rgba(99,102,241,0.12);
+  background: var(--white);
+}
+
+.form-group textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.form-submit {
+  width: 100%;
+  margin-top: 8px;
+}
+
+.form-success {
+  text-align: center;
+  padding: 40px 20px;
+  display: none;
+}
+
+.form-success svg {
+  margin: 0 auto 16px;
+}
+
+.form-success h3 {
+  font-size: 1.3rem;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.form-success p {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+@media (max-width: 480px) {
+  .modal { padding: 36px 24px; margin: 16px; }
+  .form-row { grid-template-columns: 1fr; }
+}
 </style>
 </head>
 <body>
@@ -893,7 +1162,6 @@ ul { list-style: none; }
       <a href="#products">Products</a>
       <a href="#how-it-works">How It Works</a>
       <a href="#solutions">Solutions</a>
-      <a href="#pricing">Pricing</a>
       <a href="#" class="navbar-cta">Book a Demo</a>
     </div>
     <button class="nav-toggle" id="navToggle" aria-label="Toggle navigation">
@@ -911,35 +1179,70 @@ ul { list-style: none; }
   <div class="container">
     <div class="reveal">
       <span class="hero-badge">Introducing BODH Psychometric Solutions</span>
-      <h1>The Future of Work Starts with Understanding People</h1>
-      <p class="subhead">We built the most advanced AI psychometric engine on the planet. So every hire is the right hire, every student finds their path, and every team reaches its potential.</p>
+      <h1>The Future of AI Work Force with Understanding People</h1>
+      <p class="subhead">We built the most advanced AI psychometric engine and assessment tool. So every hire is the right hire, every student finds their path, and every team reaches its potential.</p>
       <div class="hero-btns">
-        <a href="#" class="btn btn-blue btn-lg">Get Started</a>
+        <!-- <a href="#" class="btn btn-blue btn-lg">Get Started</a> -->
         <a href="#products" class="btn btn-ghost btn-lg">See What's Possible</a>
       </div>
     </div>
   </div>
 </section>
 
-<!-- ===== STATS BAR ===== -->
-<section class="stats-bar">
-  <div class="container-wide">
-    <div class="stats-grid reveal">
-      <div class="stat-item">
-        <span class="stat-num" data-count="10000">0</span>
-        <span class="stat-label">Lives Transformed</span>
+<!-- ===== DPDP COMPLIANCE ===== -->
+<section class="dpdp-section">
+  <div class="dpdp-glow"></div>
+  <div class="container-wide" style="position:relative;z-index:1;">
+    <div class="text-center reveal">
+      <div class="dpdp-shield">
+        <svg width="40" height="40" fill="none" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M9 12l2 2 4-4" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </div>
-      <div class="stat-item">
-        <span class="stat-num" data-count="94" data-suffix="%">0</span>
-        <span class="stat-label">Predictive Accuracy</span>
+      <p class="section-eyebrow" style="color:var(--blue);">Privacy by Design</p>
+      <h2 class="headline-medium">DPDP Act Compliance.<br>Built Into Our DNA.</h2>
+      <p class="subhead" style="color:rgba(255,255,255,0.5);margin-top:12px;max-width:700px;">India's Digital Personal Data Protection Act isn't an afterthought — it's the architecture. Every assessment, every data point, every report is engineered for compliance from the ground up.</p>
+    </div>
+    <div class="dpdp-grid">
+      <div class="dpdp-card reveal">
+        <div class="dpdp-card-icon">
+          <svg width="24" height="24" fill="none" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" stroke="#6366f1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+        <h3>Lawful Processing</h3>
+        <p>Explicit consent before every assessment. Purpose-limited data usage with full audit trails.</p>
       </div>
-      <div class="stat-item">
-        <span class="stat-num" data-count="200" data-suffix="+">0</span>
-        <span class="stat-label">Careers Mapped</span>
+      <div class="dpdp-card reveal">
+        <div class="dpdp-card-icon">
+          <svg width="24" height="24" fill="none" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" stroke="#6366f1" stroke-width="2"/><circle cx="9" cy="7" r="4" stroke="#6366f1" stroke-width="2"/><path d="M23 21v-2a4 4 0 00-3-3.87" stroke="#6366f1" stroke-width="2"/></svg>
+        </div>
+        <h3>Data Principal Rights</h3>
+        <p>Right to access, correct, and erase. Users can request their data or withdraw consent — instantly.</p>
       </div>
-      <div class="stat-item">
-        <span class="stat-num" data-count="99" data-suffix=".5%">0</span>
-        <span class="stat-label">Uptime. Always On.</span>
+      <div class="dpdp-card reveal">
+        <div class="dpdp-card-icon">
+          <svg width="24" height="24" fill="none" viewBox="0 0 24 24"><path d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.66 0 3-4.03 3-9s-1.34-9-3-9m0 18c-1.66 0-3-4.03-3-9s1.34-9 3-9" stroke="#6366f1" stroke-width="2"/></svg>
+        </div>
+        <h3>Data Localization</h3>
+        <p>All personal data processed and stored on Indian soil. No unauthorized cross-border transfers.</p>
+      </div>
+      <div class="dpdp-card reveal">
+        <div class="dpdp-card-icon">
+          <svg width="24" height="24" fill="none" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" stroke="#6366f1" stroke-width="2"/><circle cx="12" cy="12" r="3" stroke="#6366f1" stroke-width="2"/></svg>
+        </div>
+        <h3>Breach Protocol</h3>
+        <p>Automated detection with mandatory notification to the Data Protection Board within prescribed timelines.</p>
+      </div>
+      <div class="dpdp-card reveal">
+        <div class="dpdp-card-icon">
+          <svg width="24" height="24" fill="none" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" stroke="#6366f1" stroke-width="2"/><path d="M7 11V7a5 5 0 0110 0v4" stroke="#6366f1" stroke-width="2" stroke-linecap="round"/></svg>
+        </div>
+        <h3>End-to-End Encryption</h3>
+        <p>256-bit SSL encryption at rest and in transit. Role-based access control across every layer.</p>
+      </div>
+      <div class="dpdp-card reveal">
+        <div class="dpdp-card-icon">
+          <svg width="24" height="24" fill="none" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" stroke="#6366f1" stroke-width="2"/><polyline points="14,2 14,8 20,8" stroke="#6366f1" stroke-width="2"/><path d="M9 15l2 2 4-4" stroke="#6366f1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+        <h3>Fiduciary Ready</h3>
+        <p>Periodic audits, DPIAs, and an appointed Data Protection Officer — highest compliance tier.</p>
       </div>
     </div>
   </div>
@@ -954,23 +1257,23 @@ ul { list-style: none; }
       <p class="subhead" style="margin-top:12px;">Every module is designed to work independently or together. Built for scale. Engineered for precision.</p>
     </div>
     <div class="products-grid">
-      <div class="product-card reveal">
+      <a href="assessment-engine.html" class="product-card reveal" style="color:inherit;">
         <img class="product-card-img" src="https://images.unsplash.com/photo-1434030216411-0b793f4b4173?w=500&h=300&fit=crop" alt="Assessment Engine" loading="lazy">
         <div class="product-card-body">
           <h3>Assessment Engine</h3>
-          <p>Adaptive. Intelligent. Multilingual. Build and deploy psychometric assessments that evolve with every response.</p>
+          <p><strong style="color:var(--blue);">Adaptive. Intelligent. Multilingual.</strong> Build and deploy psychometric assessments that evolve with every response.</p>
           <div class="product-tags">
             <span class="product-tag">Adaptive</span>
             <span class="product-tag">Timed</span>
             <span class="product-tag">Multi-language</span>
           </div>
         </div>
-      </div>
+      </a>
       <div class="product-card reveal">
         <img class="product-card-img" src="https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=500&h=300&fit=crop" alt="AI Scoring and Analytics" loading="lazy">
         <div class="product-card-body">
           <h3>AI Scoring & Analytics</h3>
-          <p>Instant behavioral profiling. Predictive candidate ranking. Reports that don't just inform — they decide.</p>
+          <p>Every response tells a story. Our <strong style="color:var(--blue);">AI reads it, scores it</strong>, and tells you exactly who to bet on — before you ever meet them.</p>
           <div class="product-tags">
             <span class="product-tag">AI-Powered</span>
             <span class="product-tag">Behavioral</span>
@@ -982,7 +1285,7 @@ ul { list-style: none; }
         <img class="product-card-img" src="https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=500&h=300&fit=crop" alt="360-Degree Feedback" loading="lazy">
         <div class="product-card-body">
           <h3>360-Degree Feedback</h3>
-          <p>See leaders the way their teams do. Anonymous, multi-rater intelligence that reveals what surveys never could.</p>
+          <p>See leaders the way their teams do. <strong style="color:var(--blue);">Anonymous, multi-rater intelligence</strong> that reveals what surveys never could.</p>
           <div class="product-tags">
             <span class="product-tag">Multi-rater</span>
             <span class="product-tag">Anonymous</span>
@@ -993,8 +1296,8 @@ ul { list-style: none; }
       <div class="product-card reveal">
         <img class="product-card-img" src="https://images.unsplash.com/photo-1552664730-d307ca884978?w=500&h=300&fit=crop" alt="Employee Engagement" loading="lazy">
         <div class="product-card-body">
-          <h3>Employee Engagement</h3>
-          <p>Know who's thriving. Know who's leaving. Predict attrition before it happens and act while it still matters.</p>
+          <h3>People Intelligence</h3>
+          <p>Know who's thriving. Know who's leaving. <strong style="color:var(--blue);">Predict attrition</strong> before it happens and act while it still matters.</p>
           <div class="product-tags">
             <span class="product-tag">Surveys</span>
             <span class="product-tag">Engagement</span>
@@ -1006,7 +1309,7 @@ ul { list-style: none; }
         <img class="product-card-img" src="https://images.unsplash.com/photo-1513258496099-48168024aec0?w=500&h=300&fit=crop" alt="Adaptive Learning" loading="lazy">
         <div class="product-card-body">
           <h3>Adaptive Learning</h3>
-          <p>Every student learns differently. Our AI maps strengths, identifies gaps, and charts a career path that's uniquely theirs.</p>
+          <p>Every student learns differently. Our AI <strong style="color:var(--blue);">maps strengths, identifies gaps</strong>, and charts an academic journey that's uniquely theirs.</p>
           <div class="product-tags">
             <span class="product-tag">Personalized</span>
             <span class="product-tag">Skill Gap</span>
@@ -1018,7 +1321,7 @@ ul { list-style: none; }
         <img class="product-card-img" src="https://images.unsplash.com/photo-1573497019940-1c28c88b4f3e?w=500&h=300&fit=crop" alt="Consultancy Suite" loading="lazy">
         <div class="product-card-body">
           <h3>Consultancy Suite</h3>
-          <p>Your brand. Your assessments. Your reports. White-label everything and deliver psychometric solutions as your own.</p>
+          <p><strong style="color:var(--blue);">Your brand. Your assessments. Your reports.</strong> White-label everything and deliver psychometric solutions as your own.</p>
           <div class="product-tags">
             <span class="product-tag">Custom Tests</span>
             <span class="product-tag">White-label</span>
@@ -1030,75 +1333,30 @@ ul { list-style: none; }
   </div>
 </section>
 
-<!-- ===== HOW IT WORKS ===== -->
-<section class="how-section" id="how-it-works">
-  <div class="container-wide">
-    <div class="text-center reveal">
-      <p class="section-eyebrow">How It Works</p>
-      <h2 class="headline-medium">Radically Simple. Impossibly Powerful.</h2>
-      <p class="subhead" style="margin-top:12px;">Four steps. That's all it takes to go from question to clarity.</p>
-    </div>
-    <div class="steps-wrapper">
-      <div class="steps-line"><div class="steps-line-fill" id="stepsLineFill"></div></div>
-      <div class="steps-grid">
-        <div class="step-card reveal">
-          <span class="step-num">
-            <svg width="28" height="28" fill="none" viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          </span>
-          <h3>Design</h3>
-          <p>Pick from our validated library or build from scratch. Drag. Drop. Deploy.</p>
-        </div>
-        <div class="step-card reveal">
-          <span class="step-num">
-            <svg width="28" height="28" fill="none" viewBox="0 0 24 24"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          </span>
-          <h3>Deliver</h3>
-          <p>One link. Any device. Any language. Assessments that meet people where they are.</p>
-        </div>
-        <div class="step-card reveal">
-          <span class="step-num">
-            <svg width="28" height="28" fill="none" viewBox="0 0 24 24"><path d="M21 12a9 9 0 11-6.22-8.56" stroke="#fff" stroke-width="2" stroke-linecap="round"/><path d="M22 4L12 14.01l-3-3" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          </span>
-          <h3>Analyze</h3>
-          <p>Our AI processes every response in real time. Behavioral profiles. Fitment scores. Zero manual effort.</p>
-        </div>
-        <div class="step-card reveal">
-          <span class="step-num">
-            <svg width="28" height="28" fill="none" viewBox="0 0 24 24"><path d="M18 20V10M12 20V4M6 20v-6" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          </span>
-          <h3>Act</h3>
-          <p>Beautiful reports. Actionable dashboards. Decisions backed by data, not guesswork.</p>
-        </div>
-      </div>
-    </div>
+<!-- ===== DEEP DIVES ===== -->
+<section class="section-dark" id="solutions" style="padding:80px 0;">
+  <div class="container text-center reveal">
+    <p class="section-eyebrow" style="color:var(--blue);">Deep Dive</p>
+    <h2 class="headline-medium">Built Different. By Design.</h2>
+    <p class="subhead" style="color:rgba(255,255,255,0.5);margin-top:12px;">A closer look at the engines powering BODH.</p>
   </div>
 </section>
 
-<!-- ===== FOR CORPORATES ===== -->
-<section class="section-gray" id="solutions">
+<section class="section-gray" style="padding-top:80px;">
   <div class="container-wide">
     <div class="split reveal">
       <div class="split-text">
-        <p class="section-eyebrow">For Enterprise</p>
-        <h2 class="headline-medium">Every Great Company Is Built on Great People Decisions</h2>
-        <p class="subhead">The difference between a good hire and the right hire is intelligence. We give you that intelligence at scale.</p>
+        <p class="section-eyebrow">Assessment Engine</p>
+        <h2 class="headline-medium">Build Assessments That Think As Fast As You Do</h2>
+        <p class="subhead">From adaptive psychometric tests to live coding challenges — design, deploy, and evaluate at any scale, in any language.</p>
         <div class="benefit-list">
           <div class="benefit-item">
             <div class="benefit-icon">
-              <svg width="20" height="20" fill="none" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 11-5.93-9.14" stroke="#6366f1" stroke-width="2" stroke-linecap="round"/><path d="M22 4L12 14.01l-3-3" stroke="#6366f1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <svg width="20" height="20" fill="none" viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" stroke="#6366f1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </div>
             <div>
-              <h4>Precision Hiring</h4>
-              <p>Stop screening resumes. Start understanding people. AI-ranked candidates matched to your culture and role.</p>
-            </div>
-          </div>
-          <div class="benefit-item">
-            <div class="benefit-icon">
-              <svg width="20" height="20" fill="none" viewBox="0 0 24 24"><path d="M18 20V10M12 20V4M6 20v-6" stroke="#6366f1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            </div>
-            <div>
-              <h4>Real-Time Workforce Intelligence</h4>
-              <p>Live dashboards that surface what matters. Pipeline health. Attrition risk. Engagement trends. All in one view.</p>
+              <h4>Drag-and-Drop Builder</h4>
+              <p>Create any assessment visually. Add sections, set time limits, configure scoring — no code required.</p>
             </div>
           </div>
           <div class="benefit-item">
@@ -1106,35 +1364,38 @@ ul { list-style: none; }
               <svg width="20" height="20" fill="none" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" stroke="#6366f1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </div>
             <div>
-              <h4>Enterprise-Grade Security</h4>
-              <p>SSL encryption. Role-based access. DPDP and GDPR compliant. Your data is protected by design, not by promise.</p>
+              <h4>AI-Powered Proctoring</h4>
+              <p>Identity verification, browser lockdown, and anomaly detection. Assessment integrity without a human proctor.</p>
+            </div>
+          </div>
+          <div class="benefit-item">
+            <div class="benefit-icon">
+              <svg width="20" height="20" fill="none" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 11-5.93-9.14" stroke="#6366f1" stroke-width="2" stroke-linecap="round"/><path d="M22 4L12 14.01l-3-3" stroke="#6366f1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </div>
+            <div>
+              <h4>Instant Reports</h4>
+              <p>AI-generated scorecards, comparative analysis, and recommendations the moment an assessment ends.</p>
             </div>
           </div>
         </div>
       </div>
       <div class="split-img">
-        <img src="https://images.unsplash.com/photo-1600880292203-757bb62b4baf?w=600&h=460&fit=crop" alt="Corporate team reviewing hiring analytics" loading="lazy">
+        <img src="https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=600&h=460&fit=crop" alt="Assessment platform on screen with analytics" loading="lazy">
       </div>
     </div>
-  </div>
-</section>
-
-<!-- ===== FOR INSTITUTIONS ===== -->
-<section class="section-white">
-  <div class="container-wide">
-    <div class="split split-reverse reveal">
+    <div class="split split-reverse reveal" style="margin-top:80px;">
       <div class="split-text">
-        <p class="section-eyebrow">For Education</p>
-        <h2 class="headline-medium">Every Student Has a Calling. We Help Them Find It.</h2>
-        <p class="subhead">AI that maps aptitude, personality, and interests to 200+ career paths. Because the right guidance changes everything.</p>
+        <p class="section-eyebrow">Consultancy Suite</p>
+        <h2 class="headline-medium">Your Brand. Your Science. Our Engine.</h2>
+        <p class="subhead">White-label the entire platform and deliver psychometric solutions as your own — to your clients, under your name.</p>
         <div class="benefit-list">
           <div class="benefit-item">
             <div class="benefit-icon">
-              <svg width="20" height="20" fill="none" viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5z" fill="#6366f1"/><path d="M2 17l10 5 10-5M2 12l10 5 10-5" stroke="#6366f1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <svg width="20" height="20" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" stroke="#6366f1" stroke-width="2"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" stroke="#6366f1" stroke-width="2"/></svg>
             </div>
             <div>
-              <h4>Assess at Scale</h4>
-              <p>Hundreds of students. One click. Adaptive tests that scale with your institution, not against it.</p>
+              <h4>Custom Assessment Builder</h4>
+              <p>Design proprietary tests tailored to each client's industry, role, and organizational culture.</p>
             </div>
           </div>
           <div class="benefit-item">
@@ -1142,23 +1403,23 @@ ul { list-style: none; }
               <svg width="20" height="20" fill="none" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" stroke="#6366f1" stroke-width="2"/><polyline points="14,2 14,8 20,8" stroke="#6366f1" stroke-width="2"/></svg>
             </div>
             <div>
-              <h4>Personalized Roadmaps</h4>
-              <p>Each student gets a unique career blueprint. Strengths. Gaps. Next steps. All powered by AI.</p>
+              <h4>Branded Reports</h4>
+              <p>Generate client-ready PDF and interactive reports with your logo, color scheme, and methodology.</p>
             </div>
           </div>
           <div class="benefit-item">
             <div class="benefit-icon">
-              <svg width="20" height="20" fill="none" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" stroke="#6366f1" stroke-width="2"/><path d="M3 9h18M9 21V9" stroke="#6366f1" stroke-width="2"/></svg>
+              <svg width="20" height="20" fill="none" viewBox="0 0 24 24"><path d="M18 20V10M12 20V4M6 20v-6" stroke="#6366f1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </div>
             <div>
-              <h4>Insights That Move the Needle</h4>
-              <p>Track cohort trends, measure outcomes, and prove the impact of career guidance with real data.</p>
+              <h4>Client Analytics Portal</h4>
+              <p>Give each client their own dashboard with real-time results, candidate comparisons, and cohort insights.</p>
             </div>
           </div>
         </div>
       </div>
       <div class="split-img">
-        <img src="https://images.unsplash.com/photo-1523240795612-9a054b0db644?w=600&h=460&fit=crop" alt="Students collaborating in modern classroom" loading="lazy">
+        <img src="https://images.unsplash.com/photo-1553877522-43269d4ea984?w=600&h=460&fit=crop" alt="Consultant presenting branded analytics to client" loading="lazy">
       </div>
     </div>
   </div>
@@ -1171,7 +1432,7 @@ ul { list-style: none; }
   <div class="banner-content">
     <h2>Intelligence That Scales with You</h2>
     <p>From a team of 10 to an enterprise of 10,000. One platform that grows as you do — without compromising depth or accuracy.</p>
-    <a href="#pricing" class="btn btn-blue btn-lg">See Plans</a>
+    <a href="#" class="btn btn-blue btn-lg" data-modal="enquiry">Enquiry</a>
   </div>
 </section>
 
@@ -1274,71 +1535,189 @@ ul { list-style: none; }
   </div>
 </section>
 
-<!-- ===== PRICING ===== -->
-<section class="section-gray" id="pricing">
-  <div class="container">
-    <div class="text-center reveal">
-      <p class="section-eyebrow">Pricing</p>
-      <h2 class="headline-medium">Start Free. Scale Infinitely.</h2>
-      <p class="subhead" style="margin-top:12px;">No hidden fees. No surprises. Just the intelligence your organization needs.</p>
+<!-- ===== ABOUT US ===== -->
+<style>
+.about-section { background: var(--dark-bg); padding: 100px 0; position: relative; overflow: hidden; }
+.about-section::before { content:''; position:absolute; bottom:-200px; right:-100px; width:500px; height:500px; background:radial-gradient(circle,rgba(99,102,241,0.1) 0%,transparent 70%); pointer-events:none; }
+.about-section .headline-medium { color:#fff; }
+.about-top { display:grid; grid-template-columns:1fr 1fr; gap:80px; align-items:center; }
+.about-text p { font-size:1.05rem; color:rgba(255,255,255,0.7); line-height:1.7; margin-bottom:20px; }
+.about-text p strong { color:#fff; }
+.about-visual { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+.about-stat { background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:16px; padding:32px 24px; text-align:center; transition:border-color 0.3s; }
+.about-stat:hover { border-color:rgba(99,102,241,0.3); }
+.about-stat-num { font-size:2.4rem; font-weight:700; background:linear-gradient(135deg,var(--blue) 0%,#a78bfa 100%); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; display:block; }
+.about-stat-label { font-size:0.85rem; color:rgba(255,255,255,0.5); margin-top:4px; }
+.about-values { display:grid; grid-template-columns:repeat(3,1fr); gap:20px; margin-top:80px; }
+.about-value { text-align:center; padding:40px 24px; }
+.about-value-icon { width:56px; height:56px; border-radius:50%; background:rgba(99,102,241,0.1); display:inline-flex; align-items:center; justify-content:center; margin-bottom:20px; }
+.about-value h3 { font-size:1.1rem; font-weight:600; color:#fff; margin-bottom:8px; }
+.about-value p { font-size:0.88rem; color:rgba(255,255,255,0.55); line-height:1.55; }
+.about-divider { width:60px; height:2px; background:linear-gradient(90deg,var(--blue),#a78bfa); margin:0 auto; border-radius:2px; }
+@media(max-width:768px) { .about-top{grid-template-columns:1fr;gap:48px;} .about-values{grid-template-columns:1fr;} .about-visual{grid-template-columns:1fr 1fr;} }
+</style>
+<section class="about-section" id="about">
+  <div class="container-wide" style="position:relative;z-index:1;">
+    <div class="about-top reveal">
+      <div class="about-text">
+        <p class="section-eyebrow" style="color:var(--blue);">About BODH</p>
+        <h2 class="headline-medium" style="margin-bottom:24px;">We Don't Just Assess People.<br>We Understand Them.</h2>
+        <p><strong>BODH Psychometric Solutions</strong> was founded on a single belief: the right people in the right roles can change everything. We combined decades of psychometric science with cutting-edge AI to build a platform that sees what resumes, interviews, and gut instincts never could.</p>
+        <p>From <strong>startups to enterprises</strong>, from <strong>classrooms to boardrooms</strong> — we help organizations make people decisions with confidence, clarity, and data they can trust.</p>
+        <p>We're not here to replace human judgment. We're here to <strong>make it sharper</strong>.</p>
+      </div>
+      <div class="about-visual">
+        <div class="about-stat">
+          <span class="about-stat-num">10K+</span>
+          <span class="about-stat-label">People Assessed</span>
+        </div>
+        <div class="about-stat">
+          <span class="about-stat-num">94%</span>
+          <span class="about-stat-label">Prediction Accuracy</span>
+        </div>
+        <div class="about-stat">
+          <span class="about-stat-num">200+</span>
+          <span class="about-stat-label">Career Paths</span>
+        </div>
+        <div class="about-stat">
+          <span class="about-stat-num">6</span>
+          <span class="about-stat-label">Platform Modules</span>
+        </div>
+      </div>
     </div>
-    <div class="pricing-grid">
-      <div class="pricing-card reveal">
-        <span class="pricing-tier">Starter</span>
-        <div class="pricing-amount">Free</div>
-        <div class="pricing-period">For individuals exploring BODH</div>
-        <div class="pricing-features">
-          <div class="pricing-feature">1 Basic Assessment</div>
-          <div class="pricing-feature">Summary Report</div>
-          <div class="pricing-feature">Top 3 Career Matches</div>
-          <div class="pricing-feature">Email Support</div>
+    <div class="about-values">
+      <div class="about-value reveal">
+        <div class="about-value-icon">
+          <svg width="24" height="24" fill="none" viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5z" fill="rgba(99,102,241,0.3)"/><path d="M2 17l10 5 10-5M2 12l10 5 10-5" stroke="#6366f1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </div>
-        <a href="#" class="btn btn-ghost btn-sm" style="width:100%;">Get Started Free</a>
+        <h3>Science First</h3>
+        <p>Every assessment is grounded in validated psychometric frameworks. No guesswork, no pseudoscience — just research-backed precision.</p>
       </div>
-      <div class="pricing-card featured reveal">
-        <span class="pricing-popular">Most Popular</span>
-        <span class="pricing-tier">Business</span>
-        <div class="pricing-amount">&#8377;4,999</div>
-        <div class="pricing-period">per month</div>
-        <div class="pricing-features">
-          <div class="pricing-feature">All Assessment Types</div>
-          <div class="pricing-feature">AI Scoring & Analytics</div>
-          <div class="pricing-feature">360-Degree Feedback</div>
-          <div class="pricing-feature">Hiring Dashboard</div>
-          <div class="pricing-feature">PDF & Graphical Reports</div>
-          <div class="pricing-feature">Priority Support</div>
+      <div class="about-value reveal">
+        <div class="about-value-icon">
+          <svg width="24" height="24" fill="none" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" stroke="#6366f1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </div>
-        <a href="#" class="btn btn-blue btn-sm" style="width:100%;">Start Free Trial</a>
+        <h3>Privacy as a Right</h3>
+        <p>DPDP Act, GDPR, ISO 27001. We don't treat compliance as a checklist — it's in our architecture from day one.</p>
       </div>
-      <div class="pricing-card reveal">
-        <span class="pricing-tier">Enterprise</span>
-        <div class="pricing-amount">Custom</div>
-        <div class="pricing-period">Built around your organization</div>
-        <div class="pricing-features">
-          <div class="pricing-feature">Unlimited Users</div>
-          <div class="pricing-feature">Custom Assessment Builder</div>
-          <div class="pricing-feature">HRMS & LMS Integration</div>
-          <div class="pricing-feature">White-label Reports</div>
-          <div class="pricing-feature">Dedicated Account Manager</div>
-          <div class="pricing-feature">API Access & SSO</div>
+      <div class="about-value reveal">
+        <div class="about-value-icon">
+          <svg width="24" height="24" fill="none" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" stroke="#6366f1" stroke-width="2"/><circle cx="9" cy="7" r="4" stroke="#6366f1" stroke-width="2"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" stroke="#6366f1" stroke-width="2"/></svg>
         </div>
-        <a href="#" class="btn btn-ghost btn-sm" style="width:100%;">Contact Sales</a>
+        <h3>People Over Metrics</h3>
+        <p>We build tools that help organizations see the whole person — strengths, potential, and growth — not just scores on a sheet.</p>
       </div>
     </div>
   </div>
 </section>
 
-<!-- ===== FINAL CTA ===== -->
-<section class="final-cta" id="final-cta">
-  <div class="container reveal">
-    <h2 class="headline-large">The Best Decision Your<br>Organization Will Ever Make</h2>
-    <p class="subhead">10,000+ people assessed. 94% predictive accuracy. The future of talent intelligence starts here.</p>
-    <div class="final-btns">
-      <a href="#" class="btn btn-blue btn-lg">Get Started Free</a>
-      <a href="#" class="btn btn-ghost btn-lg">Schedule a Demo</a>
+<!-- ===== DEMO MODAL ===== -->
+<div class="modal-overlay" id="demoModal">
+  <div class="modal">
+    <button class="modal-close" id="demoClose" aria-label="Close">&times;</button>
+    <div id="demoForm">
+      <h2>Schedule a Demo</h2>
+      <p class="modal-sub">See BODH in action. Fill in your details and our team will reach out within 24 hours.</p>
+      <form id="demoFormEl">
+        <div class="form-row">
+          <div class="form-group">
+            <label>First Name</label>
+            <input type="text" placeholder="John" required>
+          </div>
+          <div class="form-group">
+            <label>Last Name</label>
+            <input type="text" placeholder="Doe" required>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Work Email</label>
+          <input type="email" placeholder="john@company.com" required>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Phone Number</label>
+            <input type="tel" placeholder="+91 98765 43210">
+          </div>
+          <div class="form-group">
+            <label>Company Name</label>
+            <input type="text" placeholder="Acme Corp" required>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>I'm Interested In</label>
+          <select required>
+            <option value="" disabled selected>Select a product</option>
+            <option>Assessment Engine</option>
+            <option>AI Scoring & Analytics</option>
+            <option>360-Degree Feedback</option>
+            <option>People Intelligence</option>
+            <option>Adaptive Learning</option>
+            <option>Consultancy Suite</option>
+            <option>Full Platform</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Message (Optional)</label>
+          <textarea placeholder="Tell us about your requirements..."></textarea>
+        </div>
+        <button type="submit" class="btn btn-blue btn-lg form-submit">Submit Request</button>
+      </form>
+    </div>
+    <div class="form-success" id="demoSuccess">
+      <svg width="64" height="64" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="rgba(99,102,241,0.12)"/><path d="M9 12l2 2 4-4" stroke="#6366f1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <h3>Thank You!</h3>
+      <p>Your demo request has been submitted. Our team will reach out within 24 hours.</p>
     </div>
   </div>
-</section>
+</div>
+
+<!-- ===== ENQUIRY MODAL ===== -->
+<div class="modal-overlay" id="enquiryModal">
+  <div class="modal">
+    <button class="modal-close" id="enquiryClose" aria-label="Close">&times;</button>
+    <div id="enquiryForm">
+      <h2>Get in Touch</h2>
+      <p class="modal-sub">Have a question or need more information? Drop us a message and we'll get back to you.</p>
+      <form id="enquiryFormEl">
+        <div class="form-row">
+          <div class="form-group">
+            <label>Full Name</label>
+            <input type="text" placeholder="Your name" required>
+          </div>
+          <div class="form-group">
+            <label>Email</label>
+            <input type="email" placeholder="you@email.com" required>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Phone Number</label>
+          <input type="tel" placeholder="+91 98765 43210">
+        </div>
+        <div class="form-group">
+          <label>Subject</label>
+          <select required>
+            <option value="" disabled selected>What's this about?</option>
+            <option>Product Enquiry</option>
+            <option>Partnership</option>
+            <option>Technical Support</option>
+            <option>Pricing</option>
+            <option>Other</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Message</label>
+          <textarea placeholder="How can we help?" required></textarea>
+        </div>
+        <button type="submit" class="btn btn-blue btn-lg form-submit">Send Message</button>
+      </form>
+    </div>
+    <div class="form-success" id="enquirySuccess">
+      <svg width="64" height="64" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="rgba(99,102,241,0.12)"/><path d="M9 12l2 2 4-4" stroke="#6366f1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <h3>Message Sent!</h3>
+      <p>We've received your enquiry. Expect a response within 24 hours.</p>
+    </div>
+  </div>
+</div>
 
 <!-- ===== FOOTER ===== -->
 <footer class="footer">
@@ -1361,7 +1740,7 @@ ul { list-style: none; }
       </div>
       <div class="footer-col">
         <h4>Platform</h4>
-        <a href="#">Assessment Engine</a>
+        <a href="assessment-engine.html">Assessment Engine</a>
         <a href="#">AI Analytics</a>
         <a href="#">360 Feedback</a>
         <a href="#">Employee Engagement</a>
@@ -1512,7 +1891,65 @@ ul { list-style: none; }
 
   document.querySelectorAll('.ring-card').forEach(function(card) { ringObserver.observe(card); });
 
+  // --- Modal logic ---
+  function setupModal(modalId, closeId, formId, successId, triggers) {
+    var overlay = document.getElementById(modalId);
+    var closeBtn = document.getElementById(closeId);
+    var form = document.getElementById(formId);
+    var success = document.getElementById(successId);
+    if (!overlay) return;
 
+    function openModal(e) {
+      e.preventDefault();
+      overlay.classList.add('open');
+      document.body.style.overflow = 'hidden';
+    }
+
+    function closeModal() {
+      overlay.classList.remove('open');
+      document.body.style.overflow = '';
+    }
+
+    triggers.forEach(function(sel) {
+      document.querySelectorAll(sel).forEach(function(btn) {
+        btn.addEventListener('click', openModal);
+      });
+    });
+
+    closeBtn.addEventListener('click', closeModal);
+
+    overlay.addEventListener('click', function(e) {
+      if (e.target === overlay) closeModal();
+    });
+
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape' && overlay.classList.contains('open')) closeModal();
+    });
+
+    var formEl = form.querySelector('form');
+    if (formEl) {
+      formEl.addEventListener('submit', function(e) {
+        e.preventDefault();
+        form.style.display = 'none';
+        success.style.display = 'block';
+        setTimeout(function() {
+          closeModal();
+          form.style.display = '';
+          success.style.display = 'none';
+          formEl.reset();
+        }, 3000);
+      });
+    }
+  }
+
+  setupModal('demoModal', 'demoClose', 'demoForm', 'demoSuccess', [
+    '.navbar-cta',
+    '[data-modal="demo"]'
+  ]);
+
+  setupModal('enquiryModal', 'enquiryClose', 'enquiryForm', 'enquirySuccess', [
+    '[data-modal="enquiry"]'
+  ]);
 
 })();
 </script>
