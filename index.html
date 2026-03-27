@@ -593,14 +593,31 @@ ul { list-style: none; }
 
 .ring-card { text-align: center; }
 
-.ring-svg {
+.ring-wrap {
+  position: relative;
   width: 160px;
   height: 160px;
   margin: 0 auto 20px;
+}
+
+.ring-svg {
+  width: 160px;
+  height: 160px;
   transform: rotate(-90deg);
 }
 
-.ring-bg { fill: none; stroke: rgba(99,102,241,0.12); stroke-width: 8; }
+.ring-percent {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 2.2rem;
+  font-weight: 700;
+  color: #fff;
+  margin: 0;
+}
+
+.ring-bg { fill: none; stroke: rgba(255,255,255,0.1); stroke-width: 8; }
 .ring-fg {
   fill: none;
   stroke: var(--blue);
@@ -609,8 +626,7 @@ ul { list-style: none; }
   transition: stroke-dashoffset 1.5s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.ring-label { font-size: 1.1rem; font-weight: 600; letter-spacing: -0.01em; }
-.ring-percent { font-size: 2rem; font-weight: 700; color: var(--blue); display: block; margin-top: 4px; }
+.ring-label { font-size: 1.1rem; font-weight: 600; letter-spacing: -0.01em; color: rgba(255,255,255,0.7); }
 
 /* ===== PRICING ===== */
 .pricing-grid {
@@ -1169,36 +1185,44 @@ ul { list-style: none; }
     </div>
     <div class="rings-grid">
       <div class="ring-card reveal">
-        <svg class="ring-svg" viewBox="0 0 160 160">
-          <circle class="ring-bg" cx="80" cy="80" r="68"/>
-          <circle class="ring-fg" cx="80" cy="80" r="68" data-percent="92" stroke-dasharray="427.26" stroke-dashoffset="427.26"/>
-        </svg>
+        <div class="ring-wrap">
+          <svg class="ring-svg" viewBox="0 0 160 160">
+            <circle class="ring-bg" cx="80" cy="80" r="68"/>
+            <circle class="ring-fg" cx="80" cy="80" r="68" data-percent="92" stroke-dasharray="427.26" stroke-dashoffset="427.26"/>
+          </svg>
+          <span class="ring-percent" data-target="92">0%</span>
+        </div>
         <span class="ring-label">Talent Acquisition</span>
-        <span class="ring-percent" data-target="92">0%</span>
       </div>
       <div class="ring-card reveal">
-        <svg class="ring-svg" viewBox="0 0 160 160">
-          <circle class="ring-bg" cx="80" cy="80" r="68"/>
-          <circle class="ring-fg" cx="80" cy="80" r="68" data-percent="88" stroke-dasharray="427.26" stroke-dashoffset="427.26"/>
-        </svg>
+        <div class="ring-wrap">
+          <svg class="ring-svg" viewBox="0 0 160 160">
+            <circle class="ring-bg" cx="80" cy="80" r="68"/>
+            <circle class="ring-fg" cx="80" cy="80" r="68" data-percent="88" stroke-dasharray="427.26" stroke-dashoffset="427.26"/>
+          </svg>
+          <span class="ring-percent" data-target="88">0%</span>
+        </div>
         <span class="ring-label">Personality Profile</span>
-        <span class="ring-percent" data-target="88">0%</span>
       </div>
       <div class="ring-card reveal">
-        <svg class="ring-svg" viewBox="0 0 160 160">
-          <circle class="ring-bg" cx="80" cy="80" r="68"/>
-          <circle class="ring-fg" cx="80" cy="80" r="68" data-percent="76" stroke-dasharray="427.26" stroke-dashoffset="427.26"/>
-        </svg>
+        <div class="ring-wrap">
+          <svg class="ring-svg" viewBox="0 0 160 160">
+            <circle class="ring-bg" cx="80" cy="80" r="68"/>
+            <circle class="ring-fg" cx="80" cy="80" r="68" data-percent="76" stroke-dasharray="427.26" stroke-dashoffset="427.26"/>
+          </svg>
+          <span class="ring-percent" data-target="76">0%</span>
+        </div>
         <span class="ring-label">Learning Agility</span>
-        <span class="ring-percent" data-target="76">0%</span>
       </div>
       <div class="ring-card reveal">
-        <svg class="ring-svg" viewBox="0 0 160 160">
-          <circle class="ring-bg" cx="80" cy="80" r="68"/>
-          <circle class="ring-fg" cx="80" cy="80" r="68" data-percent="84" stroke-dasharray="427.26" stroke-dashoffset="427.26"/>
-        </svg>
+        <div class="ring-wrap">
+          <svg class="ring-svg" viewBox="0 0 160 160">
+            <circle class="ring-bg" cx="80" cy="80" r="68"/>
+            <circle class="ring-fg" cx="80" cy="80" r="68" data-percent="84" stroke-dasharray="427.26" stroke-dashoffset="427.26"/>
+          </svg>
+          <span class="ring-percent" data-target="84">0%</span>
+        </div>
         <span class="ring-label">Digital Readiness</span>
-        <span class="ring-percent" data-target="84">0%</span>
       </div>
     </div>
   </div>
