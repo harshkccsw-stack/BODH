@@ -1,0 +1,211 @@
+'use client';
+
+import { useState, useMemo } from 'react';
+import { Card, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
+import {
+  GraduationCap,
+  Clock,
+  Globe,
+  Hash,
+  Search,
+  ShieldCheck,
+  Users,
+} from 'lucide-react';
+
+const instruments = [
+  {
+    id: 'scas',
+    name: 'Spence Children\'s Anxiety Scale (SCAS)',
+    category: 'Anxiety Screening',
+    ageRange: '6–18 years',
+    items: 45,
+    duration: '15 min',
+    languages: ['EN', 'HI', 'TA', 'TE', 'MR'],
+    tier: 'T1',
+    norms: 'Age-band Indian norms: 6–9, 10–13, 14–18. Hindi + 4 regional language versions',
+    informants: ['Self', 'Parent'],
+    description: 'Separation anxiety, social phobia, OCD, panic/agoraphobia, physical injury fears, generalised anxiety.',
+  },
+  {
+    id: 'cdi2',
+    name: 'Children\'s Depression Inventory-2 (CDI-2)',
+    category: 'Depression Screening',
+    ageRange: '7–17 years',
+    items: 28,
+    duration: '12 min',
+    languages: ['EN', 'HI'],
+    tier: 'T1',
+    norms: 'Hindi standardisation. Indian normative sample by age band and gender',
+    informants: ['Self', 'Parent'],
+    description: 'Negative mood/physical symptoms, negative self-esteem, interpersonal problems, ineffectiveness.',
+  },
+  {
+    id: 'adhd-rs5',
+    name: 'ADHD Rating Scale-5',
+    category: 'ADHD Assessment',
+    ageRange: '5–17 years',
+    items: 18,
+    duration: '10 min',
+    languages: ['EN', 'HI', 'TA'],
+    tier: 'T1',
+    norms: 'Parent and teacher forms. Indian school population norms. CBSE and state board samples',
+    informants: ['Parent', 'Teacher'],
+    description: 'Inattention and hyperactivity-impulsivity symptom domains aligned to DSM-5 criteria.',
+  },
+  {
+    id: 'dev-milestones',
+    name: 'Developmental Milestones Tracker',
+    category: 'Developmental Screening',
+    ageRange: '0–6 years',
+    items: 60,
+    duration: '20 min',
+    languages: ['EN', 'HI', 'TA', 'TE', 'MR', 'KN'],
+    tier: 'T1',
+    norms: 'Indian WHO growth standard-aligned. Covers gross motor, fine motor, language, social, cognitive',
+    informants: ['Parent'],
+    description: 'Five developmental domains mapped against age-appropriate milestones with Indian population benchmarks.',
+  },
+  {
+    id: 'school-adj',
+    name: 'School Adjustment Scale',
+    category: 'Adjustment & Wellbeing',
+    ageRange: '6–18 years',
+    items: 35,
+    duration: '12 min',
+    languages: ['EN', 'HI'],
+    tier: 'T1',
+    norms: 'Academic adjustment, peer relations, teacher relationship, family-school interface. Indian school norms',
+    informants: ['Self'],
+    description: 'Measures school adjustment across four domains for early identification of at-risk students.',
+  },
+  {
+    id: 'academic-stress',
+    name: 'Academic Stress Inventory',
+    category: 'Stress & Burnout',
+    ageRange: '10–18 years',
+    items: 40,
+    duration: '15 min',
+    languages: ['EN', 'HI', 'TA', 'TE'],
+    tier: 'T1',
+    norms: 'Academic pressure, exam anxiety, parental expectations, peer competition. Board exam season norms',
+    informants: ['Self'],
+    description: 'Measures academic stress specifically calibrated for Indian education context including board exam pressure.',
+  },
+];
+
+const tierColors: Record<string, string> = {
+  T1: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
+  T2: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+};
+
+const informantColors: Record<string, string> = {
+  Self: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+  Parent: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
+  Teacher: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
+};
+
+export default function CounsellingInstrumentsPage() {
+  const [search, setSearch] = useState('');
+
+  const filtered = useMemo(() => {
+    if (!search) return instruments;
+    const q = search.toLowerCase();
+    return instruments.filter(
+      (i) => i.name.toLowerCase().includes(q) || i.category.toLowerCase().includes(q),
+    );
+  }, [search]);
+
+  return (
+    <div className="p-5 lg:p-7.5 space-y-7">
+      <div>
+        <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
+          <span>BodhAssess</span><span>/</span><span>Instruments</span><span>/</span>
+          <span className="text-foreground font-medium">Counselling & Child</span>
+        </div>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">Counselling & Child Instruments</h1>
+            <p className="text-sm text-muted-foreground mt-1">Age-normed developmental tools with multi-informant design and parental consent workflows.</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-4 gap-5">
+        <Card><CardContent className="p-5 text-center"><p className="text-2xl font-semibold">{instruments.length}</p><p className="text-xs text-muted-foreground mt-1">Instruments</p></CardContent></Card>
+        <Card><CardContent className="p-5 text-center"><p className="text-2xl font-semibold">0–18</p><p className="text-xs text-muted-foreground mt-1">Age Range (years)</p></CardContent></Card>
+        <Card><CardContent className="p-5 text-center"><p className="text-2xl font-semibold">3</p><p className="text-xs text-muted-foreground mt-1">Informant Types</p></CardContent></Card>
+        <Card><CardContent className="p-5 text-center"><p className="text-2xl font-semibold flex items-center justify-center gap-1"><ShieldCheck className="h-5 w-5 text-green-600" />DPDP</p><p className="text-xs text-muted-foreground mt-1">Parental Consent Required</p></CardContent></Card>
+      </div>
+
+      <div className="relative max-w-md">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <input
+          type="text"
+          placeholder="Search instruments..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="w-full rounded-lg border border-border bg-background px-10 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+        />
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+        {filtered.map((inst) => (
+          <Card key={inst.id} className="hover:shadow-md transition-shadow">
+            <CardContent className="p-6 space-y-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-green-500/10">
+                  <GraduationCap className="h-5 w-5 text-green-600" />
+                </div>
+                <div className="flex gap-2">
+                  <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-400">
+                    Counselling
+                  </span>
+                  <span className={cn('inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium', tierColors[inst.tier])}>
+                    {inst.tier}
+                  </span>
+                </div>
+              </div>
+
+              <div>
+                <h3 className="font-semibold text-sm">{inst.name}</h3>
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded">{inst.category}</span>
+                  <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded">{inst.ageRange}</span>
+                </div>
+              </div>
+
+              <p className="text-sm text-muted-foreground leading-relaxed">{inst.description}</p>
+
+              <div className="flex items-center gap-1.5">
+                <Users className="h-3 w-3 text-muted-foreground" />
+                <span className="text-xs text-muted-foreground mr-1">Informants:</span>
+                {inst.informants.map((inf) => (
+                  <span key={inf} className={cn('inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium', informantColors[inf])}>
+                    {inf}
+                  </span>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 text-xs text-muted-foreground">
+                <span className="flex items-center gap-1.5"><Hash className="h-3 w-3" />{inst.items} items</span>
+                <span className="flex items-center gap-1.5"><Clock className="h-3 w-3" />{inst.duration}</span>
+                <span className="flex items-center gap-1.5"><Globe className="h-3 w-3" />{inst.languages.join(', ')}</span>
+              </div>
+
+              <div className="border-t border-border pt-3">
+                <p className="text-xs text-muted-foreground flex items-start gap-1.5">
+                  <ShieldCheck className="h-3 w-3 mt-0.5 shrink-0 text-green-600" />
+                  {inst.norms}
+                </p>
+              </div>
+
+              <Button variant="primary" size="sm" className="w-full">Start Session</Button>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+}

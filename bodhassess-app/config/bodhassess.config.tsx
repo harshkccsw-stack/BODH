@@ -149,7 +149,7 @@ export const MENU_SIDEBAR: MenuConfig = [
     title: 'Settings',
     icon: Settings,
     children: [
-      { title: 'Tenant Settings', path: '/settings/tenant' },
+      { title: 'Organization Settings', path: '/settings/tenant' },
       { title: 'Tier Configuration', path: '/settings/tiers' },
       { title: 'Integrations', path: '/settings/integrations' },
     ],

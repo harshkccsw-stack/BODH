@@ -1,10 +1,15 @@
+import { dirname } from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // No basePath for local dev — set via env for production
   basePath: process.env.NEXT_PUBLIC_BASE_PATH || '',
-
-  // Standalone output for Docker deployment
   output: 'standalone',
+  turbopack: {
+    root: __dirname,
+  },
 };
 
 export default nextConfig;

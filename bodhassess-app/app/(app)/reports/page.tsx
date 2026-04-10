@@ -1,0 +1,254 @@
+'use client';
+
+import { useState } from 'react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  Eye,
+  FileText,
+  Filter,
+  Search,
+} from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input, InputWrapper } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+
+type ReportStatus = 'Draft' | 'Approved' | 'Finalized';
+type ReportFormat = 'PDF' | 'Interactive';
+type Vertical = 'Clinical' | 'Industrial' | 'Counselling';
+
+interface Report {
+  id: string;
+  sessionId: string;
+  respondent: string;
+  instrument: string;
+  vertical: Vertical;
+  format: ReportFormat;
+  status: ReportStatus;
+  generatedAt: string;
+}
+
+const mockReports: Report[] = [
+  { id: 'RPT-0081', sessionId: 'SESS-0047', respondent: 'Arjun Patel', instrument: 'PHQ-9', vertical: 'Clinical', format: 'PDF', status: 'Finalized', generatedAt: '2026-04-09' },
+  { id: 'RPT-0080', sessionId: 'SESS-0045', respondent: 'Rahul Verma', instrument: 'DASS-21', vertical: 'Clinical', format: 'Interactive', status: 'Approved', generatedAt: '2026-04-08' },
+  { id: 'RPT-0079', sessionId: 'SESS-0044', respondent: 'Ananya Reddy', instrument: 'Beck BDI-II', vertical: 'Clinical', format: 'PDF', status: 'Draft', generatedAt: '2026-04-08' },
+  { id: 'RPT-0078', sessionId: 'SESS-0043', respondent: 'Vikram Singh', instrument: 'Big Five IPIP-NEO', vertical: 'Industrial', format: 'PDF', status: 'Finalized', generatedAt: '2026-04-07' },
+  { id: 'RPT-0077', sessionId: 'SESS-0041', respondent: 'Karthik Iyer', instrument: 'SCAS', vertical: 'Counselling', format: 'Interactive', status: 'Approved', generatedAt: '2026-04-06' },
+  { id: 'RPT-0076', sessionId: 'SESS-0039', respondent: 'Aditya Joshi', instrument: 'Learning Agility Scale', vertical: 'Industrial', format: 'PDF', status: 'Finalized', generatedAt: '2026-04-05' },
+  { id: 'RPT-0075', sessionId: 'SESS-0037', respondent: 'Rohan Deshmukh', instrument: 'PHQ-9', vertical: 'Clinical', format: 'PDF', status: 'Finalized', generatedAt: '2026-04-04' },
+  { id: 'RPT-0074', sessionId: 'SESS-0036', respondent: 'Divya Menon', instrument: 'GAD-7', vertical: 'Clinical', format: 'Interactive', status: 'Approved', generatedAt: '2026-04-04' },
+];
+
+const statusBadgeProps: Record<ReportStatus, { variant: 'success' | 'primary' | 'warning'; appearance: 'light' }> = {
+  'Finalized': { variant: 'success', appearance: 'light' },
+  'Approved': { variant: 'primary', appearance: 'light' },
+  'Draft': { variant: 'warning', appearance: 'light' },
+};
+
+const verticalBadgeProps: Record<Vertical, { variant: 'info' | 'secondary' | 'primary'; appearance: 'outline' }> = {
+  'Clinical': { variant: 'info', appearance: 'outline' },
+  'Industrial': { variant: 'secondary', appearance: 'outline' },
+  'Counselling': { variant: 'primary', appearance: 'outline' },
+};
+
+export default function ReportsPage() {
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [verticalFilter, setVerticalFilter] = useState('all');
+  const [formatFilter, setFormatFilter] = useState('all');
+
+  const filteredReports = mockReports.filter((report) => {
+    const matchesSearch =
+      searchQuery === '' ||
+      report.respondent.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      report.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      report.instrument.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesStatus = statusFilter === 'all' || report.status === statusFilter;
+    const matchesVertical = verticalFilter === 'all' || report.vertical === verticalFilter;
+    const matchesFormat = formatFilter === 'all' || report.format === formatFilter;
+    return matchesSearch && matchesStatus && matchesVertical && matchesFormat;
+  });
+
+  return (
+    <div className="p-5 lg:p-7.5 space-y-7">
+      {/* Header */}
+      <div>
+        <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
+          <span>BodhAssess</span>
+          <span>/</span>
+          <span className="text-foreground font-medium">Reports</span>
+        </div>
+        <h1 className="text-2xl font-semibold tracking-tight">Reports</h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          View, manage, and download assessment reports across all verticals.
+        </p>
+      </div>
+
+      {/* Filter Bar */}
+      <Card>
+        <CardContent className="p-4">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+            <InputWrapper variant="md" className="w-full sm:w-72">
+              <Search className="size-4" />
+              <Input
+                placeholder="Search reports, respondents..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+            </InputWrapper>
+
+            <div className="flex items-center gap-3 flex-wrap">
+              <Select value={verticalFilter} onValueChange={setVerticalFilter}>
+                <SelectTrigger className="w-40" size="md">
+                  <Filter className="size-3.5 opacity-60" />
+                  <SelectValue placeholder="Vertical" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Verticals</SelectItem>
+                  <SelectItem value="Clinical">Clinical</SelectItem>
+                  <SelectItem value="Industrial">Industrial</SelectItem>
+                  <SelectItem value="Counselling">Counselling</SelectItem>
+                </SelectContent>
+              </Select>
+
+              <Select value={formatFilter} onValueChange={setFormatFilter}>
+                <SelectTrigger className="w-40" size="md">
+                  <SelectValue placeholder="Format" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Formats</SelectItem>
+                  <SelectItem value="PDF">PDF</SelectItem>
+                  <SelectItem value="Interactive">Interactive</SelectItem>
+                </SelectContent>
+              </Select>
+
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger className="w-40" size="md">
+                  <SelectValue placeholder="Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Statuses</SelectItem>
+                  <SelectItem value="Draft">Draft</SelectItem>
+                  <SelectItem value="Approved">Approved</SelectItem>
+                  <SelectItem value="Finalized">Finalized</SelectItem>
+                </SelectContent>
+              </Select>
+
+              <Input type="date" variant="md" className="w-40" defaultValue="2026-04-01" />
+              <span className="text-muted-foreground text-sm">to</span>
+              <Input type="date" variant="md" className="w-40" defaultValue="2026-04-09" />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Reports Table */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base">All Reports</CardTitle>
+            <span className="text-sm text-muted-foreground">
+              Showing {filteredReports.length} of {mockReports.length} reports
+            </span>
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border">
+                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Report ID</th>
+                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Session ID</th>
+                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Respondent</th>
+                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Instrument</th>
+                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Vertical</th>
+                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Format</th>
+                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Status</th>
+                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Generated</th>
+                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredReports.map((report) => (
+                  <tr
+                    key={report.id}
+                    className="border-b border-border last:border-0 hover:bg-muted/50 transition-colors"
+                  >
+                    <td className="px-5 py-3 font-mono text-xs">{report.id}</td>
+                    <td className="px-5 py-3 font-mono text-xs">{report.sessionId}</td>
+                    <td className="px-5 py-3 font-medium">{report.respondent}</td>
+                    <td className="px-5 py-3">{report.instrument}</td>
+                    <td className="px-5 py-3">
+                      <Badge size="sm" shape="circle" {...verticalBadgeProps[report.vertical]}>
+                        {report.vertical}
+                      </Badge>
+                    </td>
+                    <td className="px-5 py-3">
+                      <Badge
+                        size="sm"
+                        shape="circle"
+                        variant={report.format === 'PDF' ? 'secondary' : 'info'}
+                        appearance="outline"
+                      >
+                        <FileText className="size-3" />
+                        {report.format}
+                      </Badge>
+                    </td>
+                    <td className="px-5 py-3">
+                      <Badge size="sm" shape="circle" {...statusBadgeProps[report.status]}>
+                        {report.status}
+                      </Badge>
+                    </td>
+                    <td className="px-5 py-3 text-muted-foreground">{report.generatedAt}</td>
+                    <td className="px-5 py-3">
+                      <div className="flex items-center gap-1">
+                        <Button variant="ghost" size="sm" mode="icon">
+                          <Eye className="size-3.5" />
+                        </Button>
+                        <Button variant="ghost" size="sm" mode="icon">
+                          <Download className="size-3.5" />
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {filteredReports.length === 0 && (
+                  <tr>
+                    <td colSpan={9} className="px-5 py-12 text-center text-muted-foreground">
+                      No reports found matching your filters.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Pagination */}
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-muted-foreground">
+          Showing 1-{filteredReports.length} of {mockReports.length} reports
+        </p>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" mode="icon" disabled>
+            <ChevronLeft className="size-4" />
+          </Button>
+          <Button variant="primary" size="sm" className="min-w-7">1</Button>
+          <Button variant="outline" size="sm" mode="icon">
+            <ChevronRight className="size-4" />
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
