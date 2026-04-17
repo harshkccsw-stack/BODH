@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
+import { getInstruments, type Instrument as ApiInstrument } from '@/lib/api';
 import {
   Search,
   Upload,
@@ -119,6 +120,17 @@ export default function InstrumentsPage() {
   const [activeVertical, setActiveVertical] = useState<Vertical>('all');
   const [activeType, setActiveType] = useState<InstrumentType>('all');
   const [search, setSearch] = useState('');
+  const [apiCount, setApiCount] = useState<number | null>(null);
+  const [apiSource, setApiSource] = useState<'api' | 'mock'>('mock');
+
+  useEffect(() => {
+    getInstruments()
+      .then((data) => {
+        setApiCount(data.length);
+        setApiSource('api');
+      })
+      .catch(() => setApiSource('mock'));
+  }, []);
 
   const filtered = useMemo(() => {
     return instruments.filter((inst) => {
@@ -149,11 +161,16 @@ export default function InstrumentsPage() {
           <h1 className="text-2xl font-semibold tracking-tight">Instrument Library</h1>
           <p className="text-sm text-muted-foreground mt-1">
             Browse, search, and launch standardised assessments across all verticals.
+            {apiSource === 'api' && (
+              <span className="ml-2 inline-flex items-center gap-1 text-xs text-green-600">
+                <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" /> Live API — {apiCount} instruments
+              </span>
+            )}
           </p>
         </div>
-        <Button variant="primary" size="md">
+        <Button variant="primary" size="md" onClick={() => window.location.href = '/question-bank/create'}>
           <Upload className="h-4 w-4" />
-          Upload Instrument
+          Create Assessment
         </Button>
       </div>
 

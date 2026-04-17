@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
   Activity,
@@ -8,10 +8,13 @@ import {
   BarChart3,
   ClipboardCheck,
   Clock,
+  Database,
   FileText,
+  Server,
   Users,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { getHealth, type HealthStatus } from '@/lib/api';
 
 const verticalLabels: Record<string, string> = {
   clinical: 'Clinical Psychology',
@@ -49,9 +52,28 @@ function DashboardContent() {
   const vertical = searchParams.get('vertical') || 'clinical';
   const label = verticalLabels[vertical] || 'Clinical Psychology';
   const terms = verticalTerminology[vertical] || verticalTerminology.clinical;
+  const [health, setHealth] = useState<HealthStatus | null>(null);
+
+  useEffect(() => {
+    getHealth().then(setHealth).catch(() => setHealth(null));
+  }, []);
 
   return (
     <div className="p-5 lg:p-7.5 space-y-7">
+      {/* API Status Banner */}
+      {health && (
+        <div className="flex items-center gap-3 rounded-lg border border-green-200 bg-green-50 dark:border-green-900 dark:bg-green-950/30 px-4 py-3">
+          <Server className="h-4 w-4 text-green-600" />
+          <span className="text-sm text-green-700 dark:text-green-400">
+            <strong>API Connected</strong> — {health.service} {health.version}
+          </span>
+          <span className="text-xs text-green-600 dark:text-green-500 flex items-center gap-1 ml-auto">
+            <Database className="h-3 w-3" /> PostgreSQL {health.database ? 'healthy' : 'down'}
+            <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse ml-1" />
+          </span>
+        </div>
+      )}
+
       {/* Header */}
       <div>
         <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
