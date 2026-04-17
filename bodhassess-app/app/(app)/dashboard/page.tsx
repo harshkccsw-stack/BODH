@@ -10,11 +10,19 @@ import {
   Clock,
   Database,
   FileText,
+  Library,
   Server,
   Users,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { getHealth, type HealthStatus } from '@/lib/api';
+import {
+  getRespondents,
+  getPractitioners,
+  getSessions,
+  getInstruments,
+  countByVertical,
+} from '@/lib/data-store';
 
 const verticalLabels: Record<string, string> = {
   clinical: 'Clinical Psychology',
@@ -32,14 +40,7 @@ const verticalTerminology: Record<string, { respondent: string; practitioner: st
   whitelabel: { respondent: 'Users', practitioner: 'Administrators' },
 };
 
-const stats = [
-  { label: 'Active Sessions', value: '47', icon: Activity, change: '+12 this week' },
-  { label: 'Completed Today', value: '23', icon: ClipboardCheck, change: '+5 from yesterday' },
-  { label: 'Pending Reports', value: '8', icon: FileText, change: '3 high priority' },
-  { label: 'Risk Alerts', value: '2', icon: AlertTriangle, change: 'PHQ-9 Item 9 flagged' },
-];
-
-const recentSessions = [
+const seedRecentSessions = [
   { id: 'SESS-0047', respondent: 'Arjun Patel', instrument: 'PHQ-9', status: 'Completed', score: 'T=62', time: '12 min ago' },
   { id: 'SESS-0046', respondent: 'Priya Sharma', instrument: 'GAD-7', status: 'In Progress', score: '—', time: '18 min ago' },
   { id: 'SESS-0045', respondent: 'Rahul Verma', instrument: 'DASS-21', status: 'Completed', score: 'T=55', time: '1 hr ago' },
@@ -53,10 +54,69 @@ function DashboardContent() {
   const label = verticalLabels[vertical] || 'Clinical Psychology';
   const terms = verticalTerminology[vertical] || verticalTerminology.clinical;
   const [health, setHealth] = useState<HealthStatus | null>(null);
+  const [respondentCount, setRespondentCount] = useState(0);
+  const [practitionerCount, setPractitionerCount] = useState(0);
+  const [instrumentCount, setInstrumentCount] = useState(0);
+  const [sessionsForVertical, setSessionsForVertical] = useState<ReturnType<typeof getSessions>>([]);
+  const [recentLive, setRecentLive] = useState<typeof seedRecentSessions>([]);
 
   useEffect(() => {
     getHealth().then(setHealth).catch(() => setHealth(null));
   }, []);
+
+  useEffect(() => {
+    // Refresh live counts whenever the selected vertical changes
+    const allRespondents = getRespondents();
+    const allPractitioners = getPractitioners();
+    const allInstruments = getInstruments();
+    const allSessions = getSessions();
+
+    if (vertical === 'whitelabel') {
+      setRespondentCount(allRespondents.length);
+      setPractitionerCount(allPractitioners.length);
+      setInstrumentCount(allInstruments.length);
+      setSessionsForVertical(allSessions);
+    } else {
+      setInstrumentCount(countByVertical(allInstruments, vertical));
+      const filtered = allSessions.filter((s) => String(s.vertical || '').toLowerCase() === vertical);
+      setSessionsForVertical(filtered);
+      // Respondents/practitioners aren't vertical-scoped in this demo, but we still reflect
+      // the true totals so admins know how many people are in the system.
+      setRespondentCount(allRespondents.length);
+      setPractitionerCount(
+        allPractitioners.filter((p) =>
+          !p.verticals?.length || p.verticals.map((v) => v.toLowerCase()).some((v) => v.startsWith(vertical.slice(0, 4))),
+        ).length,
+      );
+    }
+
+    // Recent sessions (live) — map to the display shape
+    const live = allSessions
+      .filter((s) => vertical === 'whitelabel' || String(s.vertical || '').toLowerCase() === vertical)
+      .slice(0, 5)
+      .map((s) => ({
+        id: s.id,
+        respondent: s.respondent,
+        instrument: s.instrument,
+        status: s.status,
+        score: s.score || '—',
+        time: s.createdAt,
+      }));
+    setRecentLive(live);
+  }, [vertical]);
+
+  const activeCount = sessionsForVertical.filter((s) => s.status === 'Active').length;
+  const completedCount = sessionsForVertical.filter((s) => s.status === 'Completed').length;
+  const pendingReviewCount = sessionsForVertical.filter((s) => s.status === 'Pending Review').length;
+
+  const stats = [
+    { label: 'Active Sessions', value: String(activeCount), icon: Activity, change: `${sessionsForVertical.length} total in this vertical` },
+    { label: 'Completed Today', value: String(completedCount), icon: ClipboardCheck, change: `${completedCount} submitted` },
+    { label: `${terms.respondent} Registered`, value: String(respondentCount), icon: Users, change: `${practitionerCount} ${terms.practitioner.toLowerCase()}` },
+    { label: 'Instruments Available', value: String(instrumentCount || 0), icon: Library, change: pendingReviewCount > 0 ? `${pendingReviewCount} pending review` : 'Includes library + custom' },
+  ];
+
+  const recentSessions = recentLive.length > 0 ? recentLive : seedRecentSessions;
 
   return (
     <div className="p-5 lg:p-7.5 space-y-7">
@@ -160,7 +220,7 @@ function DashboardContent() {
 
       {/* Quick Actions */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
-        <Card className="hover:shadow-md transition-shadow cursor-pointer">
+        <Card className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => { window.location.href = '/sessions/create'; }}>
           <CardContent className="p-5 flex items-center gap-4">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
               <ClipboardCheck className="h-5 w-5 text-primary" />
@@ -171,7 +231,7 @@ function DashboardContent() {
             </div>
           </CardContent>
         </Card>
-        <Card className="hover:shadow-md transition-shadow cursor-pointer">
+        <Card className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => { window.location.href = '/sessions/batch'; }}>
           <CardContent className="p-5 flex items-center gap-4">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
               <Users className="h-5 w-5 text-primary" />
@@ -182,7 +242,7 @@ function DashboardContent() {
             </div>
           </CardContent>
         </Card>
-        <Card className="hover:shadow-md transition-shadow cursor-pointer">
+        <Card className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => { window.location.href = '/platform/bodhlens'; }}>
           <CardContent className="p-5 flex items-center gap-4">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
               <BarChart3 className="h-5 w-5 text-primary" />

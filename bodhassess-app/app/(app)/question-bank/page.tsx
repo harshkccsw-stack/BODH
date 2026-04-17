@@ -1,21 +1,32 @@
 'use client';
 
-import { Fragment, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   ChevronDown,
   ChevronRight,
   Database,
+  Edit3,
   Filter,
   FlaskConical,
   Globe,
   Library,
+  MoreVertical,
   Search,
   ShieldCheck,
+  Trash2,
   X,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 
 // ---------------------------------------------------------------------------
@@ -253,6 +264,188 @@ function truncateUUID(uuid: string) {
   return uuid.slice(0, 8) + '...';
 }
 
+// Map vertical strings from stored assessments to the Item Explorer's Vertical type.
+// Returns null for verticals (e.g. EXPERIMENTS) that this page does not render.
+function normalizeStoredVertical(v: unknown): Vertical | null {
+  const s = String(v || '').toLowerCase();
+  if (s.startsWith('clin')) return 'clinical';
+  if (s.startsWith('indust')) return 'industrial';
+  if (s.startsWith('coun')) return 'counselling';
+  return null;
+}
+
+// Map the Create Assessment format code to the Item Explorer format label.
+function normalizeStoredFormat(f: unknown): ItemFormat {
+  const s = String(f || '').toUpperCase().replace(/[\s_-]/g, '');
+  switch (s) {
+    case 'MCQ': return 'MCQ';
+    case 'RATINGSCALE': return 'Rating Scale';
+    case 'LIKERT': return 'Likert';
+    case 'SJT': return 'SJT';
+    case 'FREETEXT': return 'Free Text';
+    case 'IMAGECHOICE': return 'Image Choice';
+    case 'RANKING': return 'Ranking';
+    case 'MATRIX': return 'Matrix';
+    default: return 'MCQ';
+  }
+}
+
+function normalizeLanguageCodes(codes: unknown): Language[] {
+  if (!Array.isArray(codes)) return ['en'];
+  const valid: Language[] = ['en', 'hi', 'ta', 'bn', 'mr', 'te', 'kn', 'ml', 'gu', 'pa', 'or'];
+  const out: Language[] = [];
+  codes.forEach((c) => {
+    const lc = String(c || '').toLowerCase().slice(0, 2) as Language;
+    if (valid.includes(lc) && !out.includes(lc)) out.push(lc);
+  });
+  return out.length ? out : ['en'];
+}
+
+const ITEM_OVERRIDES_KEY = 'bodhassess.itemOverrides';
+const DELETED_ITEMS_KEY = 'bodhassess.deletedItems';
+const INSTRUMENTS_KEY = 'bodhassess.instruments';
+
+interface ItemOverride {
+  subDomain?: string;
+  format?: ItemFormat;
+  stem?: string;
+  options?: string[];
+  riskFlag?: boolean;
+  status?: ValidationStatus;
+}
+
+function loadItemOverrides(): Record<string, ItemOverride> {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = localStorage.getItem(ITEM_OVERRIDES_KEY);
+    return raw ? (JSON.parse(raw) || {}) : {};
+  } catch { return {}; }
+}
+
+function loadDeletedItems(): string[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem(DELETED_ITEMS_KEY);
+    return raw ? (JSON.parse(raw) || []) : [];
+  } catch { return []; }
+}
+
+// Update the question matching `qid` inside the stored instruments catalog.
+// Returns true if a matching user-item was updated (so we don't also need to store an override).
+function updateStoredInstrumentQuestion(
+  qid: string,
+  patch: { stem?: string; format?: string; options?: string[]; riskFlag?: boolean },
+): boolean {
+  try {
+    const raw = localStorage.getItem(INSTRUMENTS_KEY);
+    if (!raw) return false;
+    const list = JSON.parse(raw);
+    if (!Array.isArray(list)) return false;
+    let matched = false;
+    const next = list.map((inst: any) => {
+      if (!inst || !Array.isArray(inst.questions)) return inst;
+      const questions = inst.questions.map((q: any) => {
+        if (!q || q.id !== qid) return q;
+        matched = true;
+        const nextOpts = Array.isArray(patch.options)
+          ? patch.options.map((text, i) => {
+              const prior = Array.isArray(q.options) && q.options[i] ? q.options[i] : { scores: [] };
+              return { ...prior, text };
+            })
+          : q.options;
+        return {
+          ...q,
+          stem: patch.stem ?? q.stem,
+          format: (patch.format ?? q.format) as string,
+          options: nextOpts,
+          clinical_risk_flag: patch.riskFlag ?? q.clinical_risk_flag,
+        };
+      });
+      return { ...inst, questions };
+    });
+    if (matched) localStorage.setItem(INSTRUMENTS_KEY, JSON.stringify(next));
+    return matched;
+  } catch { return false; }
+}
+
+// Remove the question matching `qid` from the stored instruments catalog.
+function removeStoredInstrumentQuestion(qid: string): boolean {
+  try {
+    const raw = localStorage.getItem(INSTRUMENTS_KEY);
+    if (!raw) return false;
+    const list = JSON.parse(raw);
+    if (!Array.isArray(list)) return false;
+    let matched = false;
+    const next = list.map((inst: any) => {
+      if (!inst || !Array.isArray(inst.questions)) return inst;
+      const remaining = inst.questions.filter((q: any) => {
+        if (q?.id === qid) { matched = true; return false; }
+        return true;
+      });
+      return matched ? { ...inst, questions: remaining } : inst;
+    });
+    if (matched) localStorage.setItem(INSTRUMENTS_KEY, JSON.stringify(next));
+    return matched;
+  } catch { return false; }
+}
+
+// Read user-published assessments from localStorage and flatten them into
+// QuestionItems suitable for the Item Explorer table.
+function loadUserItems(): QuestionItem[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem('bodhassess.instruments');
+    if (!raw) return [];
+    const list = JSON.parse(raw);
+    if (!Array.isArray(list)) return [];
+
+    const items: QuestionItem[] = [];
+    list.forEach((inst: any) => {
+      const vertical = normalizeStoredVertical(inst.vertical);
+      if (!vertical) return; // skip EXPERIMENTS etc.
+      const mqtNameById: Record<string, string> = {};
+      if (Array.isArray(inst.mqs)) {
+        inst.mqs.forEach((mq: any) => {
+          if (Array.isArray(mq.mqts)) mq.mqts.forEach((t: any) => { mqtNameById[t.id] = t.name; });
+        });
+      }
+      const instLangs = normalizeLanguageCodes(inst.languages);
+      const shortName = inst.shortName || (inst.name ? String(inst.name).split(' ')[0] : 'CUSTOM');
+      const questions = Array.isArray(inst.questions) ? inst.questions : [];
+      questions.forEach((q: any, idx: number) => {
+        if (!q) return;
+        // Derive sub-domain from the first MQT this question's options score against
+        const firstScore = Array.isArray(q.options)
+          ? q.options.flatMap((o: any) => Array.isArray(o?.scores) ? o.scores : []).find((s: any) => s?.mqt_id)
+          : null;
+        const mqtName = firstScore ? (mqtNameById[firstScore.mqt_id] || 'Custom') : 'Custom';
+        const options = Array.isArray(q.options)
+          ? q.options.map((o: any) => String(o?.text || '')).filter((t: string) => t.length > 0)
+          : undefined;
+        items.push({
+          id: q.id || `${inst.id || shortName}-q${idx + 1}`,
+          subDomain: `${shortName}:${mqtName}`,
+          vertical,
+          format: normalizeStoredFormat(q.format),
+          irt: { a: 0, b: 0, c: 0 },
+          languages: instLangs,
+          status: 'Draft',
+          riskFlag: !!q.clinical_risk_flag,
+          stem: String(q.stem || '').trim() || `(${inst.name || 'Untitled'}) — item ${idx + 1}`,
+          options,
+          normSets: [],
+          lastCalibrated: '',
+          sampleN: 0,
+          reliabilityAlpha: 0,
+        });
+      });
+    });
+    return items;
+  } catch {
+    return [];
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Component: FilterPill
 // ---------------------------------------------------------------------------
@@ -353,7 +546,7 @@ function DropdownFilter<T extends string>({
 function DetailPanel({ item }: { item: QuestionItem }) {
   return (
     <tr>
-      <td colSpan={7} className="bg-muted/30 px-5 py-4">
+      <td colSpan={8} className="bg-muted/30 px-5 py-4">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {/* Stem & Options */}
           <div className="md:col-span-2 space-y-3">
@@ -435,6 +628,105 @@ export default function QuestionBankPage() {
   const [selectedFormats, setSelectedFormats] = useState<Set<ItemFormat>>(new Set());
   const [selectedStatuses, setSelectedStatuses] = useState<Set<ValidationStatus>>(new Set());
   const [selectedLanguages, setSelectedLanguages] = useState<Set<Language>>(new Set());
+  const [userItems, setUserItems] = useState<QuestionItem[]>([]);
+  const [overrides, setOverrides] = useState<Record<string, ItemOverride>>({});
+  const [deletedIds, setDeletedIds] = useState<string[]>([]);
+
+  // Action modal state
+  const [editItem, setEditItem] = useState<QuestionItem | null>(null);
+  const [editForm, setEditForm] = useState({
+    stem: '', subDomain: '', format: 'MCQ' as ItemFormat,
+    options: '', riskFlag: false, status: 'Draft' as ValidationStatus,
+  });
+  const [confirmDeleteItem, setConfirmDeleteItem] = useState<QuestionItem | null>(null);
+
+  useEffect(() => {
+    setUserItems(loadUserItems());
+    setOverrides(loadItemOverrides());
+    setDeletedIds(loadDeletedItems());
+  }, []);
+
+  const refreshFromStorage = () => {
+    setUserItems(loadUserItems());
+    setOverrides(loadItemOverrides());
+    setDeletedIds(loadDeletedItems());
+  };
+
+  // Unified item pool: user-published questions surface first, then mocks.
+  // Deduplicate by id, apply overrides, filter out deleted.
+  const allItems = useMemo(() => {
+    const seen = new Set<string>();
+    const deleted = new Set(deletedIds);
+    const out: QuestionItem[] = [];
+    [...userItems, ...ITEMS].forEach((i) => {
+      if (seen.has(i.id) || deleted.has(i.id)) return;
+      seen.add(i.id);
+      const o = overrides[i.id];
+      out.push(o ? { ...i, ...o, options: o.options ?? i.options } : i);
+    });
+    return out;
+  }, [userItems, overrides, deletedIds]);
+
+  const openEditItem = (item: QuestionItem) => {
+    setEditItem(item);
+    setEditForm({
+      stem: item.stem,
+      subDomain: item.subDomain,
+      format: item.format,
+      options: (item.options || []).join('\n'),
+      riskFlag: item.riskFlag,
+      status: item.status,
+    });
+  };
+
+  const saveItemEdit = () => {
+    if (!editItem) return;
+    const options = editForm.options
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const patch: ItemOverride = {
+      stem: editForm.stem.trim() || editItem.stem,
+      subDomain: editForm.subDomain.trim() || editItem.subDomain,
+      format: editForm.format,
+      options: options.length ? options : undefined,
+      riskFlag: editForm.riskFlag,
+      status: editForm.status,
+    };
+
+    // If this is a user-item (exists inside stored instruments), update the
+    // source so the take-assessment flow and reports stay consistent.
+    const updatedInSource = updateStoredInstrumentQuestion(editItem.id, {
+      stem: patch.stem,
+      format: patch.format,
+      options: patch.options,
+      riskFlag: patch.riskFlag,
+    });
+
+    // Always record an override so mock rows and status/sub-domain edits persist too.
+    const nextOverrides = { ...overrides, [editItem.id]: { ...(overrides[editItem.id] || {}), ...patch } };
+    try { localStorage.setItem(ITEM_OVERRIDES_KEY, JSON.stringify(nextOverrides)); } catch {}
+    setOverrides(nextOverrides);
+    if (updatedInSource) setUserItems(loadUserItems());
+    setEditItem(null);
+  };
+
+  const deleteItem = () => {
+    if (!confirmDeleteItem) return;
+    const id = confirmDeleteItem.id;
+    const removedFromSource = removeStoredInstrumentQuestion(id);
+    // For mock rows (not in source), persist the deletion separately.
+    if (!removedFromSource) {
+      const next = deletedIds.includes(id) ? deletedIds : [...deletedIds, id];
+      try { localStorage.setItem(DELETED_ITEMS_KEY, JSON.stringify(next)); } catch {}
+      setDeletedIds(next);
+    } else {
+      setUserItems(loadUserItems());
+    }
+    // Collapse if the deleted row was expanded
+    if (expandedId === id) setExpandedId(null);
+    setConfirmDeleteItem(null);
+  };
 
   // Toggle helpers
   function toggleSet<T>(set: Set<T>, val: T): Set<T> {
@@ -445,7 +737,7 @@ export default function QuestionBankPage() {
   }
 
   // Filtering
-  const filtered = ITEMS.filter((item) => {
+  const filtered = allItems.filter((item) => {
     if (selectedVerticals.size > 0 && !selectedVerticals.has(item.vertical)) return false;
     if (selectedFormats.size > 0 && !selectedFormats.has(item.format)) return false;
     if (selectedStatuses.size > 0 && !selectedStatuses.has(item.status)) return false;
@@ -462,10 +754,10 @@ export default function QuestionBankPage() {
   });
 
   // Computed stats from full list
-  const totalItems = ITEMS.length;
-  const calibratedItems = ITEMS.filter((i) => i.status === 'Calibrated' || i.status === 'Validated').length;
-  const indianNormItems = ITEMS.filter((i) => i.normSets.length > 0).length;
-  const riskFlaggedItems = ITEMS.filter((i) => i.riskFlag).length;
+  const totalItems = allItems.length;
+  const calibratedItems = allItems.filter((i) => i.status === 'Calibrated' || i.status === 'Validated').length;
+  const indianNormItems = allItems.filter((i) => i.normSets.length > 0).length;
+  const riskFlaggedItems = allItems.filter((i) => i.riskFlag).length;
 
   const hasActiveFilters = selectedVerticals.size > 0 || selectedFormats.size > 0 || selectedStatuses.size > 0 || selectedLanguages.size > 0 || searchQuery;
 
@@ -616,6 +908,7 @@ export default function QuestionBankPage() {
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">IRT (a / b / c)</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Languages</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Status</th>
+                  <th className="px-5 py-3 text-right font-medium text-muted-foreground">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -694,6 +987,29 @@ export default function QuestionBankPage() {
                             {item.status}
                           </Badge>
                         </td>
+
+                        {/* Actions */}
+                        <td className="px-5 py-3 text-right" onClick={(e) => e.stopPropagation()}>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="sm" mode="icon" aria-label="Item actions">
+                                <MoreVertical className="size-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-40">
+                              <DropdownMenuItem onClick={() => openEditItem(item)}>
+                                <Edit3 className="size-3.5" /> Update
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                onClick={() => setConfirmDeleteItem(item)}
+                                className="text-red-600 focus:text-red-700 focus:bg-red-50 dark:focus:bg-red-950/30"
+                              >
+                                <Trash2 className="size-3.5" /> Delete
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </td>
                       </tr>
 
                       {/* Expanded detail */}
@@ -703,7 +1019,7 @@ export default function QuestionBankPage() {
                 })}
                 {filtered.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="px-5 py-12 text-center text-muted-foreground text-sm">
+                    <td colSpan={8} className="px-5 py-12 text-center text-muted-foreground text-sm">
                       No items match the current filters.
                     </td>
                   </tr>
@@ -713,6 +1029,117 @@ export default function QuestionBankPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Update item modal */}
+      {editItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={() => setEditItem(null)}>
+          <Card className="w-full max-w-xl" onClick={(e) => e.stopPropagation()}>
+            <CardHeader className="flex flex-row items-center justify-between pb-3">
+              <CardTitle className="text-base">Update Item</CardTitle>
+              <button onClick={() => setEditItem(null)} className="text-muted-foreground hover:text-foreground">
+                <X className="h-4 w-4" />
+              </button>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="rounded-lg border border-border bg-muted/40 p-3 text-xs font-mono">
+                <div className="flex justify-between"><span className="text-muted-foreground">Item ID</span><span className="break-all ml-2">{editItem.id}</span></div>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Sub-domain</label>
+                <input
+                  value={editForm.subDomain}
+                  onChange={(e) => setEditForm({ ...editForm, subDomain: e.target.value })}
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Stem</label>
+                <textarea
+                  rows={3}
+                  value={editForm.stem}
+                  onChange={(e) => setEditForm({ ...editForm, stem: e.target.value })}
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">Format</label>
+                  <select
+                    value={editForm.format}
+                    onChange={(e) => setEditForm({ ...editForm, format: e.target.value as ItemFormat })}
+                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                  >
+                    {ALL_FORMATS.map((f) => <option key={f} value={f}>{f}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">Status</label>
+                  <select
+                    value={editForm.status}
+                    onChange={(e) => setEditForm({ ...editForm, status: e.target.value as ValidationStatus })}
+                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                  >
+                    {ALL_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Response Options (one per line)</label>
+                <textarea
+                  rows={4}
+                  value={editForm.options}
+                  onChange={(e) => setEditForm({ ...editForm, options: e.target.value })}
+                  placeholder={'Option 1\nOption 2\nOption 3'}
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                />
+              </div>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={editForm.riskFlag}
+                  onChange={(e) => setEditForm({ ...editForm, riskFlag: e.target.checked })}
+                  className="rounded"
+                />
+                <AlertTriangle className="h-3.5 w-3.5 text-red-500" />
+                Clinical risk flag
+              </label>
+              <div className="flex justify-end gap-2 pt-1">
+                <Button variant="outline" onClick={() => setEditItem(null)}>Cancel</Button>
+                <Button variant="primary" onClick={saveItemEdit}>Save Changes</Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Delete item confirm */}
+      {confirmDeleteItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={() => setConfirmDeleteItem(null)}>
+          <Card className="w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
+            <CardHeader className="flex flex-row items-center justify-between pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 text-red-500" />
+                Delete Item
+              </CardTitle>
+              <button onClick={() => setConfirmDeleteItem(null)} className="text-muted-foreground hover:text-foreground">
+                <X className="h-4 w-4" />
+              </button>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm">
+                Remove item <span className="font-mono text-xs">{truncateUUID(confirmDeleteItem.id)}</span> ({confirmDeleteItem.subDomain})?
+                If this item belongs to a published assessment, it is removed from that assessment's question set as well.
+              </p>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setConfirmDeleteItem(null)}>Cancel</Button>
+                <Button variant="primary" onClick={deleteItem} className="bg-red-600 hover:bg-red-700 text-white">
+                  <Trash2 className="h-3.5 w-3.5" /> Delete
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }

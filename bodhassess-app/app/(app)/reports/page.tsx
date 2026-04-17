@@ -1,6 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { getSessions, getSessionById, sessionsToReports, downloadJson } from '@/lib/data-store';
+import { X } from 'lucide-react';
 import {
   ChevronLeft,
   ChevronRight,
@@ -65,8 +67,41 @@ export default function ReportsPage() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [verticalFilter, setVerticalFilter] = useState('all');
   const [formatFilter, setFormatFilter] = useState('all');
+  const [liveReports, setLiveReports] = useState<Report[]>([]);
+  const [viewReport, setViewReport] = useState<Report | null>(null);
 
-  const filteredReports = mockReports.filter((report) => {
+  useEffect(() => {
+    const generated = sessionsToReports(getSessions()).map((r) => ({
+      id: r.id,
+      sessionId: r.sessionId,
+      respondent: r.respondent,
+      instrument: r.instrument,
+      vertical: r.vertical as Vertical,
+      format: r.format as ReportFormat,
+      status: r.status as ReportStatus,
+      generatedAt: r.generatedAt,
+    }));
+    setLiveReports(generated);
+  }, []);
+
+  const allReports = useMemo(() => {
+    // Live reports from actual respondent sessions show first; seed mocks follow.
+    // Dedupe by sessionId so a stored session's report doesn't appear twice.
+    const seenSessions = new Set(liveReports.map((r) => r.sessionId));
+    const seedTail = mockReports.filter((r) => !seenSessions.has(r.sessionId));
+    return [...liveReports, ...seedTail];
+  }, [liveReports]);
+
+  const handleDownload = (report: Report) => {
+    const session = getSessionById(report.sessionId);
+    downloadJson(`${report.id}-${report.sessionId}.json`, {
+      ...report,
+      session,
+      exportedAt: new Date().toISOString(),
+    });
+  };
+
+  const filteredReports = allReports.filter((report) => {
     const matchesSearch =
       searchQuery === '' ||
       report.respondent.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -157,7 +192,7 @@ export default function ReportsPage() {
           <div className="flex items-center justify-between">
             <CardTitle className="text-base">All Reports</CardTitle>
             <span className="text-sm text-muted-foreground">
-              Showing {filteredReports.length} of {mockReports.length} reports
+              Showing {filteredReports.length} of {allReports.length} reports
             </span>
           </div>
         </CardHeader>
@@ -211,10 +246,10 @@ export default function ReportsPage() {
                     <td className="px-5 py-3 text-muted-foreground">{report.generatedAt}</td>
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-1">
-                        <Button variant="ghost" size="sm" mode="icon">
+                        <Button variant="ghost" size="sm" mode="icon" aria-label="View report" onClick={() => setViewReport(report)}>
                           <Eye className="size-3.5" />
                         </Button>
-                        <Button variant="ghost" size="sm" mode="icon">
+                        <Button variant="ghost" size="sm" mode="icon" aria-label="Download report" onClick={() => handleDownload(report)}>
                           <Download className="size-3.5" />
                         </Button>
                       </div>
@@ -237,7 +272,7 @@ export default function ReportsPage() {
       {/* Pagination */}
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
-          Showing 1-{filteredReports.length} of {mockReports.length} reports
+          Showing 1-{filteredReports.length} of {allReports.length} reports
         </p>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" mode="icon" disabled>
@@ -249,6 +284,53 @@ export default function ReportsPage() {
           </Button>
         </div>
       </div>
+
+      {viewReport && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={() => setViewReport(null)}>
+          <Card className="w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
+            <CardHeader className="flex flex-row items-center justify-between pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <FileText className="h-4 w-4 text-primary" />
+                {viewReport.id}
+              </CardTitle>
+              <button onClick={() => setViewReport(null)} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+            </CardHeader>
+            <CardContent className="space-y-4 text-sm">
+              <div className="rounded-lg border border-border bg-muted/40 p-3 space-y-2">
+                <div className="flex justify-between"><span className="text-muted-foreground">Session</span><span className="font-mono text-xs">{viewReport.sessionId}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Respondent</span><span className="font-medium">{viewReport.respondent}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Instrument</span><span className="text-right max-w-[60%]">{viewReport.instrument}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Vertical</span><span>{viewReport.vertical}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Status</span><span>{viewReport.status}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Generated</span><span>{viewReport.generatedAt}</span></div>
+              </div>
+              {(() => {
+                const session = getSessionById(viewReport.sessionId);
+                if (!session?.mqtScores || Object.keys(session.mqtScores).length === 0) {
+                  return <p className="text-xs text-muted-foreground">No MQT scores captured for this session.</p>;
+                }
+                return (
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground mb-2">MQT Scores</p>
+                    <div className="rounded-lg border border-border overflow-hidden">
+                      {Object.entries(session.mqtScores).map(([k, v], i, arr) => (
+                        <div key={k} className={`flex justify-between px-3 py-2 text-xs ${i < arr.length - 1 ? 'border-b border-border' : ''}`}>
+                          <span>{k}</span>
+                          <span className="font-mono">{String(v)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setViewReport(null)}>Close</Button>
+                <Button variant="primary" onClick={() => handleDownload(viewReport)}><Download className="h-4 w-4" />Download</Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }

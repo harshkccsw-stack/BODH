@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useMemo } from 'react';
-import { Card, CardContent } from '@/components/ui/card';
+import { useState, useMemo, useEffect } from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import {
@@ -12,7 +12,10 @@ import {
   Search,
   ShieldCheck,
   Users,
+  Pencil,
+  X,
 } from 'lucide-react';
+import { loadOverrides, saveOverride, applyOverrideById, type InstrumentOverride } from '@/lib/instrument-overrides';
 
 const instruments = [
   {
@@ -106,16 +109,94 @@ const informantColors: Record<string, string> = {
   Teacher: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
 };
 
+type CounsInstrument = typeof instruments[number];
+
+function loadUserInstrumentsForVertical(vertical: string): CounsInstrument[] {
+  try {
+    const raw = localStorage.getItem('bodhassess.instruments');
+    if (!raw) return [];
+    const list = JSON.parse(raw);
+    if (!Array.isArray(list)) return [];
+    return list
+      .filter((i: any) => String(i.vertical || '').toUpperCase() === vertical.toUpperCase())
+      .map((i: any): CounsInstrument => ({
+        id: i.id || `custom-${(i.name || 'x').toLowerCase().replace(/\s+/g, '-')}`,
+        name: i.name || i.shortName || 'Untitled',
+        category: i.category || 'Custom Assessment',
+        ageRange: i.ageRange || 'All ages',
+        items: Array.isArray(i.questions) ? i.questions.length : (i.items || 0),
+        duration: i.duration ? `${i.duration} min` : '—',
+        languages: Array.isArray(i.languages) ? i.languages.map((c: string) => String(c).toUpperCase()) : ['EN'],
+        tier: typeof i.tier === 'string' ? i.tier : `T${i.tier || 1}`,
+        norms: i.norms || 'Custom-authored — no standard norms applied.',
+        informants: ['Self'],
+        description: i.description || 'User-published assessment.',
+      }));
+  } catch {
+    return [];
+  }
+}
+
 export default function CounsellingInstrumentsPage() {
   const [search, setSearch] = useState('');
+  const [overrides, setOverrides] = useState<Record<string, InstrumentOverride>>({});
+  const [userInstruments, setUserInstruments] = useState<CounsInstrument[]>([]);
+  const [editing, setEditing] = useState<CounsInstrument | null>(null);
+  const [editForm, setEditForm] = useState({
+    name: '', category: '', ageRange: '', items: 0, duration: '',
+    languages: '', tier: 'T1', norms: '', description: '',
+  });
+
+  useEffect(() => {
+    setOverrides(loadOverrides());
+    setUserInstruments(loadUserInstrumentsForVertical('COUNSELLING'));
+  }, []);
+
+  const mergedInstruments = useMemo(() => {
+    const seenIds = new Set(instruments.map((i) => i.id));
+    const uniqueUser = userInstruments.filter((u) => !seenIds.has(u.id));
+    return [...uniqueUser, ...instruments].map((i) => applyOverrideById(i, overrides));
+  }, [overrides, userInstruments]);
 
   const filtered = useMemo(() => {
-    if (!search) return instruments;
+    if (!search) return mergedInstruments;
     const q = search.toLowerCase();
-    return instruments.filter(
+    return mergedInstruments.filter(
       (i) => i.name.toLowerCase().includes(q) || i.category.toLowerCase().includes(q),
     );
-  }, [search]);
+  }, [search, mergedInstruments]);
+
+  const openEdit = (inst: CounsInstrument) => {
+    setEditing(inst);
+    setEditForm({
+      name: inst.name,
+      category: inst.category,
+      ageRange: inst.ageRange,
+      items: inst.items,
+      duration: inst.duration,
+      languages: inst.languages.join(', '),
+      tier: inst.tier,
+      norms: inst.norms,
+      description: inst.description,
+    });
+  };
+
+  const saveEdit = () => {
+    if (!editing) return;
+    const patch: any = {
+      name: editForm.name.trim() || editing.name,
+      category: editForm.category.trim(),
+      ageRange: editForm.ageRange.trim(),
+      items: Number(editForm.items) || 0,
+      duration: editForm.duration.trim(),
+      languages: editForm.languages.split(',').map((s) => s.trim()).filter(Boolean),
+      tier: editForm.tier,
+      norms: editForm.norms.trim(),
+      description: editForm.description.trim(),
+    };
+    setOverrides(saveOverride(editing.id, patch));
+    setEditing(null);
+  };
 
   return (
     <div className="p-5 lg:p-7.5 space-y-7">
@@ -201,11 +282,82 @@ export default function CounsellingInstrumentsPage() {
                 </p>
               </div>
 
-              <Button variant="primary" size="sm" className="w-full">Start Session</Button>
+              <div className="flex gap-2">
+                <Button variant="primary" size="sm" className="flex-1" onClick={() => window.location.href = `/sessions/create?instrument=${encodeURIComponent(inst.name)}`}>Start Session</Button>
+                <Button variant="outline" size="sm" onClick={() => openEdit(inst)}><Pencil className="h-3.5 w-3.5" />Edit</Button>
+              </div>
             </CardContent>
           </Card>
         ))}
       </div>
+
+      {editing && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={() => setEditing(null)}>
+          <Card className="w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
+            <CardHeader className="flex flex-row items-center justify-between pb-3">
+              <CardTitle className="text-base">Edit Instrument</CardTitle>
+              <button onClick={() => setEditing(null)} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="text-xs text-muted-foreground">ID: <span className="font-mono">{editing.id}</span></div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Name</label>
+                <input value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">Category</label>
+                  <input value={editForm.category} onChange={(e) => setEditForm({ ...editForm, category: e.target.value })}
+                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">Age Range</label>
+                  <input value={editForm.ageRange} onChange={(e) => setEditForm({ ...editForm, ageRange: e.target.value })}
+                    placeholder="e.g., 6–18 years"
+                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">Duration</label>
+                  <input value={editForm.duration} onChange={(e) => setEditForm({ ...editForm, duration: e.target.value })}
+                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">Items</label>
+                  <input type="number" value={editForm.items} onChange={(e) => setEditForm({ ...editForm, items: Number(e.target.value) })}
+                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" />
+                </div>
+                <div className="space-y-1.5 col-span-2">
+                  <label className="text-sm font-medium">Tier</label>
+                  <select value={editForm.tier} onChange={(e) => setEditForm({ ...editForm, tier: e.target.value })}
+                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
+                    {['T1', 'T2', 'T3', 'T4', 'T5'].map((t) => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Languages (comma-separated)</label>
+                <input value={editForm.languages} onChange={(e) => setEditForm({ ...editForm, languages: e.target.value })}
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Description</label>
+                <textarea rows={2} value={editForm.description} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Norms / Validation</label>
+                <textarea rows={2} value={editForm.norms} onChange={(e) => setEditForm({ ...editForm, norms: e.target.value })}
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" />
+              </div>
+              <div className="flex justify-end gap-2 pt-1">
+                <Button variant="outline" onClick={() => setEditing(null)}>Cancel</Button>
+                <Button variant="primary" onClick={saveEdit}>Save Changes</Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }

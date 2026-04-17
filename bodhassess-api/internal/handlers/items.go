@@ -22,17 +22,19 @@ func NewItemsHandler(db *pgxpool.Pool) *ItemsHandler {
 // --- Create Instrument ---
 
 type CreateInstrumentRequest struct {
-	Name            string   `json:"name"`
-	ShortName       string   `json:"short_name"`
-	Vertical        string   `json:"vertical"`
-	Category        string   `json:"category"`
-	Description     string   `json:"description"`
-	DurationMinutes int      `json:"duration_minutes"`
-	Languages       []string `json:"languages"`
-	TierRequired    string   `json:"tier_required"`
-	IsAdaptive      bool     `json:"is_adaptive"`
-	IsFixedSequence bool     `json:"is_fixed_sequence"`
-	TenantID        string   `json:"tenant_id"`
+	Name                string          `json:"name"`
+	ShortName           string          `json:"short_name"`
+	Vertical            string          `json:"vertical"`
+	Category            string          `json:"category"`
+	Description         string          `json:"description"`
+	DurationMinutes     int             `json:"duration_minutes"`
+	Languages           []string        `json:"languages"`
+	TierRequired        string          `json:"tier_required"`
+	IsAdaptive          bool            `json:"is_adaptive"`
+	IsFixedSequence     bool            `json:"is_fixed_sequence"`
+	TenantID            string          `json:"tenant_id"`
+	UsesWeightedScoring bool            `json:"uses_weighted_scoring"`
+	ScoringConfig       json.RawMessage `json:"scoring_config"`
 }
 
 func (h *ItemsHandler) CreateInstrument(w http.ResponseWriter, r *http.Request) {
@@ -64,10 +66,15 @@ func (h *ItemsHandler) CreateInstrument(w http.ResponseWriter, r *http.Request) 
 		tenantID = &t
 	}
 
+	scoringConfig := req.ScoringConfig
+	if len(scoringConfig) == 0 {
+		scoringConfig = []byte(`{}`)
+	}
+
 	_, err := h.db.Exec(ctx,
-		`INSERT INTO instruments (id, tenant_id, name, short_name, vertical, category, description, duration_minutes, languages, tier_required, is_adaptive, is_fixed_sequence, item_count, is_published)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 0, TRUE)`,
-		id, tenantID, req.Name, req.ShortName, req.Vertical, req.Category, req.Description, req.DurationMinutes, req.Languages, req.TierRequired, req.IsAdaptive, req.IsFixedSequence,
+		`INSERT INTO instruments (id, tenant_id, name, short_name, vertical, category, description, duration_minutes, languages, tier_required, is_adaptive, is_fixed_sequence, item_count, is_published, uses_weighted_scoring, scoring_config)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 0, TRUE, $13, $14)`,
+		id, tenantID, req.Name, req.ShortName, req.Vertical, req.Category, req.Description, req.DurationMinutes, req.Languages, req.TierRequired, req.IsAdaptive, req.IsFixedSequence, req.UsesWeightedScoring, scoringConfig,
 	)
 	if err != nil {
 		http.Error(w, `{"error":"failed to create instrument: `+err.Error()+`"}`, http.StatusInternalServerError)
@@ -141,18 +148,26 @@ func (h *ItemsHandler) ListByInstrument(w http.ResponseWriter, r *http.Request) 
 
 // --- Create Single Item ---
 
+type SubDomainWeight struct {
+	Domain string  `json:"domain"`
+	Weight float64 `json:"weight"`
+}
+
 type CreateItemRequest struct {
-	SubDomain        string      `json:"sub_domain"`
-	Format           string      `json:"format"`
-	Stem             string      `json:"stem"`
-	Options          interface{} `json:"options"`
-	IRTa             *float64    `json:"irt_a"`
-	IRTb             *float64    `json:"irt_b"`
-	IRTc             *float64    `json:"irt_c"`
-	RiskFlag         bool        `json:"clinical_risk_flag"`
-	RiskRule         string      `json:"risk_flag_rule"`
-	SequenceOrder    *int        `json:"sequence_order"`
-	Languages        []string    `json:"languages"`
+	SubDomain        string            `json:"sub_domain"`       // legacy single
+	SubDomains       []SubDomainWeight `json:"sub_domains"`      // new multi
+	Format           string            `json:"format"`
+	Stem             string            `json:"stem"`
+	MediaURL         string            `json:"media_url"`
+	MediaType        string            `json:"media_type"`       // 'image', 'video', 'youtube', 'audio'
+	Options          interface{}       `json:"options"`          // options now support media too
+	IRTa             *float64          `json:"irt_a"`
+	IRTb             *float64          `json:"irt_b"`
+	IRTc             *float64          `json:"irt_c"`
+	RiskFlag         bool              `json:"clinical_risk_flag"`
+	RiskRule         string            `json:"risk_flag_rule"`
+	SequenceOrder    *int              `json:"sequence_order"`
+	Languages        []string          `json:"languages"`
 }
 
 func (h *ItemsHandler) CreateItem(w http.ResponseWriter, r *http.Request) {
@@ -188,11 +203,23 @@ func (h *ItemsHandler) CreateItem(w http.ResponseWriter, r *http.Request) {
 
 	id := uuid.New()
 	optionsJSON, _ := json.Marshal(req.Options)
+	subDomainsJSON, _ := json.Marshal(req.SubDomains)
+	if len(req.SubDomains) == 0 {
+		subDomainsJSON = []byte("[]")
+	}
+
+	var mediaURL, mediaType *string
+	if req.MediaURL != "" {
+		mediaURL = &req.MediaURL
+	}
+	if req.MediaType != "" {
+		mediaType = &req.MediaType
+	}
 
 	_, err = h.db.Exec(ctx,
-		`INSERT INTO items (id, instrument_id, vertical, sub_domain, item_format, stem, options, irt_a, irt_b, irt_c, clinical_risk_flag, risk_flag_rule, sequence_order, languages, validation_status)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'DRAFT')`,
-		id, instrumentID, vertical, req.SubDomain, req.Format, req.Stem, optionsJSON, req.IRTa, req.IRTb, req.IRTc, req.RiskFlag, req.RiskRule, req.SequenceOrder, req.Languages,
+		`INSERT INTO items (id, instrument_id, vertical, sub_domain, sub_domains, item_format, stem, media_url, media_type, options, irt_a, irt_b, irt_c, clinical_risk_flag, risk_flag_rule, sequence_order, languages, validation_status)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, 'DRAFT')`,
+		id, instrumentID, vertical, req.SubDomain, subDomainsJSON, req.Format, req.Stem, mediaURL, mediaType, optionsJSON, req.IRTa, req.IRTb, req.IRTc, req.RiskFlag, req.RiskRule, req.SequenceOrder, req.Languages,
 	)
 	if err != nil {
 		http.Error(w, `{"error":"failed to create item: `+err.Error()+`"}`, http.StatusInternalServerError)
@@ -252,15 +279,27 @@ func (h *ItemsHandler) BulkCreateItems(w http.ResponseWriter, r *http.Request) {
 
 		id := uuid.New()
 		optionsJSON, _ := json.Marshal(item.Options)
+		subDomainsJSON, _ := json.Marshal(item.SubDomains)
+		if len(item.SubDomains) == 0 {
+			subDomainsJSON = []byte("[]")
+		}
 		seq := i + 1
 		if item.SequenceOrder != nil {
 			seq = *item.SequenceOrder
 		}
 
+		var mediaURL, mediaType *string
+		if item.MediaURL != "" {
+			mediaURL = &item.MediaURL
+		}
+		if item.MediaType != "" {
+			mediaType = &item.MediaType
+		}
+
 		_, err := h.db.Exec(ctx,
-			`INSERT INTO items (id, instrument_id, vertical, sub_domain, item_format, stem, options, irt_a, irt_b, irt_c, clinical_risk_flag, risk_flag_rule, sequence_order, languages, validation_status)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'DRAFT')`,
-			id, instrumentID, vertical, item.SubDomain, item.Format, item.Stem, optionsJSON, item.IRTa, item.IRTb, item.IRTc, item.RiskFlag, item.RiskRule, seq, item.Languages,
+			`INSERT INTO items (id, instrument_id, vertical, sub_domain, sub_domains, item_format, stem, media_url, media_type, options, irt_a, irt_b, irt_c, clinical_risk_flag, risk_flag_rule, sequence_order, languages, validation_status)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, 'DRAFT')`,
+			id, instrumentID, vertical, item.SubDomain, subDomainsJSON, item.Format, item.Stem, mediaURL, mediaType, optionsJSON, item.IRTa, item.IRTb, item.IRTc, item.RiskFlag, item.RiskRule, seq, item.Languages,
 		)
 		if err == nil {
 			created++

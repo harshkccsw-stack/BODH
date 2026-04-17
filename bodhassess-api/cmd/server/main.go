@@ -40,10 +40,17 @@ func main() {
 	instrumentsH := handlers.NewInstrumentsHandler(db)
 	sessionsH := handlers.NewSessionsHandler(db)
 	itemsH := handlers.NewItemsHandler(db)
+	uploadH := handlers.NewUploadHandler("./uploads", "http://localhost:"+cfg.AppPort)
+
+	// Static files for uploaded media
+	fileServer := http.FileServer(http.Dir("./uploads"))
+	r.Handle("/uploads/*", http.StripPrefix("/uploads/", fileServer))
 
 	// Routes
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Get("/health", healthH.Check)
+
+		r.Post("/upload", uploadH.Upload)
 
 		r.Route("/instruments", func(r chi.Router) {
 			r.Get("/", instrumentsH.List)

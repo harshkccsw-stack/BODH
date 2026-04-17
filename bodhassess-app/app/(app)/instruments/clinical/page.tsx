@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
   AlertTriangle,
   Brain,
@@ -8,14 +8,17 @@ import {
   Clock,
   Globe,
   ListChecks,
+  Pencil,
   Play,
   Search,
   Stethoscope,
+  X,
 } from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
+import { loadOverrides, saveOverride, applyOverride, type InstrumentOverride } from '@/lib/instrument-overrides';
 
 // ---------------------------------------------------------------------------
 // Data
@@ -140,19 +143,91 @@ const tierColors: Record<number, string> = {
 // Component
 // ---------------------------------------------------------------------------
 
+function loadUserInstrumentsForVertical(vertical: string): ClinicalInstrument[] {
+  try {
+    const raw = localStorage.getItem('bodhassess.instruments');
+    if (!raw) return [];
+    const list = JSON.parse(raw);
+    if (!Array.isArray(list)) return [];
+    return list
+      .filter((i: any) => String(i.vertical || '').toUpperCase() === vertical.toUpperCase())
+      .map((i: any): ClinicalInstrument => ({
+        name: i.name || i.shortName || 'Untitled',
+        shortName: i.shortName || (i.name ? String(i.name).split(' ')[0] : 'CUSTOM'),
+        category: i.category || 'Custom Assessment',
+        items: Array.isArray(i.questions) ? i.questions.length : (i.items || 0),
+        duration: i.duration ? `${i.duration} min` : '—',
+        languages: Array.isArray(i.languages)
+          ? i.languages.map((c: string) => c.toUpperCase())
+          : ['EN'],
+        indianNormsStatus: 'In Progress',
+        severityCutoffs: i.description || 'Custom-authored scoring — review results with the administrator.',
+        tier: typeof i.tier === 'number' ? i.tier : (typeof i.tier === 'string' ? parseInt(i.tier.replace('T', ''), 10) || 1 : 1),
+      }));
+  } catch {
+    return [];
+  }
+}
+
 export default function ClinicalInstrumentsPage() {
   const [search, setSearch] = useState('');
+  const [overrides, setOverrides] = useState<Record<string, InstrumentOverride>>({});
+  const [userInstruments, setUserInstruments] = useState<ClinicalInstrument[]>([]);
+  const [editing, setEditing] = useState<ClinicalInstrument | null>(null);
+  const [editForm, setEditForm] = useState({
+    name: '', category: '', items: 0, duration: '',
+    languages: '', severityCutoffs: '', tier: 1,
+  });
+
+  useEffect(() => {
+    setOverrides(loadOverrides());
+    setUserInstruments(loadUserInstrumentsForVertical('CLINICAL'));
+  }, []);
+
+  const mergedInstruments = useMemo(() => {
+    const seenShort = new Set(instruments.map((i) => i.shortName.toLowerCase()));
+    const uniqueUser = userInstruments.filter((u) => !seenShort.has(u.shortName.toLowerCase()));
+    return [...uniqueUser, ...instruments].map((i) => applyOverride(i as any, overrides) as ClinicalInstrument);
+  }, [overrides, userInstruments]);
 
   const filtered = useMemo(() => {
-    if (!search) return instruments;
+    if (!search) return mergedInstruments;
     const q = search.toLowerCase();
-    return instruments.filter(
+    return mergedInstruments.filter(
       (inst) =>
         inst.name.toLowerCase().includes(q) ||
         inst.shortName.toLowerCase().includes(q) ||
         inst.category.toLowerCase().includes(q)
     );
-  }, [search]);
+  }, [search, mergedInstruments]);
+
+  const openEdit = (inst: ClinicalInstrument) => {
+    setEditing(inst);
+    setEditForm({
+      name: inst.name,
+      category: inst.category,
+      items: inst.items,
+      duration: inst.duration,
+      languages: inst.languages.join(', '),
+      severityCutoffs: inst.severityCutoffs,
+      tier: inst.tier,
+    });
+  };
+
+  const saveEdit = () => {
+    if (!editing) return;
+    const patch: InstrumentOverride & { severityCutoffs?: string } = {
+      name: editForm.name.trim() || editing.name,
+      category: editForm.category.trim(),
+      items: Number(editForm.items) || 0,
+      duration: editForm.duration.trim(),
+      languages: editForm.languages.split(',').map((s) => s.trim()).filter(Boolean),
+      tier: Number(editForm.tier) || 1,
+    };
+    (patch as any).severityCutoffs = editForm.severityCutoffs.trim();
+    setOverrides(saveOverride(editing.shortName || editing.name, patch));
+    setEditing(null);
+  };
 
   return (
     <div className="p-5 lg:p-7.5 space-y-7">
@@ -296,16 +371,82 @@ export default function ClinicalInstrumentsPage() {
                   </div>
 
                   {/* Action */}
-                  <div className="mt-auto pt-1">
-                    <Button variant="primary" size="sm" className="w-full">
+                  <div className="mt-auto pt-1 flex gap-2">
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      className="flex-1"
+                      onClick={() => window.location.href = `/sessions/create?instrument=${encodeURIComponent(inst.shortName || inst.name)}`}
+                    >
                       <Play className="h-3.5 w-3.5" />
                       Start Session
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => openEdit(inst)}>
+                      <Pencil className="h-3.5 w-3.5" />
+                      Edit
                     </Button>
                   </div>
                 </CardContent>
               </Card>
             );
           })}
+        </div>
+      )}
+
+      {editing && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={() => setEditing(null)}>
+          <Card className="w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
+            <CardHeader className="flex flex-row items-center justify-between pb-3">
+              <CardTitle className="text-base">Edit Instrument</CardTitle>
+              <button onClick={() => setEditing(null)} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="text-xs text-muted-foreground">Short name: <span className="font-mono">{editing.shortName}</span></div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Name</label>
+                <input value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">Category</label>
+                  <input value={editForm.category} onChange={(e) => setEditForm({ ...editForm, category: e.target.value })}
+                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">Duration</label>
+                  <input value={editForm.duration} onChange={(e) => setEditForm({ ...editForm, duration: e.target.value })}
+                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">Items</label>
+                  <input type="number" value={editForm.items} onChange={(e) => setEditForm({ ...editForm, items: Number(e.target.value) })}
+                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">Tier</label>
+                  <select value={editForm.tier} onChange={(e) => setEditForm({ ...editForm, tier: Number(e.target.value) })}
+                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
+                    {[1, 2, 3, 4, 5].map((t) => <option key={t} value={t}>T{t}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Languages (comma-separated)</label>
+                <input value={editForm.languages} onChange={(e) => setEditForm({ ...editForm, languages: e.target.value })}
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Severity Cutoffs</label>
+                <textarea rows={2} value={editForm.severityCutoffs} onChange={(e) => setEditForm({ ...editForm, severityCutoffs: e.target.value })}
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" />
+              </div>
+              <div className="flex justify-end gap-2 pt-1">
+                <Button variant="outline" onClick={() => setEditing(null)}>Cancel</Button>
+                <Button variant="primary" onClick={saveEdit}>Save Changes</Button>
+              </div>
+            </CardContent>
+          </Card>
         </div>
       )}
     </div>

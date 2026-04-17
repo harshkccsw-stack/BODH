@@ -1,7 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
+  AlertTriangle,
+  Check,
   ChevronRight,
   ClipboardCheck,
   Eye,
@@ -33,23 +35,38 @@ interface InstrumentOption {
   duration: string;
 }
 
-const instruments: InstrumentOption[] = [
+// Catalog covers every instrument shown across the Library pages
+// (Clinical, Industrial, Counselling) plus Experiments — merged with
+// user-published assessments from localStorage on mount.
+const catalogInstruments: InstrumentOption[] = [
+  // Clinical
   { name: 'PHQ-9 (Patient Health Questionnaire)', vertical: 'Clinical', items: 9, duration: '5 min' },
+  { name: 'PHQ-2 (Ultra-Brief Depression Screen)', vertical: 'Clinical', items: 2, duration: '2 min' },
   { name: 'GAD-7 (Generalized Anxiety Disorder)', vertical: 'Clinical', items: 7, duration: '4 min' },
   { name: 'DASS-21 (Depression Anxiety Stress)', vertical: 'Clinical', items: 21, duration: '10 min' },
   { name: 'Beck BDI-II (Beck Depression Inventory)', vertical: 'Clinical', items: 21, duration: '10 min' },
+  { name: 'Beck Anxiety Inventory (BAI)', vertical: 'Clinical', items: 21, duration: '10 min' },
   { name: 'PCL-5 (PTSD Checklist)', vertical: 'Clinical', items: 20, duration: '10 min' },
+  { name: 'AUDIT (Alcohol Use Disorders Test)', vertical: 'Clinical', items: 10, duration: '5 min' },
   { name: 'SCID-5 (Structured Clinical Interview)', vertical: 'Clinical', items: 45, duration: '30 min' },
-  { name: 'Big Five IPIP-NEO', vertical: 'Industrial', items: 120, duration: '25 min' },
-  { name: 'HEXACO Personality Inventory', vertical: 'Industrial', items: 60, duration: '15 min' },
-  { name: 'Learning Agility Scale', vertical: 'Industrial', items: 30, duration: '12 min' },
-  { name: 'Cognitive Ability Battery (CAB)', vertical: 'Industrial', items: 40, duration: '20 min' },
-  { name: 'Situational Judgement Test (SJT)', vertical: 'Industrial', items: 25, duration: '15 min' },
-  { name: 'SCAS (Spence Child Anxiety Scale)', vertical: 'Counselling', items: 44, duration: '15 min' },
-  { name: 'CDI-2 (Child Depression Inventory)', vertical: 'Counselling', items: 28, duration: '10 min' },
+  // Industrial
+  { name: 'Big Five Personality (IPIP-NEO-120)', vertical: 'Industrial', items: 120, duration: '25 min' },
+  { name: 'HEXACO Personality Inventory', vertical: 'Industrial', items: 100, duration: '20 min' },
+  { name: 'Learning Agility Assessment', vertical: 'Industrial', items: 80, duration: '18 min' },
+  { name: 'Situational Judgment Tests (SJTs)', vertical: 'Industrial', items: 40, duration: '30 min' },
+  { name: 'Cognitive Aptitude Battery (CAB)', vertical: 'Industrial', items: 60, duration: '35 min' },
+  { name: 'AI Adaptability Index', vertical: 'Industrial', items: 56, duration: '20 min' },
+  { name: 'Digital Diet Assessment', vertical: 'Industrial', items: 45, duration: '15 min' },
+  // Counselling & Child
+  { name: "Spence Children's Anxiety Scale (SCAS)", vertical: 'Counselling', items: 45, duration: '15 min' },
+  { name: "Children's Depression Inventory-2 (CDI-2)", vertical: 'Counselling', items: 28, duration: '12 min' },
+  { name: 'ADHD Rating Scale-5', vertical: 'Counselling', items: 18, duration: '10 min' },
+  { name: 'Developmental Milestones Tracker', vertical: 'Counselling', items: 60, duration: '20 min' },
+  { name: 'School Adjustment Scale', vertical: 'Counselling', items: 35, duration: '12 min' },
+  { name: 'Academic Stress Inventory', vertical: 'Counselling', items: 40, duration: '15 min' },
   { name: 'SDQ (Strengths & Difficulties)', vertical: 'Counselling', items: 25, duration: '10 min' },
   { name: 'Career Interest Inventory (CII)', vertical: 'Counselling', items: 60, duration: '20 min' },
-  { name: 'AI Adaptability Index', vertical: 'Experiments', items: 18, duration: '8 min' },
+  // Experiments
   { name: 'Digital Literacy Assessment', vertical: 'Experiments', items: 24, duration: '12 min' },
 ];
 
@@ -58,13 +75,33 @@ const languages = [
   'Tamil', 'Gujarati', 'Kannada', 'Malayalam', 'Odia', 'Punjabi',
 ];
 
-const mockRespondents = [
-  { id: 'R-001', name: 'Arjun Patel', email: 'arjun.patel@example.com' },
-  { id: 'R-002', name: 'Priya Sharma', email: 'priya.sharma@example.com' },
-  { id: 'R-003', name: 'Rahul Verma', email: 'rahul.verma@example.com' },
-  { id: 'R-004', name: 'Ananya Reddy', email: 'ananya.reddy@example.com' },
-  { id: 'R-005', name: 'Vikram Singh', email: 'vikram.singh@example.com' },
+interface RespondentRow {
+  id: string;
+  name: string;
+  email: string;
+}
+
+const seedRespondents: RespondentRow[] = [
+  { id: 'R-001', name: 'Arjun Patel', email: 'arjun.p@gmail.com' },
+  { id: 'R-002', name: 'Priya Sharma', email: 'priya.s@outlook.com' },
+  { id: 'R-003', name: 'Rahul Verma', email: 'rahul.v@yahoo.com' },
+  { id: 'R-004', name: 'Ananya Reddy', email: 'ananya.r@gmail.com' },
+  { id: 'R-005', name: 'Vikram Singh', email: 'vikram.s@hotmail.com' },
+  { id: 'R-006', name: 'Deepa Menon', email: 'deepa.m@gmail.com' },
 ];
+
+const RESPONDENT_STORAGE_KEY = 'bodhassess.respondents';
+const SESSION_STORAGE_KEY = 'bodhassess.sessions';
+const INSTRUMENT_STORAGE_KEY = 'bodhassess.instruments';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api/v1';
+
+function normalizeVertical(v: unknown): Vertical {
+  const s = String(v || '').toLowerCase();
+  if (s.startsWith('indust')) return 'Industrial';
+  if (s.startsWith('coun')) return 'Counselling';
+  if (s.startsWith('exper')) return 'Experiments';
+  return 'Clinical';
+}
 
 export default function CreateSessionPage() {
   const [vertical, setVertical] = useState<string>('all');
@@ -74,20 +111,213 @@ export default function CreateSessionPage() {
   const [language, setLanguage] = useState('English');
   const [consentId, setConsentId] = useState('');
   const [proctoring, setProctoring] = useState(false);
+  const [respondents, setRespondents] = useState<RespondentRow[]>(seedRespondents);
+  const [instrumentList, setInstrumentList] = useState<InstrumentOption[]>(catalogInstruments);
+  const [error, setError] = useState('');
+  const [created, setCreated] = useState<{ id: string } | null>(null);
+  const [saving, setSaving] = useState(false);
 
-  const filteredInstruments = instruments.filter(
+  // Load respondents + instrument catalog from localStorage and backend,
+  // then pre-select instrument from ?instrument= query param.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(RESPONDENT_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as RespondentRow[];
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setRespondents(parsed.map((r) => ({ id: r.id, name: r.name, email: r.email })));
+        }
+      }
+    } catch {}
+
+    // Merge catalog with locally-published assessments
+    let merged: InstrumentOption[] = [...catalogInstruments];
+    try {
+      const iraw = localStorage.getItem(INSTRUMENT_STORAGE_KEY);
+      if (iraw) {
+        const local = JSON.parse(iraw) as any[];
+        if (Array.isArray(local)) {
+          local.forEach((i) => {
+            const name: string = i.name || i.shortName;
+            if (!name) return;
+            const items = Array.isArray(i.questions) ? i.questions.length : (i.items ?? 0);
+            const duration = i.duration ? `${i.duration} min` : '—';
+            merged.push({ name, vertical: normalizeVertical(i.vertical), items, duration });
+          });
+        }
+      }
+    } catch {}
+
+    // Dedupe by name (case-insensitive), keeping first occurrence
+    const seen = new Set<string>();
+    merged = merged.filter((i) => {
+      const key = i.name.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    setInstrumentList(merged);
+
+    // Optional backend merge — non-blocking, silently skipped if API unavailable
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/instruments`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const list: any[] = Array.isArray(data) ? data : (data.instruments || []);
+        if (list.length === 0) return;
+        setInstrumentList((prev) => {
+          const existing = new Set(prev.map((i) => i.name.toLowerCase()));
+          const add: InstrumentOption[] = [];
+          list.forEach((i) => {
+            const name: string = i.name || i.short_name;
+            if (!name || existing.has(name.toLowerCase())) return;
+            add.push({
+              name,
+              vertical: normalizeVertical(i.vertical),
+              items: i.item_count ?? i.items ?? 0,
+              duration: i.duration_minutes ? `${i.duration_minutes} min` : '—',
+            });
+          });
+          return add.length ? [...prev, ...add] : prev;
+        });
+      } catch {}
+    })();
+
+    // Pre-select instrument from ?instrument= query param, matched against the merged list
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const qInst = params.get('instrument');
+      if (qInst) {
+        const match = merged.find(
+          (i) => i.name === qInst || i.name.toLowerCase().startsWith(qInst.toLowerCase()),
+        );
+        if (match) {
+          setSelectedInstrument(match.name);
+          setVertical(match.vertical);
+        } else {
+          setSelectedInstrument(qInst);
+        }
+      }
+    } catch {}
+  }, []);
+
+  const filteredInstruments = instrumentList.filter(
     (i) => vertical === 'all' || i.vertical === vertical
   );
 
-  const filteredRespondents = mockRespondents.filter(
+  const filteredRespondents = respondents.filter(
     (r) =>
       respondentSearch === '' ||
       r.name.toLowerCase().includes(respondentSearch.toLowerCase()) ||
       r.email.toLowerCase().includes(respondentSearch.toLowerCase())
   );
 
-  const selectedInstrumentData = instruments.find((i) => i.name === selectedInstrument);
-  const selectedRespondentData = mockRespondents.find((r) => r.id === selectedRespondent);
+  const selectedInstrumentData = instrumentList.find((i) => i.name === selectedInstrument);
+  const selectedRespondentData = respondents.find((r) => r.id === selectedRespondent);
+
+  // Ensure a playable instrument record exists for the selected name. If the
+  // admin picked a catalog instrument that hasn't been published via Create
+  // Assessment, seed a demo set of Likert-5 items so Launch works.
+  const ensureInstrumentAvailable = (name: string, vert: string) => {
+    try {
+      const raw = localStorage.getItem(INSTRUMENT_STORAGE_KEY);
+      const list: any[] = raw ? JSON.parse(raw) : [];
+      if (list.some((i) => (i.name || '').toLowerCase() === name.toLowerCase())) return;
+
+      const mqtId = 'mqt-' + Math.random().toString(36).slice(2, 10);
+      const mqId = 'mq-' + Math.random().toString(36).slice(2, 10);
+      const likert = [
+        'Strongly disagree',
+        'Disagree',
+        'Neutral',
+        'Agree',
+        'Strongly agree',
+      ];
+      const stems = [
+        `I have felt this statement applies to me over the past two weeks.`,
+        `I find it easy to respond calmly under pressure.`,
+        `I can concentrate on tasks without getting distracted.`,
+        `I feel confident about the way I make decisions.`,
+        `I generally feel positive about my day-to-day life.`,
+      ];
+      const questions = stems.map((stem, qi) => ({
+        id: `q-${qi + 1}-${Math.random().toString(36).slice(2, 7)}`,
+        stem: `(${name}) ${stem}`,
+        format: 'LIKERT',
+        media_url: '',
+        media_type: 'none',
+        clinical_risk_flag: false,
+        risk_flag_rule: '',
+        options: likert.map((text, oi) => ({
+          text,
+          scores: [{ mqt_id: mqtId, score: oi }],
+        })),
+      }));
+
+      const demoInstrument = {
+        id: 'local-' + Math.random().toString(36).slice(2, 10),
+        name,
+        shortName: name.split(' ')[0],
+        vertical: vert,
+        category: '',
+        description: 'Demo assessment generated for flow testing. Replace via Question Bank → Create Assessment.',
+        duration: 5,
+        tier: 'T1',
+        languages: ['en'],
+        mqs: [{ id: mqId, name: 'General', mqts: [{ id: mqtId, name: name }] }],
+        questions,
+        createdAt: new Date().toISOString(),
+        isDemo: true,
+      };
+      localStorage.setItem(INSTRUMENT_STORAGE_KEY, JSON.stringify([demoInstrument, ...list]));
+    } catch {}
+  };
+
+  const handleCreate = (sendInvite: boolean) => {
+    setError('');
+    if (!selectedInstrument) {
+      setError('Please select an instrument.');
+      return;
+    }
+    if (!selectedRespondent) {
+      setError('Please select a respondent.');
+      return;
+    }
+    setSaving(true);
+    try {
+      const fullName = selectedInstrumentData?.name || selectedInstrument;
+      const vert = selectedInstrumentData?.vertical || 'Clinical';
+      ensureInstrumentAvailable(fullName, vert);
+
+      const raw = localStorage.getItem(SESSION_STORAGE_KEY);
+      const existing = raw ? (JSON.parse(raw) as any[]) : [];
+      const id = `SESS-${String(1000 + existing.length + 1)}`;
+      const today = new Date().toISOString().slice(0, 10);
+      const entry = {
+        id,
+        respondentId: selectedRespondentData?.id || '',
+        respondent: selectedRespondentData?.name || '',
+        respondentEmail: selectedRespondentData?.email || '',
+        instrument: fullName.split(' (')[0],
+        instrumentFullName: fullName,
+        vertical: vert,
+        language,
+        status: 'Active',
+        score: '--',
+        createdAt: today,
+        consentId,
+        proctoring,
+        invitationSent: sendInvite,
+      };
+      localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify([entry, ...existing]));
+      setCreated({ id });
+    } catch (e: any) {
+      setError(e?.message || 'Failed to create session');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <div className="p-5 lg:p-7.5 space-y-7">
@@ -365,12 +595,39 @@ export default function CreateSessionPage() {
                 </div>
               </div>
 
+              {error && (
+                <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-3 py-2 text-xs text-red-700 dark:text-red-400">
+                  <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  <span>{error}</span>
+                </div>
+              )}
+              {created && (
+                <div className="flex items-start gap-2 rounded-lg border border-green-200 bg-green-50 dark:border-green-900 dark:bg-green-950/30 px-3 py-2 text-xs text-green-700 dark:text-green-400">
+                  <Check className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  <span>
+                    Session <strong>{created.id}</strong> created.{' '}
+                    <a href="/sessions" className="underline">View in Sessions</a>
+                  </span>
+                </div>
+              )}
               <div className="space-y-2 pt-2">
-                <Button variant="primary" size="md" className="w-full">
+                <Button
+                  variant="primary"
+                  size="md"
+                  className="w-full"
+                  disabled={saving}
+                  onClick={() => handleCreate(false)}
+                >
                   <ClipboardCheck className="size-4" />
-                  Create Session
+                  {saving ? 'Creating...' : 'Create Session'}
                 </Button>
-                <Button variant="outline" size="md" className="w-full">
+                <Button
+                  variant="outline"
+                  size="md"
+                  className="w-full"
+                  disabled={saving}
+                  onClick={() => handleCreate(true)}
+                >
                   <Send className="size-4" />
                   Create &amp; Send Invitation
                 </Button>
