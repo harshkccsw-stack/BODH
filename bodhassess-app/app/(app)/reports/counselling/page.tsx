@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { getSessions, getSessionById, sessionsToReports, downloadJson } from '@/lib/data-store';
-import { X, Eye, FileText } from 'lucide-react';
 import {
   Search,
   FileText,
@@ -10,6 +9,8 @@ import {
   Clock,
   Users,
   Filter,
+  Eye,
+  X,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
