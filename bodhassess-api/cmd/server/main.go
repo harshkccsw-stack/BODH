@@ -40,6 +40,11 @@ func main() {
 	instrumentsH := handlers.NewInstrumentsHandler(db)
 	sessionsH := handlers.NewSessionsHandler(db)
 	itemsH := handlers.NewItemsHandler(db)
+	takeH := handlers.NewSessionsTakeHandler(db)
+	reportsH := handlers.NewReportsHandler(db)
+	analyticsH := handlers.NewAnalyticsHandler(db)
+	surveysH := handlers.NewSurveysHandler(db)
+	adminH := handlers.NewAdminHandler(db)
 
 	// Routes
 	r.Route("/api/v1", func(r chi.Router) {
@@ -58,6 +63,39 @@ func main() {
 			r.Get("/", sessionsH.List)
 			r.Post("/", sessionsH.Create)
 			r.Get("/{id}", sessionsH.GetByID)
+			r.Get("/{id}/items", takeH.GetItems)
+			r.Post("/{id}/start", takeH.Start)
+			r.Post("/{id}/responses", takeH.SaveResponse)
+			r.Post("/{id}/complete", takeH.Complete)
+		})
+
+		r.Route("/reports", func(r chi.Router) {
+			r.Get("/", reportsH.List)
+			r.Post("/generate", reportsH.GenerateFromSession)
+			r.Get("/{id}", reportsH.GetByID)
+		})
+
+		r.Route("/analytics", func(r chi.Router) {
+			r.Get("/overview", analyticsH.Overview)
+			r.Get("/sessions-by-vertical", analyticsH.SessionsByVertical)
+			r.Get("/sessions-timeseries", analyticsH.SessionsTimeSeries)
+		})
+
+		r.Route("/surveys", func(r chi.Router) {
+			r.Get("/", surveysH.List)
+			r.Post("/", surveysH.Create)
+			r.Get("/{id}", surveysH.GetByID)
+			r.Post("/{id}/publish", surveysH.Publish)
+			r.Post("/{id}/responses", surveysH.SubmitResponse)
+			r.Get("/{id}/responses", surveysH.ListResponses)
+		})
+
+		r.Route("/admin", func(r chi.Router) {
+			r.Get("/practitioners", adminH.ListPractitioners)
+			r.Post("/practitioners", adminH.CreatePractitioner)
+			r.Get("/respondents", adminH.ListRespondents)
+			r.Post("/respondents", adminH.CreateRespondent)
+			r.Post("/users/{id}/set-active", adminH.SetActive)
 		})
 	})
 

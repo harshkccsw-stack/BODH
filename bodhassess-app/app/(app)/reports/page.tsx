@@ -1,12 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   ChevronLeft,
   ChevronRight,
-  Download,
   Eye,
-  FileText,
   Filter,
   Search,
 } from 'lucide-react';
@@ -21,62 +20,90 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { getReports, type ReportListItem, type ReportStatus } from '@/lib/api/reports';
 
-type ReportStatus = 'Draft' | 'Approved' | 'Finalized';
-type ReportFormat = 'PDF' | 'Interactive';
-type Vertical = 'Clinical' | 'Industrial' | 'Counselling';
+const statusBadgeProps: Record<ReportStatus, { variant: 'success' | 'primary' | 'warning' | 'secondary'; appearance: 'light' }> = {
+  FINALIZED: { variant: 'success', appearance: 'light' },
+  APPROVED: { variant: 'primary', appearance: 'light' },
+  PENDING_REVIEW: { variant: 'secondary', appearance: 'light' },
+  DRAFT: { variant: 'warning', appearance: 'light' },
+};
 
-interface Report {
-  id: string;
-  sessionId: string;
-  respondent: string;
-  instrument: string;
-  vertical: Vertical;
-  format: ReportFormat;
-  status: ReportStatus;
-  generatedAt: string;
+const verticalBadgeProps: Record<string, { variant: 'info' | 'secondary' | 'primary'; appearance: 'outline' }> = {
+  CLINICAL: { variant: 'info', appearance: 'outline' },
+  INDUSTRIAL: { variant: 'secondary', appearance: 'outline' },
+  COUNSELLING: { variant: 'primary', appearance: 'outline' },
+  EXPERIMENTS: { variant: 'secondary', appearance: 'outline' },
+  WHITELABEL: { variant: 'primary', appearance: 'outline' },
+};
+
+function shortId(id: string): string {
+  if (!id) return '';
+  return id.split('-')[0].toUpperCase();
 }
 
-const mockReports: Report[] = [
-  { id: 'RPT-0081', sessionId: 'SESS-0047', respondent: 'Arjun Patel', instrument: 'PHQ-9', vertical: 'Clinical', format: 'PDF', status: 'Finalized', generatedAt: '2026-04-09' },
-  { id: 'RPT-0080', sessionId: 'SESS-0045', respondent: 'Rahul Verma', instrument: 'DASS-21', vertical: 'Clinical', format: 'Interactive', status: 'Approved', generatedAt: '2026-04-08' },
-  { id: 'RPT-0079', sessionId: 'SESS-0044', respondent: 'Ananya Reddy', instrument: 'Beck BDI-II', vertical: 'Clinical', format: 'PDF', status: 'Draft', generatedAt: '2026-04-08' },
-  { id: 'RPT-0078', sessionId: 'SESS-0043', respondent: 'Vikram Singh', instrument: 'Big Five IPIP-NEO', vertical: 'Industrial', format: 'PDF', status: 'Finalized', generatedAt: '2026-04-07' },
-  { id: 'RPT-0077', sessionId: 'SESS-0041', respondent: 'Karthik Iyer', instrument: 'SCAS', vertical: 'Counselling', format: 'Interactive', status: 'Approved', generatedAt: '2026-04-06' },
-  { id: 'RPT-0076', sessionId: 'SESS-0039', respondent: 'Aditya Joshi', instrument: 'Learning Agility Scale', vertical: 'Industrial', format: 'PDF', status: 'Finalized', generatedAt: '2026-04-05' },
-  { id: 'RPT-0075', sessionId: 'SESS-0037', respondent: 'Rohan Deshmukh', instrument: 'PHQ-9', vertical: 'Clinical', format: 'PDF', status: 'Finalized', generatedAt: '2026-04-04' },
-  { id: 'RPT-0074', sessionId: 'SESS-0036', respondent: 'Divya Menon', instrument: 'GAD-7', vertical: 'Clinical', format: 'Interactive', status: 'Approved', generatedAt: '2026-04-04' },
-];
+function formatDate(iso: string): string {
+  try {
+    return new Date(iso).toISOString().slice(0, 10);
+  } catch {
+    return iso;
+  }
+}
 
-const statusBadgeProps: Record<ReportStatus, { variant: 'success' | 'primary' | 'warning'; appearance: 'light' }> = {
-  'Finalized': { variant: 'success', appearance: 'light' },
-  'Approved': { variant: 'primary', appearance: 'light' },
-  'Draft': { variant: 'warning', appearance: 'light' },
-};
-
-const verticalBadgeProps: Record<Vertical, { variant: 'info' | 'secondary' | 'primary'; appearance: 'outline' }> = {
-  'Clinical': { variant: 'info', appearance: 'outline' },
-  'Industrial': { variant: 'secondary', appearance: 'outline' },
-  'Counselling': { variant: 'primary', appearance: 'outline' },
-};
+function titleCase(v: string): string {
+  if (!v) return '';
+  return v.charAt(0).toUpperCase() + v.slice(1).toLowerCase();
+}
 
 export default function ReportsPage() {
+  const router = useRouter();
+  const [reports, setReports] = useState<ReportListItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [verticalFilter, setVerticalFilter] = useState('all');
-  const [formatFilter, setFormatFilter] = useState('all');
 
-  const filteredReports = mockReports.filter((report) => {
-    const matchesSearch =
-      searchQuery === '' ||
-      report.respondent.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      report.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      report.instrument.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesStatus = statusFilter === 'all' || report.status === statusFilter;
-    const matchesVertical = verticalFilter === 'all' || report.vertical === verticalFilter;
-    const matchesFormat = formatFilter === 'all' || report.format === formatFilter;
-    return matchesSearch && matchesStatus && matchesVertical && matchesFormat;
-  });
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await getReports();
+        if (!cancelled) {
+          setReports(res.data);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Failed to load reports');
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const filteredReports = useMemo(() => {
+    return reports.filter((report) => {
+      const matchesSearch =
+        searchQuery === '' ||
+        report.respondent_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        report.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (report.instrument_short ?? '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+        report.instrument_name.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesStatus = statusFilter === 'all' || report.status === statusFilter;
+      const matchesVertical = verticalFilter === 'all' || report.vertical === verticalFilter;
+      return matchesSearch && matchesStatus && matchesVertical;
+    });
+  }, [reports, searchQuery, statusFilter, verticalFilter]);
 
   return (
     <div className="p-5 lg:p-7.5 space-y-7">
@@ -114,20 +141,10 @@ export default function ReportsPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Verticals</SelectItem>
-                  <SelectItem value="Clinical">Clinical</SelectItem>
-                  <SelectItem value="Industrial">Industrial</SelectItem>
-                  <SelectItem value="Counselling">Counselling</SelectItem>
-                </SelectContent>
-              </Select>
-
-              <Select value={formatFilter} onValueChange={setFormatFilter}>
-                <SelectTrigger className="w-40" size="md">
-                  <SelectValue placeholder="Format" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Formats</SelectItem>
-                  <SelectItem value="PDF">PDF</SelectItem>
-                  <SelectItem value="Interactive">Interactive</SelectItem>
+                  <SelectItem value="CLINICAL">Clinical</SelectItem>
+                  <SelectItem value="INDUSTRIAL">Industrial</SelectItem>
+                  <SelectItem value="COUNSELLING">Counselling</SelectItem>
+                  <SelectItem value="EXPERIMENTS">Experiments</SelectItem>
                 </SelectContent>
               </Select>
 
@@ -137,15 +154,12 @@ export default function ReportsPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Statuses</SelectItem>
-                  <SelectItem value="Draft">Draft</SelectItem>
-                  <SelectItem value="Approved">Approved</SelectItem>
-                  <SelectItem value="Finalized">Finalized</SelectItem>
+                  <SelectItem value="DRAFT">Draft</SelectItem>
+                  <SelectItem value="PENDING_REVIEW">Pending Review</SelectItem>
+                  <SelectItem value="APPROVED">Approved</SelectItem>
+                  <SelectItem value="FINALIZED">Finalized</SelectItem>
                 </SelectContent>
               </Select>
-
-              <Input type="date" variant="md" className="w-40" defaultValue="2026-04-01" />
-              <span className="text-muted-foreground text-sm">to</span>
-              <Input type="date" variant="md" className="w-40" defaultValue="2026-04-09" />
             </div>
           </div>
         </CardContent>
@@ -157,7 +171,9 @@ export default function ReportsPage() {
           <div className="flex items-center justify-between">
             <CardTitle className="text-base">All Reports</CardTitle>
             <span className="text-sm text-muted-foreground">
-              Showing {filteredReports.length} of {mockReports.length} reports
+              {loading
+                ? 'Loading...'
+                : `Showing ${filteredReports.length} of ${reports.length} reports`}
             </span>
           </div>
         </CardHeader>
@@ -167,64 +183,78 @@ export default function ReportsPage() {
               <thead>
                 <tr className="border-b border-border">
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Report ID</th>
-                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Session ID</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Respondent</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Instrument</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Vertical</th>
-                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Format</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Status</th>
-                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Generated</th>
+                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">T-Score</th>
+                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Created</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredReports.map((report) => (
-                  <tr
-                    key={report.id}
-                    className="border-b border-border last:border-0 hover:bg-muted/50 transition-colors"
-                  >
-                    <td className="px-5 py-3 font-mono text-xs">{report.id}</td>
-                    <td className="px-5 py-3 font-mono text-xs">{report.sessionId}</td>
-                    <td className="px-5 py-3 font-medium">{report.respondent}</td>
-                    <td className="px-5 py-3">{report.instrument}</td>
-                    <td className="px-5 py-3">
-                      <Badge size="sm" shape="circle" {...verticalBadgeProps[report.vertical]}>
-                        {report.vertical}
-                      </Badge>
-                    </td>
-                    <td className="px-5 py-3">
-                      <Badge
-                        size="sm"
-                        shape="circle"
-                        variant={report.format === 'PDF' ? 'secondary' : 'info'}
-                        appearance="outline"
-                      >
-                        <FileText className="size-3" />
-                        {report.format}
-                      </Badge>
-                    </td>
-                    <td className="px-5 py-3">
-                      <Badge size="sm" shape="circle" {...statusBadgeProps[report.status]}>
-                        {report.status}
-                      </Badge>
-                    </td>
-                    <td className="px-5 py-3 text-muted-foreground">{report.generatedAt}</td>
-                    <td className="px-5 py-3">
-                      <div className="flex items-center gap-1">
-                        <Button variant="ghost" size="sm" mode="icon">
-                          <Eye className="size-3.5" />
-                        </Button>
-                        <Button variant="ghost" size="sm" mode="icon">
-                          <Download className="size-3.5" />
-                        </Button>
-                      </div>
+                {loading && (
+                  <tr>
+                    <td colSpan={8} className="px-5 py-12 text-center text-muted-foreground">
+                      Loading reports...
                     </td>
                   </tr>
-                ))}
-                {filteredReports.length === 0 && (
+                )}
+                {!loading && error && (
                   <tr>
-                    <td colSpan={9} className="px-5 py-12 text-center text-muted-foreground">
-                      No reports found matching your filters.
+                    <td colSpan={8} className="px-5 py-12 text-center text-destructive">
+                      {error}
+                    </td>
+                  </tr>
+                )}
+                {!loading && !error && filteredReports.map((report) => {
+                  const vBadge = verticalBadgeProps[report.vertical] ?? { variant: 'secondary' as const, appearance: 'outline' as const };
+                  const sBadge = statusBadgeProps[report.status] ?? { variant: 'secondary' as const, appearance: 'light' as const };
+                  const tScore = report.scores?.t_score;
+                  return (
+                    <tr
+                      key={report.id}
+                      className="border-b border-border last:border-0 hover:bg-muted/50 transition-colors"
+                    >
+                      <td className="px-5 py-3 font-mono text-xs">{shortId(report.id)}</td>
+                      <td className="px-5 py-3 font-medium">{report.respondent_name}</td>
+                      <td className="px-5 py-3">{report.instrument_short ?? report.instrument_name}</td>
+                      <td className="px-5 py-3">
+                        <Badge size="sm" shape="circle" {...vBadge}>
+                          {titleCase(report.vertical)}
+                        </Badge>
+                      </td>
+                      <td className="px-5 py-3">
+                        <Badge size="sm" shape="circle" {...sBadge}>
+                          {titleCase(report.status.replace('_', ' '))}
+                        </Badge>
+                      </td>
+                      <td className="px-5 py-3 font-mono text-xs">
+                        {typeof tScore === 'number' ? tScore.toFixed(1) : '—'}
+                      </td>
+                      <td className="px-5 py-3 text-muted-foreground">{formatDate(report.created_at)}</td>
+                      <td className="px-5 py-3">
+                        <div className="flex items-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            mode="icon"
+                            onClick={() => router.push(`/reports/${report.id}`)}
+                            aria-label="View report"
+                          >
+                            <Eye className="size-3.5" />
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {!loading && !error && filteredReports.length === 0 && (
+                  <tr>
+                    <td colSpan={8} className="px-5 py-12 text-center text-muted-foreground">
+                      {reports.length === 0
+                        ? 'No reports yet. Complete an assessment session to generate one.'
+                        : 'No reports found matching your filters.'}
                     </td>
                   </tr>
                 )}
@@ -235,20 +265,22 @@ export default function ReportsPage() {
       </Card>
 
       {/* Pagination */}
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">
-          Showing 1-{filteredReports.length} of {mockReports.length} reports
-        </p>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" mode="icon" disabled>
-            <ChevronLeft className="size-4" />
-          </Button>
-          <Button variant="primary" size="sm" className="min-w-7">1</Button>
-          <Button variant="outline" size="sm" mode="icon">
-            <ChevronRight className="size-4" />
-          </Button>
+      {!loading && !error && filteredReports.length > 0 && (
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-muted-foreground">
+            Showing 1-{filteredReports.length} of {reports.length} reports
+          </p>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" mode="icon" disabled>
+              <ChevronLeft className="size-4" />
+            </Button>
+            <Button variant="primary" size="sm" className="min-w-7">1</Button>
+            <Button variant="outline" size="sm" mode="icon" disabled>
+              <ChevronRight className="size-4" />
+            </Button>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
