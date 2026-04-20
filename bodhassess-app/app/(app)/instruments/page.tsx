@@ -21,12 +21,13 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { loadOverrides, saveOverride, applyOverride, type InstrumentOverride } from '@/lib/instrument-overrides';
+import { getVerticals, BUILT_IN_VERTICALS, getInstruments as getLocalInstruments, type Vertical as StoredVertical } from '@/lib/data-store';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-type Vertical = 'all' | 'clinical' | 'industrial' | 'counselling' | 'experimental';
+type Vertical = string;
 type InstrumentType = 'all' | 'screening' | 'personality' | 'aptitude' | 'behavioral' | 'experimental';
 
 interface Instrument {
@@ -83,7 +84,7 @@ const instruments: Instrument[] = [
   { name: 'Delay Discounting Task', shortName: 'DDT', category: 'Impulsivity / Decision Making', vertical: 'experimental', type: 'experimental', items: 27, duration: '5-8 min', languages: ['English'], normStatus: 'Research norms', tier: 5 },
 ];
 
-const verticals: { key: Vertical; label: string; icon: typeof Brain }[] = [
+const builtInVerticals: { key: Vertical; label: string; icon: typeof Brain }[] = [
   { key: 'all', label: 'All', icon: ListChecks },
   { key: 'clinical', label: 'Clinical', icon: Stethoscope },
   { key: 'industrial', label: 'Industrial', icon: Briefcase },
@@ -100,12 +101,13 @@ const instrumentTypes: { key: InstrumentType; label: string }[] = [
   { key: 'experimental', label: 'Experimental' },
 ];
 
-const verticalColors: Record<Exclude<Vertical, 'all'>, string> = {
+const verticalColors: Record<string, string> = {
   clinical: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
   industrial: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
   counselling: 'bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-400',
   experimental: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
 };
+const fallbackVerticalColor = 'bg-slate-100 text-slate-700 dark:bg-slate-900/30 dark:text-slate-400';
 
 const tierColors: Record<number, string> = {
   1: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
@@ -131,8 +133,58 @@ export default function InstrumentsPage() {
     name: '', category: '', duration: '', items: 0, tier: 1,
     languages: '', normStatus: '',
   });
+  const [customVerticals, setCustomVerticals] = useState<StoredVertical[]>([]);
+  const [localInstruments, setLocalInstruments] = useState<Instrument[]>([]);
 
   useEffect(() => { setOverrides(loadOverrides()); }, []);
+
+  useEffect(() => {
+    const reload = async () => {
+      const all = await getVerticals();
+      const builtInCodes = new Set(BUILT_IN_VERTICALS.map((v) => v.code));
+      setCustomVerticals(all.filter((v) => !builtInCodes.has(v.code)));
+
+      const stored = getLocalInstruments();
+      const mapped: Instrument[] = stored.map((s): Instrument => ({
+        name: s.name || s.shortName || 'Untitled',
+        shortName: s.shortName || (s.name ? s.name.split(' ')[0] : 'CUSTOM'),
+        category: s.category || 'Custom',
+        vertical: String(s.vertical || 'clinical').toLowerCase(),
+        type: 'screening',
+        items: Array.isArray(s.questions) ? s.questions.length : 0,
+        duration: s.duration ? `${s.duration} min` : '—',
+        languages: Array.isArray(s.languages) ? s.languages.map((l) => String(l).toUpperCase()) : ['EN'],
+        normStatus: 'User-published',
+        tier: typeof s.tier === 'string' ? parseInt(String(s.tier).replace('T', ''), 10) || 1 : (s.tier || 1),
+      }));
+      setLocalInstruments(mapped);
+    };
+    reload();
+
+    // Refresh whenever the tab regains focus or localStorage changes in
+    // another tab — so newly-published instruments show up immediately.
+    const onFocus = () => reload();
+    const onStorage = (e: StorageEvent) => {
+      if (!e.key || e.key.startsWith('bodhassess.')) reload();
+    };
+    window.addEventListener('focus', onFocus);
+    window.addEventListener('storage', onStorage);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      window.removeEventListener('storage', onStorage);
+    };
+  }, []);
+
+  // Filter pill list = built-ins + any user-created verticals picked up from
+  // /question-bank/create. Keys are stored lowercased to match instrument records.
+  const verticals = useMemo(() => [
+    ...builtInVerticals,
+    ...customVerticals.map((v) => ({
+      key: v.code.toLowerCase(),
+      label: v.name,
+      icon: ListChecks,
+    })),
+  ], [customVerticals]);
 
   useEffect(() => {
     getInstruments()
@@ -156,12 +208,41 @@ export default function InstrumentsPage() {
       .catch(() => setApiSource('mock'));
   }, []);
 
-  // Merge API instruments with mock (API instruments shown first, deduped by name)
+  // Merge user-published (localStorage) + backend API + mock. Dedupe by name so
+  // a user questionnaire that was also synced to the backend doesn't double up.
+  // Also re-read localStorage inline on every render so a newly-published
+  // instrument shows up without needing a focus/storage event.
+  const freshLocal: Instrument[] = typeof window === 'undefined'
+    ? localInstruments
+    : getLocalInstruments().map((s): Instrument => ({
+        name: s.name || s.shortName || 'Untitled',
+        shortName: s.shortName || (s.name ? s.name.split(' ')[0] : 'CUSTOM'),
+        category: s.category || 'Custom',
+        vertical: String(s.vertical || 'clinical').toLowerCase(),
+        type: 'screening',
+        items: Array.isArray(s.questions) ? s.questions.length : 0,
+        duration: s.duration ? `${s.duration} min` : '—',
+        languages: Array.isArray(s.languages) ? s.languages.map((l) => String(l).toUpperCase()) : ['EN'],
+        normStatus: 'User-published',
+        tier: typeof s.tier === 'string' ? parseInt(String(s.tier).replace('T', ''), 10) || 1 : (s.tier || 1),
+      }));
+
   const allInstruments = useMemo(() => {
-    const mockNames = new Set(apiInstruments.map((i) => i.name));
-    const uniqueMock = instruments.filter((i) => !mockNames.has(i.name));
-    return [...apiInstruments, ...uniqueMock].map((i) => applyOverride(i, overrides));
-  }, [apiInstruments, overrides]);
+    const seen = new Set<string>();
+    const out: Instrument[] = [];
+    const push = (arr: Instrument[]) => {
+      arr.forEach((i) => {
+        const key = (i.name || '').toLowerCase();
+        if (seen.has(key)) return;
+        seen.add(key);
+        out.push(i);
+      });
+    };
+    push(freshLocal);
+    push(apiInstruments);
+    push(instruments);
+    return out.map((i) => applyOverride(i, overrides));
+  }, [freshLocal, apiInstruments, overrides]);
 
   const openEdit = (inst: Instrument) => {
     setEditing(inst);
@@ -192,21 +273,25 @@ export default function InstrumentsPage() {
     setEditing(null);
   };
 
-  const filtered = useMemo(() => {
-    return allInstruments.filter((inst) => {
-      if (activeVertical !== 'all' && inst.vertical !== activeVertical) return false;
-      if (activeType !== 'all' && inst.type !== activeType) return false;
-      if (search) {
-        const q = search.toLowerCase();
-        return (
-          inst.name.toLowerCase().includes(q) ||
-          inst.shortName.toLowerCase().includes(q) ||
-          inst.category.toLowerCase().includes(q)
-        );
-      }
-      return true;
-    });
-  }, [activeVertical, activeType, search, allInstruments]);
+  // Direct filter (no useMemo) so every keystroke re-renders cleanly.
+  const toStr = (v: unknown): string => (v == null ? '' : String(v)).toLowerCase();
+  const query = search.trim().toLowerCase();
+  const activeV = toStr(activeVertical);
+  const activeT = toStr(activeType);
+  const filtered = allInstruments.filter((inst) => {
+    if (!inst) return false;
+    if (activeV !== 'all' && toStr(inst.vertical) !== activeV) return false;
+    if (activeT !== 'all' && toStr(inst.type) !== activeT) return false;
+    if (!query) return true;
+    const hay = [
+      inst.name,
+      inst.shortName,
+      inst.category,
+      inst.normStatus,
+      inst.vertical,
+    ].map(toStr).join(' ');
+    return hay.includes(query);
+  });
 
   return (
     <div className="p-5 lg:p-7.5 space-y-7">
@@ -230,7 +315,7 @@ export default function InstrumentsPage() {
         </div>
         <Button variant="primary" size="md" onClick={() => window.location.href = '/question-bank/create'}>
           <Upload className="h-4 w-4" />
-          Create Assessment
+          Create Questionnaire
         </Button>
       </div>
 
@@ -263,14 +348,27 @@ export default function InstrumentsPage() {
           {/* Search & type filter bar */}
           <div className="flex flex-col sm:flex-row gap-3">
             <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <input
                 type="text"
-                placeholder="Search instruments by name, category..."
+                autoComplete="off"
+                spellCheck={false}
+                placeholder="Search instruments by name, short name, category..."
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="w-full h-8.5 rounded-md border border-input bg-background pl-9 pr-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:border-ring focus:ring-[3px] focus:ring-ring/30 transition-shadow"
+                onChange={(e) => setSearch(e.currentTarget.value)}
+                onInput={(e) => setSearch((e.currentTarget as HTMLInputElement).value)}
+                className="w-full h-9 rounded-md border border-input bg-background pl-9 pr-9 text-sm placeholder:text-muted-foreground focus:outline-none focus:border-ring focus:ring-[3px] focus:ring-ring/30 transition-shadow"
               />
+              {search && (
+                <button
+                  type="button"
+                  onClick={() => setSearch('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  aria-label="Clear search"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
             </div>
             <div className="flex gap-1.5 flex-wrap">
               {instrumentTypes.map((t) => {
@@ -295,7 +393,8 @@ export default function InstrumentsPage() {
 
           {/* Results count */}
           <p className="text-xs text-muted-foreground">
-            Showing {filtered.length} instrument{filtered.length !== 1 ? 's' : ''}
+            Showing {filtered.length} of {allInstruments.length} instrument{allInstruments.length !== 1 ? 's' : ''}
+            {search && <span className="ml-1">for "<span className="font-medium text-foreground">{search}</span>"</span>}
           </p>
 
           {/* Instrument grid */}
@@ -311,9 +410,9 @@ export default function InstrumentsPage() {
             </Card>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-              {filtered.map((inst) => (
+              {filtered.map((inst, idx) => (
                 <Card
-                  key={inst.shortName}
+                  key={`${inst.name}-${inst.shortName}-${idx}`}
                   className="hover:shadow-md transition-shadow flex flex-col"
                 >
                   <CardContent className="p-5 flex flex-col flex-1 gap-3.5">
@@ -322,7 +421,7 @@ export default function InstrumentsPage() {
                       <span
                         className={cn(
                           'inline-flex items-center rounded-full px-2 py-0.5 text-[0.6875rem] font-medium',
-                          verticalColors[inst.vertical],
+                          verticalColors[inst.vertical] || fallbackVerticalColor,
                         )}
                       >
                         {inst.vertical.charAt(0).toUpperCase() + inst.vertical.slice(1)}
@@ -467,9 +566,21 @@ export default function InstrumentsPage() {
                   className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
                 />
               </div>
-              <div className="flex justify-end gap-2 pt-1">
-                <Button variant="outline" onClick={() => setEditing(null)}>Cancel</Button>
-                <Button variant="primary" onClick={saveEdit}>Save Changes</Button>
+              <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-2 pt-1">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    const key = editing?.shortName || editing?.name || '';
+                    if (key) window.location.href = `/question-bank/create?edit=${encodeURIComponent(key)}`;
+                  }}
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                  Edit Questionnaire
+                </Button>
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" onClick={() => setEditing(null)}>Cancel</Button>
+                  <Button variant="primary" onClick={saveEdit}>Save Changes</Button>
+                </div>
               </div>
             </CardContent>
           </Card>

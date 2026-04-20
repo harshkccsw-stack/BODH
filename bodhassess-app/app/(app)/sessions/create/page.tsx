@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
+  ArrowLeft,
   Check,
   ChevronRight,
   ClipboardCheck,
@@ -18,6 +19,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input, InputWrapper } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { portalSessionsApi, respondentsApi, questionnairesApi } from '@/lib/api';
 import {
   Select,
   SelectContent,
@@ -90,9 +92,6 @@ const seedRespondents: RespondentRow[] = [
   { id: 'R-006', name: 'Deepa Menon', email: 'deepa.m@gmail.com' },
 ];
 
-const RESPONDENT_STORAGE_KEY = 'bodhassess.respondents';
-const SESSION_STORAGE_KEY = 'bodhassess.sessions';
-const INSTRUMENT_STORAGE_KEY = 'bodhassess.instruments';
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api/v1';
 
 function normalizeVertical(v: unknown): Vertical {
@@ -120,45 +119,39 @@ export default function CreateSessionPage() {
   // Load respondents + instrument catalog from localStorage and backend,
   // then pre-select instrument from ?instrument= query param.
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(RESPONDENT_STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw) as RespondentRow[];
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setRespondents(parsed.map((r) => ({ id: r.id, name: r.name, email: r.email })));
+    (async () => {
+      try {
+        const list = await respondentsApi.list();
+        if (Array.isArray(list) && list.length > 0) {
+          setRespondents(list.map((r) => ({ id: r.id, name: r.name, email: r.email })));
         }
-      }
-    } catch {}
+      } catch {}
+    })();
 
-    // Merge catalog with locally-published assessments
+    // Merge catalog with published questionnaires from the database
     let merged: InstrumentOption[] = [...catalogInstruments];
-    try {
-      const iraw = localStorage.getItem(INSTRUMENT_STORAGE_KEY);
-      if (iraw) {
-        const local = JSON.parse(iraw) as any[];
-        if (Array.isArray(local)) {
-          local.forEach((i) => {
-            const name: string = i.name || i.shortName;
-            if (!name) return;
-            const items = Array.isArray(i.questions) ? i.questions.length : (i.items ?? 0);
-            const duration = i.duration ? `${i.duration} min` : '—';
-            merged.push({ name, vertical: normalizeVertical(i.vertical), items, duration });
-          });
-        }
-      }
-    } catch {}
+    (async () => {
+      try {
+        const list = await questionnairesApi.list();
+        list.forEach((i) => {
+          const name: string = i.name || i.shortName || '';
+          if (!name) return;
+          const items = Array.isArray(i.questions) ? i.questions.length : 0;
+          const duration = i.duration ? `${i.duration} min` : '—';
+          merged.push({ name, vertical: normalizeVertical(i.vertical), items, duration });
+        });
+      } catch {}
+      const seen = new Set<string>();
+      merged = merged.filter((i) => {
+        const key = i.name.toLowerCase();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+      setInstrumentList(merged);
+    })();
 
-    // Dedupe by name (case-insensitive), keeping first occurrence
-    const seen = new Set<string>();
-    merged = merged.filter((i) => {
-      const key = i.name.toLowerCase();
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-    setInstrumentList(merged);
-
-    // Optional backend merge — non-blocking, silently skipped if API unavailable
+    // Optional: also surface built-in /instruments endpoint rows (if any exist there)
     (async () => {
       try {
         const res = await fetch(`${API_BASE}/instruments`);
@@ -216,65 +209,58 @@ export default function CreateSessionPage() {
   const selectedInstrumentData = instrumentList.find((i) => i.name === selectedInstrument);
   const selectedRespondentData = respondents.find((r) => r.id === selectedRespondent);
 
-  // Ensure a playable instrument record exists for the selected name. If the
-  // admin picked a catalog instrument that hasn't been published via Create
-  // Assessment, seed a demo set of Likert-5 items so Launch works.
-  const ensureInstrumentAvailable = (name: string, vert: string) => {
+  // Ensure a playable questionnaire exists in Postgres for the chosen catalog
+  // name. If nobody has published it via Create Questionnaire yet, seed a
+  // demo Likert-5 questionnaire so Launch works end-to-end.
+  const ensureInstrumentAvailable = async (name: string, vert: string) => {
     try {
-      const raw = localStorage.getItem(INSTRUMENT_STORAGE_KEY);
-      const list: any[] = raw ? JSON.parse(raw) : [];
-      if (list.some((i) => (i.name || '').toLowerCase() === name.toLowerCase())) return;
+      const existing = await questionnairesApi.getByName(name).catch(() => null);
+      if (existing && existing.id) return;
+    } catch {}
 
-      const mqtId = 'mqt-' + Math.random().toString(36).slice(2, 10);
-      const mqId = 'mq-' + Math.random().toString(36).slice(2, 10);
-      const likert = [
-        'Strongly disagree',
-        'Disagree',
-        'Neutral',
-        'Agree',
-        'Strongly agree',
-      ];
-      const stems = [
-        `I have felt this statement applies to me over the past two weeks.`,
-        `I find it easy to respond calmly under pressure.`,
-        `I can concentrate on tasks without getting distracted.`,
-        `I feel confident about the way I make decisions.`,
-        `I generally feel positive about my day-to-day life.`,
-      ];
-      const questions = stems.map((stem, qi) => ({
-        id: `q-${qi + 1}-${Math.random().toString(36).slice(2, 7)}`,
-        stem: `(${name}) ${stem}`,
-        format: 'LIKERT',
-        media_url: '',
-        media_type: 'none',
-        clinical_risk_flag: false,
-        risk_flag_rule: '',
-        options: likert.map((text, oi) => ({
-          text,
-          scores: [{ mqt_id: mqtId, score: oi }],
-        })),
-      }));
+    const mqtId = 'mqt-' + Math.random().toString(36).slice(2, 10);
+    const mqId = 'mq-' + Math.random().toString(36).slice(2, 10);
+    const likert = ['Strongly disagree', 'Disagree', 'Neutral', 'Agree', 'Strongly agree'];
+    const stems = [
+      `I have felt this statement applies to me over the past two weeks.`,
+      `I find it easy to respond calmly under pressure.`,
+      `I can concentrate on tasks without getting distracted.`,
+      `I feel confident about the way I make decisions.`,
+      `I generally feel positive about my day-to-day life.`,
+    ];
+    const questions = stems.map((stem, qi) => ({
+      id: `q-${qi + 1}-${Math.random().toString(36).slice(2, 7)}`,
+      stem: `(${name}) ${stem}`,
+      format: 'LIKERT',
+      media_url: '',
+      media_type: 'none',
+      clinical_risk_flag: false,
+      risk_flag_rule: '',
+      options: likert.map((text, oi) => ({
+        text,
+        scores: [{ mqt_id: mqtId, score: oi }],
+      })),
+    }));
 
-      const demoInstrument = {
-        id: 'local-' + Math.random().toString(36).slice(2, 10),
+    try {
+      await questionnairesApi.upsert({
+        id: 'demo-' + Math.random().toString(36).slice(2, 10),
         name,
         shortName: name.split(' ')[0],
-        vertical: vert,
+        vertical: vert.toUpperCase(),
         category: '',
-        description: 'Demo assessment generated for flow testing. Replace via Question Bank → Create Assessment.',
+        description: 'Demo assessment generated for flow testing. Replace via Question Bank → Create Questionnaire.',
         duration: 5,
         tier: 'T1',
         languages: ['en'],
         mqs: [{ id: mqId, name: 'General', mqts: [{ id: mqtId, name: name }] }],
-        questions,
-        createdAt: new Date().toISOString(),
+        questions: questions as any,
         isDemo: true,
-      };
-      localStorage.setItem(INSTRUMENT_STORAGE_KEY, JSON.stringify([demoInstrument, ...list]));
+      });
     } catch {}
   };
 
-  const handleCreate = (sendInvite: boolean) => {
+  const handleCreate = async (sendInvite: boolean) => {
     setError('');
     if (!selectedInstrument) {
       setError('Please select an instrument.');
@@ -288,12 +274,9 @@ export default function CreateSessionPage() {
     try {
       const fullName = selectedInstrumentData?.name || selectedInstrument;
       const vert = selectedInstrumentData?.vertical || 'Clinical';
-      ensureInstrumentAvailable(fullName, vert);
+      await ensureInstrumentAvailable(fullName, vert);
 
-      const raw = localStorage.getItem(SESSION_STORAGE_KEY);
-      const existing = raw ? (JSON.parse(raw) as any[]) : [];
-      const id = `SESS-${String(1000 + existing.length + 1)}`;
-      const today = new Date().toISOString().slice(0, 10);
+      const id = `SESS-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
       const entry = {
         id,
         respondentId: selectedRespondentData?.id || '',
@@ -305,15 +288,15 @@ export default function CreateSessionPage() {
         language,
         status: 'Active',
         score: '--',
-        createdAt: today,
         consentId,
         proctoring,
         invitationSent: sendInvite,
       };
-      localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify([entry, ...existing]));
+      const res = await portalSessionsApi.create(entry);
+      if (!res) throw new Error('Failed to create session via API');
       setCreated({ id });
     } catch (e: any) {
-      setError(e?.message || 'Failed to create session');
+      setError(e?.message || 'Failed to create session — is the API running?');
     } finally {
       setSaving(false);
     }
@@ -323,6 +306,15 @@ export default function CreateSessionPage() {
     <div className="p-5 lg:p-7.5 space-y-7">
       {/* Header */}
       <div>
+        <div className="flex items-center gap-2 text-sm text-muted-foreground mb-3">
+          <button
+            onClick={() => { window.location.href = '/sessions'; }}
+            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" />
+            Back to Sessions
+          </button>
+        </div>
         <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
           <span>BodhAssess</span>
           <span>/</span>

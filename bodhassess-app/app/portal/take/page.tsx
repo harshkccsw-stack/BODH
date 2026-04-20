@@ -5,8 +5,9 @@ import { Brain, Check, ChevronLeft, ChevronRight, AlertTriangle } from 'lucide-r
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { portalSessionsApi, questionnairesApi, respondentsApi, type PortalSession, type Respondent } from '@/lib/api';
 
-interface AuthUser { id: string; name: string; email: string; }
+type AuthUser = Respondent;
 interface MQT { id: string; name: string; }
 interface MQ { id: string; name: string; mqts: MQT[]; }
 interface OptionScore { mqt_id: string; score: number; }
@@ -26,18 +27,9 @@ interface StoredInstrument {
   mqs: MQ[];
   questions: Question[];
 }
-interface StoredSession {
-  id: string;
-  respondentId: string;
-  respondent: string;
-  instrument: string;
-  instrumentFullName?: string;
-  status: string;
-}
+type StoredSession = PortalSession;
 
-const AUTH_KEY = 'bodhassess.auth.respondent';
-const SESSION_KEY = 'bodhassess.sessions';
-const INSTRUMENT_KEY = 'bodhassess.instruments';
+const AUTH_KEY = 'bodhassess.auth.token';
 
 function extractYoutubeId(url: string): string | null {
   const m = url?.match(/(?:youtube\.com\/(?:[^/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/);
@@ -68,52 +60,57 @@ export default function PortalTakePage() {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    try {
-      const araw = sessionStorage.getItem(AUTH_KEY);
-      if (!araw) { window.location.href = '/portal/login'; return; }
-      const u: AuthUser = JSON.parse(araw);
-      setUser(u);
+    (async () => {
+      try {
+        const token = sessionStorage.getItem(AUTH_KEY);
+        if (!token) { window.location.href = '/portal/login'; return; }
+        let u: AuthUser;
+        try {
+          u = await respondentsApi.me(token);
+        } catch {
+          sessionStorage.removeItem(AUTH_KEY);
+          window.location.href = '/portal/login';
+          return;
+        }
+        setUser(u);
 
-      const params = new URLSearchParams(window.location.search);
-      const sid = params.get('id');
-      if (!sid) { setLoadError('No session specified.'); return; }
+        const params = new URLSearchParams(window.location.search);
+        const sid = params.get('id');
+        if (!sid) { setLoadError('No session specified.'); return; }
 
-      const sraw = localStorage.getItem(SESSION_KEY);
-      const allSessions: StoredSession[] = sraw ? JSON.parse(sraw) : [];
-      const s = allSessions.find((x) => x.id === sid);
-      if (!s) { setLoadError('Session not found.'); return; }
-      if (s.respondentId !== u.id) { setLoadError('This assessment is not assigned to you.'); return; }
-      if (s.status === 'Completed') { setLoadError('This assessment has already been submitted.'); return; }
-      setSession(s);
+        let s: PortalSession;
+        try {
+          s = await portalSessionsApi.get(sid);
+        } catch {
+          setLoadError('Session not found.');
+          return;
+        }
+        if (s.respondentId !== u.id) { setLoadError('This assessment is not assigned to you.'); return; }
+        if (s.status === 'Completed') { setLoadError('This assessment has already been submitted.'); return; }
+        setSession(s);
 
-      const iraw = localStorage.getItem(INSTRUMENT_KEY);
-      const allInsts: StoredInstrument[] = iraw ? JSON.parse(iraw) : [];
       const target = (s.instrumentFullName || s.instrument || '').trim();
-      const shortTarget = s.instrument?.trim() || '';
-      const norm = (v: string) => v.toLowerCase().replace(/\s*\(.*?\)\s*/g, ' ').replace(/\s+/g, ' ').trim();
-      const nTarget = norm(target);
-      const inst = allInsts.find((i) => {
-        const n = norm(i.name || '');
-        if (!n) return false;
-        return (
-          i.name === target ||
-          i.shortName === shortTarget ||
-          n === nTarget ||
-          n.startsWith(nTarget) ||
-          nTarget.startsWith(n)
-        );
-      });
+      const shortTarget = (s.instrument || '').trim();
+      let inst: StoredInstrument | null = null;
+      for (const candidate of [target, shortTarget]) {
+        if (!candidate) continue;
+        try {
+          const res = await questionnairesApi.getByName(candidate);
+          if (res) { inst = res as any; break; }
+        } catch {}
+      }
       if (!inst) {
-        setLoadError(`The assessment "${target}" isn't available. Ask your administrator to publish it via Question Bank → Create Assessment.`);
+        setLoadError(`The assessment "${target}" isn't available in the database. Ask your administrator to publish it via Question Bank → Create Questionnaire.`);
         return;
       }
-      setInstrument(inst);
-    } catch (e) {
-      setLoadError('Failed to load the assessment.');
-    }
+        setInstrument(inst);
+      } catch (e) {
+        setLoadError('Failed to load the assessment.');
+      }
+    })();
   }, []);
 
-  const submit = () => {
+  const submit = async () => {
     if (!instrument || !session) return;
     setSubmitting(true);
 
@@ -139,14 +136,16 @@ export default function PortalTakePage() {
     const summary = Object.entries(byName).map(([k, v]) => `${k}=${v}`).join(', ') || 'Submitted';
 
     try {
-      const sraw = localStorage.getItem(SESSION_KEY);
-      const all: any[] = sraw ? JSON.parse(sraw) : [];
-      const updated = all.map((s) => s.id === session.id
-        ? { ...s, status: 'Completed', score: summary, answers, mqtScores: byName, completedAt: new Date().toISOString() }
-        : s,
-      );
-      localStorage.setItem(SESSION_KEY, JSON.stringify(updated));
-    } catch {}
+      await portalSessionsApi.update(session.id, {
+        status: 'Completed',
+        score: summary,
+        answers,
+        mqtScores: byName,
+        completedAt: new Date().toISOString(),
+      });
+    } catch {
+      // fall through — still navigate; session will remain Active if the write failed
+    }
 
     window.location.href = `/portal/complete?id=${encodeURIComponent(session.id)}`;
   };

@@ -1,25 +1,31 @@
 'use client';
 
-import { useState, useRef, useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import {
   AlertTriangle,
+  ArrowLeft,
   Check,
+  ChevronLeft,
   ChevronRight,
+  Copy,
+  Eye,
   GripVertical,
   Image as ImageIcon,
   Layers,
   Link2,
   Plus,
   Save,
+  Search as SearchIcon,
   Trash2,
   Upload as UploadIcon,
   Video,
   X,
   Youtube,
 } from 'lucide-react';
+import { getMQs, getInstruments, getVerticals, BUILT_IN_VERTICALS, type MQ as StoredMQ, type StoredInstrument, type Vertical as StoredVertical } from '@/lib/data-store';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api/v1';
 
@@ -204,10 +210,134 @@ export default function CreateAssessmentPage() {
   const [instIsAdaptive, setInstIsAdaptive] = useState(false);
   const [instIsFixed, setInstIsFixed] = useState(true);
 
-  // Measured Quality hierarchy (MQ > MQT). 1 MQ can have multiple MQTs.
-  const [mqs, setMqs] = useState<MQ[]>([
-    { id: crypto.randomUUID(), name: 'Default MQ', mqts: [{ id: crypto.randomUUID(), name: 'Default MQT' }] },
-  ]);
+  // Measured Qualities are managed on the /qualities page. Every defined MQ
+  // and its MQTs are made available here automatically — no per-assessment
+  // selection step.
+  const [catalog, setCatalog] = useState<StoredMQ[]>([]);
+
+  useEffect(() => {
+    getMQs().then(setCatalog).catch(() => setCatalog([]));
+  }, []);
+
+  // ---- Edit mode: load an existing questionnaire from the API ----
+  const [editMode, setEditMode] = useState(false);
+  useEffect(() => {
+    (async () => {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const editKey = params.get('edit');
+        if (!editKey) return;
+        const { questionnairesApi } = await import('@/lib/api');
+        let match;
+        try { match = await questionnairesApi.getByName(editKey); } catch {}
+        if (!match) {
+          try { match = await questionnairesApi.get(editKey); } catch {}
+        }
+        if (!match) {
+          setError(`Could not find "${editKey}" in the Instrument Library.`);
+          return;
+        }
+        setInstName(match.name || '');
+        setInstShortName(match.shortName || '');
+        setInstVertical(String(match.vertical || 'CLINICAL').toUpperCase());
+        setInstCategory(match.category || '');
+        setInstDescription(match.description || '');
+        setInstDuration(typeof match.duration === 'number' ? match.duration : 10);
+        setInstTier(typeof match.tier === 'string' && match.tier ? match.tier : 'T1');
+        if (Array.isArray(match.languages)) setInstLanguages(match.languages);
+        setInstrumentId(match.id || crypto.randomUUID());
+        if (Array.isArray(match.questions)) {
+          setQuestions(match.questions.map((q: any) => ({
+            id: q.id || crypto.randomUUID(),
+            stem: String(q.stem || ''),
+            format: String(q.format || 'MCQ'),
+            media_url: String(q.media_url || ''),
+            media_type: (q.media_type || 'none') as MediaType,
+            options: Array.isArray(q.options)
+              ? q.options.map((o: any) => ({
+                  text: String(o.text || ''),
+                  scores: Array.isArray(o.scores) ? o.scores.map((s: any) => ({ mqt_id: s.mqt_id, score: Number(s.score) || 0 })) : [],
+                  media_url: o.media_url,
+                  media_type: o.media_type,
+                }))
+              : [],
+            clinical_risk_flag: !!q.clinical_risk_flag,
+            risk_flag_rule: String(q.risk_flag_rule || ''),
+          })));
+        }
+        setEditMode(true);
+        setStep(2);
+        setSuccess(`Editing "${match.name}" — changes will replace the existing questionnaire on publish.`);
+      } catch {}
+    })();
+  }, []);
+
+  // ---- Verticals (built-in + user-created, synced with backend) ----
+  const [verticals, setVerticals] = useState<StoredVertical[]>(BUILT_IN_VERTICALS);
+  const [verticalOpen, setVerticalOpen] = useState(false);
+  const [verticalSearch, setVerticalSearch] = useState('');
+  const [newVerticalOpen, setNewVerticalOpen] = useState(false);
+  const [newVerticalForm, setNewVerticalForm] = useState({ name: '', code: '', description: '' });
+  const [newVerticalError, setNewVerticalError] = useState('');
+
+  useEffect(() => {
+    getVerticals().then(setVerticals).catch(() => setVerticals(BUILT_IN_VERTICALS));
+  }, []);
+
+  const filteredVerticals = useMemo(() => {
+    const q = verticalSearch.trim().toLowerCase();
+    if (!q) return verticals;
+    return verticals.filter(
+      (v) => v.name.toLowerCase().includes(q) || v.code.toLowerCase().includes(q),
+    );
+  }, [verticals, verticalSearch]);
+
+  const selectedVertical = useMemo(
+    () => verticals.find((v) => v.code === instVertical) || null,
+    [verticals, instVertical],
+  );
+
+  const openNewVertical = () => {
+    setNewVerticalForm({ name: '', code: '', description: '' });
+    setNewVerticalError('');
+    setNewVerticalOpen(true);
+  };
+
+  const submitNewVertical = async () => {
+    const name = newVerticalForm.name.trim();
+    const code = newVerticalForm.code.trim().toUpperCase().replace(/[^A-Z0-9_]/g, '_').slice(0, 64);
+    if (!name) { setNewVerticalError('Name is required'); return; }
+    if (!code) { setNewVerticalError('Code is required (A-Z, 0-9, underscore)'); return; }
+    if (verticals.some((v) => v.code === code)) { setNewVerticalError('A vertical with this code already exists'); return; }
+    const vertical: StoredVertical = {
+      id: `v-${code.toLowerCase()}-${Math.random().toString(36).slice(2, 6)}`,
+      code,
+      name,
+      description: newVerticalForm.description.trim(),
+    };
+    const next = [...verticals, vertical];
+    setVerticals(next);
+    setInstVertical(code);
+    setNewVerticalOpen(false);
+    setVerticalOpen(false);
+    setVerticalSearch('');
+    try {
+      await fetch(`${API_BASE}/verticals`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(vertical),
+      });
+    } catch {}
+  };
+
+  const mqs: MQ[] = useMemo(
+    () => catalog.map((m) => ({
+      id: m.id,
+      name: m.name,
+      mqts: m.mqts.map((t) => ({ id: t.id, name: t.name })),
+    })),
+    [catalog],
+  );
 
   // Questions
   const [questions, setQuestions] = useState<Question[]>([]);
@@ -230,50 +360,93 @@ export default function CreateAssessmentPage() {
     return map;
   }, [mqs]);
 
-  // ---- MQ/MQT management ----
+  // ---- Preview (whole questionnaire review) ----
 
-  const addMQ = () => {
-    const name = prompt('Measured Quality (MQ) name — e.g., "Personality", "Cognitive Ability":');
-    if (!name) return;
-    if (mqs.some((m) => m.name.toLowerCase() === name.toLowerCase())) {
-      alert('An MQ with that name already exists');
+  const [previewOpen, setPreviewOpen] = useState(false);
+
+  const openPreview = () => {
+    if (questions.length === 0) {
+      setError('Add at least one question before previewing.');
       return;
     }
-    setMqs([...mqs, { id: crypto.randomUUID(), name, mqts: [] }]);
+    setPreviewOpen(true);
   };
 
-  const removeMQ = (mqId: string) => {
-    if (mqs.length <= 1) return;
-    const mq = mqs.find((m) => m.id === mqId);
-    const mqtIds = new Set(mq?.mqts.map((t) => t.id) || []);
-    setMqs(mqs.filter((m) => m.id !== mqId));
-    // Strip any option scores referencing this MQ's MQTs
-    setQuestions(questions.map((q) => ({
-      ...q,
-      options: q.options.map((o) => ({
-        ...o,
-        scores: o.scores.filter((s) => !mqtIds.has(s.mqt_id)),
-      })),
-    })));
-  };
+  // ---- Import questions from another questionnaire ----
 
-  const addMQT = (mqId: string) => {
-    const mq = mqs.find((m) => m.id === mqId);
-    const name = prompt(`MQT name under "${mq?.name}" — e.g., "Extraversion", "Verbal Reasoning":`);
-    if (!name) return;
-    if (mq?.mqts.some((t) => t.name.toLowerCase() === name.toLowerCase())) {
-      alert('An MQT with that name already exists under this MQ');
-      return;
+  const [importOpen, setImportOpen] = useState(false);
+  const [importStage, setImportStage] = useState<'instrument' | 'questions'>('instrument');
+  const [importInstrumentSearch, setImportInstrumentSearch] = useState('');
+  const [importQuestionSearch, setImportQuestionSearch] = useState('');
+  const [importSource, setImportSource] = useState<StoredInstrument | null>(null);
+  const [importPicked, setImportPicked] = useState<Set<string>>(new Set());
+  const [importLibrary, setImportLibrary] = useState<StoredInstrument[]>([]);
+
+  const openImport = async () => {
+    setImportSource(null);
+    setImportPicked(new Set());
+    setImportInstrumentSearch('');
+    setImportQuestionSearch('');
+    setImportStage('instrument');
+    setImportOpen(true);
+    try {
+      const { questionnairesApi } = await import('@/lib/api');
+      const list = await questionnairesApi.list();
+      setImportLibrary(list.filter((i) => Array.isArray(i.questions) && i.questions.length > 0) as any);
+    } catch {
+      setImportLibrary([]);
     }
-    setMqs(mqs.map((m) => (m.id === mqId ? { ...m, mqts: [...m.mqts, { id: crypto.randomUUID(), name }] } : m)));
   };
 
-  const removeMQT = (mqId: string, mqtId: string) => {
-    setMqs(mqs.map((m) => (m.id === mqId ? { ...m, mqts: m.mqts.filter((t) => t.id !== mqtId) } : m)));
-    setQuestions(questions.map((q) => ({
-      ...q,
-      options: q.options.map((o) => ({ ...o, scores: o.scores.filter((s) => s.mqt_id !== mqtId) })),
-    })));
+  const filteredImportInstruments = useMemo(() => {
+    const q = importInstrumentSearch.trim().toLowerCase();
+    if (!q) return importLibrary;
+    return importLibrary.filter(
+      (i) =>
+        (i.name || '').toLowerCase().includes(q) ||
+        (i.shortName || '').toLowerCase().includes(q) ||
+        (i.vertical || '').toLowerCase().includes(q),
+    );
+  }, [importLibrary, importInstrumentSearch]);
+
+  const filteredImportQuestions = useMemo(() => {
+    if (!importSource?.questions) return [];
+    const q = importQuestionSearch.trim().toLowerCase();
+    if (!q) return importSource.questions as any[];
+    return (importSource.questions as any[]).filter((qq) => String(qq.stem || '').toLowerCase().includes(q));
+  }, [importSource, importQuestionSearch]);
+
+  const toggleImportPick = (qid: string) => {
+    setImportPicked((prev) => {
+      const next = new Set(prev);
+      if (next.has(qid)) next.delete(qid);
+      else next.add(qid);
+      return next;
+    });
+  };
+
+  const confirmImport = () => {
+    if (!importSource?.questions || importPicked.size === 0) { setImportOpen(false); return; }
+    const toCopy = (importSource.questions as any[]).filter((qq) => importPicked.has(qq.id));
+    const cloned: Question[] = toCopy.map((q) => ({
+      id: crypto.randomUUID(),
+      stem: String(q.stem || ''),
+      format: String(q.format || 'MCQ'),
+      media_url: String(q.media_url || ''),
+      media_type: (q.media_type || 'none') as MediaType,
+      options: Array.isArray(q.options)
+        ? q.options.map((o: any) => ({
+            text: String(o.text || ''),
+            scores: Array.isArray(o.scores) ? o.scores.map((s: any) => ({ mqt_id: s.mqt_id, score: Number(s.score) || 0 })) : [],
+            media_url: o.media_url,
+            media_type: o.media_type,
+          }))
+        : [],
+      clinical_risk_flag: !!q.clinical_risk_flag,
+      risk_flag_rule: String(q.risk_flag_rule || ''),
+    }));
+    setQuestions((prev) => [...prev, ...cloned]);
+    setImportOpen(false);
   };
 
   // ---- Question handlers ----
@@ -386,10 +559,13 @@ export default function CreateAssessmentPage() {
       setError('Name and vertical are required');
       return;
     }
-    if (mqs.length === 0 || mqs.every((m) => m.mqts.length === 0)) {
-      setError('Define at least one Measured Quality with at least one MQT before continuing');
-      return;
-    }
+    // Refresh the catalog on submit so Step 2's MQT scoring picks up any MQs
+    // added on the /qualities page since this tab was opened. No enforcement —
+    // assessments without MQTs are allowed (options simply won't have per-MQT scoring).
+    try {
+      const freshCatalog = await getMQs();
+      if (freshCatalog.length !== catalog.length) setCatalog(freshCatalog);
+    } catch {}
     setSaving(true);
     setError('');
     const scoring_config = {
@@ -454,77 +630,53 @@ export default function CreateAssessmentPage() {
     setSaving(true);
     setError('');
 
-    // Save a local copy so respondents can take the assessment in the browser
-    // (the take page reads from localStorage['bodhassess.instruments'])
+    const qid = instrumentId || `qn-${Math.random().toString(36).slice(2, 10)}`;
     try {
-      const localInstrument = {
-        id: instrumentId || crypto.randomUUID(),
+      const { questionnairesApi } = await import('@/lib/api');
+      await questionnairesApi.upsert({
+        id: qid,
         name: instName,
         shortName: instShortName,
         vertical: instVertical,
         category: instCategory,
         description: instDescription,
-        duration: instDuration,
+        duration: Number(instDuration) || 0,
         tier: instTier,
         languages: instLanguages,
-        mqs,
-        questions,
-        createdAt: new Date().toISOString(),
-      };
-      const raw = localStorage.getItem('bodhassess.instruments');
-      const existing: any[] = raw ? JSON.parse(raw) : [];
-      const filtered = existing.filter((i) => i.name !== instName);
-      localStorage.setItem('bodhassess.instruments', JSON.stringify([localInstrument, ...filtered]));
-    } catch {}
-
-    const items = questions.map((q, i) => {
-      const mqtNames = Array.from(
-        new Set(q.options.flatMap((o) => o.scores.map((s) => mqtIndex[s.mqt_id]?.mqt.name).filter(Boolean) as string[])),
-      );
-      return {
-        stem: q.stem,
-        format: q.format,
-        media_url: q.media_type === 'none' ? '' : q.media_url,
-        media_type: q.media_type === 'none' ? '' : q.media_type,
-        options: q.options
-          .filter((o) => o.text.trim() || o.media_url || o.scores.length > 0)
-          .map((o) => ({
-            text: o.text,
-            value: o.scores[0]?.score ?? 0,
-            mqt_scores: o.scores,
-            media_url: o.media_url,
-            media_type: o.media_type,
-          })),
-        sub_domains: mqtNames.map((n) => ({ domain: n, weight: 1 })),
-        sub_domain: mqtNames[0] || `${instShortName || instName}:Q${i + 1}`,
-        clinical_risk_flag: q.clinical_risk_flag,
-        risk_flag_rule: q.risk_flag_rule,
-        sequence_order: i + 1,
-        languages: instLanguages,
-      };
-    });
-
-    let backendSynced = 0;
-    try {
-      const res = await fetch(`${API_BASE}/instruments/${instrumentId}/items/bulk`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items }),
+        mqs: mqs.map((m) => ({
+          id: m.id,
+          name: m.name,
+          mqts: m.mqts.map((t) => ({ id: t.id, name: t.name })),
+        })),
+        questions: questions.map((q) => ({
+          id: q.id,
+          stem: q.stem,
+          format: q.format,
+          media_url: q.media_type === 'none' ? '' : q.media_url,
+          media_type: q.media_type === 'none' ? 'none' : q.media_type,
+          options: q.options
+            .filter((o) => o.text.trim() || o.media_url || o.scores.length > 0)
+            .map((o) => ({
+              text: o.text,
+              scores: o.scores.map((s) => ({ mqt_id: s.mqt_id, score: Number(s.score) || 0 })),
+              media_url: o.media_url,
+              media_type: o.media_type,
+            })),
+          clinical_risk_flag: q.clinical_risk_flag,
+          risk_flag_rule: q.risk_flag_rule,
+        })),
+        isDemo: false,
       });
-      if (res.ok) {
-        const data = await res.json();
-        backendSynced = data.created || 0;
-      }
-    } catch {
-      // Backend unavailable; local copy is still saved and playable
+      setInstrumentId(qid);
+      setStep(3);
+      setSuccess(
+        `"${instName}" published with ${questions.length} question${questions.length !== 1 ? 's' : ''}. Saved to Postgres and ready for respondents.`,
+      );
+    } catch (e: any) {
+      setError(`Failed to publish: ${e?.message || 'API error'}. Is the backend running?`);
+    } finally {
+      setSaving(false);
     }
-
-    setStep(3);
-    setSuccess(
-      `"${instName}" published with ${questions.length} question${questions.length !== 1 ? 's' : ''}. ` +
-      (backendSynced > 0 ? `${backendSynced} synced to backend.` : 'Saved locally — ready for respondents.'),
-    );
-    setSaving(false);
   };
 
   const toggleLanguage = (code: string) => {
@@ -534,13 +686,29 @@ export default function CreateAssessmentPage() {
   return (
     <div className="p-5 lg:p-7.5 space-y-7 max-w-5xl">
       <div>
+        <div className="flex items-center gap-2 text-sm text-muted-foreground mb-3">
+          <button
+            onClick={() => {
+              if (step === 2) { setStep(1); setError(''); return; }
+              if (step === 3) { window.location.href = '/instruments'; return; }
+              if (window.history.length > 1) window.history.back();
+              else window.location.href = '/question-bank';
+            }}
+            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" />
+            {step === 2 ? 'Back to Instrument Details' : step === 3 ? 'View Library' : 'Back'}
+          </button>
+        </div>
         <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
           <span>BodhAssess</span><span>/</span><span>Question Bank</span><span>/</span>
-          <span className="text-foreground font-medium">Create Assessment</span>
+          <span className="text-foreground font-medium">{editMode ? 'Edit Questionnaire' : 'Create Questionnaire'}</span>
         </div>
-        <h1 className="text-2xl font-semibold tracking-tight">Create Assessment</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">{editMode ? 'Edit Questionnaire' : 'Create Questionnaire'}</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Define your instrument with Measured Qualities (MQ) and their MQTs, then score each option against one or more MQTs.
+          {editMode
+            ? 'Update questions, options, media, and scoring. Publishing will replace the existing version in the Instrument Library.'
+            : 'Define your instrument with Measured Qualities (MQ) and their MQTs, then score each option against one or more MQTs.'}
         </p>
       </div>
 
@@ -589,11 +757,75 @@ export default function CreateAssessmentPage() {
                   <label className="text-sm font-medium">Short Name</label>
                   <input value={instShortName} onChange={(e) => setInstShortName(e.target.value)} placeholder="e.g., EGAT" className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" />
                 </div>
-                <div className="space-y-1.5">
+                <div className="space-y-1.5 relative">
                   <label className="text-sm font-medium">Vertical *</label>
-                  <select value={instVertical} onChange={(e) => setInstVertical(e.target.value)} className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
-                    {VERTICALS.map((v) => <option key={v} value={v}>{v.charAt(0) + v.slice(1).toLowerCase()}</option>)}
-                  </select>
+                  <button
+                    type="button"
+                    onClick={() => setVerticalOpen((v) => !v)}
+                    className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 flex items-center justify-between text-left"
+                  >
+                    <span className={cn(!selectedVertical && 'text-muted-foreground')}>
+                      {selectedVertical ? selectedVertical.name : 'Select a vertical'}
+                    </span>
+                    <ChevronRight className={cn('h-4 w-4 text-muted-foreground transition-transform', verticalOpen && 'rotate-90')} />
+                  </button>
+                  {verticalOpen && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={() => setVerticalOpen(false)} />
+                      <div className="absolute left-0 right-0 top-full mt-1 z-50 rounded-lg border border-border bg-background shadow-lg overflow-hidden">
+                        <div className="p-2 border-b border-border">
+                          <div className="relative">
+                            <SearchIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                            <input
+                              autoFocus
+                              value={verticalSearch}
+                              onChange={(e) => setVerticalSearch(e.target.value)}
+                              placeholder="Search verticals..."
+                              className="w-full rounded-md border border-border bg-background pl-8 pr-3 py-1.5 text-xs outline-none focus:border-primary"
+                            />
+                          </div>
+                        </div>
+                        <div className="max-h-56 overflow-y-auto">
+                          {filteredVerticals.length === 0 ? (
+                            <p className="px-3 py-4 text-xs text-muted-foreground text-center">No verticals match your search.</p>
+                          ) : (
+                            filteredVerticals.map((v) => {
+                              const selected = v.code === instVertical;
+                              return (
+                                <button
+                                  key={v.id}
+                                  type="button"
+                                  onClick={() => { setInstVertical(v.code); setVerticalOpen(false); setVerticalSearch(''); }}
+                                  className={cn(
+                                    'w-full text-left px-3 py-2 text-xs hover:bg-muted transition-colors flex items-center justify-between gap-2',
+                                    selected && 'bg-primary/5',
+                                  )}
+                                >
+                                  <div className="min-w-0">
+                                    <p className={cn('font-medium truncate', selected && 'text-primary')}>{v.name}</p>
+                                    <p className="text-[0.6875rem] text-muted-foreground truncate font-mono">
+                                      {v.code}{v.isBuiltIn ? ' · built-in' : ''}
+                                    </p>
+                                  </div>
+                                  {selected && <Check className="h-3.5 w-3.5 text-primary shrink-0" />}
+                                </button>
+                              );
+                            })
+                          )}
+                        </div>
+                        <div className="border-t border-border p-1.5">
+                          <button
+                            type="button"
+                            onClick={() => { setNewVerticalOpen(true); setVerticalOpen(false); }}
+                            className="w-full flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs font-medium text-primary hover:bg-primary/5 transition-colors"
+                          >
+                            <Plus className="h-3.5 w-3.5" />
+                            Create new vertical
+                          </button>
+                        </div>
+                      </div>
+                    </>
+                  )}
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-sm font-medium">Category</label>
@@ -638,68 +870,6 @@ export default function CreateAssessmentPage() {
             </CardContent>
           </Card>
 
-          {/* Measured Qualities + MQTs */}
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-3">
-              <div>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Layers className="h-4 w-4 text-primary" />
-                  Measured Qualities (MQ) &amp; MQTs
-                </CardTitle>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Define the Measured Qualities (MQ) for this instrument. Each MQ can have multiple Measured Quality Types (MQTs). Each answer option will score against one or more MQTs.
-                </p>
-              </div>
-              <Button variant="outline" size="sm" onClick={addMQ}><Plus className="h-3 w-3" /> Add MQ</Button>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {mqs.map((mq) => (
-                <div key={mq.id} className="rounded-lg border border-border bg-muted/30 p-4 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="inline-flex items-center rounded-md bg-primary/10 text-primary px-2 py-0.5 text-[0.6875rem] font-semibold uppercase tracking-wide">MQ</span>
-                      <input
-                        value={mq.name}
-                        onChange={(e) => setMqs(mqs.map((m) => (m.id === mq.id ? { ...m, name: e.target.value } : m)))}
-                        className="rounded-md border border-border bg-background px-2 py-1 text-sm font-medium outline-none focus:border-primary"
-                      />
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Button variant="outline" size="sm" onClick={() => addMQT(mq.id)}>
-                        <Plus className="h-3 w-3" /> Add MQT
-                      </Button>
-                      {mqs.length > 1 && (
-                        <button onClick={() => removeMQ(mq.id)} className="text-muted-foreground hover:text-red-500" title="Remove MQ">
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  {mq.mqts.length === 0 ? (
-                    <p className="text-xs text-muted-foreground italic">No MQTs yet — add at least one.</p>
-                  ) : (
-                    <div className="flex flex-wrap gap-2">
-                      {mq.mqts.map((mqt) => (
-                        <span key={mqt.id} className="inline-flex items-center gap-2 rounded-lg border border-primary/30 bg-background px-3 py-1.5 text-xs font-medium">
-                          <span className="text-muted-foreground text-[0.625rem]">MQT</span>
-                          <input
-                            value={mqt.name}
-                            onChange={(e) => setMqs(mqs.map((m) => (m.id === mq.id ? { ...m, mqts: m.mqts.map((t) => (t.id === mqt.id ? { ...t, name: e.target.value } : t)) } : m)))}
-                            className="rounded bg-transparent outline-none focus:ring-1 focus:ring-primary px-1"
-                            size={Math.max(mqt.name.length, 8)}
-                          />
-                          <button onClick={() => removeMQT(mq.id, mqt.id)} className="text-muted-foreground hover:text-red-500">
-                            <X className="h-3 w-3" />
-                          </button>
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </CardContent>
-          </Card>
 
           <div className="flex justify-end">
             <Button variant="primary" onClick={handleCreateInstrument} disabled={saving}>
@@ -721,9 +891,16 @@ export default function CreateAssessmentPage() {
               </p>
             </div>
             <div className="flex gap-3">
+              <Button variant="outline" onClick={() => { setStep(1); setError(''); }}>
+                <ChevronLeft className="h-4 w-4" /> Previous Step
+              </Button>
+              <Button variant="outline" onClick={openImport}><Copy className="h-4 w-4" /> Copy from Questionnaire</Button>
               <Button variant="outline" onClick={addQuestion}><Plus className="h-4 w-4" /> Add Question</Button>
+              <Button variant="outline" onClick={openPreview} disabled={questions.length === 0}>
+                <Eye className="h-4 w-4" /> Preview
+              </Button>
               <Button variant="primary" onClick={handleSaveQuestions} disabled={saving || questions.length === 0}>
-                <Save className="h-4 w-4" /> {saving ? 'Publishing...' : `Publish ${questions.length} Questions`}
+                <Save className="h-4 w-4" /> {saving ? (editMode ? 'Saving...' : 'Publishing...') : editMode ? `Save ${questions.length} Questions` : `Publish ${questions.length} Questions`}
               </Button>
             </div>
           </div>
@@ -825,41 +1002,82 @@ export default function CreateAssessmentPage() {
                               )}
                             </div>
 
-                            {/* MQT scoring matrix for this option */}
+                            {/* MQT scoring for this option — dropdown-based */}
                             {allMqts.length > 0 && (
-                              <div className="rounded-md bg-muted/40 border border-border px-3 py-2 space-y-1.5">
+                              <div className="rounded-md bg-muted/40 border border-border px-3 py-2 space-y-2">
                                 <p className="text-[0.6875rem] font-medium text-muted-foreground">Scores per MQT</p>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-1.5">
-                                  {allMqts.map(({ mqt, mq }) => {
-                                    const score = opt.scores.find((s) => s.mqt_id === mqt.id);
-                                    const isOn = !!score;
-                                    const isDup = isOn && dupKey(mqt.id, score!.score);
-                                    return (
-                                      <div key={mqt.id} className="flex items-center gap-2">
-                                        <label className="flex items-center gap-1.5 text-xs flex-1 min-w-0">
-                                          <input type="checkbox" checked={isOn} onChange={() => toggleOptionMqt(q.id, oi, mqt.id)} className="rounded" />
-                                          <span className="truncate">
-                                            <span className="text-muted-foreground">{mq.name}:</span>{' '}
-                                            <span className={cn(isOn && 'font-medium')}>{mqt.name}</span>
-                                          </span>
-                                        </label>
-                                        {isOn && (
+                                {opt.scores.length === 0 ? (
+                                  <p className="text-[0.6875rem] text-muted-foreground italic">No MQT scores yet — click "+ Add MQT score" below.</p>
+                                ) : (
+                                  <div className="space-y-1.5">
+                                    {opt.scores.map((sc) => {
+                                      const entry = mqtIndex[sc.mqt_id];
+                                      const usedIds = new Set(opt.scores.map((s) => s.mqt_id).filter((id) => id !== sc.mqt_id));
+                                      const isDup = dupKey(sc.mqt_id, sc.score);
+                                      return (
+                                        <div key={sc.mqt_id} className="flex items-center gap-2">
+                                          <select
+                                            value={sc.mqt_id}
+                                            onChange={(e) => {
+                                              const newId = e.target.value;
+                                              if (newId === sc.mqt_id) return;
+                                              // Swap this score's mqt_id — preserve the numeric score value
+                                              setQuestions((prev) => prev.map((qq) => {
+                                                if (qq.id !== q.id) return qq;
+                                                const opts = [...qq.options];
+                                                opts[oi] = {
+                                                  ...opts[oi],
+                                                  scores: opts[oi].scores.map((s) => s.mqt_id === sc.mqt_id ? { ...s, mqt_id: newId } : s),
+                                                };
+                                                return { ...qq, options: opts };
+                                              }));
+                                            }}
+                                            className="flex-1 min-w-0 rounded-md border border-border bg-background px-2 py-1 text-xs outline-none focus:border-primary"
+                                          >
+                                            {!entry && <option value={sc.mqt_id}>(missing MQT)</option>}
+                                            {allMqts.map(({ mqt, mq }) => (
+                                              <option key={mqt.id} value={mqt.id} disabled={usedIds.has(mqt.id)}>
+                                                {mq.name}: {mqt.name}{usedIds.has(mqt.id) ? ' (already used)' : ''}
+                                              </option>
+                                            ))}
+                                          </select>
                                           <input
                                             type="number"
                                             step="1"
-                                            value={score!.score}
-                                            onChange={(e) => setOptionMqtScore(q.id, oi, mqt.id, Number(e.target.value))}
+                                            value={sc.score}
+                                            onChange={(e) => setOptionMqtScore(q.id, oi, sc.mqt_id, Number(e.target.value))}
                                             className={cn(
-                                              'w-16 rounded-md border bg-background px-2 py-1 text-xs text-center outline-none focus:border-primary',
+                                              'w-16 shrink-0 rounded-md border bg-background px-2 py-1 text-xs text-center outline-none focus:border-primary',
                                               isDup ? 'border-red-400 text-red-600' : 'border-border',
                                             )}
                                             title="Score for this MQT"
                                           />
-                                        )}
-                                      </div>
-                                    );
-                                  })}
-                                </div>
+                                          <button
+                                            type="button"
+                                            onClick={() => toggleOptionMqt(q.id, oi, sc.mqt_id)}
+                                            className="shrink-0 text-muted-foreground hover:text-red-500"
+                                            title="Remove this MQT score"
+                                          >
+                                            <X className="h-3 w-3" />
+                                          </button>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                                {(() => {
+                                  const unusedMqts = allMqts.filter(({ mqt }) => !opt.scores.some((s) => s.mqt_id === mqt.id));
+                                  if (unusedMqts.length === 0) return null;
+                                  return (
+                                    <button
+                                      type="button"
+                                      onClick={() => toggleOptionMqt(q.id, oi, unusedMqts[0].mqt.id)}
+                                      className="text-[0.6875rem] text-primary hover:underline inline-flex items-center gap-1"
+                                    >
+                                      <Plus className="h-3 w-3" /> Add MQT score
+                                    </button>
+                                  );
+                                })()}
                               </div>
                             )}
 
@@ -884,6 +1102,344 @@ export default function CreateAssessmentPage() {
             })}
           </div>
         </>
+      )}
+
+      {/* ===== Create new vertical modal ===== */}
+      {newVerticalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={() => setNewVerticalOpen(false)}>
+          <Card className="w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+            <CardHeader className="flex flex-row items-center justify-between pb-3">
+              <CardTitle className="text-base">Create Vertical</CardTitle>
+              <button onClick={() => setNewVerticalOpen(false)} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {newVerticalError && (
+                <div className="rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-3 py-2 text-xs text-red-700 dark:text-red-400 flex items-start gap-2">
+                  <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  <span>{newVerticalError}</span>
+                </div>
+              )}
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Name *</label>
+                <input
+                  value={newVerticalForm.name}
+                  onChange={(e) => {
+                    const name = e.target.value;
+                    setNewVerticalForm((f) => ({
+                      ...f,
+                      name,
+                      // Auto-fill the code from name if the user hasn't typed their own code yet
+                      code: f.code ? f.code : name.toUpperCase().replace(/[^A-Z0-9_]/g, '_').slice(0, 64),
+                    }));
+                  }}
+                  placeholder="e.g., Sports Psychology"
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Code *</label>
+                <input
+                  value={newVerticalForm.code}
+                  onChange={(e) => setNewVerticalForm({ ...newVerticalForm, code: e.target.value.toUpperCase() })}
+                  placeholder="SPORTS_PSYCH"
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm font-mono outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                />
+                <p className="text-[0.6875rem] text-muted-foreground">Stable identifier used on records. A-Z, 0-9, underscore only.</p>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Description</label>
+                <textarea
+                  rows={2}
+                  value={newVerticalForm.description}
+                  onChange={(e) => setNewVerticalForm({ ...newVerticalForm, description: e.target.value })}
+                  placeholder="Optional"
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-1">
+                <Button variant="outline" onClick={() => setNewVerticalOpen(false)}>Cancel</Button>
+                <Button variant="primary" onClick={submitNewVertical}>Create</Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* ===== Preview: whole questionnaire at once ===== */}
+      {previewOpen && (
+        <div className="fixed inset-0 z-50 flex items-stretch bg-black/60" onClick={() => setPreviewOpen(false)}>
+          <div className="m-auto w-full max-w-3xl bg-background rounded-xl border border-border shadow-xl max-h-[92vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            {/* Header */}
+            <div className="shrink-0 border-b border-border px-5 py-4 flex items-center justify-between gap-4">
+              <div className="min-w-0">
+                <p className="text-[0.6875rem] font-medium uppercase tracking-wider text-primary">
+                  Preview · not saved
+                </p>
+                <h3 className="text-lg font-semibold truncate">{instName || 'Untitled questionnaire'}</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {questions.length} question{questions.length !== 1 ? 's' : ''}
+                  {instShortName ? ` · ${instShortName}` : ''}
+                  {instVertical ? ` · ${instVertical}` : ''}
+                  {instDuration ? ` · ~${instDuration} min` : ''}
+                </p>
+              </div>
+              <button onClick={() => setPreviewOpen(false)} className="text-muted-foreground hover:text-foreground">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Whole questionnaire in a single scrollable view */}
+            <div className="flex-1 min-h-0 overflow-y-auto">
+              <div className="px-5 py-6 space-y-6">
+                {instDescription && (
+                  <p className="text-sm text-muted-foreground leading-relaxed border-l-2 border-primary/40 pl-3">
+                    {instDescription}
+                  </p>
+                )}
+
+                {questions.map((q, idx) => (
+                  <div key={q.id} className="rounded-xl border border-border bg-background overflow-hidden">
+                    <div className="flex items-start gap-3 px-4 py-3 bg-muted/40 border-b border-border">
+                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary text-xs font-semibold">
+                        {idx + 1}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium leading-snug">
+                          {q.stem || <span className="text-muted-foreground italic">(no stem)</span>}
+                        </p>
+                        <div className="flex flex-wrap items-center gap-2 mt-1 text-[0.6875rem] text-muted-foreground">
+                          <span className="font-mono">{q.format}</span>
+                          {q.clinical_risk_flag && (
+                            <span className="inline-flex items-center gap-1 text-red-600">
+                              <AlertTriangle className="h-3 w-3" /> Risk flag
+                            </span>
+                          )}
+                          {q.options.length > 0 && <span>· {q.options.length} options</span>}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="p-4 space-y-3">
+                      {q.media_type !== 'none' && q.media_url && (
+                        <MediaPreview url={q.media_url} type={q.media_type} />
+                      )}
+
+                      {q.options.length === 0 ? (
+                        <p className="text-xs text-muted-foreground italic">No options on this question yet.</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {q.options.map((opt, oi) => (
+                            <div
+                              key={oi}
+                              className="rounded-lg border border-border px-3 py-2"
+                            >
+                              <div className="flex items-start gap-3">
+                                <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border text-[0.6875rem] font-semibold text-muted-foreground">
+                                  {String.fromCharCode(65 + oi)}
+                                </span>
+                                <div className="flex-1 min-w-0 space-y-1.5">
+                                  <p className="text-sm">
+                                    {opt.text || <span className="text-muted-foreground italic">Option {oi + 1} (no text)</span>}
+                                  </p>
+                                  {opt.media_url && opt.media_type && opt.media_type !== 'none' && (
+                                    <MediaPreview url={opt.media_url} type={opt.media_type} />
+                                  )}
+                                  {opt.scores.length > 0 && (
+                                    <div className="flex flex-wrap gap-1">
+                                      {opt.scores.map((s) => (
+                                        <span key={s.mqt_id} className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[0.6875rem] font-mono text-muted-foreground">
+                                          {mqtIndex[s.mqt_id]?.mqt.name || s.mqt_id}: {s.score}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {q.clinical_risk_flag && q.risk_flag_rule && (
+                        <p className="text-[0.6875rem] text-red-600 flex items-start gap-1.5">
+                          <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
+                          <span>{q.risk_flag_rule}</span>
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="shrink-0 border-t border-border px-5 py-3 flex items-center justify-between gap-3">
+              <p className="text-xs text-muted-foreground">
+                This preview is not saved. Close to keep editing, or publish to make it available in the Instrument Library.
+              </p>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" onClick={() => setPreviewOpen(false)}>Close</Button>
+                <Button
+                  variant="primary"
+                  onClick={() => { setPreviewOpen(false); handleSaveQuestions(); }}
+                  disabled={saving || questions.length === 0}
+                >
+                  <Save className="h-4 w-4" />
+                  {saving ? 'Publishing...' : 'Publish'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== Import from questionnaire modal ===== */}
+      {importOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={() => setImportOpen(false)}>
+          <Card className="w-full max-w-2xl max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <CardHeader className="flex flex-row items-center justify-between pb-3 shrink-0">
+              <div className="flex items-center gap-2">
+                {importStage === 'questions' && (
+                  <Button variant="ghost" size="sm" mode="icon" onClick={() => { setImportStage('instrument'); setImportPicked(new Set()); setImportQuestionSearch(''); }}>
+                    <ArrowLeft className="h-4 w-4" />
+                  </Button>
+                )}
+                <CardTitle className="text-base">
+                  {importStage === 'instrument' ? 'Pick a Questionnaire' : `Pick Questions — ${importSource?.name}`}
+                </CardTitle>
+              </div>
+              <button onClick={() => setImportOpen(false)} className="text-muted-foreground hover:text-foreground">
+                <X className="h-4 w-4" />
+              </button>
+            </CardHeader>
+            <CardContent className="flex-1 min-h-0 flex flex-col gap-3 pb-4">
+              {/* Search bar (sticky at top of the list panel) */}
+              <div className="relative shrink-0">
+                <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                {importStage === 'instrument' ? (
+                  <input
+                    autoFocus
+                    type="text"
+                    value={importInstrumentSearch}
+                    onChange={(e) => setImportInstrumentSearch(e.target.value)}
+                    placeholder="Search questionnaires by name, short name, or vertical..."
+                    className="w-full h-9 rounded-lg border border-border bg-background pl-9 pr-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                  />
+                ) : (
+                  <input
+                    autoFocus
+                    type="text"
+                    value={importQuestionSearch}
+                    onChange={(e) => setImportQuestionSearch(e.target.value)}
+                    placeholder="Search questions by text..."
+                    className="w-full h-9 rounded-lg border border-border bg-background pl-9 pr-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                  />
+                )}
+              </div>
+
+              {/* Scrollable list */}
+              <div className="flex-1 min-h-0 overflow-y-auto rounded-lg border border-border">
+                {importStage === 'instrument' ? (
+                  filteredImportInstruments.length === 0 ? (
+                    <div className="p-8 text-center text-sm text-muted-foreground">
+                      {importLibrary.length === 0
+                        ? 'No published questionnaires yet. Create one first, then you can copy from it later.'
+                        : 'No questionnaires match your search.'}
+                    </div>
+                  ) : (
+                    <ul className="divide-y divide-border">
+                      {filteredImportInstruments.map((inst) => {
+                        const qCount = Array.isArray(inst.questions) ? inst.questions.length : 0;
+                        return (
+                          <li key={inst.id}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setImportSource(inst);
+                                setImportPicked(new Set());
+                                setImportQuestionSearch('');
+                                setImportStage('questions');
+                              }}
+                              className="w-full text-left px-4 py-3 hover:bg-muted/50 transition-colors flex items-center justify-between gap-3"
+                            >
+                              <div className="min-w-0">
+                                <p className="text-sm font-medium truncate">{inst.name}</p>
+                                <p className="text-xs text-muted-foreground mt-0.5">
+                                  {inst.shortName ? `${inst.shortName} · ` : ''}
+                                  {String(inst.vertical || '—').toLowerCase()} · {qCount} question{qCount !== 1 ? 's' : ''}
+                                </p>
+                              </div>
+                              <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )
+                ) : (
+                  filteredImportQuestions.length === 0 ? (
+                    <div className="p-8 text-center text-sm text-muted-foreground">
+                      {(importSource?.questions?.length || 0) === 0
+                        ? 'This questionnaire has no questions.'
+                        : 'No questions match your search.'}
+                    </div>
+                  ) : (
+                    <ul className="divide-y divide-border">
+                      {filteredImportQuestions.map((qq: any, idx: number) => {
+                        const picked = importPicked.has(qq.id);
+                        return (
+                          <li key={qq.id || idx}>
+                            <label className={cn(
+                              'flex items-start gap-3 px-4 py-3 cursor-pointer hover:bg-muted/50 transition-colors',
+                              picked && 'bg-primary/5',
+                            )}>
+                              <input
+                                type="checkbox"
+                                checked={picked}
+                                onChange={() => toggleImportPick(qq.id)}
+                                className="mt-0.5 rounded"
+                              />
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium leading-snug">
+                                  {idx + 1}. {qq.stem || <span className="text-muted-foreground italic">(no text)</span>}
+                                </p>
+                                {Array.isArray(qq.options) && qq.options.length > 0 && (
+                                  <p className="text-xs text-muted-foreground mt-1 truncate">
+                                    {qq.options.map((o: any) => o.text).filter(Boolean).join(' · ') || `${qq.options.length} options`}
+                                  </p>
+                                )}
+                                <p className="text-[0.6875rem] text-muted-foreground mt-1">
+                                  {String(qq.format || '').toLowerCase()} · {Array.isArray(qq.options) ? qq.options.length : 0} options
+                                </p>
+                              </div>
+                            </label>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )
+                )}
+              </div>
+
+              <div className="flex items-center justify-between gap-3 shrink-0 pt-1">
+                <p className="text-xs text-muted-foreground">
+                  {importStage === 'instrument'
+                    ? `${filteredImportInstruments.length} questionnaire${filteredImportInstruments.length !== 1 ? 's' : ''} found`
+                    : `${importPicked.size} selected · ${filteredImportQuestions.length} shown`}
+                </p>
+                <div className="flex gap-2">
+                  <Button variant="outline" onClick={() => setImportOpen(false)}>Cancel</Button>
+                  {importStage === 'questions' && (
+                    <Button variant="primary" onClick={confirmImport} disabled={importPicked.size === 0}>
+                      <Plus className="h-4 w-4" />
+                      Add {importPicked.size > 0 ? `${importPicked.size} ` : ''}Question{importPicked.size === 1 ? '' : 's'}
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       )}
 
       {/* ===== STEP 3 ===== */}

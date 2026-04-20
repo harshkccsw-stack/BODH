@@ -59,6 +59,8 @@ interface QuestionItem {
   lastCalibrated: string;
   sampleN: number;
   reliabilityAlpha: number;
+  instrumentName?: string;
+  instrumentShortName?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -274,7 +276,7 @@ function normalizeStoredVertical(v: unknown): Vertical | null {
   return null;
 }
 
-// Map the Create Assessment format code to the Item Explorer format label.
+// Map the Create Questionnaire format code to the Item Explorer format label.
 function normalizeStoredFormat(f: unknown): ItemFormat {
   const s = String(f || '').toUpperCase().replace(/[\s_-]/g, '');
   switch (s) {
@@ -301,10 +303,6 @@ function normalizeLanguageCodes(codes: unknown): Language[] {
   return out.length ? out : ['en'];
 }
 
-const ITEM_OVERRIDES_KEY = 'bodhassess.itemOverrides';
-const DELETED_ITEMS_KEY = 'bodhassess.deletedItems';
-const INSTRUMENTS_KEY = 'bodhassess.instruments';
-
 interface ItemOverride {
   subDomain?: string;
   format?: ItemFormat;
@@ -314,99 +312,43 @@ interface ItemOverride {
   status?: ValidationStatus;
 }
 
-function loadItemOverrides(): Record<string, ItemOverride> {
-  if (typeof window === 'undefined') return {};
+// Load overrides + soft-delete flags from the backend in one pass.
+async function loadItemDisplayState(): Promise<{
+  overrides: Record<string, ItemOverride>;
+  deletedIds: string[];
+}> {
   try {
-    const raw = localStorage.getItem(ITEM_OVERRIDES_KEY);
-    return raw ? (JSON.parse(raw) || {}) : {};
-  } catch { return {}; }
-}
-
-function loadDeletedItems(): string[] {
-  if (typeof window === 'undefined') return [];
-  try {
-    const raw = localStorage.getItem(DELETED_ITEMS_KEY);
-    return raw ? (JSON.parse(raw) || []) : [];
-  } catch { return []; }
+    const { itemDisplayApi } = await import('@/lib/api');
+    const rows = await itemDisplayApi.list();
+    const overrides: Record<string, ItemOverride> = {};
+    const deletedIds: string[] = [];
+    rows.forEach((row) => {
+      if (row.override) overrides[row.itemId] = row.override as ItemOverride;
+      if (row.deleted) deletedIds.push(row.itemId);
+    });
+    return { overrides, deletedIds };
+  } catch {
+    return { overrides: {}, deletedIds: [] };
+  }
 }
 
 // Update the question matching `qid` inside the stored instruments catalog.
-// Returns true if a matching user-item was updated (so we don't also need to store an override).
-function updateStoredInstrumentQuestion(
-  qid: string,
-  patch: { stem?: string; format?: string; options?: string[]; riskFlag?: boolean },
-): boolean {
-  try {
-    const raw = localStorage.getItem(INSTRUMENTS_KEY);
-    if (!raw) return false;
-    const list = JSON.parse(raw);
-    if (!Array.isArray(list)) return false;
-    let matched = false;
-    const next = list.map((inst: any) => {
-      if (!inst || !Array.isArray(inst.questions)) return inst;
-      const questions = inst.questions.map((q: any) => {
-        if (!q || q.id !== qid) return q;
-        matched = true;
-        const nextOpts = Array.isArray(patch.options)
-          ? patch.options.map((text, i) => {
-              const prior = Array.isArray(q.options) && q.options[i] ? q.options[i] : { scores: [] };
-              return { ...prior, text };
-            })
-          : q.options;
-        return {
-          ...q,
-          stem: patch.stem ?? q.stem,
-          format: (patch.format ?? q.format) as string,
-          options: nextOpts,
-          clinical_risk_flag: patch.riskFlag ?? q.clinical_risk_flag,
-        };
-      });
-      return { ...inst, questions };
-    });
-    if (matched) localStorage.setItem(INSTRUMENTS_KEY, JSON.stringify(next));
-    return matched;
-  } catch { return false; }
-}
 
-// Remove the question matching `qid` from the stored instruments catalog.
-function removeStoredInstrumentQuestion(qid: string): boolean {
-  try {
-    const raw = localStorage.getItem(INSTRUMENTS_KEY);
-    if (!raw) return false;
-    const list = JSON.parse(raw);
-    if (!Array.isArray(list)) return false;
-    let matched = false;
-    const next = list.map((inst: any) => {
-      if (!inst || !Array.isArray(inst.questions)) return inst;
-      const remaining = inst.questions.filter((q: any) => {
-        if (q?.id === qid) { matched = true; return false; }
-        return true;
-      });
-      return matched ? { ...inst, questions: remaining } : inst;
-    });
-    if (matched) localStorage.setItem(INSTRUMENTS_KEY, JSON.stringify(next));
-    return matched;
-  } catch { return false; }
-}
-
-// Read user-published assessments from localStorage and flatten them into
-// QuestionItems suitable for the Item Explorer table.
-function loadUserItems(): QuestionItem[] {
+// Load user-published questionnaires from the backend and flatten into
+// QuestionItems for the Item Explorer table.
+async function loadUserItems(): Promise<QuestionItem[]> {
   if (typeof window === 'undefined') return [];
   try {
-    const raw = localStorage.getItem('bodhassess.instruments');
-    if (!raw) return [];
-    const list = JSON.parse(raw);
-    if (!Array.isArray(list)) return [];
-
+    const { questionnairesApi } = await import('@/lib/api');
+    const list = await questionnairesApi.list();
     const items: QuestionItem[] = [];
-    list.forEach((inst: any) => {
+    list.forEach((inst) => {
       const vertical = normalizeStoredVertical(inst.vertical);
-      if (!vertical) return; // skip EXPERIMENTS etc.
+      if (!vertical) return;
       const mqtNameById: Record<string, string> = {};
       if (Array.isArray(inst.mqs)) {
-        inst.mqs.forEach((mq: any) => {
-          if (Array.isArray(mq.mqts)) mq.mqts.forEach((t: any) => { mqtNameById[t.id] = t.name; });
+        inst.mqs.forEach((mq) => {
+          if (Array.isArray(mq.mqts)) mq.mqts.forEach((t) => { mqtNameById[t.id] = t.name; });
         });
       }
       const instLangs = normalizeLanguageCodes(inst.languages);
@@ -414,7 +356,6 @@ function loadUserItems(): QuestionItem[] {
       const questions = Array.isArray(inst.questions) ? inst.questions : [];
       questions.forEach((q: any, idx: number) => {
         if (!q) return;
-        // Derive sub-domain from the first MQT this question's options score against
         const firstScore = Array.isArray(q.options)
           ? q.options.flatMap((o: any) => Array.isArray(o?.scores) ? o.scores : []).find((s: any) => s?.mqt_id)
           : null;
@@ -437,6 +378,8 @@ function loadUserItems(): QuestionItem[] {
           lastCalibrated: '',
           sampleN: 0,
           reliabilityAlpha: 0,
+          instrumentName: inst.name || shortName,
+          instrumentShortName: shortName,
         });
       });
     });
@@ -546,7 +489,7 @@ function DropdownFilter<T extends string>({
 function DetailPanel({ item }: { item: QuestionItem }) {
   return (
     <tr>
-      <td colSpan={8} className="bg-muted/30 px-5 py-4">
+      <td colSpan={9} className="bg-muted/30 px-5 py-4">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {/* Stem & Options */}
           <div className="md:col-span-2 space-y-3">
@@ -641,16 +584,13 @@ export default function QuestionBankPage() {
   const [confirmDeleteItem, setConfirmDeleteItem] = useState<QuestionItem | null>(null);
 
   useEffect(() => {
-    setUserItems(loadUserItems());
-    setOverrides(loadItemOverrides());
-    setDeletedIds(loadDeletedItems());
+    loadUserItems().then(setUserItems).catch(() => setUserItems([]));
+    loadItemDisplayState().then(({ overrides: o, deletedIds: d }) => {
+      setOverrides(o);
+      setDeletedIds(d);
+    });
   }, []);
 
-  const refreshFromStorage = () => {
-    setUserItems(loadUserItems());
-    setOverrides(loadItemOverrides());
-    setDeletedIds(loadDeletedItems());
-  };
 
   // Unified item pool: user-published questions surface first, then mocks.
   // Deduplicate by id, apply overrides, filter out deleted.
@@ -679,7 +619,7 @@ export default function QuestionBankPage() {
     });
   };
 
-  const saveItemEdit = () => {
+  const saveItemEdit = async () => {
     if (!editItem) return;
     const options = editForm.options
       .split('\n')
@@ -693,37 +633,24 @@ export default function QuestionBankPage() {
       riskFlag: editForm.riskFlag,
       status: editForm.status,
     };
-
-    // If this is a user-item (exists inside stored instruments), update the
-    // source so the take-assessment flow and reports stay consistent.
-    const updatedInSource = updateStoredInstrumentQuestion(editItem.id, {
-      stem: patch.stem,
-      format: patch.format,
-      options: patch.options,
-      riskFlag: patch.riskFlag,
-    });
-
-    // Always record an override so mock rows and status/sub-domain edits persist too.
     const nextOverrides = { ...overrides, [editItem.id]: { ...(overrides[editItem.id] || {}), ...patch } };
-    try { localStorage.setItem(ITEM_OVERRIDES_KEY, JSON.stringify(nextOverrides)); } catch {}
     setOverrides(nextOverrides);
-    if (updatedInSource) setUserItems(loadUserItems());
+    try {
+      const { itemDisplayApi } = await import('@/lib/api');
+      await itemDisplayApi.upsertOverride(editItem.id, nextOverrides[editItem.id] as any);
+    } catch {}
     setEditItem(null);
   };
 
-  const deleteItem = () => {
+  const deleteItem = async () => {
     if (!confirmDeleteItem) return;
     const id = confirmDeleteItem.id;
-    const removedFromSource = removeStoredInstrumentQuestion(id);
-    // For mock rows (not in source), persist the deletion separately.
-    if (!removedFromSource) {
-      const next = deletedIds.includes(id) ? deletedIds : [...deletedIds, id];
-      try { localStorage.setItem(DELETED_ITEMS_KEY, JSON.stringify(next)); } catch {}
-      setDeletedIds(next);
-    } else {
-      setUserItems(loadUserItems());
-    }
-    // Collapse if the deleted row was expanded
+    const next = deletedIds.includes(id) ? deletedIds : [...deletedIds, id];
+    setDeletedIds(next);
+    try {
+      const { itemDisplayApi } = await import('@/lib/api');
+      await itemDisplayApi.markDeleted(id);
+    } catch {}
     if (expandedId === id) setExpandedId(null);
     setConfirmDeleteItem(null);
   };
@@ -747,7 +674,9 @@ export default function QuestionBankPage() {
       return (
         item.subDomain.toLowerCase().includes(q) ||
         item.id.toLowerCase().includes(q) ||
-        item.stem.toLowerCase().includes(q)
+        item.stem.toLowerCase().includes(q) ||
+        (item.instrumentName || '').toLowerCase().includes(q) ||
+        (item.instrumentShortName || '').toLowerCase().includes(q)
       );
     }
     return true;
@@ -824,7 +753,7 @@ export default function QuestionBankPage() {
               <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
               <input
                 type="text"
-                placeholder="Search by ID, sub-domain, or stem..."
+                placeholder="Search by questionnaire, ID, sub-domain, or stem..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full rounded-md border border-input bg-background py-1.5 pl-8 pr-3 text-xs outline-none focus:border-ring focus:ring-2 focus:ring-ring/30 transition-shadow"
@@ -903,6 +832,7 @@ export default function QuestionBankPage() {
                 <tr className="border-b border-border">
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground w-8"></th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Item ID</th>
+                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Questionnaire</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Sub-domain</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Format</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">IRT (a / b / c)</th>
@@ -938,6 +868,11 @@ export default function QuestionBankPage() {
 
                         {/* Item ID */}
                         <td className="px-5 py-3 font-mono text-xs">{truncateUUID(item.id)}</td>
+
+                        {/* Questionnaire */}
+                        <td className="px-5 py-3 text-xs">
+                          {item.instrumentName || item.subDomain.split(':')[0] || '—'}
+                        </td>
 
                         {/* Sub-domain */}
                         <td className="px-5 py-3 font-medium text-xs">{item.subDomain}</td>
@@ -1019,7 +954,7 @@ export default function QuestionBankPage() {
                 })}
                 {filtered.length === 0 && (
                   <tr>
-                    <td colSpan={8} className="px-5 py-12 text-center text-muted-foreground text-sm">
+                    <td colSpan={9} className="px-5 py-12 text-center text-muted-foreground text-sm">
                       No items match the current filters.
                     </td>
                   </tr>

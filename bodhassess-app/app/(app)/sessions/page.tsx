@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { portalSessionsApi, type PortalSession } from '@/lib/api';
 import {
   AlertTriangle,
   ChevronLeft,
@@ -75,8 +76,6 @@ const verticalBadgeProps: Record<Vertical, { variant: 'info' | 'secondary' | 'pr
   'Experiments': { variant: 'warning', appearance: 'outline' },
 };
 
-const SESSION_STORAGE_KEY = 'bodhassess.sessions';
-const DELETED_SEED_KEY = 'bodhassess.deletedSeedSessions';
 const LANGUAGES = ['English', 'Hindi', 'Bengali', 'Telugu', 'Marathi', 'Tamil', 'Gujarati', 'Kannada', 'Malayalam', 'Odia', 'Punjabi'];
 
 export default function SessionsPage() {
@@ -84,8 +83,9 @@ export default function SessionsPage() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [verticalFilter, setVerticalFilter] = useState('all');
 
-  const [storedSessions, setStoredSessions] = useState<any[]>([]);
-  const [deletedSeedIds, setDeletedSeedIds] = useState<string[]>([]);
+  const [apiSessions, setApiSessions] = useState<PortalSession[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
 
   const [editSession, setEditSession] = useState<Session | null>(null);
   const [editForm, setEditForm] = useState<{ language: string; status: SessionStatus; score: string }>({
@@ -96,51 +96,35 @@ export default function SessionsPage() {
   const [confirmReset, setConfirmReset] = useState<Session | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Session | null>(null);
 
-  useEffect(() => {
+  const refresh = async () => {
+    setLoading(true);
+    setLoadError('');
     try {
-      const raw = localStorage.getItem(SESSION_STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) setStoredSessions(parsed);
-      }
-    } catch {}
-    try {
-      const d = localStorage.getItem(DELETED_SEED_KEY);
-      if (d) {
-        const parsed = JSON.parse(d);
-        if (Array.isArray(parsed)) setDeletedSeedIds(parsed);
-      }
-    } catch {}
-  }, []);
-
-  const persistStored = (next: any[]) => {
-    setStoredSessions(next);
-    try { localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(next)); } catch {}
+      const list = await portalSessionsApi.list();
+      setApiSessions(list);
+    } catch (e: any) {
+      setLoadError(e?.message || 'Failed to load sessions');
+    } finally {
+      setLoading(false);
+    }
   };
-
-  const persistDeletedSeeds = (next: string[]) => {
-    setDeletedSeedIds(next);
-    try { localStorage.setItem(DELETED_SEED_KEY, JSON.stringify(next)); } catch {}
-  };
+  useEffect(() => { refresh(); }, []);
 
   const allSessions: Session[] = useMemo(() => {
-    const stored: Session[] = storedSessions.map((s: any) => ({
+    const live: Session[] = apiSessions.map((s) => ({
       id: s.id,
       respondent: s.respondent,
       instrument: s.instrument,
-      vertical: s.vertical,
-      language: s.language,
-      status: s.status,
-      score: s.score ?? '--',
-      createdAt: s.createdAt,
+      vertical: (s.vertical || 'Clinical') as Vertical,
+      language: s.language || 'English',
+      status: (s.status || 'Active') as SessionStatus,
+      score: s.score || '--',
+      createdAt: (s.createdAt || '').slice(0, 10),
     }));
-    const storedIds = new Set(stored.map((s) => s.id));
-    // If a stored record exists with the same id as a seed, prefer the stored (edited) version
-    const seeds = seedMockSessions
-      .filter((s) => !deletedSeedIds.includes(s.id))
-      .filter((s) => !storedIds.has(s.id));
-    return [...stored, ...seeds];
-  }, [storedSessions, deletedSeedIds]);
+    const liveIds = new Set(live.map((s) => s.id));
+    const seeds = seedMockSessions.filter((s) => !liveIds.has(s.id));
+    return [...live, ...seeds];
+  }, [apiSessions]);
 
   const filteredSessions = allSessions.filter((session) => {
     const matchesSearch =
@@ -158,48 +142,40 @@ export default function SessionsPage() {
     setEditSession(s);
   };
 
-  // Pull the full stored record (if any) or synthesize one from a seed row
-  const findFullRecord = (s: Session) => {
-    const existing = storedSessions.find((x: any) => x.id === s.id);
-    if (existing) return existing;
-    return { ...s };
-  };
+  const isLiveSession = (id: string) => apiSessions.some((s) => s.id === id);
 
-  const saveEdit = () => {
+  const saveEdit = async () => {
     if (!editSession) return;
-    const record = findFullRecord(editSession);
-    const updated = { ...record, language: editForm.language, status: editForm.status, score: editForm.score };
-    const rest = storedSessions.filter((x: any) => x.id !== updated.id);
-    persistStored([updated, ...rest]);
+    if (isLiveSession(editSession.id)) {
+      await portalSessionsApi.update(editSession.id, {
+        language: editForm.language,
+        status: editForm.status,
+        score: editForm.score,
+      });
+      await refresh();
+    }
     setEditSession(null);
   };
 
-  const doReset = () => {
+  const doReset = async () => {
     if (!confirmReset) return;
-    const record = findFullRecord(confirmReset);
-    const resetRecord = {
-      ...record,
-      status: 'Active',
-      score: '--',
-      answers: undefined,
-      mqtScores: undefined,
-      completedAt: undefined,
-    };
-    const rest = storedSessions.filter((x: any) => x.id !== resetRecord.id);
-    persistStored([resetRecord, ...rest]);
+    if (isLiveSession(confirmReset.id)) {
+      await portalSessionsApi.update(confirmReset.id, {
+        status: 'Active',
+        score: '--',
+        answers: {},
+        mqtScores: {},
+      });
+      await refresh();
+    }
     setConfirmReset(null);
   };
 
-  const doDelete = () => {
+  const doDelete = async () => {
     if (!confirmDelete) return;
-    const id = confirmDelete.id;
-    // Remove from stored (if present)
-    const rest = storedSessions.filter((x: any) => x.id !== id);
-    if (rest.length !== storedSessions.length) persistStored(rest);
-    // If it was a seed row, remember to hide it across refreshes
-    const isSeed = seedMockSessions.some((s) => s.id === id);
-    if (isSeed && !deletedSeedIds.includes(id)) {
-      persistDeletedSeeds([...deletedSeedIds, id]);
+    if (isLiveSession(confirmDelete.id)) {
+      await portalSessionsApi.delete(confirmDelete.id);
+      await refresh();
     }
     setConfirmDelete(null);
   };
@@ -224,6 +200,12 @@ export default function SessionsPage() {
           Create Session
         </Button>
       </div>
+
+      {loadError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-4 py-3 text-sm text-red-700 dark:text-red-400">
+          {loadError} — is the API running?
+        </div>
+      )}
 
       {/* Filter Bar */}
       <Card>

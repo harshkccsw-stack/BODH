@@ -4,16 +4,9 @@ import { useState } from 'react';
 import { Brain, LogIn, AlertTriangle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { respondentsApi } from '@/lib/api';
 
-interface StoredRespondent {
-  id: string;
-  name: string;
-  email: string;
-  dob: string;
-}
-
-const RESPONDENT_KEY = 'bodhassess.respondents';
-const AUTH_KEY = 'bodhassess.auth.respondent';
+const AUTH_KEY = 'bodhassess.auth.token';
 
 export default function PortalLoginPage() {
   const [loginId, setLoginId] = useState('');
@@ -21,7 +14,7 @@ export default function PortalLoginPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const submit = (e?: React.FormEvent) => {
+  const submit = async (e?: React.FormEvent) => {
     e?.preventDefault();
     setError('');
     const id = loginId.trim().toUpperCase();
@@ -32,18 +25,15 @@ export default function PortalLoginPage() {
     }
     setLoading(true);
     try {
-      const raw = localStorage.getItem(RESPONDENT_KEY);
-      const list: StoredRespondent[] = raw ? JSON.parse(raw) : [];
-      const match = list.find((r) => r.id.toUpperCase() === id && r.dob === password);
-      if (!match) {
-        setError('Login failed. Check your Login ID and Date of Birth.');
-        setLoading(false);
-        return;
-      }
-      sessionStorage.setItem(AUTH_KEY, JSON.stringify({ id: match.id, name: match.name, email: match.email }));
+      const res = await respondentsApi.login(id, password);
+      // Only the opaque token lives client-side; respondent data is fetched
+      // from /respondents/me on every portal page.
+      sessionStorage.setItem(AUTH_KEY, res.token);
       window.location.href = '/portal/assessments';
-    } catch {
-      setError('Something went wrong. Please try again.');
+    } catch (e: any) {
+      const msg = String(e?.message || '');
+      if (msg.includes('401')) setError('Invalid Login ID or Date of Birth.');
+      else setError('Login failed — the API may be unreachable.');
       setLoading(false);
     }
   };

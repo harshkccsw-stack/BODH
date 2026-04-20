@@ -111,27 +111,23 @@ const informantColors: Record<string, string> = {
 
 type CounsInstrument = typeof instruments[number];
 
-function loadUserInstrumentsForVertical(vertical: string): CounsInstrument[] {
+async function loadUserInstrumentsForVertical(vertical: string): Promise<CounsInstrument[]> {
   try {
-    const raw = localStorage.getItem('bodhassess.instruments');
-    if (!raw) return [];
-    const list = JSON.parse(raw);
-    if (!Array.isArray(list)) return [];
-    return list
-      .filter((i: any) => String(i.vertical || '').toUpperCase() === vertical.toUpperCase())
-      .map((i: any): CounsInstrument => ({
-        id: i.id || `custom-${(i.name || 'x').toLowerCase().replace(/\s+/g, '-')}`,
-        name: i.name || i.shortName || 'Untitled',
-        category: i.category || 'Custom Assessment',
-        ageRange: i.ageRange || 'All ages',
-        items: Array.isArray(i.questions) ? i.questions.length : (i.items || 0),
-        duration: i.duration ? `${i.duration} min` : '—',
-        languages: Array.isArray(i.languages) ? i.languages.map((c: string) => String(c).toUpperCase()) : ['EN'],
-        tier: typeof i.tier === 'string' ? i.tier : `T${i.tier || 1}`,
-        norms: i.norms || 'Custom-authored — no standard norms applied.',
-        informants: ['Self'],
-        description: i.description || 'User-published assessment.',
-      }));
+    const { questionnairesApi } = await import('@/lib/api');
+    const list = await questionnairesApi.list(vertical);
+    return list.map((i): CounsInstrument => ({
+      id: i.id || `custom-${(i.name || 'x').toLowerCase().replace(/\s+/g, '-')}`,
+      name: i.name || i.shortName || 'Untitled',
+      category: i.category || 'Custom Assessment',
+      ageRange: 'All ages',
+      items: Array.isArray(i.questions) ? i.questions.length : 0,
+      duration: i.duration ? `${i.duration} min` : '—',
+      languages: Array.isArray(i.languages) ? i.languages.map((c) => String(c).toUpperCase()) : ['EN'],
+      tier: typeof i.tier === 'string' && i.tier ? i.tier : 'T1',
+      norms: 'Custom-authored — no standard norms applied.',
+      informants: ['Self'],
+      description: i.description || 'User-published assessment.',
+    }));
   } catch {
     return [];
   }
@@ -149,7 +145,7 @@ export default function CounsellingInstrumentsPage() {
 
   useEffect(() => {
     setOverrides(loadOverrides());
-    setUserInstruments(loadUserInstrumentsForVertical('COUNSELLING'));
+    loadUserInstrumentsForVertical('COUNSELLING').then(setUserInstruments).catch(() => setUserInstruments([]));
   }, []);
 
   const mergedInstruments = useMemo(() => {
@@ -158,13 +154,15 @@ export default function CounsellingInstrumentsPage() {
     return [...uniqueUser, ...instruments].map((i) => applyOverrideById(i, overrides));
   }, [overrides, userInstruments]);
 
-  const filtered = useMemo(() => {
-    if (!search) return mergedInstruments;
-    const q = search.toLowerCase();
-    return mergedInstruments.filter(
-      (i) => i.name.toLowerCase().includes(q) || i.category.toLowerCase().includes(q),
-    );
-  }, [search, mergedInstruments]);
+  const toStr = (v: unknown): string => (v == null ? '' : String(v)).toLowerCase();
+  const query = search.trim().toLowerCase();
+  const filtered = !query
+    ? mergedInstruments
+    : mergedInstruments.filter((i) => {
+        const hay = [i?.name, i?.category, i?.description, i?.ageRange, i?.norms]
+          .map(toStr).join(' ');
+        return hay.includes(query);
+      });
 
   const openEdit = (inst: CounsInstrument) => {
     setEditing(inst);
@@ -221,19 +219,27 @@ export default function CounsellingInstrumentsPage() {
       </div>
 
       <div className="relative max-w-md">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <input
           type="text"
-          placeholder="Search instruments..."
+          autoComplete="off"
+          spellCheck={false}
+          placeholder="Search counselling instruments..."
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="w-full rounded-lg border border-border bg-background px-10 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+          onChange={(e) => setSearch(e.currentTarget.value)}
+          onInput={(e) => setSearch((e.currentTarget as HTMLInputElement).value)}
+          className="w-full rounded-lg border border-border bg-background pl-10 pr-10 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
         />
+        {search && (
+          <button type="button" onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground" aria-label="Clear search">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-        {filtered.map((inst) => (
-          <Card key={inst.id} className="hover:shadow-md transition-shadow">
+        {filtered.map((inst, idx) => (
+          <Card key={`${inst.id}-${inst.name}-${idx}`} className="hover:shadow-md transition-shadow">
             <CardContent className="p-6 space-y-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-green-500/10">
@@ -350,9 +356,21 @@ export default function CounsellingInstrumentsPage() {
                 <textarea rows={2} value={editForm.norms} onChange={(e) => setEditForm({ ...editForm, norms: e.target.value })}
                   className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" />
               </div>
-              <div className="flex justify-end gap-2 pt-1">
-                <Button variant="outline" onClick={() => setEditing(null)}>Cancel</Button>
-                <Button variant="primary" onClick={saveEdit}>Save Changes</Button>
+              <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-2 pt-1">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    const key = editing?.name || '';
+                    if (key) window.location.href = `/question-bank/create?edit=${encodeURIComponent(key)}`;
+                  }}
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                  Edit Questionnaire
+                </Button>
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" onClick={() => setEditing(null)}>Cancel</Button>
+                  <Button variant="primary" onClick={saveEdit}>Save Changes</Button>
+                </div>
               </div>
             </CardContent>
           </Card>

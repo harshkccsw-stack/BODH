@@ -19,10 +19,9 @@ import { getHealth, type HealthStatus } from '@/lib/api';
 import {
   getRespondents,
   getPractitioners,
-  getSessions,
-  getInstruments,
   countByVertical,
 } from '@/lib/data-store';
+import { portalSessionsApi, getInstruments as fetchInstruments } from '@/lib/api';
 
 const verticalLabels: Record<string, string> = {
   clinical: 'Clinical Psychology',
@@ -57,7 +56,7 @@ function DashboardContent() {
   const [respondentCount, setRespondentCount] = useState(0);
   const [practitionerCount, setPractitionerCount] = useState(0);
   const [instrumentCount, setInstrumentCount] = useState(0);
-  const [sessionsForVertical, setSessionsForVertical] = useState<ReturnType<typeof getSessions>>([]);
+  const [sessionsForVertical, setSessionsForVertical] = useState<Array<{ status: string; score?: string }>>([]);
   const [recentLive, setRecentLive] = useState<typeof seedRecentSessions>([]);
 
   useEffect(() => {
@@ -65,44 +64,43 @@ function DashboardContent() {
   }, []);
 
   useEffect(() => {
-    // Refresh live counts whenever the selected vertical changes
-    const allRespondents = getRespondents();
-    const allPractitioners = getPractitioners();
-    const allInstruments = getInstruments();
-    const allSessions = getSessions();
+    (async () => {
+      const [allRespondents, allPractitioners, allInstruments, allSessions] = await Promise.all([
+        getRespondents(),
+        getPractitioners(),
+        fetchInstruments().catch(() => []),
+        portalSessionsApi.list().catch(() => []),
+      ]);
 
-    if (vertical === 'whitelabel') {
-      setRespondentCount(allRespondents.length);
-      setPractitionerCount(allPractitioners.length);
-      setInstrumentCount(allInstruments.length);
-      setSessionsForVertical(allSessions);
-    } else {
-      setInstrumentCount(countByVertical(allInstruments, vertical));
-      const filtered = allSessions.filter((s) => String(s.vertical || '').toLowerCase() === vertical);
-      setSessionsForVertical(filtered);
-      // Respondents/practitioners aren't vertical-scoped in this demo, but we still reflect
-      // the true totals so admins know how many people are in the system.
-      setRespondentCount(allRespondents.length);
-      setPractitionerCount(
-        allPractitioners.filter((p) =>
-          !p.verticals?.length || p.verticals.map((v) => v.toLowerCase()).some((v) => v.startsWith(vertical.slice(0, 4))),
-        ).length,
-      );
-    }
+      const verticalSessions = vertical === 'whitelabel'
+        ? allSessions
+        : allSessions.filter((s) => String(s.vertical || '').toLowerCase() === vertical);
+      setSessionsForVertical(verticalSessions);
 
-    // Recent sessions (live) — map to the display shape
-    const live = allSessions
-      .filter((s) => vertical === 'whitelabel' || String(s.vertical || '').toLowerCase() === vertical)
-      .slice(0, 5)
-      .map((s) => ({
+      if (vertical === 'whitelabel') {
+        setRespondentCount(allRespondents.length);
+        setPractitionerCount(allPractitioners.length);
+        setInstrumentCount(allInstruments.length);
+      } else {
+        setInstrumentCount(countByVertical(allInstruments as any, vertical));
+        setRespondentCount(allRespondents.length);
+        setPractitionerCount(
+          allPractitioners.filter((p) =>
+            !p.verticals?.length || p.verticals.map((v) => v.toLowerCase()).some((v) => v.startsWith(vertical.slice(0, 4))),
+          ).length,
+        );
+      }
+
+      const live = verticalSessions.slice(0, 5).map((s: any) => ({
         id: s.id,
         respondent: s.respondent,
         instrument: s.instrument,
         status: s.status,
         score: s.score || '—',
-        time: s.createdAt,
+        time: (s.createdAt || '').slice(0, 10),
       }));
-    setRecentLive(live);
+      setRecentLive(live);
+    })();
   }, [vertical]);
 
   const activeCount = sessionsForVertical.filter((s) => s.status === 'Active').length;

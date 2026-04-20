@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import {
   AlertCircle,
+  ArrowLeft,
   CheckCircle2,
   Download,
   FileSpreadsheet,
@@ -75,6 +76,15 @@ export default function BatchUploadPage() {
     <div className="p-5 lg:p-7.5 space-y-7">
       {/* Header */}
       <div>
+        <div className="flex items-center gap-2 text-sm text-muted-foreground mb-3">
+          <button
+            onClick={() => { window.location.href = '/sessions'; }}
+            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" />
+            Back to Sessions
+          </button>
+        </div>
         <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
           <span>BodhAssess</span>
           <span>/</span>

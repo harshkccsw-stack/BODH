@@ -5,53 +5,42 @@ import { Brain, ClipboardCheck, Clock, LogOut, Play, CheckCircle2 } from 'lucide
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 
-interface AuthUser {
-  id: string;
-  name: string;
-  email: string;
-}
+import { portalSessionsApi, respondentsApi, type PortalSession, type Respondent } from '@/lib/api';
 
-interface StoredSession {
-  id: string;
-  respondentId: string;
-  respondent: string;
-  instrument: string;
-  instrumentFullName?: string;
-  vertical: string;
-  language: string;
-  status: string;
-  score?: string;
-  createdAt: string;
-}
-
-const AUTH_KEY = 'bodhassess.auth.respondent';
-const SESSION_KEY = 'bodhassess.sessions';
+const AUTH_KEY = 'bodhassess.auth.token';
 
 export default function PortalAssessmentsPage() {
-  const [user, setUser] = useState<AuthUser | null>(null);
-  const [sessions, setSessions] = useState<StoredSession[]>([]);
+  const [user, setUser] = useState<Respondent | null>(null);
+  const [sessions, setSessions] = useState<PortalSession[]>([]);
   const [checked, setChecked] = useState(false);
 
   useEffect(() => {
-    try {
-      const raw = sessionStorage.getItem(AUTH_KEY);
-      if (!raw) {
+    (async () => {
+      const token = sessionStorage.getItem(AUTH_KEY);
+      if (!token) { window.location.href = '/portal/login'; return; }
+      try {
+        const me = await respondentsApi.me(token);
+        setUser(me);
+        try {
+          const list = await portalSessionsApi.list(me.id);
+          setSessions(list);
+        } catch {
+          setSessions([]);
+        }
+      } catch {
+        // Token invalid/expired
+        sessionStorage.removeItem(AUTH_KEY);
         window.location.href = '/portal/login';
-        return;
       }
-      const u = JSON.parse(raw) as AuthUser;
-      setUser(u);
-      const sraw = localStorage.getItem(SESSION_KEY);
-      const all: StoredSession[] = sraw ? JSON.parse(sraw) : [];
-      const mine = all.filter((s) => s.respondentId === u.id);
-      setSessions(mine);
-    } catch {
-      window.location.href = '/portal/login';
-    }
-    setChecked(true);
+      setChecked(true);
+    })();
   }, []);
 
-  const logout = () => {
+  const logout = async () => {
+    const token = sessionStorage.getItem(AUTH_KEY);
+    if (token) {
+      try { await respondentsApi.logout(token); } catch {}
+    }
     sessionStorage.removeItem(AUTH_KEY);
     window.location.href = '/portal/login';
   };
@@ -135,7 +124,7 @@ export default function PortalAssessmentsPage() {
                       <p className="font-semibold leading-snug text-[0.9375rem]">{s.instrumentFullName || s.instrument}</p>
                       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                         <span className="font-mono">{s.id}</span>
-                        <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{s.createdAt}</span>
+                        <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{(s.createdAt || '').slice(0, 10)}</span>
                         <span>· {s.language}</span>
                       </div>
                     </div>

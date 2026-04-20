@@ -41,6 +41,13 @@
       height: var(--header-height);
     }
 
+    /* Clip logo overflow only on the link, so the absolute-positioned
+       collapse toggle on .sidebar-header still pokes out the right edge. */
+    .demo1 .sidebar .sidebar-header > a {
+      overflow: hidden;
+      min-width: 0;
+    }
+
     .demo1 .sidebar .sidebar-wrapper {
       width: var(--sidebar-default-width);
     }
@@ -74,49 +81,37 @@
         var(--sidebar-transition-timing);
     }
 
-    .demo1.sidebar-collapse .sidebar:hover {
-      width: var(--sidebar-default-width);
-    }
-
-    .demo1.sidebar-collapse .sidebar:not(:hover) .default-logo {
+    /* Collapsed sidebar stays collapsed — no hover-expand so it never
+       overlaps the navbar / dashboard content next to it. */
+    .demo1.sidebar-collapse .sidebar .default-logo {
       display: none;
     }
 
-    .demo1.sidebar-collapse .sidebar:not(:hover) .small-logo {
+    .demo1.sidebar-collapse .sidebar .small-logo {
       display: flex;
     }
 
-    .demo1.sidebar-collapse
-      .sidebar:not(:hover)
-      [data-slot='accordion-menu-title'],
-    .demo1.sidebar-collapse .sidebar:not(:hover) [data-slot='badge'],
-    .demo1.sidebar-collapse
-      .sidebar:not(:hover)
-      [data-slot='accordion-menu-sub-indicator'] {
+    .demo1.sidebar-collapse .sidebar [data-slot='accordion-menu-title'],
+    .demo1.sidebar-collapse .sidebar [data-slot='badge'],
+    .demo1.sidebar-collapse .sidebar [data-slot='accordion-menu-sub-indicator'] {
       display: none !important;
       transition: none !important;
       animation: none !important;
     }
 
-    .demo1.sidebar-collapse
-      .sidebar:not(:hover)
-      [data-slot='accordion-menu-sub-content'] {
+    .demo1.sidebar-collapse .sidebar [data-slot='accordion-menu-sub-content'] {
       visibility: hidden;
       position: absolute;
       height: 0;
       width: 0;
     }
 
-    .demo1.sidebar-collapse
-      .sidebar:not(:hover)
-      [data-slot='accordion-menu-label'] {
+    .demo1.sidebar-collapse .sidebar [data-slot='accordion-menu-label'] {
       visibility: hidden;
       position: relative;
     }
 
-    .demo1.sidebar-collapse
-      .sidebar:not(:hover)
-      [data-slot='accordion-menu-label']::before {
+    .demo1.sidebar-collapse .sidebar [data-slot='accordion-menu-label']::before {
       content: '...';
       color: currentColor;
       font-size: inherit;

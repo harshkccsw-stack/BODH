@@ -1,27 +1,26 @@
-// Unified client-side data store for BodhAssess demo data.
-// All BodhAssess pages read from these helpers so Respondents, Practitioners,
-// Sessions, and Instruments stay consistent across the app.
+// Thin wrapper over lib/api.ts. All reads/writes go to the Go backend
+// (Postgres); there is no localStorage fallback.
 
-export interface StoredRespondent {
-  id: string;
-  name: string;
-  email: string;
-  dob?: string;
-  sessions?: number;
-  lastAssessment?: string;
-  consent?: 'Granted' | 'Withdrawn' | 'Pending';
-}
+import {
+  respondentsApi, practitionersApi, groupsApi,
+  qualitiesApi, verticalsApi,
+  type Respondent as ApiRespondent,
+  type Practitioner as ApiPractitioner,
+  type Group as ApiGroup,
+  type MQ as ApiMQ,
+  type MQT as ApiMQT,
+  type Vertical as ApiVertical,
+} from './api';
 
-export interface StoredPractitioner {
-  id: string;
-  name: string;
-  email: string;
-  role: string;
-  verticals: string[];
-  status: 'Active' | 'Inactive';
-  lastLogin: string;
-}
+// ---- Re-export types in the names the UI code uses ----
+export type StoredRespondent = ApiRespondent;
+export type StoredPractitioner = ApiPractitioner;
+export type Group = ApiGroup;
+export type MQ = ApiMQ;
+export type MQT = ApiMQT;
+export type Vertical = ApiVertical;
 
+// Legacy shape used by a handful of pages (sessions list, reports, etc.)
 export interface StoredSession {
   id: string;
   respondentId?: string;
@@ -54,65 +53,122 @@ export interface StoredInstrument {
   isDemo?: boolean;
 }
 
-export const STORAGE_KEYS = {
-  respondents: 'bodhassess.respondents',
-  practitioners: 'bodhassess.practitioners',
-  sessions: 'bodhassess.sessions',
-  deletedSeedSessions: 'bodhassess.deletedSeedSessions',
-  instruments: 'bodhassess.instruments',
-  instrumentOverrides: 'bodhassess.instrumentOverrides',
-  itemOverrides: 'bodhassess.itemOverrides',
-  deletedItems: 'bodhassess.deletedItems',
-} as const;
+// ---- Built-in verticals (not persisted — implicit on every deployment) ----
+export const BUILT_IN_VERTICALS: Vertical[] = [
+  { id: 'v-clinical', code: 'CLINICAL', name: 'Clinical', description: 'Clinical psychology assessments' },
+  { id: 'v-industrial', code: 'INDUSTRIAL', name: 'Industrial', description: 'Industrial & organisational psychology' },
+  { id: 'v-counselling', code: 'COUNSELLING', name: 'Counselling', description: 'Counselling & child psychology' },
+  { id: 'v-experiments', code: 'EXPERIMENTS', name: 'Experiments', description: 'Designed experimental paradigms' },
+];
 
-function read<T>(key: string, fallback: T): T {
-  if (typeof window === 'undefined') return fallback;
+// ---- Respondents ----
+export async function getRespondents(): Promise<StoredRespondent[]> {
   try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return fallback;
-    const parsed = JSON.parse(raw);
-    return parsed ?? fallback;
-  } catch {
-    return fallback;
+    return await respondentsApi.list();
+  } catch (e) {
+    console.error('getRespondents failed:', e);
+    return [];
   }
 }
-
-function write<T>(key: string, value: T): void {
-  if (typeof window === 'undefined') return;
-  try { localStorage.setItem(key, JSON.stringify(value)); } catch {}
+export async function createRespondent(r: StoredRespondent): Promise<StoredRespondent | null> {
+  try { return await respondentsApi.create(r); } catch (e) { console.error(e); return null; }
+}
+export async function updateRespondent(id: string, r: Partial<StoredRespondent>): Promise<StoredRespondent | null> {
+  try { return await respondentsApi.update(id, r); } catch (e) { console.error(e); return null; }
+}
+export async function deleteRespondent(id: string): Promise<boolean> {
+  try { await respondentsApi.delete(id); return true; } catch (e) { console.error(e); return false; }
 }
 
-export function getRespondents(): StoredRespondent[] {
-  const list = read<StoredRespondent[]>(STORAGE_KEYS.respondents, []);
-  return Array.isArray(list) ? list : [];
+// ---- Practitioners ----
+export async function getPractitioners(): Promise<StoredPractitioner[]> {
+  try { return await practitionersApi.list(); } catch (e) { console.error(e); return []; }
+}
+export async function createPractitioner(p: StoredPractitioner): Promise<StoredPractitioner | null> {
+  try { return await practitionersApi.create(p); } catch (e) { console.error(e); return null; }
+}
+export async function updatePractitioner(id: string, p: Partial<StoredPractitioner>): Promise<StoredPractitioner | null> {
+  try { return await practitionersApi.update(id, p); } catch (e) { console.error(e); return null; }
+}
+export async function deletePractitioner(id: string): Promise<boolean> {
+  try { await practitionersApi.delete(id); return true; } catch (e) { console.error(e); return false; }
 }
 
-export function saveRespondents(list: StoredRespondent[]): void {
-  write(STORAGE_KEYS.respondents, list);
+// ---- Groups ----
+export async function getGroups(): Promise<Group[]> {
+  try { return await groupsApi.list(); } catch (e) { console.error(e); return []; }
+}
+export async function createGroup(g: Group): Promise<Group | null> {
+  try { return await groupsApi.create(g); } catch (e) { console.error(e); return null; }
+}
+export async function updateGroup(id: string, g: Partial<Group>): Promise<Group | null> {
+  try { return await groupsApi.update(id, g); } catch (e) { console.error(e); return null; }
+}
+export async function deleteGroup(id: string): Promise<boolean> {
+  try { await groupsApi.delete(id); return true; } catch (e) { console.error(e); return false; }
 }
 
-export function getPractitioners(): StoredPractitioner[] {
-  const list = read<StoredPractitioner[]>(STORAGE_KEYS.practitioners, []);
-  return Array.isArray(list) ? list : [];
+export function getAllMembersRecursive(groupId: string, groups: Group[]): string[] {
+  const visited = new Set<string>();
+  const members = new Set<string>();
+  const walk = (id: string) => {
+    if (visited.has(id)) return;
+    visited.add(id);
+    const g = groups.find((x) => x.id === id);
+    if (!g) return;
+    g.memberIds.forEach((m) => members.add(m));
+    groups.filter((c) => c.parentId === id).forEach((c) => walk(c.id));
+  };
+  walk(groupId);
+  return [...members];
 }
 
-export function savePractitioners(list: StoredPractitioner[]): void {
-  write(STORAGE_KEYS.practitioners, list);
+// ---- Measured Qualities ----
+export async function getMQs(): Promise<MQ[]> {
+  try { return await qualitiesApi.list(); } catch (e) { console.error(e); return []; }
+}
+export async function createMQ(m: MQ): Promise<MQ | null> {
+  try { return await qualitiesApi.create(m); } catch (e) { console.error(e); return null; }
+}
+export async function updateMQ(id: string, m: Partial<MQ>): Promise<MQ | null> {
+  try { return await qualitiesApi.update(id, m); } catch (e) { console.error(e); return null; }
+}
+export async function deleteMQ(id: string): Promise<boolean> {
+  try { await qualitiesApi.delete(id); return true; } catch (e) { console.error(e); return false; }
+}
+
+// ---- Verticals (built-in + user-created from DB) ----
+export async function getVerticals(): Promise<Vertical[]> {
+  try {
+    const custom = await verticalsApi.list();
+    const seen = new Set(BUILT_IN_VERTICALS.map((v) => v.code));
+    const extra = custom.filter((v) => !seen.has(v.code));
+    return [...BUILT_IN_VERTICALS, ...extra];
+  } catch {
+    return BUILT_IN_VERTICALS;
+  }
+}
+export async function createVertical(v: Vertical): Promise<Vertical | null> {
+  try { return await verticalsApi.create(v); } catch (e) { console.error(e); return null; }
+}
+
+// ---- Helpers kept for compatibility with callers ----
+export function countByVertical<T extends { vertical?: string }>(items: T[], vertical: string): number {
+  const t = vertical.toLowerCase();
+  return items.filter((i) => String(i.vertical || '').toLowerCase() === t).length;
 }
 
 export function getSessions(): StoredSession[] {
-  const list = read<StoredSession[]>(STORAGE_KEYS.sessions, []);
-  return Array.isArray(list) ? list : [];
+  // Sessions aren't yet migrated off the demo scaffolding — kept as a stub
+  // so existing Report pages don't break. Replace with a sessionsApi.list()
+  // once the sessions write-path is moved off localStorage.
+  return [];
 }
 
 export function getInstruments(): StoredInstrument[] {
-  const list = read<StoredInstrument[]>(STORAGE_KEYS.instruments, []);
-  return Array.isArray(list) ? list : [];
-}
-
-export function countByVertical<T extends { vertical?: string }>(items: T[], vertical: string): number {
-  const target = vertical.toLowerCase();
-  return items.filter((i) => String(i.vertical || '').toLowerCase() === target).length;
+  // Mirrors above — preserved for callers that still read questionnaires
+  // from local storage until that path is migrated.
+  return [];
 }
 
 export interface GeneratedReport {
@@ -130,16 +186,13 @@ export interface GeneratedReport {
   mqtScores?: Record<string, number>;
 }
 
-function normalizeVerticalLabel(v: unknown): 'Clinical' | 'Industrial' | 'Counselling' | null {
-  const s = String(v || '').toLowerCase();
-  if (s.startsWith('clin')) return 'Clinical';
-  if (s.startsWith('indust')) return 'Industrial';
-  if (s.startsWith('coun')) return 'Counselling';
-  return null;
+export function sessionsToReports(
+  _sessions: StoredSession[],
+  _opts?: { vertical?: 'Clinical' | 'Industrial' | 'Counselling' },
+): GeneratedReport[] {
+  return [];
 }
 
-// Trigger a client-side download of any serialisable object as pretty JSON.
-// Used by Reports pages for the row-level Download action.
 export function downloadJson(filename: string, data: unknown): void {
   if (typeof window === 'undefined') return;
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -153,38 +206,6 @@ export function downloadJson(filename: string, data: unknown): void {
   URL.revokeObjectURL(url);
 }
 
-export function getSessionById(id: string): StoredSession | null {
-  return getSessions().find((s) => s.id === id) || null;
-}
+export function getSessionById(_id: string): StoredSession | null { return null; }
 
-// Turn completed sessions into report rows so Reports pages surface
-// assessments finished by respondents (live) alongside seed data.
-export function sessionsToReports(
-  sessions: StoredSession[],
-  opts?: { vertical?: 'Clinical' | 'Industrial' | 'Counselling' },
-): GeneratedReport[] {
-  const startingIndex = 200;
-  const filtered = sessions.filter((s) => s.status === 'Completed');
-  return filtered
-    .map((s, i) => {
-      const vertical = normalizeVerticalLabel(s.vertical);
-      if (!vertical) return null;
-      if (opts?.vertical && vertical !== opts.vertical) return null;
-      const hasRiskInScore = typeof s.score === 'string' && /risk|flag|sui/i.test(s.score);
-      return {
-        id: `RPT-${String(startingIndex + i + 1).padStart(4, '0')}`,
-        sessionId: s.id,
-        respondent: s.respondent,
-        instrument: s.instrumentFullName || s.instrument,
-        vertical,
-        format: 'Interactive',
-        status: 'Draft',
-        generatedAt: (s.completedAt || s.createdAt || '').slice(0, 10),
-        diagnosticCodes: [],
-        riskFlag: hasRiskInScore,
-        riskNote: hasRiskInScore ? (s.score || undefined) : undefined,
-        mqtScores: s.mqtScores,
-      } as GeneratedReport;
-    })
-    .filter((r): r is GeneratedReport => r !== null);
-}
+export const STORAGE_KEYS = {} as const;

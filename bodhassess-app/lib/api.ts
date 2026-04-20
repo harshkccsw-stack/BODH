@@ -1,29 +1,170 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api/v1';
+// Single typed client for the Go backend. Every page goes through these
+// functions — no localStorage fallback. If the API is down, pages surface
+// the error to the caller so they can render a retry/empty state.
 
-interface ApiResponse<T> {
-  data: T;
-  total?: number;
-  error?: string;
-}
+export const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api/v1';
 
-async function apiFetch<T>(endpoint: string, options?: RequestInit): Promise<ApiResponse<T>> {
-  const res = await fetch(`${API_BASE}${endpoint}`, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...options?.headers,
-    },
-    ...options,
+async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...init,
+    headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) },
   });
-
   if (!res.ok) {
-    const body = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(body.error || `API error: ${res.status}`);
+    const text = await res.text().catch(() => res.statusText);
+    throw new Error(`[API ${res.status}] ${path}: ${text}`);
   }
-
+  if (res.status === 204) return null as T;
+  const ct = res.headers.get('content-type') || '';
+  if (!ct.includes('application/json')) return null as T;
   return res.json();
 }
 
-// --- Instruments ---
+// ---------- Health ----------
+export interface HealthStatus {
+  status: string;
+  service: string;
+  version: string;
+  database: boolean;
+  time: string;
+}
+export async function getHealth(): Promise<HealthStatus> {
+  return jsonFetch<HealthStatus>('/health');
+}
+
+// ---------- Respondents ----------
+export interface Respondent {
+  id: string;
+  name: string;
+  email: string;
+  dob?: string;
+  consent?: 'Granted' | 'Withdrawn' | 'Pending' | string;
+  sessions_count?: number;
+  last_assessment?: string;
+}
+export interface LoginResponse {
+  token: string;
+  respondent: Respondent;
+}
+
+export const respondentsApi = {
+  list: () => jsonFetch<Respondent[]>('/respondents'),
+  get: (id: string) => jsonFetch<Respondent>(`/respondents/${encodeURIComponent(id)}`),
+  create: (r: Respondent) => jsonFetch<Respondent>('/respondents', { method: 'POST', body: JSON.stringify(r) }),
+  update: (id: string, r: Partial<Respondent>) => jsonFetch<Respondent>(`/respondents/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(r) }),
+  delete: (id: string) => jsonFetch<null>(`/respondents/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  login: (id: string, dob: string) => jsonFetch<LoginResponse>('/respondents/login', { method: 'POST', body: JSON.stringify({ id, dob }) }),
+  me: (token: string) => jsonFetch<Respondent>('/respondents/me', { headers: { Authorization: `Bearer ${token}` } }),
+  logout: (token: string) => jsonFetch<null>('/respondents/logout', { method: 'POST', headers: { Authorization: `Bearer ${token}` } }),
+};
+
+// ---------- Practitioners ----------
+export interface Practitioner {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  verticals: string[];
+  status: 'Active' | 'Inactive' | string;
+  last_login?: string;
+}
+export const practitionersApi = {
+  list: () => jsonFetch<Practitioner[]>('/practitioners'),
+  get: (id: string) => jsonFetch<Practitioner>(`/practitioners/${encodeURIComponent(id)}`),
+  create: (p: Practitioner) => jsonFetch<Practitioner>('/practitioners', { method: 'POST', body: JSON.stringify(p) }),
+  update: (id: string, p: Partial<Practitioner>) => jsonFetch<Practitioner>(`/practitioners/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(p) }),
+  delete: (id: string) => jsonFetch<null>(`/practitioners/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+};
+
+// ---------- Groups ----------
+export interface Group {
+  id: string;
+  name: string;
+  description?: string;
+  parentId: string | null;
+  memberIds: string[];
+  assignedInstruments: string[];
+  createdAt?: string;
+}
+export const groupsApi = {
+  list: () => jsonFetch<Group[]>('/groups'),
+  get: (id: string) => jsonFetch<Group>(`/groups/${encodeURIComponent(id)}`),
+  create: (g: Group) => jsonFetch<Group>('/groups', { method: 'POST', body: JSON.stringify(g) }),
+  update: (id: string, g: Partial<Group>) => jsonFetch<Group>(`/groups/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(g) }),
+  delete: (id: string) => jsonFetch<null>(`/groups/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+};
+
+// ---------- Measured Qualities ----------
+export interface MQT { id: string; name: string; }
+export interface MQ {
+  id: string;
+  name: string;
+  description?: string;
+  mqts: MQT[];
+}
+export const qualitiesApi = {
+  list: () => jsonFetch<MQ[]>('/qualities'),
+  get: (id: string) => jsonFetch<MQ>(`/qualities/${encodeURIComponent(id)}`),
+  create: (m: MQ) => jsonFetch<MQ>('/qualities', { method: 'POST', body: JSON.stringify(m) }),
+  update: (id: string, m: Partial<MQ>) => jsonFetch<MQ>(`/qualities/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(m) }),
+  delete: (id: string) => jsonFetch<null>(`/qualities/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+};
+
+// ---------- Item Display State (Item Explorer overrides + soft-deletes) ----------
+export interface ItemDisplayRow {
+  itemId: string;
+  override?: Record<string, any>;
+  deleted: boolean;
+}
+export const itemDisplayApi = {
+  list: () => jsonFetch<ItemDisplayRow[]>('/item-display'),
+  upsertOverride: (itemId: string, override: Record<string, any>) =>
+    jsonFetch<ItemDisplayRow>('/item-display/override', {
+      method: 'POST',
+      body: JSON.stringify({ itemId, override }),
+    }),
+  markDeleted: (itemId: string) =>
+    jsonFetch<null>(`/item-display/${encodeURIComponent(itemId)}/delete`, { method: 'POST' }),
+  clear: (itemId: string) =>
+    jsonFetch<null>(`/item-display/${encodeURIComponent(itemId)}`, { method: 'DELETE' }),
+};
+
+// ---------- Published Questionnaires (frontend-shape) ----------
+export interface PublishedQuestionnaire {
+  id: string;
+  name: string;
+  shortName?: string;
+  vertical?: string;
+  category?: string;
+  description?: string;
+  duration?: number;
+  tier?: string;
+  languages?: string[];
+  mqs: Array<{ id: string; name: string; mqts: Array<{ id: string; name: string }> }>;
+  questions: Array<{
+    id: string;
+    stem: string;
+    format: string;
+    media_url: string;
+    media_type: string;
+    options: Array<{ text: string; scores: Array<{ mqt_id: string; score: number }>; media_url?: string; media_type?: string }>;
+    clinical_risk_flag: boolean;
+    risk_flag_rule: string;
+  }>;
+  isDemo?: boolean;
+  createdAt?: string;
+}
+export const questionnairesApi = {
+  list: (vertical?: string) => {
+    const qs = vertical ? `?vertical=${encodeURIComponent(vertical)}` : '';
+    return jsonFetch<PublishedQuestionnaire[]>(`/questionnaires${qs}`);
+  },
+  get: (id: string) => jsonFetch<PublishedQuestionnaire>(`/questionnaires/${encodeURIComponent(id)}`),
+  getByName: (name: string) => jsonFetch<PublishedQuestionnaire>(`/questionnaires/by-name?name=${encodeURIComponent(name)}`),
+  upsert: (q: PublishedQuestionnaire) => jsonFetch<PublishedQuestionnaire>('/questionnaires', { method: 'POST', body: JSON.stringify(q) }),
+  delete: (id: string) => jsonFetch<null>(`/questionnaires/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+};
+
+// ---------- Instruments (backend-shape) ----------
 export interface Instrument {
   id: string;
   name: string;
@@ -41,19 +182,14 @@ export interface Instrument {
   is_published: boolean;
   created_at: string;
 }
-
 export async function getInstruments(vertical?: string): Promise<Instrument[]> {
-  const query = vertical ? `?vertical=${vertical}` : '';
-  const res = await apiFetch<Instrument[]>(`/instruments${query}`);
-  return res.data;
+  const qs = vertical ? `?vertical=${encodeURIComponent(vertical)}` : '';
+  const list = await jsonFetch<Instrument[] | { data?: Instrument[] }>(`/instruments${qs}`);
+  // The older Go handler returns a plain array; tolerate either shape.
+  return Array.isArray(list) ? list : (list?.data || []);
 }
 
-export async function getInstrument(id: string): Promise<Instrument> {
-  const res = await apiFetch<Instrument>(`/instruments/${id}`);
-  return res as unknown as Instrument;
-}
-
-// --- Sessions ---
+// ---------- Sessions (backend-shape) ----------
 export interface Session {
   id: string;
   vertical: string;
@@ -69,44 +205,49 @@ export interface Session {
   instrument_name: string | null;
 }
 
-export async function getSessions(params?: { vertical?: string; status?: string }): Promise<Session[]> {
-  const query = new URLSearchParams();
-  if (params?.vertical) query.set('vertical', params.vertical);
-  if (params?.status) query.set('status', params.status);
-  const qs = query.toString() ? `?${query.toString()}` : '';
-  const res = await apiFetch<Session[]>(`/sessions${qs}`);
-  return res.data;
-}
-
-export interface CreateSessionRequest {
-  tenant_id: string;
-  practitioner_id: string;
-  respondent_id: string;
-  instrument_id: string;
-  consent_id: string;
-  vertical: string;
-  language: string;
-  is_proctored: boolean;
-}
-
-export async function createSession(req: CreateSessionRequest): Promise<{ id: string; status: string; message: string }> {
-  const res = await apiFetch<{ id: string; status: string; message: string }>('/sessions', {
-    method: 'POST',
-    body: JSON.stringify(req),
-  });
-  return res as unknown as { id: string; status: string; message: string };
-}
-
-// --- Health ---
-export interface HealthStatus {
+// ---------- Portal Sessions (simple frontend-shape) ----------
+export interface PortalSession {
+  id: string;
+  respondentId: string;
+  respondent: string;
+  respondentEmail?: string;
+  instrument: string;
+  instrumentFullName?: string;
+  vertical?: string;
+  language?: string;
   status: string;
-  service: string;
-  version: string;
-  database: boolean;
-  time: string;
+  score?: string;
+  answers?: Record<string, number>;
+  mqtScores?: Record<string, number>;
+  groupId?: string;
+  groupName?: string;
+  consentId?: string;
+  proctoring?: boolean;
+  invitationSent?: boolean;
+  createdAt?: string;
+  completedAt?: string;
 }
+export const portalSessionsApi = {
+  list: (respondentId?: string) => {
+    const qs = respondentId ? `?respondentId=${encodeURIComponent(respondentId)}` : '';
+    return jsonFetch<PortalSession[]>(`/portal-sessions${qs}`);
+  },
+  get: (id: string) => jsonFetch<PortalSession>(`/portal-sessions/${encodeURIComponent(id)}`),
+  create: (s: PortalSession) => jsonFetch<PortalSession>('/portal-sessions', { method: 'POST', body: JSON.stringify(s) }),
+  bulk: (sessions: PortalSession[]) => jsonFetch<{ created: number }>('/portal-sessions/bulk', { method: 'POST', body: JSON.stringify({ sessions }) }),
+  update: (id: string, s: Partial<PortalSession>) => jsonFetch<PortalSession>(`/portal-sessions/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(s) }),
+  delete: (id: string) => jsonFetch<null>(`/portal-sessions/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+};
 
-export async function getHealth(): Promise<HealthStatus> {
-  const res = await apiFetch<HealthStatus>('/health');
-  return res as unknown as HealthStatus;
+// ---------- Verticals ----------
+export interface Vertical {
+  id: string;
+  code: string;
+  name: string;
+  description?: string;
 }
+export const verticalsApi = {
+  list: () => jsonFetch<Vertical[]>('/verticals'),
+  create: (v: Vertical) => jsonFetch<Vertical>('/verticals', { method: 'POST', body: JSON.stringify(v) }),
+  delete: (id: string) => jsonFetch<null>(`/verticals/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+};

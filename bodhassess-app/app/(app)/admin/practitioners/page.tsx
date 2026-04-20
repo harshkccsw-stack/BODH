@@ -4,16 +4,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { Users, Plus, Clock, X, Trash2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { getPractitioners, savePractitioners, type StoredPractitioner } from '@/lib/data-store';
-
-const seedPractitioners: StoredPractitioner[] = [
-  { id: 'P-001', name: 'Dr. Meera Krishnan', email: 'meera.k@apollo.in', role: 'Senior Practitioner', verticals: ['Clinical', 'Counselling'], status: 'Active', lastLogin: '2026-04-09 09:15' },
-  { id: 'P-002', name: 'Dr. Rajesh Iyer', email: 'rajesh.i@stmarys.edu', role: 'Practitioner', verticals: ['Counselling'], status: 'Active', lastLogin: '2026-04-08 14:30' },
-  { id: 'P-003', name: 'Kavitha Nair', email: 'kavitha.n@infosys.com', role: 'HR Professional', verticals: ['Industrial'], status: 'Active', lastLogin: '2026-04-09 11:00' },
-  { id: 'P-004', name: 'Dr. Arun Mehta', email: 'arun.m@mindmetrics.in', role: 'Platform Admin', verticals: ['Clinical', 'Industrial', 'Counselling'], status: 'Active', lastLogin: '2026-04-09 08:45' },
-  { id: 'P-005', name: 'Sneha Gupta', email: 'sneha.g@apollo.in', role: 'Practitioner', verticals: ['Clinical'], status: 'Inactive', lastLogin: '2026-03-20 16:22' },
-  { id: 'P-006', name: 'Prof. Venkat Rao', email: 'venkat.r@university.edu', role: 'Researcher', verticals: ['Experiments'], status: 'Active', lastLogin: '2026-04-07 10:10' },
-];
+import {
+  getPractitioners, createPractitioner, deletePractitioner,
+  type StoredPractitioner,
+} from '@/lib/data-store';
 
 const statusColors: Record<string, string> = {
   Active: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
@@ -24,30 +18,35 @@ const ROLES = ['Practitioner', 'Senior Practitioner', 'HR Professional', 'Resear
 const VERTICALS = ['Clinical', 'Industrial', 'Counselling', 'Experiments', 'White-Label'];
 
 export default function PractitionersPage() {
-  const [practitioners, setPractitioners] = useState<StoredPractitioner[]>(seedPractitioners);
-  const [hydrated, setHydrated] = useState(false);
+  const [practitioners, setPractitioners] = useState<StoredPractitioner[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [form, setForm] = useState({ name: '', email: '', role: 'Practitioner', verticals: [] as string[], status: 'Active' as 'Active' | 'Inactive' });
   const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<StoredPractitioner | null>(null);
 
-  useEffect(() => {
-    const stored = getPractitioners();
-    if (stored.length > 0) setPractitioners(stored);
-    setHydrated(true);
-  }, []);
-
-  useEffect(() => {
-    if (!hydrated) return;
-    savePractitioners(practitioners);
-  }, [practitioners, hydrated]);
+  const refresh = async () => {
+    setLoading(true);
+    setLoadError('');
+    try {
+      const list = await getPractitioners();
+      setPractitioners(list);
+    } catch (e: any) {
+      setLoadError(e?.message || 'Failed to load practitioners');
+    } finally {
+      setLoading(false);
+    }
+  };
+  useEffect(() => { refresh(); }, []);
 
   const stats = useMemo(() => {
     const active = practitioners.filter((p) => p.status === 'Active').length;
     return {
       total: practitioners.length,
       active,
-      lastLogin: practitioners.length > 0 ? practitioners[0].lastLogin : '—',
+      lastLogin: practitioners[0]?.last_login || '—',
     };
   }, [practitioners]);
 
@@ -61,28 +60,32 @@ export default function PractitionersPage() {
     setForm((f) => ({ ...f, verticals: f.verticals.includes(v) ? f.verticals.filter((x) => x !== v) : [...f.verticals, v] }));
   };
 
-  const submit = () => {
+  const submit = async () => {
     const name = form.name.trim();
     const email = form.email.trim();
     if (!name || !email) { setError('Name and email are required'); return; }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setError('Enter a valid email address'); return; }
     if (form.verticals.length === 0) { setError('Assign at least one vertical'); return; }
-    if (practitioners.some((p) => p.email.toLowerCase() === email.toLowerCase())) { setError('A practitioner with this email already exists'); return; }
+    if (practitioners.some((p) => p.email.toLowerCase() === email.toLowerCase())) {
+      setError('A practitioner with this email already exists'); return;
+    }
     const nums = practitioners.map((p) => parseInt(p.id.replace(/^P-/, ''), 10)).filter((n) => !Number.isNaN(n));
     const nextNum = (nums.length ? Math.max(...nums) : 0) + 1;
     const id = `P-${String(nextNum).padStart(3, '0')}`;
     const today = new Date().toISOString().slice(0, 16).replace('T', ' ');
-    setPractitioners([
-      { id, name, email, role: form.role, verticals: form.verticals, status: form.status, lastLogin: today },
-      ...practitioners,
-    ]);
+    setSaving(true);
+    const created = await createPractitioner({ id, name, email, role: form.role, verticals: form.verticals, status: form.status, last_login: today });
+    setSaving(false);
+    if (!created) { setError('Failed to save — check that the API is running'); return; }
+    await refresh();
     setModalOpen(false);
   };
 
-  const doDelete = () => {
+  const doDelete = async () => {
     if (!confirmDelete) return;
-    setPractitioners(practitioners.filter((p) => p.id !== confirmDelete.id));
+    const ok = await deletePractitioner(confirmDelete.id);
     setConfirmDelete(null);
+    if (ok) await refresh();
   };
 
   return (
@@ -97,11 +100,16 @@ export default function PractitionersPage() {
             <p className="text-sm text-muted-foreground mt-1">Manage practitioners, clinicians, and HR professionals.</p>
           </div>
           <Button variant="primary" onClick={openModal}>
-            <Plus className="h-4 w-4" />
-            Add Practitioner
+            <Plus className="h-4 w-4" /> Add Practitioner
           </Button>
         </div>
       </div>
+
+      {loadError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-4 py-3 text-sm text-red-700 dark:text-red-400">
+          {loadError} — is the API running?
+        </div>
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
         <Card>
@@ -148,7 +156,11 @@ export default function PractitionersPage() {
                 </tr>
               </thead>
               <tbody>
-                {practitioners.map((p) => (
+                {loading && practitioners.length === 0 ? (
+                  <tr><td colSpan={8} className="px-5 py-10 text-center text-sm text-muted-foreground">Loading from database…</td></tr>
+                ) : practitioners.length === 0 ? (
+                  <tr><td colSpan={8} className="px-5 py-10 text-center text-sm text-muted-foreground">No practitioners yet.</td></tr>
+                ) : practitioners.map((p) => (
                   <tr key={p.id} className="border-b border-border last:border-0 hover:bg-muted/50 transition-colors">
                     <td className="px-5 py-3 font-mono text-xs">{p.id}</td>
                     <td className="px-5 py-3 font-medium">{p.name}</td>
@@ -156,7 +168,7 @@ export default function PractitionersPage() {
                     <td className="px-5 py-3">{p.role}</td>
                     <td className="px-5 py-3">
                       <div className="flex gap-1 flex-wrap">
-                        {p.verticals.map((v) => (
+                        {(p.verticals || []).map((v) => (
                           <span key={v} className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">{v}</span>
                         ))}
                       </div>
@@ -165,7 +177,7 @@ export default function PractitionersPage() {
                       <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${statusColors[p.status]}`}>{p.status}</span>
                     </td>
                     <td className="px-5 py-3 text-muted-foreground">
-                      <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{p.lastLogin}</span>
+                      <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{p.last_login || '—'}</span>
                     </td>
                     <td className="px-5 py-3 text-right">
                       <button
@@ -194,26 +206,22 @@ export default function PractitionersPage() {
               {error && <div className="rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-3 py-2 text-xs text-red-700 dark:text-red-400">{error}</div>}
               <div className="space-y-1.5">
                 <label className="text-sm font-medium">Name *</label>
-                <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g., Dr. Meera Krishnan"
-                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" />
+                <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g., Dr. Meera Krishnan" className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" />
               </div>
               <div className="space-y-1.5">
                 <label className="text-sm font-medium">Email *</label>
-                <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="practitioner@example.com"
-                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" />
+                <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="practitioner@example.com" className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <label className="text-sm font-medium">Role</label>
-                  <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}
-                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
+                  <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
                     {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
                   </select>
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-sm font-medium">Status</label>
-                  <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as 'Active' | 'Inactive' })}
-                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
+                  <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as 'Active' | 'Inactive' })} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
                     <option value="Active">Active</option>
                     <option value="Inactive">Inactive</option>
                   </select>
@@ -232,7 +240,7 @@ export default function PractitionersPage() {
               </div>
               <div className="flex justify-end gap-2 pt-1">
                 <Button variant="outline" onClick={() => setModalOpen(false)}>Cancel</Button>
-                <Button variant="primary" onClick={submit}>Add Practitioner</Button>
+                <Button variant="primary" onClick={submit} disabled={saving}>{saving ? 'Saving…' : 'Add Practitioner'}</Button>
               </div>
             </CardContent>
           </Card>

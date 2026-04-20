@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
+
 	"github.com/go-chi/cors"
 
 	"github.com/bodh-psychometric/bodhassess-api/internal/config"
@@ -41,6 +42,14 @@ func main() {
 	sessionsH := handlers.NewSessionsHandler(db)
 	itemsH := handlers.NewItemsHandler(db)
 	uploadH := handlers.NewUploadHandler("./uploads", "http://localhost:"+cfg.AppPort)
+	qualitiesH := handlers.NewQualitiesHandler(db)
+	verticalsH := handlers.NewVerticalsHandler(db)
+	respondentsH := handlers.NewRespondentsHandler(db)
+	practitionersH := handlers.NewPractitionersHandler(db)
+	groupsH := handlers.NewGroupsHandler(db)
+	portalSessionsH := handlers.NewPortalSessionsHandler(db)
+	questionnairesH := handlers.NewQuestionnairesHandler(db)
+	itemDisplayH := handlers.NewItemDisplayHandler(db)
 
 	// Static files for uploaded media
 	fileServer := http.FileServer(http.Dir("./uploads"))
@@ -65,6 +74,72 @@ func main() {
 			r.Get("/", sessionsH.List)
 			r.Post("/", sessionsH.Create)
 			r.Get("/{id}", sessionsH.GetByID)
+		})
+
+		r.Route("/qualities", func(r chi.Router) {
+			r.Get("/", qualitiesH.List)
+			r.Post("/", qualitiesH.Create)
+			r.Get("/{id}", qualitiesH.Get)
+			r.Put("/{id}", qualitiesH.Update)
+			r.Delete("/{id}", qualitiesH.Delete)
+		})
+
+		r.Route("/verticals", func(r chi.Router) {
+			r.Get("/", verticalsH.List)
+			r.Post("/", verticalsH.Create)
+			r.Get("/{id}", verticalsH.Get)
+			r.Delete("/{id}", verticalsH.Delete)
+		})
+
+		r.Route("/respondents", func(r chi.Router) {
+			r.Get("/", respondentsH.List)
+			r.Post("/", respondentsH.Create)
+			r.Post("/login", respondentsH.Login)
+			r.Post("/logout", respondentsH.Logout)
+			r.Get("/me", respondentsH.Me)
+			r.Get("/{id}", respondentsH.Get)
+			r.Put("/{id}", respondentsH.Update)
+			r.Delete("/{id}", respondentsH.Delete)
+		})
+
+		r.Route("/practitioners", func(r chi.Router) {
+			r.Get("/", practitionersH.List)
+			r.Post("/", practitionersH.Create)
+			r.Get("/{id}", practitionersH.Get)
+			r.Put("/{id}", practitionersH.Update)
+			r.Delete("/{id}", practitionersH.Delete)
+		})
+
+		r.Route("/groups", func(r chi.Router) {
+			r.Get("/", groupsH.List)
+			r.Post("/", groupsH.Create)
+			r.Get("/{id}", groupsH.Get)
+			r.Put("/{id}", groupsH.Update)
+			r.Delete("/{id}", groupsH.Delete)
+		})
+
+		r.Route("/portal-sessions", func(r chi.Router) {
+			r.Get("/", portalSessionsH.List)
+			r.Post("/", portalSessionsH.Create)
+			r.Post("/bulk", portalSessionsH.BulkCreate)
+			r.Get("/{id}", portalSessionsH.Get)
+			r.Put("/{id}", portalSessionsH.Update)
+			r.Delete("/{id}", portalSessionsH.Delete)
+		})
+
+		r.Route("/questionnaires", func(r chi.Router) {
+			r.Get("/", questionnairesH.List)
+			r.Post("/", questionnairesH.Upsert)
+			r.Get("/by-name", questionnairesH.GetByName)
+			r.Get("/{id}", questionnairesH.Get)
+			r.Delete("/{id}", questionnairesH.Delete)
+		})
+
+		r.Route("/item-display", func(r chi.Router) {
+			r.Get("/", itemDisplayH.List)
+			r.Post("/override", itemDisplayH.UpsertOverride)
+			r.Post("/{id}/delete", itemDisplayH.MarkDeleted)
+			r.Delete("/{id}", itemDisplayH.Clear)
 		})
 	})
 

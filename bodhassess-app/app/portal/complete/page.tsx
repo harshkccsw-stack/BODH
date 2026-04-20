@@ -5,41 +5,39 @@ import { CheckCircle2, ClipboardList, LogOut } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 
-interface StoredSession {
-  id: string;
-  respondent: string;
-  instrument: string;
-  instrumentFullName?: string;
-  status: string;
-  completedAt?: string;
-}
+import { portalSessionsApi, respondentsApi, type PortalSession } from '@/lib/api';
 
-const AUTH_KEY = 'bodhassess.auth.respondent';
-const SESSION_KEY = 'bodhassess.sessions';
+const AUTH_KEY = 'bodhassess.auth.token';
 
 export default function PortalCompletePage() {
   const [respondentName, setRespondentName] = useState('');
-  const [session, setSession] = useState<StoredSession | null>(null);
+  const [session, setSession] = useState<PortalSession | null>(null);
 
   useEffect(() => {
-    try {
-      const araw = sessionStorage.getItem(AUTH_KEY);
-      if (araw) {
-        const u = JSON.parse(araw);
-        setRespondentName(u?.name || '');
-      }
-      const params = new URLSearchParams(window.location.search);
-      const sid = params.get('id');
-      if (sid) {
-        const sraw = localStorage.getItem(SESSION_KEY);
-        const all: StoredSession[] = sraw ? JSON.parse(sraw) : [];
-        const s = all.find((x) => x.id === sid);
-        if (s) setSession(s);
-      }
-    } catch {}
+    (async () => {
+      try {
+        const token = sessionStorage.getItem(AUTH_KEY);
+        if (token) {
+          try {
+            const me = await respondentsApi.me(token);
+            setRespondentName(me.name || '');
+          } catch {}
+        }
+        const params = new URLSearchParams(window.location.search);
+        const sid = params.get('id');
+        if (sid) {
+          try {
+            const s = await portalSessionsApi.get(sid);
+            setSession(s);
+          } catch {}
+        }
+      } catch {}
+    })();
   }, []);
 
-  const logout = () => {
+  const logout = async () => {
+    const token = sessionStorage.getItem(AUTH_KEY);
+    if (token) { try { await respondentsApi.logout(token); } catch {} }
     sessionStorage.removeItem(AUTH_KEY);
     window.location.href = '/portal/login';
   };

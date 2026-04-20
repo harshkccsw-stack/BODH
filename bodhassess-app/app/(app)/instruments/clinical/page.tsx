@@ -143,27 +143,21 @@ const tierColors: Record<number, string> = {
 // Component
 // ---------------------------------------------------------------------------
 
-function loadUserInstrumentsForVertical(vertical: string): ClinicalInstrument[] {
+async function loadUserInstrumentsForVertical(vertical: string): Promise<ClinicalInstrument[]> {
   try {
-    const raw = localStorage.getItem('bodhassess.instruments');
-    if (!raw) return [];
-    const list = JSON.parse(raw);
-    if (!Array.isArray(list)) return [];
-    return list
-      .filter((i: any) => String(i.vertical || '').toUpperCase() === vertical.toUpperCase())
-      .map((i: any): ClinicalInstrument => ({
-        name: i.name || i.shortName || 'Untitled',
-        shortName: i.shortName || (i.name ? String(i.name).split(' ')[0] : 'CUSTOM'),
-        category: i.category || 'Custom Assessment',
-        items: Array.isArray(i.questions) ? i.questions.length : (i.items || 0),
-        duration: i.duration ? `${i.duration} min` : '—',
-        languages: Array.isArray(i.languages)
-          ? i.languages.map((c: string) => c.toUpperCase())
-          : ['EN'],
-        indianNormsStatus: 'In Progress',
-        severityCutoffs: i.description || 'Custom-authored scoring — review results with the administrator.',
-        tier: typeof i.tier === 'number' ? i.tier : (typeof i.tier === 'string' ? parseInt(i.tier.replace('T', ''), 10) || 1 : 1),
-      }));
+    const { questionnairesApi } = await import('@/lib/api');
+    const list = await questionnairesApi.list(vertical);
+    return list.map((i): ClinicalInstrument => ({
+      name: i.name || i.shortName || 'Untitled',
+      shortName: i.shortName || (i.name ? String(i.name).split(' ')[0] : 'CUSTOM'),
+      category: i.category || 'Custom Assessment',
+      items: Array.isArray(i.questions) ? i.questions.length : 0,
+      duration: i.duration ? `${i.duration} min` : '—',
+      languages: Array.isArray(i.languages) ? i.languages.map((c) => c.toUpperCase()) : ['EN'],
+      indianNormsStatus: 'In Progress',
+      severityCutoffs: i.description || 'Custom-authored scoring — review results with the administrator.',
+      tier: typeof i.tier === 'string' ? parseInt(i.tier.replace('T', ''), 10) || 1 : 1,
+    }));
   } catch {
     return [];
   }
@@ -181,7 +175,7 @@ export default function ClinicalInstrumentsPage() {
 
   useEffect(() => {
     setOverrides(loadOverrides());
-    setUserInstruments(loadUserInstrumentsForVertical('CLINICAL'));
+    loadUserInstrumentsForVertical('CLINICAL').then(setUserInstruments).catch(() => setUserInstruments([]));
   }, []);
 
   const mergedInstruments = useMemo(() => {
@@ -190,16 +184,15 @@ export default function ClinicalInstrumentsPage() {
     return [...uniqueUser, ...instruments].map((i) => applyOverride(i as any, overrides) as ClinicalInstrument);
   }, [overrides, userInstruments]);
 
-  const filtered = useMemo(() => {
-    if (!search) return mergedInstruments;
-    const q = search.toLowerCase();
-    return mergedInstruments.filter(
-      (inst) =>
-        inst.name.toLowerCase().includes(q) ||
-        inst.shortName.toLowerCase().includes(q) ||
-        inst.category.toLowerCase().includes(q)
-    );
-  }, [search, mergedInstruments]);
+  const toStr = (v: unknown): string => (v == null ? '' : String(v)).toLowerCase();
+  const query = search.trim().toLowerCase();
+  const filtered = !query
+    ? mergedInstruments
+    : mergedInstruments.filter((inst) => {
+        const hay = [inst?.name, inst?.shortName, inst?.category, inst?.severityCutoffs]
+          .map(toStr).join(' ');
+        return hay.includes(query);
+      });
 
   const openEdit = (inst: ClinicalInstrument) => {
     setEditing(inst);
@@ -288,14 +281,22 @@ export default function ClinicalInstrumentsPage() {
 
       {/* Search */}
       <div className="relative max-w-md">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <input
           type="text"
+          autoComplete="off"
+          spellCheck={false}
           placeholder="Search clinical instruments..."
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="w-full h-8.5 rounded-md border border-input bg-background pl-9 pr-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:border-ring focus:ring-[3px] focus:ring-ring/30 transition-shadow"
+          onChange={(e) => setSearch(e.currentTarget.value)}
+          onInput={(e) => setSearch((e.currentTarget as HTMLInputElement).value)}
+          className="w-full h-9 rounded-md border border-input bg-background pl-9 pr-9 text-sm placeholder:text-muted-foreground focus:outline-none focus:border-ring focus:ring-[3px] focus:ring-ring/30 transition-shadow"
         />
+        {search && (
+          <button type="button" onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground" aria-label="Clear search">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
       </div>
 
       <p className="text-xs text-muted-foreground">
@@ -315,11 +316,11 @@ export default function ClinicalInstrumentsPage() {
         </Card>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-          {filtered.map((inst) => {
+          {filtered.map((inst, idx) => {
             const normsStyle = normsStatusStyles[inst.indianNormsStatus];
             return (
               <Card
-                key={inst.shortName}
+                key={`${inst.name}-${inst.shortName}-${idx}`}
                 className="hover:shadow-md transition-shadow flex flex-col"
               >
                 <CardContent className="p-5 flex flex-col flex-1 gap-3.5">
@@ -441,9 +442,21 @@ export default function ClinicalInstrumentsPage() {
                 <textarea rows={2} value={editForm.severityCutoffs} onChange={(e) => setEditForm({ ...editForm, severityCutoffs: e.target.value })}
                   className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" />
               </div>
-              <div className="flex justify-end gap-2 pt-1">
-                <Button variant="outline" onClick={() => setEditing(null)}>Cancel</Button>
-                <Button variant="primary" onClick={saveEdit}>Save Changes</Button>
+              <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-2 pt-1">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    const key = editing?.shortName || editing?.name || '';
+                    if (key) window.location.href = `/question-bank/create?edit=${encodeURIComponent(key)}`;
+                  }}
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                  Edit Questionnaire
+                </Button>
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" onClick={() => setEditing(null)}>Cancel</Button>
+                  <Button variant="primary" onClick={saveEdit}>Save Changes</Button>
+                </div>
               </div>
             </CardContent>
           </Card>

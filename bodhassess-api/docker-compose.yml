@@ -7,7 +7,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: bodh
-      POSTGRES_PASSWORD: Google.com1
+      POSTGRES_PASSWORD: bodh_dev_2026
       POSTGRES_DB: bodhassess
     ports:
       - "5432:5432"
