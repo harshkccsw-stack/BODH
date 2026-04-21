@@ -20,7 +20,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input, InputWrapper } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { portalSessionsApi, respondentsApi, questionnairesApi } from '@/lib/api';
+import { portalSessionsApi, respondentsApi, questionnairesApi, groupsApi, type Group } from '@/lib/api';
+import { Users } from 'lucide-react';
 import {
   Select,
   SelectContent,
@@ -108,6 +109,10 @@ export default function CreateSessionPage() {
   const [selectedInstrument, setSelectedInstrument] = useState<string>('');
   const [respondentSearch, setRespondentSearch] = useState('');
   const [selectedRespondent, setSelectedRespondent] = useState<string>('');
+  const [assignMode, setAssignMode] = useState<'respondent' | 'group'>('respondent');
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [selectedGroup, setSelectedGroup] = useState<string>('');
+  const [groupSearch, setGroupSearch] = useState('');
   const [language, setLanguage] = useState('English');
   const [consentId, setConsentId] = useState('');
   const [proctoring, setProctoring] = useState(false);
@@ -127,6 +132,13 @@ export default function CreateSessionPage() {
         if (Array.isArray(list) && list.length > 0) {
           setRespondents(list.map((r) => ({ id: r.id, name: r.name, email: r.email })));
         }
+      } catch {}
+    })();
+
+    (async () => {
+      try {
+        const list = await groupsApi.list();
+        if (Array.isArray(list)) setGroups(list);
       } catch {}
     })();
 
@@ -210,6 +222,13 @@ export default function CreateSessionPage() {
 
   const selectedInstrumentData = instrumentList.find((i) => i.name === selectedInstrument);
   const selectedRespondentData = respondents.find((r) => r.id === selectedRespondent);
+  const selectedGroupData = groups.find((g) => g.id === selectedGroup);
+  const filteredGroups = groups.filter(
+    (g) =>
+      groupSearch === '' ||
+      g.name.toLowerCase().includes(groupSearch.toLowerCase()) ||
+      (g.description || '').toLowerCase().includes(groupSearch.toLowerCase())
+  );
 
   // Ensure a playable questionnaire exists in Postgres for the chosen catalog
   // name. If nobody has published it via Create Questionnaire yet, seed a
@@ -269,15 +288,64 @@ export default function CreateSessionPage() {
       setError('Please select an instrument.');
       return;
     }
-    if (!selectedRespondent) {
+    if (assignMode === 'respondent' && !selectedRespondent) {
       setError('Please select a respondent.');
       return;
+    }
+    if (assignMode === 'group') {
+      if (!selectedGroup) { setError('Please select a group.'); return; }
+      if (!selectedGroupData || selectedGroupData.memberIds.length === 0) {
+        setError('The selected group has no members. Add respondents to it in Admin → Groups.');
+        return;
+      }
     }
     setSaving(true);
     try {
       const fullName = selectedInstrumentData?.name || selectedInstrument;
       const vert = selectedInstrumentData?.vertical || 'Clinical';
       await ensureInstrumentAvailable(fullName, vert);
+
+      if (assignMode === 'group' && selectedGroupData) {
+        // One session per member via bulk endpoint
+        const sessions = selectedGroupData.memberIds
+          .map((memberId) => respondents.find((r) => r.id === memberId))
+          .filter((r): r is RespondentRow => !!r)
+          .map((r) => ({
+            id: `SESS-${Math.random().toString(36).slice(2, 8).toUpperCase()}`,
+            respondentId: r.id,
+            respondent: r.name,
+            respondentEmail: r.email,
+            instrument: fullName.split(' (')[0],
+            instrumentFullName: fullName,
+            vertical: vert,
+            language,
+            status: 'Active',
+            score: '--',
+            consentId,
+            proctoring,
+            groupId: selectedGroupData.id,
+            groupName: selectedGroupData.name,
+            invitationSent: sendInvite,
+          }));
+        if (sessions.length === 0) {
+          setError('None of the group members match known respondents.');
+          return;
+        }
+        const res = await portalSessionsApi.bulk(sessions);
+        if (!res) throw new Error('Failed to create sessions via API');
+        setCreated({ id: `${sessions.length} sessions for "${selectedGroupData.name}"` });
+        if (copyLink) {
+          try {
+            const loginUrl = `${window.location.origin}/portal/login`;
+            await navigator.clipboard.writeText(loginUrl);
+            setLinkCopied(true);
+            setTimeout(() => setLinkCopied(false), 3000);
+          } catch {
+            setError('Sessions created, but failed to copy link to clipboard.');
+          }
+        }
+        return;
+      }
 
       const id = `SESS-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
       const entry = {
@@ -422,51 +490,125 @@ export default function CreateSessionPage() {
             </CardContent>
           </Card>
 
-          {/* Respondent */}
+          {/* Respondent or Group */}
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-base flex items-center gap-2">
-                <User className="size-4 text-primary" />
-                Select Respondent
+                {assignMode === 'group' ? <Users className="size-4 text-primary" /> : <User className="size-4 text-primary" />}
+                Assign To
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <InputWrapper variant="md" className="w-full">
-                <Search className="size-4" />
-                <Input
-                  placeholder="Search by name or email..."
-                  value={respondentSearch}
-                  onChange={(e) => setRespondentSearch(e.target.value)}
-                />
-              </InputWrapper>
-
-              <div className="border border-border rounded-lg overflow-hidden">
-                {filteredRespondents.map((r) => (
-                  <button
-                    key={r.id}
-                    type="button"
-                    onClick={() => setSelectedRespondent(r.id)}
-                    className={`w-full flex items-center justify-between px-4 py-3 text-sm text-left border-b border-border last:border-0 transition-colors ${
-                      selectedRespondent === r.id
-                        ? 'bg-primary/5 text-primary'
-                        : 'hover:bg-muted/50'
-                    }`}
-                  >
-                    <div>
-                      <p className="font-medium">{r.name}</p>
-                      <p className="text-xs text-muted-foreground">{r.email}</p>
-                    </div>
-                    {selectedRespondent === r.id && (
-                      <Badge size="sm" shape="circle" variant="success" appearance="light">Selected</Badge>
-                    )}
-                  </button>
-                ))}
-                {filteredRespondents.length === 0 && (
-                  <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-                    No respondents found.
-                  </div>
-                )}
+              <div className="inline-flex rounded-lg border border-border p-0.5 bg-muted/40">
+                <button
+                  type="button"
+                  onClick={() => setAssignMode('respondent')}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                    assignMode === 'respondent' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  <User className="inline size-3.5 -mt-0.5 mr-1" />
+                  Single Respondent
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAssignMode('group')}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                    assignMode === 'group' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  <Users className="inline size-3.5 -mt-0.5 mr-1" />
+                  Group
+                </button>
               </div>
+
+              {assignMode === 'respondent' ? (
+                <>
+                  <InputWrapper variant="md" className="w-full">
+                    <Search className="size-4" />
+                    <Input
+                      placeholder="Search by name or email..."
+                      value={respondentSearch}
+                      onChange={(e) => setRespondentSearch(e.target.value)}
+                    />
+                  </InputWrapper>
+
+                  <div className="border border-border rounded-lg overflow-hidden max-h-80 overflow-y-auto">
+                    {filteredRespondents.map((r) => (
+                      <button
+                        key={r.id}
+                        type="button"
+                        onClick={() => setSelectedRespondent(r.id)}
+                        className={`w-full flex items-center justify-between px-4 py-3 text-sm text-left border-b border-border last:border-0 transition-colors ${
+                          selectedRespondent === r.id
+                            ? 'bg-primary/5 text-primary'
+                            : 'hover:bg-muted/50'
+                        }`}
+                      >
+                        <div>
+                          <p className="font-medium">{r.name}</p>
+                          <p className="text-xs text-muted-foreground">{r.email}</p>
+                        </div>
+                        {selectedRespondent === r.id && (
+                          <Badge size="sm" shape="circle" variant="success" appearance="light">Selected</Badge>
+                        )}
+                      </button>
+                    ))}
+                    {filteredRespondents.length === 0 && (
+                      <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+                        No respondents found.
+                      </div>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <InputWrapper variant="md" className="w-full">
+                    <Search className="size-4" />
+                    <Input
+                      placeholder="Search groups by name or description..."
+                      value={groupSearch}
+                      onChange={(e) => setGroupSearch(e.target.value)}
+                    />
+                  </InputWrapper>
+
+                  <div className="border border-border rounded-lg overflow-hidden max-h-80 overflow-y-auto">
+                    {filteredGroups.map((g) => (
+                      <button
+                        key={g.id}
+                        type="button"
+                        onClick={() => setSelectedGroup(g.id)}
+                        className={`w-full flex items-center justify-between px-4 py-3 text-sm text-left border-b border-border last:border-0 transition-colors ${
+                          selectedGroup === g.id
+                            ? 'bg-primary/5 text-primary'
+                            : 'hover:bg-muted/50'
+                        }`}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="font-medium truncate">{g.name}</p>
+                          <p className="text-xs text-muted-foreground truncate">
+                            {g.memberIds.length} member{g.memberIds.length !== 1 ? 's' : ''}
+                            {g.description ? ` · ${g.description}` : ''}
+                          </p>
+                        </div>
+                        {selectedGroup === g.id && (
+                          <Badge size="sm" shape="circle" variant="success" appearance="light">Selected</Badge>
+                        )}
+                      </button>
+                    ))}
+                    {filteredGroups.length === 0 && (
+                      <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+                        {groups.length === 0 ? 'No groups yet. Create one in Admin → Groups.' : 'No groups match your search.'}
+                      </div>
+                    )}
+                  </div>
+                  {selectedGroupData && (
+                    <div className="rounded-lg border border-border bg-muted/40 px-3 py-2.5 text-xs text-muted-foreground">
+                      A session will be created for each of the <strong className="text-foreground">{selectedGroupData.memberIds.length}</strong> member{selectedGroupData.memberIds.length !== 1 ? 's' : ''} of "{selectedGroupData.name}".
+                    </div>
+                  )}
+                </>
+              )}
             </CardContent>
           </Card>
 
@@ -572,9 +714,15 @@ export default function CreateSessionPage() {
                   </span>
                 </div>
                 <div className="flex items-center justify-between py-2 border-b border-border">
-                  <span className="text-muted-foreground">Respondent</span>
-                  <span className="font-medium">
-                    {selectedRespondentData?.name || '--'}
+                  <span className="text-muted-foreground">
+                    {assignMode === 'group' ? 'Group' : 'Respondent'}
+                  </span>
+                  <span className="font-medium text-right max-w-[60%] truncate">
+                    {assignMode === 'group'
+                      ? selectedGroupData
+                        ? `${selectedGroupData.name} (${selectedGroupData.memberIds.length})`
+                        : '--'
+                      : selectedRespondentData?.name || '--'}
                   </span>
                 </div>
                 <div className="flex items-center justify-between py-2 border-b border-border">
@@ -627,7 +775,11 @@ export default function CreateSessionPage() {
                   onClick={() => handleCreate({})}
                 >
                   <ClipboardCheck className="size-4" />
-                  {saving ? 'Creating...' : 'Create Session'}
+                  {saving
+                    ? 'Creating...'
+                    : assignMode === 'group' && selectedGroupData
+                    ? `Create ${selectedGroupData.memberIds.length} Sessions`
+                    : 'Create Session'}
                 </Button>
                 <Button
                   variant="outline"

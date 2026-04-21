@@ -26,6 +26,7 @@ import {
   Youtube,
 } from 'lucide-react';
 import { getMQs, getInstruments, getVerticals, BUILT_IN_VERTICALS, type MQ as StoredMQ, type StoredInstrument, type Vertical as StoredVertical } from '@/lib/data-store';
+import { demographicFieldsApi, type DemographicField } from '@/lib/api';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api/v1';
 
@@ -204,6 +205,7 @@ export default function CreateAssessmentPage() {
   const [instVertical, setInstVertical] = useState('CLINICAL');
   const [instCategory, setInstCategory] = useState('');
   const [instDescription, setInstDescription] = useState('');
+  const [instDisclaimer, setInstDisclaimer] = useState('');
   const [instDuration, setInstDuration] = useState(10);
   const [instTier, setInstTier] = useState('T1');
   const [instLanguages, setInstLanguages] = useState<string[]>(['en']);
@@ -217,6 +219,14 @@ export default function CreateAssessmentPage() {
 
   useEffect(() => {
     getMQs().then(setCatalog).catch(() => setCatalog([]));
+  }, []);
+
+  // Demographic field catalog — fetched once so Step 1 can offer a per-questionnaire subset.
+  const [demoFieldCatalog, setDemoFieldCatalog] = useState<DemographicField[]>([]);
+  const [demoFieldKeys, setDemoFieldKeys] = useState<string[]>([]);
+
+  useEffect(() => {
+    demographicFieldsApi.list(true).then(setDemoFieldCatalog).catch(() => setDemoFieldCatalog([]));
   }, []);
 
   // ---- Edit mode: load an existing questionnaire from the API ----
@@ -242,6 +252,10 @@ export default function CreateAssessmentPage() {
         setInstVertical(String(match.vertical || 'CLINICAL').toUpperCase());
         setInstCategory(match.category || '');
         setInstDescription(match.description || '');
+        setInstDisclaimer((match as any).disclaimer || '');
+        if (Array.isArray((match as any).demographicFieldKeys)) {
+          setDemoFieldKeys((match as any).demographicFieldKeys as string[]);
+        }
         setInstDuration(typeof match.duration === 'number' ? match.duration : 10);
         setInstTier(typeof match.tier === 'string' && match.tier ? match.tier : 'T1');
         if (Array.isArray(match.languages)) setInstLanguages(match.languages);
@@ -640,6 +654,7 @@ export default function CreateAssessmentPage() {
         vertical: instVertical,
         category: instCategory,
         description: instDescription,
+        disclaimer: instDisclaimer,
         duration: Number(instDuration) || 0,
         tier: instTier,
         languages: instLanguages,
@@ -666,6 +681,7 @@ export default function CreateAssessmentPage() {
           risk_flag_rule: q.risk_flag_rule,
         })),
         isDemo: false,
+        demographicFieldKeys: demoFieldKeys,
       });
       setInstrumentId(qid);
       setStep(3);
@@ -750,7 +766,7 @@ export default function CreateAssessmentPage() {
             <CardContent className="space-y-5">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                 <div className="space-y-1.5">
-                  <label className="text-sm font-medium">Assessment Name *</label>
+                  <label className="text-sm font-medium">Questionnaire Name *</label>
                   <input value={instName} onChange={(e) => setInstName(e.target.value)} placeholder="e.g., Engineering Graduate Aptitude Test" className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" />
                 </div>
                 <div className="space-y-1.5">
@@ -846,6 +862,102 @@ export default function CreateAssessmentPage() {
               <div className="space-y-1.5">
                 <label className="text-sm font-medium">Description</label>
                 <textarea value={instDescription} onChange={(e) => setInstDescription(e.target.value)} rows={3} className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" />
+              </div>
+
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between gap-3">
+                  <label className="text-sm font-medium">Disclaimer / Terms &amp; Conditions</label>
+                  <span className="text-[0.6875rem] text-muted-foreground">Optional — shown to respondents before they start</span>
+                </div>
+                <textarea
+                  value={instDisclaimer}
+                  onChange={(e) => setInstDisclaimer(e.target.value)}
+                  rows={6}
+                  placeholder="Paste or write any terms, confidentiality notes, or participation conditions here. If left empty, respondents go straight to the first question."
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                />
+                <p className="text-[0.6875rem] text-muted-foreground">
+                  When present, the respondent must tick <em>I agree &amp; continue</em> before the assessment starts.
+                </p>
+              </div>
+
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between gap-3">
+                  <label className="text-sm font-medium">Pre-Assessment Demographic Fields</label>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[0.6875rem] text-muted-foreground">
+                      {demoFieldKeys.length === 0
+                        ? `Empty = all ${demoFieldCatalog.length} active fields`
+                        : `${demoFieldKeys.length} selected`}
+                    </span>
+                    {demoFieldCatalog.length > 0 && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => setDemoFieldKeys(demoFieldCatalog.map((f) => f.fieldKey))}
+                          className="text-[0.6875rem] font-medium text-primary hover:underline"
+                        >
+                          Select all
+                        </button>
+                        <span className="text-[0.6875rem] text-muted-foreground">·</span>
+                        <button
+                          type="button"
+                          onClick={() => setDemoFieldKeys([])}
+                          className="text-[0.6875rem] font-medium text-primary hover:underline"
+                        >
+                          Clear
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+                {demoFieldCatalog.length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-border bg-muted/30 px-3 py-4 text-center text-xs text-muted-foreground">
+                    No demographic fields defined yet. Manage them at <a href="/instruments/demographics" className="text-primary hover:underline">Instrument Library → Demographic Fields</a>.
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-border bg-background p-3">
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                      {demoFieldCatalog.map((f) => {
+                        const checked = demoFieldKeys.includes(f.fieldKey);
+                        return (
+                          <label
+                            key={f.id}
+                            className={cn(
+                              'flex items-start gap-2 rounded-md border px-2.5 py-2 text-xs cursor-pointer transition-colors',
+                              checked ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50',
+                            )}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={(e) => {
+                                setDemoFieldKeys((prev) =>
+                                  e.target.checked
+                                    ? [...prev, f.fieldKey]
+                                    : prev.filter((k) => k !== f.fieldKey),
+                                );
+                              }}
+                              className="mt-0.5 rounded"
+                            />
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-medium truncate">{f.label}</span>
+                                {f.required && <span className="text-[0.625rem] text-destructive">*</span>}
+                              </div>
+                              <div className="text-[0.625rem] text-muted-foreground truncate">
+                                {f.fieldKey} · {f.type}
+                              </div>
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+                <p className="text-[0.6875rem] text-muted-foreground">
+                  Respondents fill these in before starting this questionnaire. Leave empty to use every active field from the catalog.
+                </p>
               </div>
 
               <div className="space-y-1.5">
@@ -1224,7 +1336,19 @@ export default function CreateAssessmentPage() {
                         <MediaPreview url={q.media_url} type={q.media_type} />
                       )}
 
-                      {q.options.length === 0 ? (
+                      {String(q.format || '').toUpperCase().replace(/_/g, '') === 'FREETEXT' ? (
+                        <div className="space-y-1.5">
+                          <textarea
+                            rows={5}
+                            disabled
+                            placeholder="Respondent will type their answer here…"
+                            className="w-full rounded-lg border border-dashed border-border bg-muted/30 px-3 py-2.5 text-sm outline-none resize-none"
+                          />
+                          <p className="text-[0.6875rem] text-muted-foreground italic">
+                            Free-text response — no MQT scoring; stored on the session for admin review.
+                          </p>
+                        </div>
+                      ) : q.options.length === 0 ? (
                         <p className="text-xs text-muted-foreground italic">No options on this question yet.</p>
                       ) : (
                         <div className="space-y-2">

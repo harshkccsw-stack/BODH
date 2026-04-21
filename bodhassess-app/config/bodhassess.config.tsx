@@ -44,6 +44,7 @@ export const MENU_SIDEBAR: MenuConfig = [
       { title: 'Industrial Instruments', path: '/instruments/industrial' },
       { title: 'Counselling Instruments', path: '/instruments/counselling' },
       { title: 'Experimental Paradigms', path: '/instruments/experimental' },
+      { title: 'Demographic Fields', path: '/instruments/demographics' },
     ],
   },
   {

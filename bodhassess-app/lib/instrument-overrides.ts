@@ -14,6 +14,7 @@ export interface InstrumentOverride {
   description?: string;
   ageRange?: string;
   norms?: string;
+  vertical?: string;
 }
 
 const KEY = 'bodhassess.instrumentOverrides';

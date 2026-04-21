@@ -31,8 +31,9 @@ type portalSession struct {
 	Language           string                 `json:"language,omitempty"`
 	Status             string                 `json:"status"`
 	Score              string                 `json:"score,omitempty"`
-	Answers            map[string]int         `json:"answers,omitempty"`
+	Answers            map[string]interface{} `json:"answers,omitempty"`
 	MQTScores          map[string]float64     `json:"mqtScores,omitempty"`
+	Demographics       map[string]interface{} `json:"demographics,omitempty"`
 	GroupID            string                 `json:"groupId,omitempty"`
 	GroupName          string                 `json:"groupName,omitempty"`
 	ConsentID          string                 `json:"consentId,omitempty"`
@@ -44,13 +45,13 @@ type portalSession struct {
 
 func scanSession(rows pgx.Row) (portalSession, error) {
 	var s portalSession
-	var answersJSON, mqtJSON []byte
+	var answersJSON, mqtJSON, demoJSON []byte
 	var createdAt time.Time
 	var completedAt *time.Time
 	err := rows.Scan(
 		&s.ID, &s.RespondentID, &s.RespondentName, &s.RespondentEmail,
 		&s.Instrument, &s.InstrumentFullName, &s.Vertical, &s.Language,
-		&s.Status, &s.Score, &answersJSON, &mqtJSON,
+		&s.Status, &s.Score, &answersJSON, &mqtJSON, &demoJSON,
 		&s.GroupID, &s.GroupName, &s.ConsentID, &s.Proctoring, &s.InvitationSent,
 		&createdAt, &completedAt,
 	)
@@ -63,6 +64,9 @@ func scanSession(rows pgx.Row) (portalSession, error) {
 	if len(mqtJSON) > 0 {
 		_ = json.Unmarshal(mqtJSON, &s.MQTScores)
 	}
+	if len(demoJSON) > 0 {
+		_ = json.Unmarshal(demoJSON, &s.Demographics)
+	}
 	s.CreatedAt = createdAt.UTC().Format(time.RFC3339)
 	if completedAt != nil {
 		s.CompletedAt = completedAt.UTC().Format(time.RFC3339)
@@ -74,7 +78,7 @@ const sessionSelect = `
 	SELECT id, respondent_id, respondent_name, COALESCE(respondent_email, ''),
 	       instrument, COALESCE(instrument_full_name, ''), COALESCE(vertical, ''),
 	       language, status, COALESCE(score, ''),
-	       answers, mqt_scores,
+	       answers, mqt_scores, demographics,
 	       COALESCE(group_id, ''), COALESCE(group_name, ''), COALESCE(consent_id, ''),
 	       proctoring, invitation_sent, created_at, completed_at
 	FROM portal_sessions`
@@ -145,22 +149,23 @@ func (h *PortalSessionsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	answers, _ := json.Marshal(p.Answers)
 	mqts, _ := json.Marshal(p.MQTScores)
+	demo, _ := json.Marshal(p.Demographics)
 
 	_, err := h.db.Exec(ctx, `
 		INSERT INTO portal_sessions (
 			id, respondent_id, respondent_name, respondent_email,
 			instrument, instrument_full_name, vertical, language,
-			status, score, answers, mqt_scores,
+			status, score, answers, mqt_scores, demographics,
 			group_id, group_name, consent_id, proctoring, invitation_sent
 		) VALUES (
 			$1, $2, $3, NULLIF($4, ''),
 			$5, NULLIF($6, ''), NULLIF($7, ''), $8,
-			$9, NULLIF($10, ''), $11, $12,
-			NULLIF($13, ''), NULLIF($14, ''), NULLIF($15, ''), $16, $17
+			$9, NULLIF($10, ''), $11, $12, $13,
+			NULLIF($14, ''), NULLIF($15, ''), NULLIF($16, ''), $17, $18
 		) ON CONFLICT (id) DO NOTHING`,
 		p.ID, p.RespondentID, p.RespondentName, p.RespondentEmail,
 		p.Instrument, p.InstrumentFullName, p.Vertical, p.Language,
-		p.Status, p.Score, answers, mqts,
+		p.Status, p.Score, answers, mqts, demo,
 		p.GroupID, p.GroupName, p.ConsentID, p.Proctoring, p.InvitationSent,
 	)
 	if err != nil {
@@ -195,21 +200,22 @@ func (h *PortalSessionsHandler) BulkCreate(w http.ResponseWriter, r *http.Reques
 		}
 		answers, _ := json.Marshal(p.Answers)
 		mqts, _ := json.Marshal(p.MQTScores)
+		demo, _ := json.Marshal(p.Demographics)
 		_, err := h.db.Exec(ctx, `
 			INSERT INTO portal_sessions (
 				id, respondent_id, respondent_name, respondent_email,
 				instrument, instrument_full_name, vertical, language,
-				status, score, answers, mqt_scores,
+				status, score, answers, mqt_scores, demographics,
 				group_id, group_name, consent_id, proctoring, invitation_sent
 			) VALUES (
 				$1, $2, $3, NULLIF($4, ''),
 				$5, NULLIF($6, ''), NULLIF($7, ''), $8,
-				$9, NULLIF($10, ''), $11, $12,
-				NULLIF($13, ''), NULLIF($14, ''), NULLIF($15, ''), $16, $17
+				$9, NULLIF($10, ''), $11, $12, $13,
+				NULLIF($14, ''), NULLIF($15, ''), NULLIF($16, ''), $17, $18
 			) ON CONFLICT (id) DO NOTHING`,
 			p.ID, p.RespondentID, p.RespondentName, p.RespondentEmail,
 			p.Instrument, p.InstrumentFullName, p.Vertical, p.Language,
-			p.Status, p.Score, answers, mqts,
+			p.Status, p.Score, answers, mqts, demo,
 			p.GroupID, p.GroupName, p.ConsentID, p.Proctoring, p.InvitationSent,
 		)
 		if err == nil {
@@ -230,6 +236,7 @@ func (h *PortalSessionsHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 	answers, _ := json.Marshal(p.Answers)
 	mqts, _ := json.Marshal(p.MQTScores)
+	demo, _ := json.Marshal(p.Demographics)
 
 	// If client sent status=Completed but didn't set completed_at, set it now.
 	var completedAt *time.Time
@@ -252,9 +259,10 @@ func (h *PortalSessionsHandler) Update(w http.ResponseWriter, r *http.Request) {
 			score = $4,
 			answers = CASE WHEN $5::jsonb IS NOT NULL AND $5::jsonb != 'null'::jsonb THEN $5::jsonb ELSE answers END,
 			mqt_scores = CASE WHEN $6::jsonb IS NOT NULL AND $6::jsonb != 'null'::jsonb THEN $6::jsonb ELSE mqt_scores END,
-			completed_at = COALESCE($7, completed_at)
+			demographics = CASE WHEN $7::jsonb IS NOT NULL AND $7::jsonb != 'null'::jsonb THEN $7::jsonb ELSE demographics END,
+			completed_at = COALESCE($8, completed_at)
 		WHERE id = $1`,
-		id, p.Language, p.Status, nullableString(p.Score), answers, mqts, completedAt)
+		id, p.Language, p.Status, nullableString(p.Score), answers, mqts, demo, completedAt)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
