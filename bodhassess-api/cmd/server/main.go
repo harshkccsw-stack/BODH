@@ -95,6 +95,7 @@ func main() {
 		r.Route("/respondents", func(r chi.Router) {
 			r.Get("/", respondentsH.List)
 			r.Post("/", respondentsH.Create)
+			r.Post("/bulk", respondentsH.BulkCreate)
 			r.Post("/login", respondentsH.Login)
 			r.Post("/logout", respondentsH.Logout)
 			r.Get("/me", respondentsH.Me)

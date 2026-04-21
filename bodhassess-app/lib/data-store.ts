@@ -10,7 +10,11 @@ import {
   type MQ as ApiMQ,
   type MQT as ApiMQT,
   type Vertical as ApiVertical,
+  type BulkRespondentRow,
+  type BulkRespondentResult,
 } from './api';
+
+export type { BulkRespondentRow, BulkRespondentResult } from './api';
 
 // ---- Re-export types in the names the UI code uses ----
 export type StoredRespondent = ApiRespondent;
@@ -78,6 +82,9 @@ export async function updateRespondent(id: string, r: Partial<StoredRespondent>)
 }
 export async function deleteRespondent(id: string): Promise<boolean> {
   try { await respondentsApi.delete(id); return true; } catch (e) { console.error(e); return false; }
+}
+export async function bulkCreateRespondents(rows: BulkRespondentRow[]): Promise<BulkRespondentResult> {
+  return respondentsApi.bulk(rows);
 }
 
 // ---- Practitioners ----

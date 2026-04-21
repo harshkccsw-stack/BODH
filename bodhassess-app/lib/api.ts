@@ -46,12 +46,37 @@ export interface LoginResponse {
   respondent: Respondent;
 }
 
+export interface BulkRespondentRow {
+  name: string;
+  email: string;
+  dob: string;
+  consent?: 'Granted' | 'Pending' | 'Withdrawn' | string;
+}
+
+export interface BulkRespondentError {
+  row: number;
+  email?: string;
+  reason: string;
+}
+
+export interface BulkRespondentResult {
+  created: number;
+  skipped: number;
+  errors: BulkRespondentError[];
+  inserted: Respondent[];
+}
+
 export const respondentsApi = {
   list: () => jsonFetch<Respondent[]>('/respondents'),
   get: (id: string) => jsonFetch<Respondent>(`/respondents/${encodeURIComponent(id)}`),
   create: (r: Respondent) => jsonFetch<Respondent>('/respondents', { method: 'POST', body: JSON.stringify(r) }),
   update: (id: string, r: Partial<Respondent>) => jsonFetch<Respondent>(`/respondents/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(r) }),
   delete: (id: string) => jsonFetch<null>(`/respondents/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  bulk: (rows: BulkRespondentRow[]) =>
+    jsonFetch<BulkRespondentResult>('/respondents/bulk', {
+      method: 'POST',
+      body: JSON.stringify({ respondents: rows }),
+    }),
   login: (id: string, dob: string) => jsonFetch<LoginResponse>('/respondents/login', { method: 'POST', body: JSON.stringify({ id, dob }) }),
   me: (token: string) => jsonFetch<Respondent>('/respondents/me', { headers: { Authorization: `Bearer ${token}` } }),
   logout: (token: string) => jsonFetch<null>('/respondents/logout', { method: 'POST', headers: { Authorization: `Bearer ${token}` } }),

@@ -8,7 +8,15 @@
       "Bash(./server)",
       "Bash(echo \"api pid: $!\")",
       "Bash(npm run *)",
-      "Bash(echo \"app pid: $!\")"
+      "Bash(echo \"app pid: $!\")",
+      "Bash(go build *)",
+      "Bash(npm install *)",
+      "Bash(node -e \"console.log\\(require\\('xlsx/package.json'\\).version\\)\")",
+      "Bash(npx tsc *)",
+      "Bash(go vet *)"
+    ],
+    "additionalDirectories": [
+      "/tmp"
     ]
   }
 }
