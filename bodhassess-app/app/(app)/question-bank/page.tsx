@@ -7,6 +7,7 @@ import {
   ChevronRight,
   Database,
   Edit3,
+  FileEdit,
   Filter,
   FlaskConical,
   Globe,
@@ -931,9 +932,18 @@ export default function QuestionBankPage() {
                                 <MoreVertical className="size-4" />
                               </Button>
                             </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="w-40">
+                            <DropdownMenuContent align="end" className="w-44">
                               <DropdownMenuItem onClick={() => openEditItem(item)}>
                                 <Edit3 className="size-3.5" /> Update
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  const target = item.instrumentName || item.instrumentShortName || item.subDomain.split(':')[0];
+                                  if (!target) return;
+                                  window.location.href = `/question-bank/create?edit=${encodeURIComponent(target)}`;
+                                }}
+                              >
+                                <FileEdit className="size-3.5" /> Edit Question
                               </DropdownMenuItem>
                               <DropdownMenuSeparator />
                               <DropdownMenuItem

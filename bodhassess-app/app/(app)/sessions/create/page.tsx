@@ -9,6 +9,7 @@ import {
   ClipboardCheck,
   Eye,
   Languages,
+  Link,
   Monitor,
   Search,
   Send,
@@ -115,6 +116,7 @@ export default function CreateSessionPage() {
   const [error, setError] = useState('');
   const [created, setCreated] = useState<{ id: string } | null>(null);
   const [saving, setSaving] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
 
   // Load respondents + instrument catalog from localStorage and backend,
   // then pre-select instrument from ?instrument= query param.
@@ -260,7 +262,8 @@ export default function CreateSessionPage() {
     } catch {}
   };
 
-  const handleCreate = async (sendInvite: boolean) => {
+  const handleCreate = async (opts: { sendInvite?: boolean; copyLink?: boolean } = {}) => {
+    const { sendInvite = false, copyLink = false } = opts;
     setError('');
     if (!selectedInstrument) {
       setError('Please select an instrument.');
@@ -295,6 +298,16 @@ export default function CreateSessionPage() {
       const res = await portalSessionsApi.create(entry);
       if (!res) throw new Error('Failed to create session via API');
       setCreated({ id });
+      if (copyLink) {
+        try {
+          const loginUrl = `${window.location.origin}/portal/login`;
+          await navigator.clipboard.writeText(loginUrl);
+          setLinkCopied(true);
+          setTimeout(() => setLinkCopied(false), 3000);
+        } catch {
+          setError('Session created, but failed to copy link to clipboard.');
+        }
+      }
     } catch (e: any) {
       setError(e?.message || 'Failed to create session — is the API running?');
     } finally {
@@ -598,6 +611,9 @@ export default function CreateSessionPage() {
                   <Check className="h-3.5 w-3.5 mt-0.5 shrink-0" />
                   <span>
                     Session <strong>{created.id}</strong> created.{' '}
+                    {linkCopied && (
+                      <>Login URL copied to clipboard. </>
+                    )}
                     <a href="/sessions" className="underline">View in Sessions</a>
                   </span>
                 </div>
@@ -608,7 +624,7 @@ export default function CreateSessionPage() {
                   size="md"
                   className="w-full"
                   disabled={saving}
-                  onClick={() => handleCreate(false)}
+                  onClick={() => handleCreate({})}
                 >
                   <ClipboardCheck className="size-4" />
                   {saving ? 'Creating...' : 'Create Session'}
@@ -618,10 +634,20 @@ export default function CreateSessionPage() {
                   size="md"
                   className="w-full"
                   disabled={saving}
-                  onClick={() => handleCreate(true)}
+                  onClick={() => handleCreate({ sendInvite: true })}
                 >
                   <Send className="size-4" />
                   Create &amp; Send Invitation
+                </Button>
+                <Button
+                  variant="outline"
+                  size="md"
+                  className="w-full"
+                  disabled={saving}
+                  onClick={() => handleCreate({ copyLink: true })}
+                >
+                  <Link className="size-4" />
+                  {linkCopied ? 'Link copied!' : 'Create & Copy Link'}
                 </Button>
               </div>
             </CardContent>
