@@ -7,7 +7,10 @@
       "Bash(npm install *)",
       "Bash(npm run *)",
       "Bash(npx tsc *)",
-      "Bash(./node_modules/.bin/tsc --noEmit)"
+      "Bash(./node_modules/.bin/tsc --noEmit)",
+      "Bash(curl -sI \"https://bodhh.vercel.app/\")",
+      "Bash(curl -sI \"https://bodhh.vercel.app/dashboard\")",
+      "Bash(curl -sI \"https://bodhh.vercel.app/portal/login\")"
     ]
   }
 }
