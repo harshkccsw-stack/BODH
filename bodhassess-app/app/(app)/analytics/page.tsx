@@ -294,6 +294,7 @@ export default function AnalyticsPage() {
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Additional Metrics</CardTitle>
         </CardHeader>
+<<<<<<< HEAD
         <CardContent className="pt-0">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
             {secondaryStats.map((stat) => (
@@ -311,6 +312,32 @@ export default function AnalyticsPage() {
                 </div>
               </div>
             ))}
+=======
+        <CardContent className="p-0">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border">
+                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Name</th>
+                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Questionnaire</th>
+                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Score</th>
+                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Percentile</th>
+                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Date</th>
+                </tr>
+              </thead>
+              <tbody>
+                {mockResults.map((r) => (
+                  <tr key={r.name} className="border-b border-border last:border-0 hover:bg-muted/50 transition-colors">
+                    <td className="px-5 py-3 font-medium">{r.name}</td>
+                    <td className="px-5 py-3">{r.instrument}</td>
+                    <td className="px-5 py-3 font-mono text-xs">{r.score}</td>
+                    <td className="px-5 py-3">{r.percentile}</td>
+                    <td className="px-5 py-3 text-muted-foreground">{r.date}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+>>>>>>> 8390f94fe2e576279e937e9972afbf6bff638992
           </div>
         </CardContent>
       </Card>

@@ -111,7 +111,7 @@ export default function StudentRecordsPage() {
           <CardContent className="p-5">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Active Sessions</p>
+                <p className="text-sm text-muted-foreground">Active Assessments</p>
                 <p className="text-2xl font-semibold mt-1">{students.reduce((a, s) => a + s.activeSessions, 0)}</p>
               </div>
               <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-primary/10">
@@ -190,7 +190,7 @@ export default function StudentRecordsPage() {
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">School</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Parent/Guardian</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Last Assessment</th>
-                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Active Sessions</th>
+                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Active Assessments</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Dev. Status</th>
                 </tr>
               </thead>

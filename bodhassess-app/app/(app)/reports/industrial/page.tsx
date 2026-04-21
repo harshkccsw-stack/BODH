@@ -1,6 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { getSessions, getSessionById, sessionsToReports, downloadJson } from '@/lib/data-store';
+import { X } from 'lucide-react';
 import {
   ChevronLeft,
   ChevronRight,
@@ -241,13 +243,57 @@ function CompetencyBars({ competencies }: { competencies: CompetencyScore[] }) {
   );
 }
 
+function deriveRoleFitFromScores(mqt?: Record<string, number>): number {
+  if (!mqt) return 70;
+  const values = Object.values(mqt);
+  if (!values.length) return 70;
+  const avg = values.reduce((a, b) => a + b, 0) / values.length;
+  // Scale rough 0-4 Likert totals into a 0-100 fit score; clamp to sane range.
+  const scaled = Math.min(100, Math.max(35, Math.round(55 + avg * 8)));
+  return scaled;
+}
+
 export default function IndustrialReportsPage() {
+  const [liveReports, setLiveReports] = useState<IndustrialReport[]>([]);
+  const [viewReport, setViewReport] = useState<IndustrialReport | null>(null);
+
+  const handleDownload = (r: IndustrialReport) => {
+    const session = getSessionById(r.sessionId);
+    downloadJson(`${r.id}-${r.sessionId}.json`, { ...r, session, exportedAt: new Date().toISOString() });
+  };
+
+  useEffect(() => {
+    const generated = sessionsToReports(getSessions(), { vertical: 'Industrial' }).map((r): IndustrialReport => ({
+      id: r.id,
+      sessionId: r.sessionId,
+      respondent: r.respondent,
+      instrument: r.instrument,
+      format: r.format as ReportFormat,
+      status: r.status as ReportStatus,
+      generatedAt: r.generatedAt,
+      roleFitScore: deriveRoleFitFromScores(r.mqtScores),
+      competencies: r.mqtScores
+        ? Object.entries(r.mqtScores).slice(0, 5).map(([name, score]) => ({
+            name,
+            score: Math.min(100, Math.max(0, Math.round(Number(score) * 10))),
+          }))
+        : [],
+    }));
+    setLiveReports(generated);
+  }, []);
+
+  const allReports = useMemo(() => {
+    const seen = new Set(liveReports.map((r) => r.sessionId));
+    const seedTail = allReports.filter((r) => !seen.has(r.sessionId));
+    return [...liveReports, ...seedTail];
+  }, [liveReports]);
+
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [formatFilter, setFormatFilter] = useState('all');
   const [fitFilter, setFitFilter] = useState('all');
 
-  const filteredReports = mockReports.filter((report) => {
+  const filteredReports = allReports.filter((report) => {
     const matchesSearch =
       searchQuery === '' ||
       report.respondent.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -288,7 +334,7 @@ export default function IndustrialReportsPage() {
               <div>
                 <p className="text-sm text-muted-foreground">Average Role Fit</p>
                 <p className="text-2xl font-semibold mt-1">
-                  {Math.round(mockReports.reduce((a, r) => a + r.roleFitScore, 0) / mockReports.length)}%
+                  {Math.round(allReports.reduce((a, r) => a + r.roleFitScore, 0) / Math.max(1, allReports.length))}%
                 </p>
               </div>
               <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-primary/10">
@@ -303,7 +349,7 @@ export default function IndustrialReportsPage() {
               <div>
                 <p className="text-sm text-muted-foreground">High Fit (80%+)</p>
                 <p className="text-2xl font-semibold mt-1">
-                  {mockReports.filter((r) => r.roleFitScore >= 80).length}
+                  {allReports.filter((r) => r.roleFitScore >= 80).length}
                 </p>
               </div>
               <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-green-100 dark:bg-green-900/30">
@@ -318,7 +364,7 @@ export default function IndustrialReportsPage() {
               <div>
                 <p className="text-sm text-muted-foreground">Low Fit (&lt;60%)</p>
                 <p className="text-2xl font-semibold mt-1">
-                  {mockReports.filter((r) => r.roleFitScore < 60).length}
+                  {allReports.filter((r) => r.roleFitScore < 60).length}
                 </p>
               </div>
               <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-red-100 dark:bg-red-900/30">
@@ -394,7 +440,7 @@ export default function IndustrialReportsPage() {
           <div className="flex items-center justify-between">
             <CardTitle className="text-base">Industrial Reports</CardTitle>
             <span className="text-sm text-muted-foreground">
-              Showing {filteredReports.length} of {mockReports.length} reports
+              Showing {filteredReports.length} of {allReports.length} reports
             </span>
           </div>
         </CardHeader>
@@ -404,9 +450,9 @@ export default function IndustrialReportsPage() {
               <thead>
                 <tr className="border-b border-border">
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Report ID</th>
-                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Session ID</th>
+                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Assessment ID</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Candidate</th>
-                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Instrument</th>
+                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Questionnaire</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Role Fit</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Competency Profile</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Format</th>
@@ -450,10 +496,10 @@ export default function IndustrialReportsPage() {
                     <td className="px-5 py-3 text-muted-foreground">{report.generatedAt}</td>
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-1">
-                        <Button variant="ghost" size="sm" mode="icon">
+                        <Button variant="ghost" size="sm" mode="icon" aria-label="View report" onClick={() => setViewReport(report)}>
                           <Eye className="size-3.5" />
                         </Button>
-                        <Button variant="ghost" size="sm" mode="icon">
+                        <Button variant="ghost" size="sm" mode="icon" aria-label="Download report" onClick={() => handleDownload(report)}>
                           <Download className="size-3.5" />
                         </Button>
                       </div>
@@ -476,7 +522,7 @@ export default function IndustrialReportsPage() {
       {/* Pagination */}
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
-          Showing 1-{filteredReports.length} of {mockReports.length} reports
+          Showing 1-{filteredReports.length} of {allReports.length} reports
         </p>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" mode="icon" disabled>
@@ -488,6 +534,52 @@ export default function IndustrialReportsPage() {
           </Button>
         </div>
       </div>
+
+      {viewReport && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={() => setViewReport(null)}>
+          <Card className="w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
+            <CardHeader className="flex flex-row items-center justify-between pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <FileText className="h-4 w-4 text-primary" />
+                {viewReport.id}
+              </CardTitle>
+              <button onClick={() => setViewReport(null)} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+            </CardHeader>
+            <CardContent className="space-y-4 text-sm">
+              <div className="rounded-lg border border-border bg-muted/40 p-3 space-y-2">
+                <div className="flex justify-between"><span className="text-muted-foreground">Session</span><span className="font-mono text-xs">{viewReport.sessionId}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Respondent</span><span className="font-medium">{viewReport.respondent}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Instrument</span><span className="text-right max-w-[60%]">{viewReport.instrument}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Role Fit</span><span className="font-semibold text-primary">{viewReport.roleFitScore}%</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Status</span><span>{viewReport.status}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Generated</span><span>{viewReport.generatedAt}</span></div>
+              </div>
+              {viewReport.competencies.length > 0 && (
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground mb-2">Competencies</p>
+                  <div className="space-y-2">
+                    {viewReport.competencies.map((c) => (
+                      <div key={c.name} className="space-y-1">
+                        <div className="flex justify-between text-xs">
+                          <span>{c.name}</span>
+                          <span className="font-mono">{c.score}</span>
+                        </div>
+                        <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                          <div className="h-1.5 bg-primary rounded-full" style={{ width: `${Math.min(100, c.score)}%` }} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <div className="flex justify-end gap-2 pt-1">
+                <Button variant="outline" onClick={() => setViewReport(null)}>Close</Button>
+                <Button variant="primary" onClick={() => handleDownload(viewReport)}><Download className="h-4 w-4" />Download</Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }

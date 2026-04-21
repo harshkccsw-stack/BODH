@@ -224,7 +224,7 @@ export default function ClientRecordsPage() {
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Date of Birth</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Primary Language</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Last Assessment</th>
-                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Active Sessions</th>
+                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Active Assessments</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Risk Status</th>
                 </tr>
               </thead>

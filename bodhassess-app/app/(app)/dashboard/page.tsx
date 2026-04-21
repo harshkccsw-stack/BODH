@@ -10,11 +10,18 @@ import {
   Clock,
   Database,
   FileText,
+  Library,
   Server,
   Users,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { getHealth, type HealthStatus } from '@/lib/api';
+import {
+  getRespondents,
+  getPractitioners,
+  countByVertical,
+} from '@/lib/data-store';
+import { portalSessionsApi, getInstruments as fetchInstruments } from '@/lib/api';
 
 const verticalLabels: Record<string, string> = {
   clinical: 'Clinical Psychology',
@@ -32,14 +39,7 @@ const verticalTerminology: Record<string, { respondent: string; practitioner: st
   whitelabel: { respondent: 'Users', practitioner: 'Administrators' },
 };
 
-const stats = [
-  { label: 'Active Sessions', value: '47', icon: Activity, change: '+12 this week' },
-  { label: 'Completed Today', value: '23', icon: ClipboardCheck, change: '+5 from yesterday' },
-  { label: 'Pending Reports', value: '8', icon: FileText, change: '3 high priority' },
-  { label: 'Risk Alerts', value: '2', icon: AlertTriangle, change: 'PHQ-9 Item 9 flagged' },
-];
-
-const recentSessions = [
+const seedRecentSessions = [
   { id: 'SESS-0047', respondent: 'Arjun Patel', instrument: 'PHQ-9', status: 'Completed', score: 'T=62', time: '12 min ago' },
   { id: 'SESS-0046', respondent: 'Priya Sharma', instrument: 'GAD-7', status: 'In Progress', score: '—', time: '18 min ago' },
   { id: 'SESS-0045', respondent: 'Rahul Verma', instrument: 'DASS-21', status: 'Completed', score: 'T=55', time: '1 hr ago' },
@@ -53,10 +53,68 @@ function DashboardContent() {
   const label = verticalLabels[vertical] || 'Clinical Psychology';
   const terms = verticalTerminology[vertical] || verticalTerminology.clinical;
   const [health, setHealth] = useState<HealthStatus | null>(null);
+  const [respondentCount, setRespondentCount] = useState(0);
+  const [practitionerCount, setPractitionerCount] = useState(0);
+  const [instrumentCount, setInstrumentCount] = useState(0);
+  const [sessionsForVertical, setSessionsForVertical] = useState<Array<{ status: string; score?: string }>>([]);
+  const [recentLive, setRecentLive] = useState<typeof seedRecentSessions>([]);
 
   useEffect(() => {
     getHealth().then(setHealth).catch(() => setHealth(null));
   }, []);
+
+  useEffect(() => {
+    (async () => {
+      const [allRespondents, allPractitioners, allInstruments, allSessions] = await Promise.all([
+        getRespondents(),
+        getPractitioners(),
+        fetchInstruments().catch(() => []),
+        portalSessionsApi.list().catch(() => []),
+      ]);
+
+      const verticalSessions = vertical === 'whitelabel'
+        ? allSessions
+        : allSessions.filter((s) => String(s.vertical || '').toLowerCase() === vertical);
+      setSessionsForVertical(verticalSessions);
+
+      if (vertical === 'whitelabel') {
+        setRespondentCount(allRespondents.length);
+        setPractitionerCount(allPractitioners.length);
+        setInstrumentCount(allInstruments.length);
+      } else {
+        setInstrumentCount(countByVertical(allInstruments as any, vertical));
+        setRespondentCount(allRespondents.length);
+        setPractitionerCount(
+          allPractitioners.filter((p) =>
+            !p.verticals?.length || p.verticals.map((v) => v.toLowerCase()).some((v) => v.startsWith(vertical.slice(0, 4))),
+          ).length,
+        );
+      }
+
+      const live = verticalSessions.slice(0, 5).map((s: any) => ({
+        id: s.id,
+        respondent: s.respondent,
+        instrument: s.instrument,
+        status: s.status,
+        score: s.score || '—',
+        time: (s.createdAt || '').slice(0, 10),
+      }));
+      setRecentLive(live);
+    })();
+  }, [vertical]);
+
+  const activeCount = sessionsForVertical.filter((s) => s.status === 'Active').length;
+  const completedCount = sessionsForVertical.filter((s) => s.status === 'Completed').length;
+  const pendingReviewCount = sessionsForVertical.filter((s) => s.status === 'Pending Review').length;
+
+  const stats = [
+    { label: 'Active Assessments', value: String(activeCount), icon: Activity, change: `${sessionsForVertical.length} total in this vertical` },
+    { label: 'Completed Today', value: String(completedCount), icon: ClipboardCheck, change: `${completedCount} submitted` },
+    { label: `${terms.respondent} Registered`, value: String(respondentCount), icon: Users, change: `${practitionerCount} ${terms.practitioner.toLowerCase()}` },
+    { label: 'Questionnaires Available', value: String(instrumentCount || 0), icon: Library, change: pendingReviewCount > 0 ? `${pendingReviewCount} pending review` : 'Includes library + custom' },
+  ];
+
+  const recentSessions = recentLive.length > 0 ? recentLive : seedRecentSessions;
 
   return (
     <div className="p-5 lg:p-7.5 space-y-7">
@@ -83,7 +141,7 @@ function DashboardContent() {
         </div>
         <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Overview of assessment sessions, reports, and {terms.respondent.toLowerCase()} activity.
+          Overview of assessments, reports, and {terms.respondent.toLowerCase()} activity.
         </p>
       </div>
 
@@ -111,8 +169,8 @@ function DashboardContent() {
       <Card>
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
-            <CardTitle className="text-base">Recent Sessions</CardTitle>
-            <a href="/sessions" className="text-sm text-primary hover:underline">View all</a>
+            <CardTitle className="text-base">Recent Assessments</CardTitle>
+            <a href="/assessments" className="text-sm text-primary hover:underline">View all</a>
           </div>
         </CardHeader>
         <CardContent className="p-0">
@@ -120,9 +178,9 @@ function DashboardContent() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border">
-                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Session ID</th>
+                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Assessment ID</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">{terms.respondent.slice(0, -1)}</th>
-                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Instrument</th>
+                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Questionnaire</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Status</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Score</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Time</th>
@@ -160,18 +218,18 @@ function DashboardContent() {
 
       {/* Quick Actions */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
-        <Card className="hover:shadow-md transition-shadow cursor-pointer">
+        <Card className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => { window.location.href = '/assessments/create'; }}>
           <CardContent className="p-5 flex items-center gap-4">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
               <ClipboardCheck className="h-5 w-5 text-primary" />
             </div>
             <div>
-              <p className="font-semibold text-sm">Create Session</p>
+              <p className="font-semibold text-sm">Create Assessment</p>
               <p className="text-xs text-muted-foreground">Start a new assessment</p>
             </div>
           </CardContent>
         </Card>
-        <Card className="hover:shadow-md transition-shadow cursor-pointer">
+        <Card className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => { window.location.href = '/assessments/batch'; }}>
           <CardContent className="p-5 flex items-center gap-4">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
               <Users className="h-5 w-5 text-primary" />
@@ -182,7 +240,7 @@ function DashboardContent() {
             </div>
           </CardContent>
         </Card>
-        <Card className="hover:shadow-md transition-shadow cursor-pointer">
+        <Card className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => { window.location.href = '/platform/bodhlens'; }}>
           <CardContent className="p-5 flex items-center gap-4">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
               <BarChart3 className="h-5 w-5 text-primary" />

@@ -1,21 +1,33 @@
 'use client';
 
-import { Fragment, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   ChevronDown,
   ChevronRight,
   Database,
+  Edit3,
+  FileEdit,
   Filter,
   FlaskConical,
   Globe,
   Library,
+  MoreVertical,
   Search,
   ShieldCheck,
+  Trash2,
   X,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 
 // ---------------------------------------------------------------------------
@@ -48,6 +60,8 @@ interface QuestionItem {
   lastCalibrated: string;
   sampleN: number;
   reliabilityAlpha: number;
+  instrumentName?: string;
+  instrumentShortName?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -253,6 +267,129 @@ function truncateUUID(uuid: string) {
   return uuid.slice(0, 8) + '...';
 }
 
+// Map vertical strings from stored assessments to the Item Explorer's Vertical type.
+// Returns null for verticals (e.g. EXPERIMENTS) that this page does not render.
+function normalizeStoredVertical(v: unknown): Vertical | null {
+  const s = String(v || '').toLowerCase();
+  if (s.startsWith('clin')) return 'clinical';
+  if (s.startsWith('indust')) return 'industrial';
+  if (s.startsWith('coun')) return 'counselling';
+  return null;
+}
+
+// Map the Create Questionnaire format code to the Item Explorer format label.
+function normalizeStoredFormat(f: unknown): ItemFormat {
+  const s = String(f || '').toUpperCase().replace(/[\s_-]/g, '');
+  switch (s) {
+    case 'MCQ': return 'MCQ';
+    case 'RATINGSCALE': return 'Rating Scale';
+    case 'LIKERT': return 'Likert';
+    case 'SJT': return 'SJT';
+    case 'FREETEXT': return 'Free Text';
+    case 'IMAGECHOICE': return 'Image Choice';
+    case 'RANKING': return 'Ranking';
+    case 'MATRIX': return 'Matrix';
+    default: return 'MCQ';
+  }
+}
+
+function normalizeLanguageCodes(codes: unknown): Language[] {
+  if (!Array.isArray(codes)) return ['en'];
+  const valid: Language[] = ['en', 'hi', 'ta', 'bn', 'mr', 'te', 'kn', 'ml', 'gu', 'pa', 'or'];
+  const out: Language[] = [];
+  codes.forEach((c) => {
+    const lc = String(c || '').toLowerCase().slice(0, 2) as Language;
+    if (valid.includes(lc) && !out.includes(lc)) out.push(lc);
+  });
+  return out.length ? out : ['en'];
+}
+
+interface ItemOverride {
+  subDomain?: string;
+  format?: ItemFormat;
+  stem?: string;
+  options?: string[];
+  riskFlag?: boolean;
+  status?: ValidationStatus;
+}
+
+// Load overrides + soft-delete flags from the backend in one pass.
+async function loadItemDisplayState(): Promise<{
+  overrides: Record<string, ItemOverride>;
+  deletedIds: string[];
+}> {
+  try {
+    const { itemDisplayApi } = await import('@/lib/api');
+    const rows = await itemDisplayApi.list();
+    const overrides: Record<string, ItemOverride> = {};
+    const deletedIds: string[] = [];
+    rows.forEach((row) => {
+      if (row.override) overrides[row.itemId] = row.override as ItemOverride;
+      if (row.deleted) deletedIds.push(row.itemId);
+    });
+    return { overrides, deletedIds };
+  } catch {
+    return { overrides: {}, deletedIds: [] };
+  }
+}
+
+// Update the question matching `qid` inside the stored instruments catalog.
+
+// Load user-published questionnaires from the backend and flatten into
+// QuestionItems for the Item Explorer table.
+async function loadUserItems(): Promise<QuestionItem[]> {
+  if (typeof window === 'undefined') return [];
+  try {
+    const { questionnairesApi } = await import('@/lib/api');
+    const list = await questionnairesApi.list();
+    const items: QuestionItem[] = [];
+    list.forEach((inst) => {
+      const vertical = normalizeStoredVertical(inst.vertical);
+      if (!vertical) return;
+      const mqtNameById: Record<string, string> = {};
+      if (Array.isArray(inst.mqs)) {
+        inst.mqs.forEach((mq) => {
+          if (Array.isArray(mq.mqts)) mq.mqts.forEach((t) => { mqtNameById[t.id] = t.name; });
+        });
+      }
+      const instLangs = normalizeLanguageCodes(inst.languages);
+      const shortName = inst.shortName || (inst.name ? String(inst.name).split(' ')[0] : 'CUSTOM');
+      const questions = Array.isArray(inst.questions) ? inst.questions : [];
+      questions.forEach((q: any, idx: number) => {
+        if (!q) return;
+        const firstScore = Array.isArray(q.options)
+          ? q.options.flatMap((o: any) => Array.isArray(o?.scores) ? o.scores : []).find((s: any) => s?.mqt_id)
+          : null;
+        const mqtName = firstScore ? (mqtNameById[firstScore.mqt_id] || 'Custom') : 'Custom';
+        const options = Array.isArray(q.options)
+          ? q.options.map((o: any) => String(o?.text || '')).filter((t: string) => t.length > 0)
+          : undefined;
+        items.push({
+          id: q.id || `${inst.id || shortName}-q${idx + 1}`,
+          subDomain: `${shortName}:${mqtName}`,
+          vertical,
+          format: normalizeStoredFormat(q.format),
+          irt: { a: 0, b: 0, c: 0 },
+          languages: instLangs,
+          status: 'Draft',
+          riskFlag: !!q.clinical_risk_flag,
+          stem: String(q.stem || '').trim() || `(${inst.name || 'Untitled'}) — item ${idx + 1}`,
+          options,
+          normSets: [],
+          lastCalibrated: '',
+          sampleN: 0,
+          reliabilityAlpha: 0,
+          instrumentName: inst.name || shortName,
+          instrumentShortName: shortName,
+        });
+      });
+    });
+    return items;
+  } catch {
+    return [];
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Component: FilterPill
 // ---------------------------------------------------------------------------
@@ -353,7 +490,7 @@ function DropdownFilter<T extends string>({
 function DetailPanel({ item }: { item: QuestionItem }) {
   return (
     <tr>
-      <td colSpan={7} className="bg-muted/30 px-5 py-4">
+      <td colSpan={9} className="bg-muted/30 px-5 py-4">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {/* Stem & Options */}
           <div className="md:col-span-2 space-y-3">
@@ -435,6 +572,236 @@ export default function QuestionBankPage() {
   const [selectedFormats, setSelectedFormats] = useState<Set<ItemFormat>>(new Set());
   const [selectedStatuses, setSelectedStatuses] = useState<Set<ValidationStatus>>(new Set());
   const [selectedLanguages, setSelectedLanguages] = useState<Set<Language>>(new Set());
+  const [userItems, setUserItems] = useState<QuestionItem[]>([]);
+  const [overrides, setOverrides] = useState<Record<string, ItemOverride>>({});
+  const [deletedIds, setDeletedIds] = useState<string[]>([]);
+
+  // Action modal state
+  const [editItem, setEditItem] = useState<QuestionItem | null>(null);
+  const [editForm, setEditForm] = useState({
+    stem: '', subDomain: '', format: 'MCQ' as ItemFormat,
+    options: '', riskFlag: false, status: 'Draft' as ValidationStatus,
+  });
+  const [confirmDeleteItem, setConfirmDeleteItem] = useState<QuestionItem | null>(null);
+
+  // Edit Question modal — edits the actual question inside its parent questionnaire in Postgres
+  interface EditQuestionOption {
+    text: string;
+    scores: Array<{ mqt_id: string; score: number }>;
+    media_url?: string;
+    media_type?: string;
+  }
+  interface EditQuestionState {
+    item: QuestionItem;
+    questionnaireId: string;
+    questionnaireName: string;
+    questionIdx: number;
+    allMqts: Array<{ mqId: string; mqName: string; mqtId: string; mqtName: string }>;
+    form: {
+      stem: string;
+      format: string;
+      clinical_risk_flag: boolean;
+      risk_flag_rule: string;
+      options: EditQuestionOption[];
+    };
+  }
+  const [editQuestion, setEditQuestion] = useState<EditQuestionState | null>(null);
+  const [editQuestionLoading, setEditQuestionLoading] = useState(false);
+  const [editQuestionError, setEditQuestionError] = useState('');
+  const [editQuestionSaving, setEditQuestionSaving] = useState(false);
+
+  const openEditQuestion = async (item: QuestionItem) => {
+    const target = item.instrumentName || item.instrumentShortName || item.subDomain.split(':')[0];
+    if (!target) { setEditQuestionError('Could not identify this item\'s parent questionnaire.'); return; }
+    setEditQuestionError('');
+    setEditQuestionLoading(true);
+    try {
+      const { questionnairesApi } = await import('@/lib/api');
+      const qn = await questionnairesApi.getByName(target);
+      const idx = (qn.questions || []).findIndex((q: any) => q.id === item.id);
+      if (idx < 0) {
+        setEditQuestionError(`Question "${item.id}" not found inside "${qn.name}". It may have been removed.`);
+        setEditQuestionLoading(false);
+        return;
+      }
+      const q = (qn.questions as any[])[idx];
+      const allMqts = (qn.mqs || []).flatMap((mq: any) =>
+        (mq.mqts || []).map((t: any) => ({ mqId: mq.id, mqName: mq.name, mqtId: t.id, mqtName: t.name })),
+      );
+      setEditQuestion({
+        item,
+        questionnaireId: qn.id,
+        questionnaireName: qn.name,
+        questionIdx: idx,
+        allMqts,
+        form: {
+          stem: String(q.stem || ''),
+          format: String(q.format || 'MCQ'),
+          clinical_risk_flag: !!q.clinical_risk_flag,
+          risk_flag_rule: String(q.risk_flag_rule || ''),
+          options: Array.isArray(q.options)
+            ? q.options.map((o: any) => ({
+                text: String(o.text || ''),
+                scores: Array.isArray(o.scores)
+                  ? o.scores.map((s: any) => ({ mqt_id: s.mqt_id, score: Number(s.score) || 0 }))
+                  : [],
+                media_url: o.media_url,
+                media_type: o.media_type,
+              }))
+            : [],
+        },
+      });
+    } catch (e: any) {
+      setEditQuestionError(e?.message || 'Failed to load the parent questionnaire');
+    } finally {
+      setEditQuestionLoading(false);
+    }
+  };
+
+  const updateEditOption = (oi: number, patch: Partial<EditQuestionOption>) => {
+    setEditQuestion((prev) => {
+      if (!prev) return prev;
+      const opts = [...prev.form.options];
+      opts[oi] = { ...opts[oi], ...patch };
+      return { ...prev, form: { ...prev.form, options: opts } };
+    });
+  };
+  const addEditOption = () => {
+    setEditQuestion((prev) => prev ? {
+      ...prev,
+      form: { ...prev.form, options: [...prev.form.options, { text: '', scores: [] }] },
+    } : prev);
+  };
+  const removeEditOption = (oi: number) => {
+    setEditQuestion((prev) => prev ? {
+      ...prev,
+      form: { ...prev.form, options: prev.form.options.filter((_, i) => i !== oi) },
+    } : prev);
+  };
+  const setEditOptionScore = (oi: number, mqtId: string, score: number | null) => {
+    setEditQuestion((prev) => {
+      if (!prev) return prev;
+      const opts = [...prev.form.options];
+      const existing = opts[oi].scores.find((s) => s.mqt_id === mqtId);
+      if (score === null) {
+        opts[oi] = { ...opts[oi], scores: opts[oi].scores.filter((s) => s.mqt_id !== mqtId) };
+      } else if (existing) {
+        opts[oi] = { ...opts[oi], scores: opts[oi].scores.map((s) => s.mqt_id === mqtId ? { ...s, score } : s) };
+      } else {
+        opts[oi] = { ...opts[oi], scores: [...opts[oi].scores, { mqt_id: mqtId, score }] };
+      }
+      return { ...prev, form: { ...prev.form, options: opts } };
+    });
+  };
+
+  const saveEditQuestion = async () => {
+    if (!editQuestion) return;
+    setEditQuestionSaving(true);
+    setEditQuestionError('');
+    try {
+      const { questionnairesApi } = await import('@/lib/api');
+      const qn = await questionnairesApi.get(editQuestion.questionnaireId);
+      const questions = Array.isArray(qn.questions) ? [...qn.questions as any[]] : [];
+      const target = questions[editQuestion.questionIdx];
+      if (!target) {
+        setEditQuestionError('The question no longer exists in the questionnaire.');
+        setEditQuestionSaving(false);
+        return;
+      }
+      questions[editQuestion.questionIdx] = {
+        ...target,
+        stem: editQuestion.form.stem,
+        format: editQuestion.form.format,
+        clinical_risk_flag: editQuestion.form.clinical_risk_flag,
+        risk_flag_rule: editQuestion.form.risk_flag_rule,
+        options: editQuestion.form.options.map((o) => ({
+          text: o.text,
+          scores: o.scores,
+          media_url: o.media_url,
+          media_type: o.media_type,
+        })),
+      };
+      await questionnairesApi.upsert({ ...qn, questions } as any);
+      setEditQuestion(null);
+      loadUserItems().then(setUserItems).catch(() => {});
+    } catch (e: any) {
+      setEditQuestionError(e?.message || 'Failed to save — is the API running?');
+    } finally {
+      setEditQuestionSaving(false);
+    }
+  };
+
+  useEffect(() => {
+    loadUserItems().then(setUserItems).catch(() => setUserItems([]));
+    loadItemDisplayState().then(({ overrides: o, deletedIds: d }) => {
+      setOverrides(o);
+      setDeletedIds(d);
+    });
+  }, []);
+
+
+  // Unified item pool: user-published questions surface first, then mocks.
+  // Deduplicate by id, apply overrides, filter out deleted.
+  const allItems = useMemo(() => {
+    const seen = new Set<string>();
+    const deleted = new Set(deletedIds);
+    const out: QuestionItem[] = [];
+    [...userItems, ...ITEMS].forEach((i) => {
+      if (seen.has(i.id) || deleted.has(i.id)) return;
+      seen.add(i.id);
+      const o = overrides[i.id];
+      out.push(o ? { ...i, ...o, options: o.options ?? i.options } : i);
+    });
+    return out;
+  }, [userItems, overrides, deletedIds]);
+
+  const openEditItem = (item: QuestionItem) => {
+    setEditItem(item);
+    setEditForm({
+      stem: item.stem,
+      subDomain: item.subDomain,
+      format: item.format,
+      options: (item.options || []).join('\n'),
+      riskFlag: item.riskFlag,
+      status: item.status,
+    });
+  };
+
+  const saveItemEdit = async () => {
+    if (!editItem) return;
+    const options = editForm.options
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const patch: ItemOverride = {
+      stem: editForm.stem.trim() || editItem.stem,
+      subDomain: editForm.subDomain.trim() || editItem.subDomain,
+      format: editForm.format,
+      options: options.length ? options : undefined,
+      riskFlag: editForm.riskFlag,
+      status: editForm.status,
+    };
+    const nextOverrides = { ...overrides, [editItem.id]: { ...(overrides[editItem.id] || {}), ...patch } };
+    setOverrides(nextOverrides);
+    try {
+      const { itemDisplayApi } = await import('@/lib/api');
+      await itemDisplayApi.upsertOverride(editItem.id, nextOverrides[editItem.id] as any);
+    } catch {}
+    setEditItem(null);
+  };
+
+  const deleteItem = async () => {
+    if (!confirmDeleteItem) return;
+    const id = confirmDeleteItem.id;
+    const next = deletedIds.includes(id) ? deletedIds : [...deletedIds, id];
+    setDeletedIds(next);
+    try {
+      const { itemDisplayApi } = await import('@/lib/api');
+      await itemDisplayApi.markDeleted(id);
+    } catch {}
+    if (expandedId === id) setExpandedId(null);
+    setConfirmDeleteItem(null);
+  };
 
   // Toggle helpers
   function toggleSet<T>(set: Set<T>, val: T): Set<T> {
@@ -445,7 +812,7 @@ export default function QuestionBankPage() {
   }
 
   // Filtering
-  const filtered = ITEMS.filter((item) => {
+  const filtered = allItems.filter((item) => {
     if (selectedVerticals.size > 0 && !selectedVerticals.has(item.vertical)) return false;
     if (selectedFormats.size > 0 && !selectedFormats.has(item.format)) return false;
     if (selectedStatuses.size > 0 && !selectedStatuses.has(item.status)) return false;
@@ -455,17 +822,19 @@ export default function QuestionBankPage() {
       return (
         item.subDomain.toLowerCase().includes(q) ||
         item.id.toLowerCase().includes(q) ||
-        item.stem.toLowerCase().includes(q)
+        item.stem.toLowerCase().includes(q) ||
+        (item.instrumentName || '').toLowerCase().includes(q) ||
+        (item.instrumentShortName || '').toLowerCase().includes(q)
       );
     }
     return true;
   });
 
   // Computed stats from full list
-  const totalItems = ITEMS.length;
-  const calibratedItems = ITEMS.filter((i) => i.status === 'Calibrated' || i.status === 'Validated').length;
-  const indianNormItems = ITEMS.filter((i) => i.normSets.length > 0).length;
-  const riskFlaggedItems = ITEMS.filter((i) => i.riskFlag).length;
+  const totalItems = allItems.length;
+  const calibratedItems = allItems.filter((i) => i.status === 'Calibrated' || i.status === 'Validated').length;
+  const indianNormItems = allItems.filter((i) => i.normSets.length > 0).length;
+  const riskFlaggedItems = allItems.filter((i) => i.riskFlag).length;
 
   const hasActiveFilters = selectedVerticals.size > 0 || selectedFormats.size > 0 || selectedStatuses.size > 0 || selectedLanguages.size > 0 || searchQuery;
 
@@ -532,7 +901,7 @@ export default function QuestionBankPage() {
               <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
               <input
                 type="text"
-                placeholder="Search by ID, sub-domain, or stem..."
+                placeholder="Search by questionnaire, ID, sub-domain, or stem..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full rounded-md border border-input bg-background py-1.5 pl-8 pr-3 text-xs outline-none focus:border-ring focus:ring-2 focus:ring-ring/30 transition-shadow"
@@ -611,11 +980,13 @@ export default function QuestionBankPage() {
                 <tr className="border-b border-border">
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground w-8"></th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Item ID</th>
+                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Questionnaire</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Sub-domain</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Format</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">IRT (a / b / c)</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Languages</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Status</th>
+                  <th className="px-5 py-3 text-right font-medium text-muted-foreground">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -645,6 +1016,11 @@ export default function QuestionBankPage() {
 
                         {/* Item ID */}
                         <td className="px-5 py-3 font-mono text-xs">{truncateUUID(item.id)}</td>
+
+                        {/* Questionnaire */}
+                        <td className="px-5 py-3 text-xs">
+                          {item.instrumentName || item.subDomain.split(':')[0] || '—'}
+                        </td>
 
                         {/* Sub-domain */}
                         <td className="px-5 py-3 font-medium text-xs">{item.subDomain}</td>
@@ -694,6 +1070,36 @@ export default function QuestionBankPage() {
                             {item.status}
                           </Badge>
                         </td>
+
+                        {/* Actions */}
+                        <td className="px-5 py-3 text-right" onClick={(e) => e.stopPropagation()}>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="sm" mode="icon" aria-label="Item actions">
+                                <MoreVertical className="size-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-44">
+                              <DropdownMenuItem onClick={() => openEditItem(item)}>
+                                <Edit3 className="size-3.5" /> Update
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  openEditQuestion(item);
+                                }}
+                              >
+                                <FileEdit className="size-3.5" /> Edit Question
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                onClick={() => setConfirmDeleteItem(item)}
+                                className="text-red-600 focus:text-red-700 focus:bg-red-50 dark:focus:bg-red-950/30"
+                              >
+                                <Trash2 className="size-3.5" /> Delete
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </td>
                       </tr>
 
                       {/* Expanded detail */}
@@ -703,7 +1109,7 @@ export default function QuestionBankPage() {
                 })}
                 {filtered.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="px-5 py-12 text-center text-muted-foreground text-sm">
+                    <td colSpan={9} className="px-5 py-12 text-center text-muted-foreground text-sm">
                       No items match the current filters.
                     </td>
                   </tr>
@@ -713,6 +1119,268 @@ export default function QuestionBankPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Update item modal */}
+      {editItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={() => setEditItem(null)}>
+          <Card className="w-full max-w-xl" onClick={(e) => e.stopPropagation()}>
+            <CardHeader className="flex flex-row items-center justify-between pb-3">
+              <CardTitle className="text-base">Update Item</CardTitle>
+              <button onClick={() => setEditItem(null)} className="text-muted-foreground hover:text-foreground">
+                <X className="h-4 w-4" />
+              </button>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="rounded-lg border border-border bg-muted/40 p-3 text-xs font-mono">
+                <div className="flex justify-between"><span className="text-muted-foreground">Item ID</span><span className="break-all ml-2">{editItem.id}</span></div>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Sub-domain</label>
+                <input
+                  value={editForm.subDomain}
+                  onChange={(e) => setEditForm({ ...editForm, subDomain: e.target.value })}
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Stem</label>
+                <textarea
+                  rows={3}
+                  value={editForm.stem}
+                  onChange={(e) => setEditForm({ ...editForm, stem: e.target.value })}
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">Format</label>
+                  <select
+                    value={editForm.format}
+                    onChange={(e) => setEditForm({ ...editForm, format: e.target.value as ItemFormat })}
+                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                  >
+                    {ALL_FORMATS.map((f) => <option key={f} value={f}>{f}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">Status</label>
+                  <select
+                    value={editForm.status}
+                    onChange={(e) => setEditForm({ ...editForm, status: e.target.value as ValidationStatus })}
+                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                  >
+                    {ALL_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Response Options (one per line)</label>
+                <textarea
+                  rows={4}
+                  value={editForm.options}
+                  onChange={(e) => setEditForm({ ...editForm, options: e.target.value })}
+                  placeholder={'Option 1\nOption 2\nOption 3'}
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                />
+              </div>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={editForm.riskFlag}
+                  onChange={(e) => setEditForm({ ...editForm, riskFlag: e.target.checked })}
+                  className="rounded"
+                />
+                <AlertTriangle className="h-3.5 w-3.5 text-red-500" />
+                Clinical risk flag
+              </label>
+              <div className="flex justify-end gap-2 pt-1">
+                <Button variant="outline" onClick={() => setEditItem(null)}>Cancel</Button>
+                <Button variant="primary" onClick={saveItemEdit}>Save Changes</Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Edit Question (source) — single-question editor that writes back to the parent questionnaire */}
+      {(editQuestion || editQuestionLoading || (editQuestionError && !editItem && !confirmDeleteItem)) && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={() => { if (!editQuestionSaving) { setEditQuestion(null); setEditQuestionError(''); } }}>
+          <Card className="w-full max-w-2xl max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <CardHeader className="flex flex-row items-center justify-between pb-3 shrink-0">
+              <div className="min-w-0">
+                <CardTitle className="text-base">Edit Question</CardTitle>
+                {editQuestion && (
+                  <p className="text-xs text-muted-foreground mt-1 truncate">
+                    In <span className="font-medium text-foreground">{editQuestion.questionnaireName}</span>
+                  </p>
+                )}
+              </div>
+              <button onClick={() => { if (!editQuestionSaving) { setEditQuestion(null); setEditQuestionError(''); } }} className="text-muted-foreground hover:text-foreground">
+                <X className="h-4 w-4" />
+              </button>
+            </CardHeader>
+            <CardContent className="flex-1 min-h-0 overflow-y-auto space-y-4">
+              {editQuestionError && (
+                <div className="rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-3 py-2 text-xs text-red-700 dark:text-red-400 flex items-start gap-2">
+                  <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  <span>{editQuestionError}</span>
+                </div>
+              )}
+              {editQuestionLoading && (
+                <p className="text-sm text-muted-foreground">Loading question from database…</p>
+              )}
+              {editQuestion && (
+                <>
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium">Stem</label>
+                    <textarea
+                      rows={3}
+                      value={editQuestion.form.stem}
+                      onChange={(e) => setEditQuestion((prev) => prev ? { ...prev, form: { ...prev.form, stem: e.target.value } } : prev)}
+                      className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-medium">Format</label>
+                      <select
+                        value={editQuestion.form.format}
+                        onChange={(e) => setEditQuestion((prev) => prev ? { ...prev, form: { ...prev.form, format: e.target.value } } : prev)}
+                        className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                      >
+                        {['MCQ', 'RATING_SCALE', 'LIKERT', 'SJT', 'FREE_TEXT', 'IMAGE_CHOICE', 'RANKING', 'MATRIX'].map((f) => (
+                          <option key={f} value={f}>{f}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <label className="flex items-center gap-2 text-sm mt-6">
+                      <input
+                        type="checkbox"
+                        checked={editQuestion.form.clinical_risk_flag}
+                        onChange={(e) => setEditQuestion((prev) => prev ? { ...prev, form: { ...prev.form, clinical_risk_flag: e.target.checked } } : prev)}
+                        className="rounded"
+                      />
+                      <AlertTriangle className="h-3.5 w-3.5 text-red-500" /> Clinical risk flag
+                    </label>
+                  </div>
+                  {editQuestion.form.clinical_risk_flag && (
+                    <input
+                      value={editQuestion.form.risk_flag_rule}
+                      onChange={(e) => setEditQuestion((prev) => prev ? { ...prev, form: { ...prev.form, risk_flag_rule: e.target.value } } : prev)}
+                      placeholder="Risk rule (e.g., value >= 2 triggers alert)"
+                      className="w-full rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/20 px-3 py-2 text-xs outline-none focus:border-red-500"
+                    />
+                  )}
+
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-medium">Options</p>
+                      <button
+                        type="button"
+                        onClick={addEditOption}
+                        className="text-xs text-primary hover:underline"
+                      >
+                        + Add option
+                      </button>
+                    </div>
+                    {editQuestion.form.options.length === 0 ? (
+                      <p className="text-xs text-muted-foreground italic">No options. Click "+ Add option" above.</p>
+                    ) : (
+                      editQuestion.form.options.map((opt, oi) => (
+                        <div key={oi} className="rounded-md border border-border p-3 space-y-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-muted-foreground w-6 text-right">{oi + 1}.</span>
+                            <input
+                              value={opt.text}
+                              onChange={(e) => updateEditOption(oi, { text: e.target.value })}
+                              placeholder={`Option ${oi + 1}`}
+                              className="flex-1 rounded-md border border-border bg-background px-2 py-1.5 text-sm outline-none focus:border-primary"
+                            />
+                            {editQuestion.form.options.length > 1 && (
+                              <button onClick={() => removeEditOption(oi)} className="text-muted-foreground hover:text-red-500">
+                                <X className="h-3 w-3" />
+                              </button>
+                            )}
+                          </div>
+                          {editQuestion.allMqts.length > 0 && (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-3 gap-y-1.5 pl-8">
+                              {editQuestion.allMqts.map(({ mqId, mqName, mqtId, mqtName }) => {
+                                const score = opt.scores.find((s) => s.mqt_id === mqtId);
+                                const isOn = !!score;
+                                return (
+                                  <div key={mqtId} className="flex items-center gap-2">
+                                    <label className="flex items-center gap-1.5 text-xs flex-1 min-w-0">
+                                      <input
+                                        type="checkbox"
+                                        checked={isOn}
+                                        onChange={() => setEditOptionScore(oi, mqtId, isOn ? null : 0)}
+                                        className="rounded"
+                                      />
+                                      <span className="truncate">
+                                        <span className="text-muted-foreground">{mqName}:</span> {mqtName}
+                                      </span>
+                                    </label>
+                                    {isOn && (
+                                      <input
+                                        type="number"
+                                        step="1"
+                                        value={score!.score}
+                                        onChange={(e) => setEditOptionScore(oi, mqtId, Number(e.target.value))}
+                                        className="w-16 rounded-md border border-border bg-background px-2 py-1 text-xs text-center outline-none focus:border-primary"
+                                      />
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </>
+              )}
+            </CardContent>
+            {editQuestion && (
+              <div className="shrink-0 border-t border-border px-5 py-3 flex justify-end gap-2">
+                <Button variant="outline" onClick={() => { if (!editQuestionSaving) setEditQuestion(null); }}>Cancel</Button>
+                <Button variant="primary" onClick={saveEditQuestion} disabled={editQuestionSaving}>
+                  {editQuestionSaving ? 'Saving…' : 'Save Question'}
+                </Button>
+              </div>
+            )}
+          </Card>
+        </div>
+      )}
+
+      {/* Delete item confirm */}
+      {confirmDeleteItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={() => setConfirmDeleteItem(null)}>
+          <Card className="w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
+            <CardHeader className="flex flex-row items-center justify-between pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 text-red-500" />
+                Delete Item
+              </CardTitle>
+              <button onClick={() => setConfirmDeleteItem(null)} className="text-muted-foreground hover:text-foreground">
+                <X className="h-4 w-4" />
+              </button>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm">
+                Remove item <span className="font-mono text-xs">{truncateUUID(confirmDeleteItem.id)}</span> ({confirmDeleteItem.subDomain})?
+                If this item belongs to a published assessment, it is removed from that assessment's question set as well.
+              </p>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setConfirmDeleteItem(null)}>Cancel</Button>
+                <Button variant="primary" onClick={deleteItem} className="bg-red-600 hover:bg-red-700 text-white">
+                  <Trash2 className="h-3.5 w-3.5" /> Delete
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }

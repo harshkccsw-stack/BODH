@@ -1,6 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { getSessions, getSessionById, sessionsToReports, downloadJson } from '@/lib/data-store';
+import { X } from 'lucide-react';
 import {
   AlertTriangle,
   ChevronLeft,
@@ -144,8 +146,37 @@ export default function ClinicalReportsPage() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [formatFilter, setFormatFilter] = useState('all');
   const [riskFilter, setRiskFilter] = useState('all');
+  const [liveReports, setLiveReports] = useState<ClinicalReport[]>([]);
+  const [viewReport, setViewReport] = useState<ClinicalReport | null>(null);
 
-  const filteredReports = mockReports.filter((report) => {
+  const handleDownload = (r: ClinicalReport) => {
+    const session = getSessionById(r.sessionId);
+    downloadJson(`${r.id}-${r.sessionId}.json`, { ...r, session, exportedAt: new Date().toISOString() });
+  };
+
+  useEffect(() => {
+    const generated = sessionsToReports(getSessions(), { vertical: 'Clinical' }).map((r): ClinicalReport => ({
+      id: r.id,
+      sessionId: r.sessionId,
+      respondent: r.respondent,
+      instrument: r.instrument,
+      format: r.format as ReportFormat,
+      status: r.status as ReportStatus,
+      generatedAt: r.generatedAt,
+      diagnosticCodes: r.diagnosticCodes,
+      riskFlag: r.riskFlag,
+      riskNote: r.riskNote,
+    }));
+    setLiveReports(generated);
+  }, []);
+
+  const allReports = useMemo(() => {
+    const seen = new Set(liveReports.map((r) => r.sessionId));
+    const seedTail = mockReports.filter((r) => !seen.has(r.sessionId));
+    return [...liveReports, ...seedTail];
+  }, [liveReports]);
+
+  const filteredReports = allReports.filter((report) => {
     const matchesSearch =
       searchQuery === '' ||
       report.respondent.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -188,7 +219,7 @@ export default function ClinicalReportsPage() {
               </div>
               <div>
                 <p className="text-sm font-medium text-red-800 dark:text-red-300">
-                  {mockReports.filter((r) => r.riskFlag).length} report(s) flagged for risk indicators
+                  {allReports.filter((r) => r.riskFlag).length} report(s) flagged for risk indicators
                 </p>
                 <p className="text-xs text-red-600 dark:text-red-400">
                   Review flagged reports for suicidality and elevated risk markers immediately.
@@ -263,7 +294,7 @@ export default function ClinicalReportsPage() {
           <div className="flex items-center justify-between">
             <CardTitle className="text-base">Clinical Reports</CardTitle>
             <span className="text-sm text-muted-foreground">
-              Showing {filteredReports.length} of {mockReports.length} reports
+              Showing {filteredReports.length} of {allReports.length} reports
             </span>
           </div>
         </CardHeader>
@@ -273,9 +304,9 @@ export default function ClinicalReportsPage() {
               <thead>
                 <tr className="border-b border-border">
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Report ID</th>
-                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Session ID</th>
+                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Assessment ID</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Respondent</th>
-                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Instrument</th>
+                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Questionnaire</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Diagnostic Codes</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Risk</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Format</th>
@@ -336,10 +367,10 @@ export default function ClinicalReportsPage() {
                     <td className="px-5 py-3 text-muted-foreground">{report.generatedAt}</td>
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-1">
-                        <Button variant="ghost" size="sm" mode="icon">
+                        <Button variant="ghost" size="sm" mode="icon" aria-label="View report" onClick={() => setViewReport(report)}>
                           <Eye className="size-3.5" />
                         </Button>
-                        <Button variant="ghost" size="sm" mode="icon">
+                        <Button variant="ghost" size="sm" mode="icon" aria-label="Download report" onClick={() => handleDownload(report)}>
                           <Download className="size-3.5" />
                         </Button>
                       </div>
@@ -362,7 +393,7 @@ export default function ClinicalReportsPage() {
       {/* Pagination */}
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
-          Showing 1-{filteredReports.length} of {mockReports.length} reports
+          Showing 1-{filteredReports.length} of {allReports.length} reports
         </p>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" mode="icon" disabled>
@@ -374,6 +405,66 @@ export default function ClinicalReportsPage() {
           </Button>
         </div>
       </div>
+
+      {viewReport && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={() => setViewReport(null)}>
+          <Card className="w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
+            <CardHeader className="flex flex-row items-center justify-between pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <FileText className="h-4 w-4 text-primary" />
+                {viewReport.id}
+              </CardTitle>
+              <button onClick={() => setViewReport(null)} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+            </CardHeader>
+            <CardContent className="space-y-4 text-sm">
+              <div className="rounded-lg border border-border bg-muted/40 p-3 space-y-2">
+                <div className="flex justify-between"><span className="text-muted-foreground">Session</span><span className="font-mono text-xs">{viewReport.sessionId}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Respondent</span><span className="font-medium">{viewReport.respondent}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Instrument</span><span className="text-right max-w-[60%]">{viewReport.instrument}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Status</span><span>{viewReport.status}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Generated</span><span>{viewReport.generatedAt}</span></div>
+              </div>
+              {viewReport.riskFlag && viewReport.riskNote && (
+                <div className="rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-3 py-2 text-xs text-red-700 dark:text-red-400 flex items-start gap-2">
+                  <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  <span>{viewReport.riskNote}</span>
+                </div>
+              )}
+              {viewReport.diagnosticCodes.length > 0 && (
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground mb-1">Diagnostic Codes</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {viewReport.diagnosticCodes.map((c) => (
+                      <Badge key={c} size="sm" shape="circle" variant="secondary" appearance="outline">{c}</Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {(() => {
+                const session = getSessionById(viewReport.sessionId);
+                if (!session?.mqtScores || Object.keys(session.mqtScores).length === 0) return null;
+                return (
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground mb-2">MQT Scores</p>
+                    <div className="rounded-lg border border-border overflow-hidden">
+                      {Object.entries(session.mqtScores).map(([k, v], i, arr) => (
+                        <div key={k} className={`flex justify-between px-3 py-2 text-xs ${i < arr.length - 1 ? 'border-b border-border' : ''}`}>
+                          <span>{k}</span>
+                          <span className="font-mono">{String(v)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+              <div className="flex justify-end gap-2 pt-1">
+                <Button variant="outline" onClick={() => setViewReport(null)}>Close</Button>
+                <Button variant="primary" onClick={() => handleDownload(viewReport)}><Download className="h-4 w-4" />Download</Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }

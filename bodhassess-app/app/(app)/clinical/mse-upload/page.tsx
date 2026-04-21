@@ -308,7 +308,7 @@ export default function MSEUploadPage() {
           <div className="flex justify-end">
             <Button variant="primary" size="lg">
               <CheckCircle className="h-4 w-4" />
-              Approve Battery & Create Sessions
+              Approve Battery & Create Assessments
             </Button>
           </div>
         </>

@@ -27,23 +27,24 @@ export const MENU_SIDEBAR: MenuConfig = [
   },
   { heading: 'Assessments' },
   {
-    title: 'Sessions',
+    title: 'Assessments',
     icon: ClipboardList,
     children: [
-      { title: 'All Sessions', path: '/sessions' },
-      { title: 'Create Session', path: '/sessions/create' },
-      { title: 'Batch Upload', path: '/sessions/batch' },
+      { title: 'All Assessments', path: '/assessments' },
+      { title: 'Create Assessment', path: '/assessments/create' },
+      { title: 'Batch Upload', path: '/assessments/batch' },
     ],
   },
   {
-    title: 'Instrument Library',
+    title: 'Questionnaire Library',
     icon: BookOpen,
     children: [
-      { title: 'All Instruments', path: '/instruments' },
-      { title: 'Clinical Instruments', path: '/instruments/clinical' },
-      { title: 'Industrial Instruments', path: '/instruments/industrial' },
-      { title: 'Counselling Instruments', path: '/instruments/counselling' },
-      { title: 'Experimental Paradigms', path: '/instruments/experimental' },
+      { title: 'All Questionnaires', path: '/questionnaires' },
+      { title: 'Clinical Questionnaires', path: '/questionnaires/clinical' },
+      { title: 'Industrial Questionnaires', path: '/questionnaires/industrial' },
+      { title: 'Counselling Questionnaires', path: '/questionnaires/counselling' },
+      { title: 'Experimental Paradigms', path: '/questionnaires/experimental' },
+      { title: 'Demographic Fields', path: '/questionnaires/demographics' },
     ],
   },
   {
@@ -51,7 +52,8 @@ export const MENU_SIDEBAR: MenuConfig = [
     icon: Brain,
     children: [
       { title: 'Item Explorer', path: '/question-bank' },
-      { title: 'Create Assessment', path: '/question-bank/create' },
+      { title: 'Measured Qualities', path: '/qualities' },
+      { title: 'Create Questionnaire', path: '/question-bank/create' },
       { title: 'IRT Calibration', path: '/question-bank/calibration' },
       { title: 'Norm Tables', path: '/question-bank/norms' },
     ],
@@ -92,7 +94,7 @@ export const MENU_SIDEBAR: MenuConfig = [
     icon: GraduationCap,
     children: [
       { title: 'Student Records', path: '/counselling/students' },
-      { title: 'Multi-Informant Sessions', path: '/counselling/multi-informant' },
+      { title: 'Multi-Informant Assessments', path: '/counselling/multi-informant' },
       { title: 'Parent Consent', path: '/counselling/consent' },
       { title: 'Developmental Tracking', path: '/counselling/developmental' },
     ],
@@ -133,6 +135,7 @@ export const MENU_SIDEBAR: MenuConfig = [
     children: [
       { title: 'Practitioners', path: '/admin/practitioners' },
       { title: 'Respondents', path: '/admin/respondents' },
+      { title: 'Groups', path: '/admin/groups' },
       { title: 'Roles & Permissions', path: '/admin/roles' },
     ],
   },
@@ -167,9 +170,9 @@ export const MENU_MEGA: MenuConfig = [
         children: [
           {
             children: [
-              { title: 'All Sessions', icon: ClipboardList, path: '/sessions' },
-              { title: 'Create Session', icon: Activity, path: '/sessions/create' },
-              { title: 'Instrument Library', icon: BookOpen, path: '/instruments' },
+              { title: 'All Assessments', icon: ClipboardList, path: '/assessments' },
+              { title: 'Create Assessment', icon: Activity, path: '/assessments/create' },
+              { title: 'Questionnaire Library', icon: BookOpen, path: '/questionnaires' },
               { title: 'Question Bank', icon: Brain, path: '/question-bank' },
               { title: 'Reports', icon: FileText, path: '/reports' },
             ],

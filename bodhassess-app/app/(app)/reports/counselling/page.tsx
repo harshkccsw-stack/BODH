@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { getSessions, getSessionById, sessionsToReports, downloadJson } from '@/lib/data-store';
 import {
   Search,
   FileText,
@@ -8,6 +9,8 @@ import {
   Clock,
   Users,
   Filter,
+  Eye,
+  X,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -165,12 +168,47 @@ const informantColor = (informant: Informant) => {
   }
 };
 
+function buildLiveCounsellingReports(): CounsellingReport[] {
+  return sessionsToReports(getSessions(), { vertical: 'Counselling' }).map((r): CounsellingReport => {
+    const totals = r.mqtScores ? Object.values(r.mqtScores).reduce((a, b) => a + (Number(b) || 0), 0) : 0;
+    const severity = totals >= 20 ? 'Abnormal' : totals >= 12 ? 'Borderline' : 'Normal';
+    return {
+      id: r.id,
+      student: r.respondent,
+      studentId: r.sessionId,
+      ageBand: '14-18',
+      instrument: r.instrument,
+      informants: ['Self'],
+      score: totals ? `Total: ${totals}` : 'Submitted',
+      severity,
+      status: 'Pending Review' as ReportStatus,
+      counsellor: '—',
+      date: r.generatedAt,
+    };
+  });
+}
+
 export default function CounsellingReportsPage() {
   const [search, setSearch] = useState('');
   const [ageBandFilter, setAgeBandFilter] = useState<AgeBand | 'All'>('All');
   const [statusFilter, setStatusFilter] = useState<ReportStatus | 'All'>('All');
+  const [liveReports, setLiveReports] = useState<CounsellingReport[]>([]);
+  const [viewReport, setViewReport] = useState<CounsellingReport | null>(null);
 
-  const filtered = reports.filter((r) => {
+  useEffect(() => { setLiveReports(buildLiveCounsellingReports()); }, []);
+
+  const handleDownload = (r: CounsellingReport) => {
+    const session = getSessionById(r.studentId);
+    downloadJson(`${r.id}-${r.studentId}.json`, { ...r, session, exportedAt: new Date().toISOString() });
+  };
+
+  const allReports = useMemo(() => {
+    const seen = new Set(liveReports.map((r) => r.studentId));
+    const seedTail = reports.filter((r) => !seen.has(r.studentId));
+    return [...liveReports, ...seedTail];
+  }, [liveReports]);
+
+  const filtered = allReports.filter((r) => {
     const matchesSearch =
       r.student.toLowerCase().includes(search.toLowerCase()) ||
       r.id.toLowerCase().includes(search.toLowerCase()) ||
@@ -204,7 +242,7 @@ export default function CounsellingReportsPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Total Reports</p>
-                <p className="text-2xl font-semibold mt-1">{reports.length}</p>
+                <p className="text-2xl font-semibold mt-1">{allReports.length}</p>
                 <p className="text-xs text-muted-foreground mt-1">This week</p>
               </div>
               <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-primary/10">
@@ -219,7 +257,7 @@ export default function CounsellingReportsPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-muted-foreground">Age {band}</p>
-                  <p className="text-2xl font-semibold mt-1">{reports.filter((r) => r.ageBand === band).length}</p>
+                  <p className="text-2xl font-semibold mt-1">{allReports.filter((r) => r.ageBand === band).length}</p>
                   <p className="text-xs text-muted-foreground mt-1">students</p>
                 </div>
                 <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-primary/10">
@@ -337,11 +375,14 @@ export default function CounsellingReportsPage() {
                       </span>
                     </td>
                     <td className="px-5 py-3">
-                      {report.status === 'Completed' && (
-                        <Button variant="ghost" size="sm">
+                      <div className="flex items-center gap-1">
+                        <Button variant="ghost" size="sm" aria-label="View report" onClick={() => setViewReport(report)}>
+                          <Eye className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button variant="ghost" size="sm" aria-label="Download report" onClick={() => handleDownload(report)}>
                           <Download className="h-3.5 w-3.5" />
                         </Button>
-                      )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -357,6 +398,54 @@ export default function CounsellingReportsPage() {
           </div>
         </CardContent>
       </Card>
+
+      {viewReport && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={() => setViewReport(null)}>
+          <Card className="w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
+            <CardHeader className="flex flex-row items-center justify-between pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <FileText className="h-4 w-4 text-primary" />
+                {viewReport.id}
+              </CardTitle>
+              <button onClick={() => setViewReport(null)} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+            </CardHeader>
+            <CardContent className="space-y-4 text-sm">
+              <div className="rounded-lg border border-border bg-muted/40 p-3 space-y-2">
+                <div className="flex justify-between"><span className="text-muted-foreground">Student</span><span className="font-medium">{viewReport.student}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Student ID</span><span className="font-mono text-xs">{viewReport.studentId}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Age Band</span><span>{viewReport.ageBand}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Instrument</span><span className="text-right max-w-[60%]">{viewReport.instrument}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Informants</span><span>{viewReport.informants.join(', ')}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Score</span><span className="font-mono">{viewReport.score}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Severity</span><span className="font-medium">{viewReport.severity}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Counsellor</span><span>{viewReport.counsellor}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Date</span><span>{viewReport.date}</span></div>
+              </div>
+              {(() => {
+                const session = getSessionById(viewReport.studentId);
+                if (!session?.mqtScores || Object.keys(session.mqtScores).length === 0) return null;
+                return (
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground mb-2">MQT Scores</p>
+                    <div className="rounded-lg border border-border overflow-hidden">
+                      {Object.entries(session.mqtScores).map(([k, v], i, arr) => (
+                        <div key={k} className={`flex justify-between px-3 py-2 text-xs ${i < arr.length - 1 ? 'border-b border-border' : ''}`}>
+                          <span>{k}</span>
+                          <span className="font-mono">{String(v)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+              <div className="flex justify-end gap-2 pt-1">
+                <Button variant="outline" onClick={() => setViewReport(null)}>Close</Button>
+                <Button variant="primary" onClick={() => handleDownload(viewReport)}><Download className="h-4 w-4" />Download</Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }
