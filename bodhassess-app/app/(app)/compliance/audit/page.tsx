@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 
 const logs = [
   { timestamp: '2026-04-09 11:23:15', user: 'Dr. Meera Krishnan', action: 'View Report', resource: 'SESS-0047 (PHQ-9)', ip: '203.0.113.42', details: 'Viewed T-score report for Arjun Patel' },
-  { timestamp: '2026-04-09 10:45:02', user: 'Kavitha Nair', action: 'Create Session', resource: 'SESS-0048', ip: '198.51.100.14', details: 'Created Big Five assessment for batch upload' },
+  { timestamp: '2026-04-09 10:45:02', user: 'Kavitha Nair', action: 'Create Assessment', resource: 'SESS-0048', ip: '198.51.100.14', details: 'Created Big Five assessment for batch upload' },
   { timestamp: '2026-04-09 09:30:44', user: 'Dr. Arun Mehta', action: 'Update Tenant', resource: 'Apollo Hospital', ip: '192.0.2.88', details: 'Updated branding colors and logo' },
   { timestamp: '2026-04-09 09:15:10', user: 'System', action: 'Consent Recorded', resource: 'Arjun Patel', ip: '—', details: 'Digital signature consent for PHQ-9 evaluation' },
   { timestamp: '2026-04-08 17:22:33', user: 'Dr. Rajesh Iyer', action: 'Export Data', resource: 'Cohort Report Q1', ip: '203.0.113.55', details: 'Exported CSV with 45 respondent records' },
@@ -18,7 +18,7 @@ const logs = [
 
 const actionColors: Record<string, string> = {
   'View Report': 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-  'Create Session': 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
+  'Create Assessment': 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
   'Update Tenant': 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
   'Consent Recorded': 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
   'Export Data': 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',

@@ -112,7 +112,7 @@ export default function AnalyticsPage() {
               <thead>
                 <tr className="border-b border-border">
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Name</th>
-                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Instrument</th>
+                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Questionnaire</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Score</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Percentile</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Date</th>

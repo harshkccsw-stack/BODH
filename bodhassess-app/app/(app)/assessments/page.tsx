@@ -39,6 +39,7 @@ type Vertical = 'Clinical' | 'Industrial' | 'Counselling' | 'Experiments';
 
 interface Session {
   id: string;
+  name?: string;
   respondent: string;
   instrument: string;
   vertical: Vertical;
@@ -88,7 +89,8 @@ export default function SessionsPage() {
   const [loadError, setLoadError] = useState('');
 
   const [editSession, setEditSession] = useState<Session | null>(null);
-  const [editForm, setEditForm] = useState<{ language: string; status: SessionStatus; score: string }>({
+  const [editForm, setEditForm] = useState<{ name: string; language: string; status: SessionStatus; score: string }>({
+    name: '',
     language: 'English',
     status: 'Active',
     score: '--',
@@ -113,6 +115,7 @@ export default function SessionsPage() {
   const allSessions: Session[] = useMemo(() => {
     const live: Session[] = apiSessions.map((s) => ({
       id: s.id,
+      name: s.name,
       respondent: s.respondent,
       instrument: s.instrument,
       vertical: (s.vertical || 'Clinical') as Vertical,
@@ -131,6 +134,7 @@ export default function SessionsPage() {
       searchQuery === '' ||
       session.respondent.toLowerCase().includes(searchQuery.toLowerCase()) ||
       session.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (session.name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
       session.instrument.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesStatus = statusFilter === 'all' || session.status === statusFilter;
     const matchesVertical = verticalFilter === 'all' || session.vertical === verticalFilter;
@@ -138,7 +142,7 @@ export default function SessionsPage() {
   });
 
   const openEdit = (s: Session) => {
-    setEditForm({ language: s.language, status: s.status, score: s.score });
+    setEditForm({ name: s.name || '', language: s.language, status: s.status, score: s.score });
     setEditSession(s);
   };
 
@@ -148,6 +152,7 @@ export default function SessionsPage() {
     if (!editSession) return;
     if (isLiveSession(editSession.id)) {
       await portalSessionsApi.update(editSession.id, {
+        name: editForm.name,
         language: editForm.language,
         status: editForm.status,
         score: editForm.score,
@@ -188,16 +193,16 @@ export default function SessionsPage() {
           <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
             <span>BodhAssess</span>
             <span>/</span>
-            <span className="text-foreground font-medium">Sessions</span>
+            <span className="text-foreground font-medium">Assessments</span>
           </div>
-          <h1 className="text-2xl font-semibold tracking-tight">Sessions</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Assessments</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Manage assessment sessions, track progress, and view reports.
+            Manage assessments, track progress, and view reports.
           </p>
         </div>
-        <Button variant="primary" size="md" onClick={() => { window.location.href = '/sessions/create'; }}>
+        <Button variant="primary" size="md" onClick={() => { window.location.href = '/assessments/create'; }}>
           <Plus className="size-4" />
-          Create Session
+          Create Assessment
         </Button>
       </div>
 
@@ -214,7 +219,7 @@ export default function SessionsPage() {
             <InputWrapper variant="md" className="w-full sm:w-72">
               <Search className="size-4" />
               <Input
-                placeholder="Search sessions, respondents, instruments..."
+                placeholder="Search assessments, respondents, questionnaires..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
@@ -255,9 +260,9 @@ export default function SessionsPage() {
       <Card>
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
-            <CardTitle className="text-base">All Sessions</CardTitle>
+            <CardTitle className="text-base">All Assessments</CardTitle>
             <span className="text-sm text-muted-foreground">
-              Showing {filteredSessions.length} session{filteredSessions.length !== 1 ? 's' : ''}
+              Showing {filteredSessions.length} assessment{filteredSessions.length !== 1 ? 's' : ''}
             </span>
           </div>
         </CardHeader>
@@ -266,9 +271,10 @@ export default function SessionsPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border">
-                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Session ID</th>
+                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Assessment ID</th>
+                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Name</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Respondent</th>
-                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Instrument</th>
+                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Questionnaire</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Vertical</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Language</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Status</th>
@@ -284,6 +290,11 @@ export default function SessionsPage() {
                     className="border-b border-border last:border-0 hover:bg-muted/50 transition-colors"
                   >
                     <td className="px-5 py-3 font-mono text-xs">{session.id}</td>
+                    <td className="px-5 py-3">
+                      {session.name
+                        ? <span className="font-medium">{session.name}</span>
+                        : <span className="text-muted-foreground italic text-xs">Untitled</span>}
+                    </td>
                     <td className="px-5 py-3 font-medium">{session.respondent}</td>
                     <td className="px-5 py-3">{session.instrument}</td>
                     <td className="px-5 py-3">
@@ -302,7 +313,7 @@ export default function SessionsPage() {
                     <td className="px-5 py-3 text-right">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="sm" mode="icon" aria-label="Session actions">
+                          <Button variant="ghost" size="sm" mode="icon" aria-label="Assessment actions">
                             <MoreVertical className="size-4" />
                           </Button>
                         </DropdownMenuTrigger>
@@ -327,8 +338,8 @@ export default function SessionsPage() {
                 ))}
                 {filteredSessions.length === 0 && (
                   <tr>
-                    <td colSpan={9} className="px-5 py-12 text-center text-muted-foreground">
-                      No sessions found matching your filters.
+                    <td colSpan={10} className="px-5 py-12 text-center text-muted-foreground">
+                      No assessments found matching your filters.
                     </td>
                   </tr>
                 )}
@@ -341,7 +352,7 @@ export default function SessionsPage() {
       {/* Pagination */}
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
-          Showing 1-{Math.min(filteredSessions.length, 10)} of {filteredSessions.length} sessions
+          Showing 1-{Math.min(filteredSessions.length, 10)} of {filteredSessions.length} assessments
         </p>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" mode="icon" disabled>
@@ -359,16 +370,25 @@ export default function SessionsPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={() => setEditSession(null)}>
           <Card className="w-full max-w-md" onClick={(e) => e.stopPropagation()}>
             <CardHeader className="flex flex-row items-center justify-between pb-3">
-              <CardTitle className="text-base">Update Session</CardTitle>
+              <CardTitle className="text-base">Update Assessment</CardTitle>
               <button onClick={() => setEditSession(null)} className="text-muted-foreground hover:text-foreground">
                 <X className="h-4 w-4" />
               </button>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="rounded-lg border border-border bg-muted/40 p-3 text-xs font-mono">
-                <div className="flex justify-between"><span className="text-muted-foreground">Session</span><span>{editSession.id}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Assessment</span><span>{editSession.id}</span></div>
                 <div className="flex justify-between"><span className="text-muted-foreground">Respondent</span><span>{editSession.respondent}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Instrument</span><span className="truncate ml-2">{editSession.instrument}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Questionnaire</span><span className="truncate ml-2">{editSession.instrument}</span></div>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Assessment Name</label>
+                <input
+                  value={editForm.name}
+                  onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                  placeholder="Optional label"
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                />
               </div>
               <div className="space-y-1.5">
                 <label className="text-sm font-medium">Language</label>
@@ -446,7 +466,7 @@ export default function SessionsPage() {
             <CardHeader className="flex flex-row items-center justify-between pb-3">
               <CardTitle className="text-base flex items-center gap-2">
                 <AlertTriangle className="h-4 w-4 text-red-500" />
-                Delete Session
+                Delete Assessment
               </CardTitle>
               <button onClick={() => setConfirmDelete(null)} className="text-muted-foreground hover:text-foreground">
                 <X className="h-4 w-4" />
@@ -454,7 +474,7 @@ export default function SessionsPage() {
             </CardHeader>
             <CardContent className="space-y-4">
               <p className="text-sm">
-                Permanently remove session <strong>{confirmDelete.id}</strong> for <strong>{confirmDelete.respondent}</strong>?
+                Permanently remove assessment <strong>{confirmDelete.id}</strong> for <strong>{confirmDelete.respondent}</strong>?
               </p>
               <div className="flex justify-end gap-2">
                 <Button variant="outline" onClick={() => setConfirmDelete(null)}>Cancel</Button>

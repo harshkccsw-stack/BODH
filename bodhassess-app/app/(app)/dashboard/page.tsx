@@ -108,10 +108,10 @@ function DashboardContent() {
   const pendingReviewCount = sessionsForVertical.filter((s) => s.status === 'Pending Review').length;
 
   const stats = [
-    { label: 'Active Sessions', value: String(activeCount), icon: Activity, change: `${sessionsForVertical.length} total in this vertical` },
+    { label: 'Active Assessments', value: String(activeCount), icon: Activity, change: `${sessionsForVertical.length} total in this vertical` },
     { label: 'Completed Today', value: String(completedCount), icon: ClipboardCheck, change: `${completedCount} submitted` },
     { label: `${terms.respondent} Registered`, value: String(respondentCount), icon: Users, change: `${practitionerCount} ${terms.practitioner.toLowerCase()}` },
-    { label: 'Instruments Available', value: String(instrumentCount || 0), icon: Library, change: pendingReviewCount > 0 ? `${pendingReviewCount} pending review` : 'Includes library + custom' },
+    { label: 'Questionnaires Available', value: String(instrumentCount || 0), icon: Library, change: pendingReviewCount > 0 ? `${pendingReviewCount} pending review` : 'Includes library + custom' },
   ];
 
   const recentSessions = recentLive.length > 0 ? recentLive : seedRecentSessions;
@@ -141,7 +141,7 @@ function DashboardContent() {
         </div>
         <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Overview of assessment sessions, reports, and {terms.respondent.toLowerCase()} activity.
+          Overview of assessments, reports, and {terms.respondent.toLowerCase()} activity.
         </p>
       </div>
 
@@ -169,8 +169,8 @@ function DashboardContent() {
       <Card>
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
-            <CardTitle className="text-base">Recent Sessions</CardTitle>
-            <a href="/sessions" className="text-sm text-primary hover:underline">View all</a>
+            <CardTitle className="text-base">Recent Assessments</CardTitle>
+            <a href="/assessments" className="text-sm text-primary hover:underline">View all</a>
           </div>
         </CardHeader>
         <CardContent className="p-0">
@@ -178,9 +178,9 @@ function DashboardContent() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border">
-                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Session ID</th>
+                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Assessment ID</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">{terms.respondent.slice(0, -1)}</th>
-                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Instrument</th>
+                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Questionnaire</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Status</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Score</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Time</th>
@@ -218,18 +218,18 @@ function DashboardContent() {
 
       {/* Quick Actions */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
-        <Card className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => { window.location.href = '/sessions/create'; }}>
+        <Card className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => { window.location.href = '/assessments/create'; }}>
           <CardContent className="p-5 flex items-center gap-4">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
               <ClipboardCheck className="h-5 w-5 text-primary" />
             </div>
             <div>
-              <p className="font-semibold text-sm">Create Session</p>
+              <p className="font-semibold text-sm">Create Assessment</p>
               <p className="text-xs text-muted-foreground">Start a new assessment</p>
             </div>
           </CardContent>
         </Card>
-        <Card className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => { window.location.href = '/sessions/batch'; }}>
+        <Card className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => { window.location.href = '/assessments/batch'; }}>
           <CardContent className="p-5 flex items-center gap-4">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
               <Users className="h-5 w-5 text-primary" />

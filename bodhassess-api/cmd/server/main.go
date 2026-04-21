@@ -38,7 +38,7 @@ func main() {
 
 	// Handlers
 	healthH := handlers.NewHealthHandler(db)
-	instrumentsH := handlers.NewInstrumentsHandler(db)
+	questionnairesCatalogH := handlers.NewQuestionnairesCatalogHandler(db)
 	sessionsH := handlers.NewSessionsHandler(db)
 	itemsH := handlers.NewItemsHandler(db)
 	uploadH := handlers.NewUploadHandler("./uploads", "http://localhost:"+cfg.AppPort)
@@ -47,7 +47,7 @@ func main() {
 	respondentsH := handlers.NewRespondentsHandler(db)
 	practitionersH := handlers.NewPractitionersHandler(db)
 	groupsH := handlers.NewGroupsHandler(db)
-	portalSessionsH := handlers.NewPortalSessionsHandler(db)
+	assessmentsH := handlers.NewAssessmentsHandler(db)
 	questionnairesH := handlers.NewQuestionnairesHandler(db)
 	itemDisplayH := handlers.NewItemDisplayHandler(db)
 	demoFieldsH := handlers.NewDemographicFieldsHandler(db)
@@ -62,10 +62,10 @@ func main() {
 
 		r.Post("/upload", uploadH.Upload)
 
-		r.Route("/instruments", func(r chi.Router) {
-			r.Get("/", instrumentsH.List)
+		r.Route("/questionnaires-catalog", func(r chi.Router) {
+			r.Get("/", questionnairesCatalogH.List)
 			r.Post("/", itemsH.CreateInstrument)
-			r.Get("/{id}", instrumentsH.GetByID)
+			r.Get("/{id}", questionnairesCatalogH.GetByID)
 			r.Get("/{instrumentId}/items", itemsH.ListByInstrument)
 			r.Post("/{instrumentId}/items", itemsH.CreateItem)
 			r.Post("/{instrumentId}/items/bulk", itemsH.BulkCreateItems)
@@ -120,13 +120,13 @@ func main() {
 			r.Delete("/{id}", groupsH.Delete)
 		})
 
-		r.Route("/portal-sessions", func(r chi.Router) {
-			r.Get("/", portalSessionsH.List)
-			r.Post("/", portalSessionsH.Create)
-			r.Post("/bulk", portalSessionsH.BulkCreate)
-			r.Get("/{id}", portalSessionsH.Get)
-			r.Put("/{id}", portalSessionsH.Update)
-			r.Delete("/{id}", portalSessionsH.Delete)
+		r.Route("/assessments", func(r chi.Router) {
+			r.Get("/", assessmentsH.List)
+			r.Post("/", assessmentsH.Create)
+			r.Post("/bulk", assessmentsH.BulkCreate)
+			r.Get("/{id}", assessmentsH.Get)
+			r.Put("/{id}", assessmentsH.Update)
+			r.Delete("/{id}", assessmentsH.Delete)
 		})
 
 		r.Route("/questionnaires", func(r chi.Router) {

@@ -79,7 +79,7 @@ export default function MultiInformantPage() {
           <span>/</span>
           <span className="text-foreground font-medium">Multi-Informant Sessions</span>
         </div>
-        <h1 className="text-2xl font-semibold tracking-tight">Multi-Informant Sessions</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Multi-Informant Assessments</h1>
         <p className="text-sm text-muted-foreground mt-1">
           Track sessions where multiple raters (self, parent, teacher) assess the same child for cross-informant triangulation.
         </p>
@@ -91,7 +91,7 @@ export default function MultiInformantPage() {
           <CardContent className="p-5">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Total Sessions</p>
+                <p className="text-sm text-muted-foreground">Total Assessments</p>
                 <p className="text-2xl font-semibold mt-1">{sessions.length}</p>
               </div>
               <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-primary/10">
@@ -132,7 +132,7 @@ export default function MultiInformantPage() {
       {/* Table */}
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">Multi-Informant Sessions</CardTitle>
+          <CardTitle className="text-base">Multi-Informant Assessments</CardTitle>
         </CardHeader>
         <CardContent className="p-0">
           <div className="overflow-x-auto">

@@ -303,14 +303,14 @@ export default function InstrumentsPage() {
           <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
             <span>BodhAssess</span>
             <span>/</span>
-            <span className="text-foreground font-medium">Instrument Library</span>
+            <span className="text-foreground font-medium">Questionnaire Library</span>
           </div>
-          <h1 className="text-2xl font-semibold tracking-tight">Instrument Library</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Questionnaire Library</h1>
           <p className="text-sm text-muted-foreground mt-1">
             Browse, search, and launch standardised assessments across all verticals.
             {apiSource === 'api' && (
               <span className="ml-2 inline-flex items-center gap-1 text-xs text-green-600">
-                <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" /> Live API — {apiInstruments.length} custom instruments
+                <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" /> Live API — {apiInstruments.length} custom questionnaires
               </span>
             )}
           </p>
@@ -321,30 +321,7 @@ export default function InstrumentsPage() {
         </Button>
       </div>
 
-      <div className="flex flex-col lg:flex-row gap-5">
-        {/* Vertical filter sidebar */}
-        <div className="flex lg:flex-col gap-1.5 lg:w-48 shrink-0">
-          {verticals.map((v) => {
-            const isActive = activeVertical === v.key;
-            return (
-              <button
-                key={v.key}
-                onClick={() => setActiveVertical(v.key)}
-                className={cn(
-                  'flex items-center gap-2.5 rounded-lg px-3.5 py-2.5 text-sm font-medium transition-colors text-left cursor-pointer',
-                  isActive
-                    ? 'bg-primary/10 text-primary'
-                    : 'text-muted-foreground hover:bg-muted hover:text-foreground',
-                )}
-              >
-                <v.icon className="h-4 w-4 shrink-0" />
-                <span className="hidden lg:inline">{v.label}</span>
-                <span className="lg:hidden">{v.label}</span>
-              </button>
-            );
-          })}
-        </div>
-
+      <div className="flex flex-col gap-5">
         {/* Main content */}
         <div className="flex-1 space-y-5 min-w-0">
           {/* Search & type filter bar */}
@@ -355,7 +332,7 @@ export default function InstrumentsPage() {
                 type="text"
                 autoComplete="off"
                 spellCheck={false}
-                placeholder="Search instruments by name, short name, category..."
+                placeholder="Search questionnaires by name, short name, category..."
                 value={search}
                 onChange={(e) => setSearch(e.currentTarget.value)}
                 onInput={(e) => setSearch((e.currentTarget as HTMLInputElement).value)}
@@ -395,7 +372,7 @@ export default function InstrumentsPage() {
 
           {/* Results count */}
           <p className="text-xs text-muted-foreground">
-            Showing {filtered.length} of {allInstruments.length} instrument{allInstruments.length !== 1 ? 's' : ''}
+            Showing {filtered.length} of {allInstruments.length} questionnaire{allInstruments.length !== 1 ? 's' : ''}
             {search && <span className="ml-1">for "<span className="font-medium text-foreground">{search}</span>"</span>}
           </p>
 
@@ -404,7 +381,7 @@ export default function InstrumentsPage() {
             <Card>
               <CardContent className="p-10 text-center">
                 <Brain className="h-10 w-10 text-muted-foreground/40 mx-auto mb-3" />
-                <p className="text-sm font-medium">No instruments found</p>
+                <p className="text-sm font-medium">No questionnaires found</p>
                 <p className="text-xs text-muted-foreground mt-1">
                   Try adjusting your filters or search query.
                 </p>
@@ -473,13 +450,13 @@ export default function InstrumentsPage() {
                         size="sm"
                         className="flex-1"
                         onClick={() => {
-                          window.location.href = `/sessions/create?instrument=${encodeURIComponent(inst.shortName)}`;
+                          window.location.href = `/assessments/create?instrument=${encodeURIComponent(inst.shortName)}`;
                         }}
                       >
                         <Play className="h-3.5 w-3.5" />
-                        Start Session
+                        Allot Assessment
                       </Button>
-                      <Button variant="outline" size="sm" onClick={() => openEdit(inst)} title="Edit instrument">
+                      <Button variant="outline" size="sm" onClick={() => openEdit(inst)} title="Edit questionnaire">
                         <Pencil className="h-3.5 w-3.5" />
                         Edit
                       </Button>
@@ -496,7 +473,7 @@ export default function InstrumentsPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={() => setEditing(null)}>
           <Card className="w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
             <CardHeader className="flex flex-row items-center justify-between pb-3">
-              <CardTitle className="text-base">Edit Instrument</CardTitle>
+              <CardTitle className="text-base">Edit Questionnaire</CardTitle>
               <button onClick={() => setEditing(null)} className="text-muted-foreground hover:text-foreground">
                 <X className="h-4 w-4" />
               </button>

@@ -105,13 +105,13 @@ export default function PortalTakePage() {
 
         const params = new URLSearchParams(window.location.search);
         const sid = params.get('id');
-        if (!sid) { setLoadError('No session specified.'); return; }
+        if (!sid) { setLoadError('No assessment specified.'); return; }
 
         let s: PortalSession;
         try {
           s = await portalSessionsApi.get(sid);
         } catch {
-          setLoadError('Session not found.');
+          setLoadError('Assessment not found.');
           return;
         }
         if (s.respondentId !== u.id) { setLoadError('This assessment is not assigned to you.'); return; }
@@ -214,7 +214,7 @@ export default function PortalTakePage() {
             </div>
             <div>
               <p className="text-sm font-semibold">{instrument.name}</p>
-              <p className="text-xs text-muted-foreground">{user?.name} · Session {session.id}</p>
+              <p className="text-xs text-muted-foreground">{user?.name} · Assessment {session.id}</p>
             </div>
           </div>
         </header>
@@ -322,7 +322,7 @@ export default function PortalTakePage() {
             </div>
             <div>
               <p className="text-sm font-semibold">{instrument.name}</p>
-              <p className="text-xs text-muted-foreground">{user?.name} · Session {session.id}</p>
+              <p className="text-xs text-muted-foreground">{user?.name} · Assessment {session.id}</p>
             </div>
           </div>
         </header>
@@ -456,7 +456,7 @@ export default function PortalTakePage() {
             </div>
             <div>
               <p className="text-sm font-semibold">{instrument.name}</p>
-              <p className="text-xs text-muted-foreground">{user?.name} · Session {session.id}</p>
+              <p className="text-xs text-muted-foreground">{user?.name} · Assessment {session.id}</p>
             </div>
           </div>
           <div className="text-xs text-muted-foreground">

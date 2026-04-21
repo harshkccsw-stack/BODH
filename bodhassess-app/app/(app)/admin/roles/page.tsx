@@ -10,7 +10,7 @@ const roles = [
     permissions: {
       'Manage Tenants': true, 'Manage Users': true, 'View All Data': true,
       'Configure Branding': true, 'Manage API Keys': true, 'View Audit Logs': true,
-      'Process Erasure': true, 'Manage Instruments': true,
+      'Process Erasure': true, 'Manage Questionnaires': true,
     },
   },
   {
@@ -19,7 +19,7 @@ const roles = [
     permissions: {
       'Manage Tenants': false, 'Manage Users': true, 'View All Data': true,
       'Configure Branding': true, 'Manage API Keys': true, 'View Audit Logs': true,
-      'Process Erasure': true, 'Manage Instruments': true,
+      'Process Erasure': true, 'Manage Questionnaires': true,
     },
   },
   {
@@ -28,7 +28,7 @@ const roles = [
     permissions: {
       'Manage Tenants': false, 'Manage Users': true, 'View All Data': true,
       'Configure Branding': false, 'Manage API Keys': false, 'View Audit Logs': true,
-      'Process Erasure': false, 'Manage Instruments': true,
+      'Process Erasure': false, 'Manage Questionnaires': true,
     },
   },
   {
@@ -37,7 +37,7 @@ const roles = [
     permissions: {
       'Manage Tenants': false, 'Manage Users': false, 'View All Data': false,
       'Configure Branding': false, 'Manage API Keys': false, 'View Audit Logs': false,
-      'Process Erasure': false, 'Manage Instruments': false,
+      'Process Erasure': false, 'Manage Questionnaires': false,
     },
   },
   {
@@ -46,7 +46,7 @@ const roles = [
     permissions: {
       'Manage Tenants': false, 'Manage Users': false, 'View All Data': true,
       'Configure Branding': false, 'Manage API Keys': false, 'View Audit Logs': true,
-      'Process Erasure': false, 'Manage Instruments': false,
+      'Process Erasure': false, 'Manage Questionnaires': false,
     },
   },
   {
@@ -55,7 +55,7 @@ const roles = [
     permissions: {
       'Manage Tenants': false, 'Manage Users': false, 'View All Data': false,
       'Configure Branding': false, 'Manage API Keys': false, 'View Audit Logs': false,
-      'Process Erasure': false, 'Manage Instruments': false,
+      'Process Erasure': false, 'Manage Questionnaires': false,
     },
   },
 ];

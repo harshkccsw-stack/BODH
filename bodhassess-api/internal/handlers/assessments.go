@@ -12,16 +12,17 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type PortalSessionsHandler struct {
+type AssessmentsHandler struct {
 	db *pgxpool.Pool
 }
 
-func NewPortalSessionsHandler(db *pgxpool.Pool) *PortalSessionsHandler {
-	return &PortalSessionsHandler{db: db}
+func NewAssessmentsHandler(db *pgxpool.Pool) *AssessmentsHandler {
+	return &AssessmentsHandler{db: db}
 }
 
-type portalSession struct {
+type assessment struct {
 	ID                 string                 `json:"id"`
+	Name               string                 `json:"name,omitempty"`
 	RespondentID       string                 `json:"respondentId"`
 	RespondentName     string                 `json:"respondent"`
 	RespondentEmail    string                 `json:"respondentEmail,omitempty"`
@@ -43,13 +44,13 @@ type portalSession struct {
 	CompletedAt        string                 `json:"completedAt,omitempty"`
 }
 
-func scanSession(rows pgx.Row) (portalSession, error) {
-	var s portalSession
+func scanAssessment(rows pgx.Row) (assessment, error) {
+	var s assessment
 	var answersJSON, mqtJSON, demoJSON []byte
 	var createdAt time.Time
 	var completedAt *time.Time
 	err := rows.Scan(
-		&s.ID, &s.RespondentID, &s.RespondentName, &s.RespondentEmail,
+		&s.ID, &s.Name, &s.RespondentID, &s.RespondentName, &s.RespondentEmail,
 		&s.Instrument, &s.InstrumentFullName, &s.Vertical, &s.Language,
 		&s.Status, &s.Score, &answersJSON, &mqtJSON, &demoJSON,
 		&s.GroupID, &s.GroupName, &s.ConsentID, &s.Proctoring, &s.InvitationSent,
@@ -74,8 +75,8 @@ func scanSession(rows pgx.Row) (portalSession, error) {
 	return s, nil
 }
 
-const sessionSelect = `
-	SELECT id, respondent_id, respondent_name, COALESCE(respondent_email, ''),
+const assessmentSelect = `
+	SELECT id, COALESCE(name, ''), respondent_id, respondent_name, COALESCE(respondent_email, ''),
 	       instrument, COALESCE(instrument_full_name, ''), COALESCE(vertical, ''),
 	       language, status, COALESCE(score, ''),
 	       answers, mqt_scores, demographics,
@@ -83,7 +84,7 @@ const sessionSelect = `
 	       proctoring, invitation_sent, created_at, completed_at
 	FROM portal_sessions`
 
-func (h *PortalSessionsHandler) List(w http.ResponseWriter, r *http.Request) {
+func (h *AssessmentsHandler) List(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 	where := ""
@@ -92,16 +93,16 @@ func (h *PortalSessionsHandler) List(w http.ResponseWriter, r *http.Request) {
 		where = " WHERE respondent_id = $1"
 		args = append(args, rid)
 	}
-	q := sessionSelect + where + " ORDER BY created_at DESC"
+	q := assessmentSelect + where + " ORDER BY created_at DESC"
 	rows, err := h.db.Query(ctx, q, args...)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
-	out := make([]portalSession, 0)
+	out := make([]assessment, 0)
 	for rows.Next() {
-		s, err := scanSession(rows)
+		s, err := scanAssessment(rows)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -111,12 +112,12 @@ func (h *PortalSessionsHandler) List(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
-func (h *PortalSessionsHandler) Get(w http.ResponseWriter, r *http.Request) {
+func (h *AssessmentsHandler) Get(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 	id := chi.URLParam(r, "id")
-	row := h.db.QueryRow(ctx, sessionSelect+" WHERE id = $1", id)
-	s, err := scanSession(row)
+	row := h.db.QueryRow(ctx, assessmentSelect+" WHERE id = $1", id)
+	s, err := scanAssessment(row)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			http.Error(w, "not found", http.StatusNotFound)
@@ -128,10 +129,10 @@ func (h *PortalSessionsHandler) Get(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s)
 }
 
-func (h *PortalSessionsHandler) Create(w http.ResponseWriter, r *http.Request) {
+func (h *AssessmentsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
-	var p portalSession
+	var p assessment
 	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
 		http.Error(w, "invalid body: "+err.Error(), http.StatusBadRequest)
 		return
@@ -153,17 +154,17 @@ func (h *PortalSessionsHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	_, err := h.db.Exec(ctx, `
 		INSERT INTO portal_sessions (
-			id, respondent_id, respondent_name, respondent_email,
+			id, name, respondent_id, respondent_name, respondent_email,
 			instrument, instrument_full_name, vertical, language,
 			status, score, answers, mqt_scores, demographics,
 			group_id, group_name, consent_id, proctoring, invitation_sent
 		) VALUES (
-			$1, $2, $3, NULLIF($4, ''),
-			$5, NULLIF($6, ''), NULLIF($7, ''), $8,
-			$9, NULLIF($10, ''), $11, $12, $13,
-			NULLIF($14, ''), NULLIF($15, ''), NULLIF($16, ''), $17, $18
+			$1, NULLIF($2, ''), $3, $4, NULLIF($5, ''),
+			$6, NULLIF($7, ''), NULLIF($8, ''), $9,
+			$10, NULLIF($11, ''), $12, $13, $14,
+			NULLIF($15, ''), NULLIF($16, ''), NULLIF($17, ''), $18, $19
 		) ON CONFLICT (id) DO NOTHING`,
-		p.ID, p.RespondentID, p.RespondentName, p.RespondentEmail,
+		p.ID, p.Name, p.RespondentID, p.RespondentName, p.RespondentEmail,
 		p.Instrument, p.InstrumentFullName, p.Vertical, p.Language,
 		p.Status, p.Score, answers, mqts, demo,
 		p.GroupID, p.GroupName, p.ConsentID, p.Proctoring, p.InvitationSent,
@@ -176,10 +177,10 @@ func (h *PortalSessionsHandler) Create(w http.ResponseWriter, r *http.Request) {
 }
 
 type bulkCreateReq struct {
-	Sessions []portalSession `json:"sessions"`
+	Assessments []assessment `json:"assessments"`
 }
 
-func (h *PortalSessionsHandler) BulkCreate(w http.ResponseWriter, r *http.Request) {
+func (h *AssessmentsHandler) BulkCreate(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 	var req bulkCreateReq
@@ -188,7 +189,7 @@ func (h *PortalSessionsHandler) BulkCreate(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	created := 0
-	for _, p := range req.Sessions {
+	for _, p := range req.Assessments {
 		if p.ID == "" || p.RespondentID == "" || p.Instrument == "" {
 			continue
 		}
@@ -203,17 +204,17 @@ func (h *PortalSessionsHandler) BulkCreate(w http.ResponseWriter, r *http.Reques
 		demo, _ := json.Marshal(p.Demographics)
 		_, err := h.db.Exec(ctx, `
 			INSERT INTO portal_sessions (
-				id, respondent_id, respondent_name, respondent_email,
+				id, name, respondent_id, respondent_name, respondent_email,
 				instrument, instrument_full_name, vertical, language,
 				status, score, answers, mqt_scores, demographics,
 				group_id, group_name, consent_id, proctoring, invitation_sent
 			) VALUES (
-				$1, $2, $3, NULLIF($4, ''),
-				$5, NULLIF($6, ''), NULLIF($7, ''), $8,
-				$9, NULLIF($10, ''), $11, $12, $13,
-				NULLIF($14, ''), NULLIF($15, ''), NULLIF($16, ''), $17, $18
+				$1, NULLIF($2, ''), $3, $4, NULLIF($5, ''),
+				$6, NULLIF($7, ''), NULLIF($8, ''), $9,
+				$10, NULLIF($11, ''), $12, $13, $14,
+				NULLIF($15, ''), NULLIF($16, ''), NULLIF($17, ''), $18, $19
 			) ON CONFLICT (id) DO NOTHING`,
-			p.ID, p.RespondentID, p.RespondentName, p.RespondentEmail,
+			p.ID, p.Name, p.RespondentID, p.RespondentName, p.RespondentEmail,
 			p.Instrument, p.InstrumentFullName, p.Vertical, p.Language,
 			p.Status, p.Score, answers, mqts, demo,
 			p.GroupID, p.GroupName, p.ConsentID, p.Proctoring, p.InvitationSent,
@@ -225,11 +226,11 @@ func (h *PortalSessionsHandler) BulkCreate(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusCreated, map[string]int{"created": created})
 }
 
-func (h *PortalSessionsHandler) Update(w http.ResponseWriter, r *http.Request) {
+func (h *AssessmentsHandler) Update(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 	id := chi.URLParam(r, "id")
-	var p portalSession
+	var p assessment
 	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
 		http.Error(w, "invalid body", http.StatusBadRequest)
 		return
@@ -254,15 +255,16 @@ func (h *PortalSessionsHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 	_, err := h.db.Exec(ctx, `
 		UPDATE portal_sessions SET
-			language = COALESCE(NULLIF($2, ''), language),
-			status = COALESCE(NULLIF($3, ''), status),
-			score = $4,
-			answers = CASE WHEN $5::jsonb IS NOT NULL AND $5::jsonb != 'null'::jsonb THEN $5::jsonb ELSE answers END,
-			mqt_scores = CASE WHEN $6::jsonb IS NOT NULL AND $6::jsonb != 'null'::jsonb THEN $6::jsonb ELSE mqt_scores END,
-			demographics = CASE WHEN $7::jsonb IS NOT NULL AND $7::jsonb != 'null'::jsonb THEN $7::jsonb ELSE demographics END,
-			completed_at = COALESCE($8, completed_at)
+			name = COALESCE(NULLIF($2, ''), name),
+			language = COALESCE(NULLIF($3, ''), language),
+			status = COALESCE(NULLIF($4, ''), status),
+			score = $5,
+			answers = CASE WHEN $6::jsonb IS NOT NULL AND $6::jsonb != 'null'::jsonb THEN $6::jsonb ELSE answers END,
+			mqt_scores = CASE WHEN $7::jsonb IS NOT NULL AND $7::jsonb != 'null'::jsonb THEN $7::jsonb ELSE mqt_scores END,
+			demographics = CASE WHEN $8::jsonb IS NOT NULL AND $8::jsonb != 'null'::jsonb THEN $8::jsonb ELSE demographics END,
+			completed_at = COALESCE($9, completed_at)
 		WHERE id = $1`,
-		id, p.Language, p.Status, nullableString(p.Score), answers, mqts, demo, completedAt)
+		id, p.Name, p.Language, p.Status, nullableString(p.Score), answers, mqts, demo, completedAt)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -271,7 +273,7 @@ func (h *PortalSessionsHandler) Update(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, p)
 }
 
-func (h *PortalSessionsHandler) Delete(w http.ResponseWriter, r *http.Request) {
+func (h *AssessmentsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 	id := chi.URLParam(r, "id")

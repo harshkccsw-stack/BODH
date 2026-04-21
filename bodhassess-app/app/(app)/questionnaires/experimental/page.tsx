@@ -137,7 +137,7 @@ export default function ExperimentalInstrumentsPage() {
           <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
             <span>BodhAssess</span>
             <span>/</span>
-            <span>Instruments</span>
+            <span>Questionnaires</span>
             <span>/</span>
             <span className="text-foreground font-medium">Experimental Paradigms</span>
           </div>

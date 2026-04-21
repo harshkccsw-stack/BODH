@@ -69,11 +69,11 @@ export default function PortalCompletePage() {
             {session && (
               <div className="rounded-xl border border-border bg-muted/40 px-4 py-3 text-left text-sm space-y-2">
                 <div className="flex items-start justify-between gap-3">
-                  <span className="text-muted-foreground text-xs uppercase tracking-wider">Assessment</span>
+                  <span className="text-muted-foreground text-xs uppercase tracking-wider">Questionnaire</span>
                   <span className="font-medium text-right break-words max-w-[65%]">{session.instrumentFullName || session.instrument}</span>
                 </div>
                 <div className="flex items-center justify-between gap-3 border-t border-border/60 pt-2">
-                  <span className="text-muted-foreground text-xs uppercase tracking-wider">Session</span>
+                  <span className="text-muted-foreground text-xs uppercase tracking-wider">Assessment</span>
                   <span className="font-mono text-xs">{session.id}</span>
                 </div>
                 {session.completedAt && (

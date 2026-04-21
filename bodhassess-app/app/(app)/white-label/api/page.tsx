@@ -12,7 +12,7 @@ const apiKeys = [
 
 const stats = [
   { label: 'Requests Today', value: '2,847', icon: Activity, change: '+12% from yesterday' },
-  { label: 'Proctoring Sessions', value: '156', icon: Shield, change: '23 active now' },
+  { label: 'Proctoring Assessments', value: '156', icon: Shield, change: '23 active now' },
   { label: 'Avg Response Time', value: '142ms', icon: Clock, change: '-8ms from last week' },
 ];
 

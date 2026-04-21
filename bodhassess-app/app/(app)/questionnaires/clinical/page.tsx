@@ -230,13 +230,13 @@ export default function ClinicalInstrumentsPage() {
           <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
             <span>BodhAssess</span>
             <span>/</span>
-            <span>Instruments</span>
+            <span>Questionnaires</span>
             <span>/</span>
             <span className="text-foreground font-medium">Clinical</span>
           </div>
           <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
             <Stethoscope className="h-6 w-6 text-primary" />
-            Clinical Instruments
+            Clinical Questionnaires
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
             Standardised screening and assessment tools for clinical psychology practice with Indian norms.
@@ -251,7 +251,7 @@ export default function ClinicalInstrumentsPage() {
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
         {[
-          { label: 'Clinical Instruments', value: '8', icon: ListChecks, change: 'Screening & assessment' },
+          { label: 'Clinical Questionnaires', value: '8', icon: ListChecks, change: 'Screening & assessment' },
           { label: 'With Indian Norms', value: '6', icon: Globe, change: '2 in progress / licensed' },
           { label: 'Languages Covered', value: '7', icon: Brain, change: 'EN, HI, TA, BN, MR, KN, TE' },
           { label: 'Risk-Flag Items', value: '4', icon: AlertTriangle, change: 'PHQ-9 Item 9, PCL-5 items' },
@@ -286,7 +286,7 @@ export default function ClinicalInstrumentsPage() {
           type="text"
           autoComplete="off"
           spellCheck={false}
-          placeholder="Search clinical instruments..."
+          placeholder="Search clinical questionnaires..."
           value={search}
           onChange={(e) => setSearch(e.currentTarget.value)}
           onInput={(e) => setSearch((e.currentTarget as HTMLInputElement).value)}
@@ -300,7 +300,7 @@ export default function ClinicalInstrumentsPage() {
       </div>
 
       <p className="text-xs text-muted-foreground">
-        Showing {filtered.length} clinical instrument{filtered.length !== 1 ? 's' : ''}
+        Showing {filtered.length} clinical questionnaire{filtered.length !== 1 ? 's' : ''}
       </p>
 
       {/* Instrument Grid */}
@@ -308,7 +308,7 @@ export default function ClinicalInstrumentsPage() {
         <Card>
           <CardContent className="p-10 text-center">
             <Stethoscope className="h-10 w-10 text-muted-foreground/40 mx-auto mb-3" />
-            <p className="text-sm font-medium">No instruments found</p>
+            <p className="text-sm font-medium">No questionnaires found</p>
             <p className="text-xs text-muted-foreground mt-1">
               Try adjusting your search query.
             </p>
@@ -377,10 +377,10 @@ export default function ClinicalInstrumentsPage() {
                       variant="primary"
                       size="sm"
                       className="flex-1"
-                      onClick={() => window.location.href = `/sessions/create?instrument=${encodeURIComponent(inst.shortName || inst.name)}`}
+                      onClick={() => window.location.href = `/assessments/create?instrument=${encodeURIComponent(inst.shortName || inst.name)}`}
                     >
                       <Play className="h-3.5 w-3.5" />
-                      Start Session
+                      Allot Assessment
                     </Button>
                     <Button variant="outline" size="sm" onClick={() => openEdit(inst)}>
                       <Pencil className="h-3.5 w-3.5" />
@@ -398,7 +398,7 @@ export default function ClinicalInstrumentsPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={() => setEditing(null)}>
           <Card className="w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
             <CardHeader className="flex flex-row items-center justify-between pb-3">
-              <CardTitle className="text-base">Edit Instrument</CardTitle>
+              <CardTitle className="text-base">Edit Questionnaire</CardTitle>
               <button onClick={() => setEditing(null)} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
             </CardHeader>
             <CardContent className="space-y-4">

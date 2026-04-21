@@ -266,7 +266,7 @@ export default function GroupsPage() {
                 {directMembers} direct member{directMembers !== 1 ? 's' : ''}
                 {totalMembers !== directMembers && ` · ${totalMembers} total`}
                 {kids.length > 0 && ` · ${kids.length} subgroup${kids.length !== 1 ? 's' : ''}`}
-                {(g.assignedInstruments?.length || 0) > 0 && ` · ${g.assignedInstruments!.length} instrument${g.assignedInstruments!.length !== 1 ? 's' : ''}`}
+                {(g.assignedInstruments?.length || 0) > 0 && ` · ${g.assignedInstruments!.length} questionnaire${g.assignedInstruments!.length !== 1 ? 's' : ''}`}
               </p>
             </div>
             <div className="shrink-0 flex items-center gap-1">
@@ -479,7 +479,7 @@ export default function GroupsPage() {
             <Card className="w-full max-w-xl max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
               <CardHeader className="flex flex-row items-center justify-between pb-3 shrink-0">
                 <div>
-                  <CardTitle className="text-base">Assign Instruments — {g?.name}</CardTitle>
+                  <CardTitle className="text-base">Assign Questionnaires — {g?.name}</CardTitle>
                   <p className="text-xs text-muted-foreground mt-1">
                     {targetMemberIds.length} respondent{targetMemberIds.length !== 1 ? 's' : ''} in this group (incl. subgroups)
                   </p>
@@ -532,12 +532,12 @@ export default function GroupsPage() {
                 </div>
                 <div className="flex items-center justify-between shrink-0 pt-1">
                   <p className="text-xs text-muted-foreground">
-                    {instrumentPicked.size} instrument{instrumentPicked.size !== 1 ? 's' : ''} selected — {instrumentPicked.size * targetMemberIds.length} session{instrumentPicked.size * targetMemberIds.length !== 1 ? 's' : ''} will be created
+                    {instrumentPicked.size} questionnaire{instrumentPicked.size !== 1 ? 's' : ''} selected — {instrumentPicked.size * targetMemberIds.length} assessment{instrumentPicked.size * targetMemberIds.length !== 1 ? 's' : ''} will be created
                   </p>
                   <div className="flex gap-2">
                     <Button variant="outline" onClick={() => setAssignTargetId(null)}>Close</Button>
                     <Button variant="primary" onClick={submitAssign} disabled={instrumentPicked.size === 0 || targetMemberIds.length === 0}>
-                      <ClipboardCheck className="h-3.5 w-3.5" /> Create Sessions
+                      <ClipboardCheck className="h-3.5 w-3.5" /> Create Assessments
                     </Button>
                   </div>
                 </div>

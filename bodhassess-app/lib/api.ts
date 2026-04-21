@@ -36,10 +36,14 @@ export interface Respondent {
   id: string;
   name: string;
   email: string;
+  phone?: string;
   dob?: string;
   consent?: 'Granted' | 'Withdrawn' | 'Pending' | string;
   sessions_count?: number;
   last_assessment?: string;
+  accountType?: 'individual' | 'organization' | string;
+  orgName?: string;
+  orgWebsite?: string;
 }
 export interface LoginResponse {
   token: string;
@@ -234,7 +238,7 @@ export interface Instrument {
 }
 export async function getInstruments(vertical?: string): Promise<Instrument[]> {
   const qs = vertical ? `?vertical=${encodeURIComponent(vertical)}` : '';
-  const list = await jsonFetch<Instrument[] | { data?: Instrument[] }>(`/instruments${qs}`);
+  const list = await jsonFetch<Instrument[] | { data?: Instrument[] }>(`/questionnaires-catalog${qs}`);
   // The older Go handler returns a plain array; tolerate either shape.
   return Array.isArray(list) ? list : (list?.data || []);
 }
@@ -255,9 +259,10 @@ export interface Session {
   instrument_name: string | null;
 }
 
-// ---------- Portal Sessions (simple frontend-shape) ----------
-export interface PortalSession {
+// ---------- Assessments (simple frontend-shape) ----------
+export interface Assessment {
   id: string;
+  name?: string;
   respondentId: string;
   respondent: string;
   respondentEmail?: string;
@@ -277,17 +282,22 @@ export interface PortalSession {
   createdAt?: string;
   completedAt?: string;
 }
-export const portalSessionsApi = {
+// Backwards-compatible alias so existing imports keep working.
+export type PortalSession = Assessment;
+
+export const assessmentsApi = {
   list: (respondentId?: string) => {
     const qs = respondentId ? `?respondentId=${encodeURIComponent(respondentId)}` : '';
-    return jsonFetch<PortalSession[]>(`/portal-sessions${qs}`);
+    return jsonFetch<Assessment[]>(`/assessments${qs}`);
   },
-  get: (id: string) => jsonFetch<PortalSession>(`/portal-sessions/${encodeURIComponent(id)}`),
-  create: (s: PortalSession) => jsonFetch<PortalSession>('/portal-sessions', { method: 'POST', body: JSON.stringify(s) }),
-  bulk: (sessions: PortalSession[]) => jsonFetch<{ created: number }>('/portal-sessions/bulk', { method: 'POST', body: JSON.stringify({ sessions }) }),
-  update: (id: string, s: Partial<PortalSession>) => jsonFetch<PortalSession>(`/portal-sessions/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(s) }),
-  delete: (id: string) => jsonFetch<null>(`/portal-sessions/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  get: (id: string) => jsonFetch<Assessment>(`/assessments/${encodeURIComponent(id)}`),
+  create: (s: Assessment) => jsonFetch<Assessment>('/assessments', { method: 'POST', body: JSON.stringify(s) }),
+  bulk: (assessments: Assessment[]) => jsonFetch<{ created: number }>('/assessments/bulk', { method: 'POST', body: JSON.stringify({ assessments }) }),
+  update: (id: string, s: Partial<Assessment>) => jsonFetch<Assessment>(`/assessments/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(s) }),
+  delete: (id: string) => jsonFetch<null>(`/assessments/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 };
+// Backwards-compatible alias.
+export const portalSessionsApi = assessmentsApi;
 
 // ---------- Verticals ----------
 export interface Vertical {
