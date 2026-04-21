@@ -26,9 +26,7 @@ import {
   Youtube,
 } from 'lucide-react';
 import { getMQs, getInstruments, getVerticals, BUILT_IN_VERTICALS, type MQ as StoredMQ, type StoredInstrument, type Vertical as StoredVertical } from '@/lib/data-store';
-import { demographicFieldsApi, type DemographicField } from '@/lib/api';
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api/v1';
+import { demographicFieldsApi, API_BASE, type DemographicField } from '@/lib/api';
 
 // --- Types ---
 

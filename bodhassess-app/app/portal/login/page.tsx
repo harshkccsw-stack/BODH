@@ -5,8 +5,9 @@ import { Brain, LogIn, AlertTriangle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { respondentsApi } from '@/lib/api';
+import { config } from '@/lib/config';
 
-const AUTH_KEY = 'bodhassess.auth.token';
+const AUTH_KEY = config.authStorageKey;
 
 export default function PortalLoginPage() {
   const [loginId, setLoginId] = useState('');

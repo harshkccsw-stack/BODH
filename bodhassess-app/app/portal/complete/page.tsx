@@ -6,8 +6,9 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 
 import { portalSessionsApi, respondentsApi, type PortalSession } from '@/lib/api';
+import { config } from '@/lib/config';
 
-const AUTH_KEY = 'bodhassess.auth.token';
+const AUTH_KEY = config.authStorageKey;
 
 export default function PortalCompletePage() {
   const [respondentName, setRespondentName] = useState('');
