@@ -249,7 +249,7 @@ export interface Assessment {
   language?: string;
   status: string;
   score?: string;
-  answers?: Record<string, number>;
+  answers?: Record<string, number | string>;
   mqtScores?: Record<string, number>;
   groupId?: string;
   groupName?: string;

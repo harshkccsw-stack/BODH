@@ -1311,7 +1311,7 @@ export default function CreateAssessmentPage() {
                                   <div className="min-w-0">
                                     <p className={cn('font-medium truncate', selected && 'text-primary')}>{v.name}</p>
                                     <p className="text-[0.6875rem] text-muted-foreground truncate font-mono">
-                                      {v.code}{v.isBuiltIn ? ' · built-in' : ''}
+                                      {v.code}{BUILT_IN_VERTICALS.some((b) => b.code === v.code) ? ' · built-in' : ''}
                                     </p>
                                   </div>
                                   {selected && <Check className="h-3.5 w-3.5 text-primary shrink-0" />}

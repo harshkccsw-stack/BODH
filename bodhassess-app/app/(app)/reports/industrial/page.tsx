@@ -284,7 +284,7 @@ export default function IndustrialReportsPage() {
 
   const allReports = useMemo(() => {
     const seen = new Set(liveReports.map((r) => r.sessionId));
-    const seedTail = allReports.filter((r) => !seen.has(r.sessionId));
+    const seedTail = mockReports.filter((r) => !seen.has(r.sessionId));
     return [...liveReports, ...seedTail];
   }, [liveReports]);
 
