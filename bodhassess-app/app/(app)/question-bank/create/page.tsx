@@ -66,6 +66,8 @@ interface Question {
   options: QuestionOption[];
   clinical_risk_flag: boolean;
   risk_flag_rule: string;
+  sectionId?: string;
+  sectionTitle?: string;
 }
 
 const FORMATS = ['MCQ', 'RATING_SCALE', 'LIKERT', 'SJT', 'FREE_TEXT', 'IMAGE_CHOICE', 'RANKING', 'MATRIX'];
@@ -211,6 +213,8 @@ export default function CreateAssessmentPage() {
   const [instLanguages, setInstLanguages] = useState<string[]>(['en']);
   const [instIsAdaptive, setInstIsAdaptive] = useState(false);
   const [instIsFixed, setInstIsFixed] = useState(true);
+  const [useSections, setUseSections] = useState(false);
+  const [sections, setSections] = useState<Array<{ id: string; title: string }>>([]);
 
   // Measured Qualities are managed on the /qualities page. Every defined MQ
   // and its MQTs are made available here automatically — no per-assessment
@@ -261,7 +265,7 @@ export default function CreateAssessmentPage() {
         if (Array.isArray(match.languages)) setInstLanguages(match.languages);
         setInstrumentId(match.id || crypto.randomUUID());
         if (Array.isArray(match.questions)) {
-          setQuestions(match.questions.map((q: any) => ({
+          const loaded = match.questions.map((q: any) => ({
             id: q.id || crypto.randomUUID(),
             stem: String(q.stem || ''),
             format: String(q.format || 'MCQ'),
@@ -277,7 +281,24 @@ export default function CreateAssessmentPage() {
               : [],
             clinical_risk_flag: !!q.clinical_risk_flag,
             risk_flag_rule: String(q.risk_flag_rule || ''),
-          })));
+            sectionId: q.sectionId || undefined,
+            sectionTitle: q.sectionTitle || undefined,
+          }));
+          setQuestions(loaded);
+          // Rebuild sections state from the loaded questions, preserving order.
+          const seen = new Map<string, string>();
+          const order: string[] = [];
+          loaded.forEach((q: Question) => {
+            if (!q.sectionId) return;
+            if (!seen.has(q.sectionId)) {
+              seen.set(q.sectionId, q.sectionTitle || '');
+              order.push(q.sectionId);
+            }
+          });
+          if (order.length > 0) {
+            setSections(order.map((id) => ({ id, title: seen.get(id) || '' })));
+            setUseSections(true);
+          }
         }
         setEditMode(true);
         setStep(2);
@@ -463,11 +484,263 @@ export default function CreateAssessmentPage() {
     setImportOpen(false);
   };
 
+  // ---- Bulk import from CSV / XLSX ----
+  // Expected columns (case-insensitive):
+  //   stem (required), format, section, risk_flag, risk_rule,
+  //   option1..option8
+  //   option1_mq, option1_mqt, option1_score ... (per option)
+  // MQ/MQT names are resolved against the catalog; missing ones are
+  // created in the database on import.
+  interface ParsedOption {
+    text: string;
+    mq: string;
+    mqt: string;
+    score: number | null;
+  }
+  interface ParsedRow {
+    stem: string;
+    format: string;
+    section: string;
+    risk_flag: boolean;
+    risk_rule: string;
+    options: ParsedOption[];
+    errors: string[];
+  }
+
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkFileName, setBulkFileName] = useState('');
+  const [bulkRows, setBulkRows] = useState<ParsedRow[]>([]);
+  const [bulkError, setBulkError] = useState('');
+  const [bulkParsing, setBulkParsing] = useState(false);
+  const [bulkImporting, setBulkImporting] = useState(false);
+
+  const openBulkImport = () => {
+    setBulkFileName('');
+    setBulkRows([]);
+    setBulkError('');
+    setBulkOpen(true);
+  };
+
+  const parseBulkFile = async (file: File) => {
+    setBulkParsing(true);
+    setBulkError('');
+    try {
+      const XLSX = await import('xlsx');
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: 'array' });
+      const firstSheet = wb.Sheets[wb.SheetNames[0]];
+      if (!firstSheet) throw new Error('The file has no sheets.');
+      const raw: Record<string, any>[] = XLSX.utils.sheet_to_json(firstSheet, { defval: '', raw: false });
+      if (raw.length === 0) throw new Error('No rows found in the first sheet.');
+
+      const rows = raw.map((row) => {
+        const norm: Record<string, any> = {};
+        Object.entries(row).forEach(([k, v]) => {
+          norm[String(k).trim().toLowerCase()] = typeof v === 'string' ? v.trim() : v;
+        });
+        return norm;
+      });
+
+      const parsed: ParsedRow[] = rows.map((row) => {
+        const errors: string[] = [];
+        const stem = String(row.stem ?? row.question ?? row.text ?? '').trim();
+        if (!stem) errors.push('stem is empty');
+        const formatRaw = String(row.format ?? 'MCQ').toUpperCase().trim();
+        const format = FORMATS.includes(formatRaw) ? formatRaw : 'MCQ';
+        const section = String(row.section ?? row.section_title ?? '').trim();
+        const riskFlagRaw = String(row.risk_flag ?? row.clinical_risk_flag ?? '').toLowerCase().trim();
+        const risk_flag = ['1', 'true', 'yes', 'y'].includes(riskFlagRaw);
+        const risk_rule = String(row.risk_rule ?? row.risk_flag_rule ?? '').trim();
+        const options: ParsedOption[] = [];
+        for (let n = 1; n <= 8; n++) {
+          const text = String(row[`option${n}`] ?? '').trim();
+          const mq = String(row[`option${n}_mq`] ?? '').trim();
+          const mqt = String(row[`option${n}_mqt`] ?? '').trim();
+          const scoreRaw = row[`option${n}_score`];
+          const scoreStr = scoreRaw === '' || scoreRaw === undefined || scoreRaw === null ? '' : String(scoreRaw).trim();
+          const score = scoreStr === '' ? null : Number(scoreStr);
+          if (!text) continue;
+          if ((mq && !mqt) || (!mq && mqt)) {
+            errors.push(`option${n}: provide both MQ and MQT (or neither)`);
+          }
+          options.push({ text, mq, mqt, score: Number.isFinite(score as number) ? (score as number) : null });
+        }
+        if (format !== 'FREE_TEXT' && options.length < 2) {
+          errors.push(`format ${format} needs at least 2 options`);
+        }
+        return { stem, format, section, risk_flag, risk_rule, options, errors };
+      });
+
+      setBulkRows(parsed);
+      setBulkFileName(file.name);
+    } catch (e: any) {
+      setBulkError(e?.message || 'Failed to parse file.');
+    } finally {
+      setBulkParsing(false);
+    }
+  };
+
+  // Collect every distinct (MQ name, MQT name) pair from valid rows.
+  const bulkPendingPairs = useMemo(() => {
+    const pairs = new Map<string, { mq: string; mqt: string; isNew: boolean }>();
+    bulkRows
+      .filter((r) => r.errors.length === 0)
+      .forEach((r) => {
+        r.options.forEach((o) => {
+          if (!o.mq || !o.mqt) return;
+          const key = `${o.mq.toLowerCase()}|${o.mqt.toLowerCase()}`;
+          if (pairs.has(key)) return;
+          const existingMq = mqs.find((m) => m.name.toLowerCase() === o.mq.toLowerCase());
+          const existingMqt = existingMq?.mqts.find((t) => t.name.toLowerCase() === o.mqt.toLowerCase());
+          pairs.set(key, { mq: o.mq, mqt: o.mqt, isNew: !existingMqt });
+        });
+      });
+    return Array.from(pairs.values());
+  }, [bulkRows, mqs]);
+
+  const confirmBulkImport = async () => {
+    const valid = bulkRows.filter((r) => r.errors.length === 0);
+    if (valid.length === 0) { setBulkError('No valid rows to import.'); return; }
+    setBulkImporting(true);
+    setBulkError('');
+    try {
+      // Resolve / create MQs and MQTs against the database before building questions.
+      // Working copy of the catalog that we mutate as we create things so later
+      // pairs can find them without another API round-trip.
+      let catalogCopy: StoredMQ[] = catalog.map((m) => ({ ...m, mqts: m.mqts.map((t) => ({ ...t })) }));
+      const findMq = (name: string) => catalogCopy.find((m) => m.name.toLowerCase() === name.toLowerCase());
+      const findMqt = (mq: StoredMQ, name: string) => mq.mqts.find((t) => t.name.toLowerCase() === name.toLowerCase());
+
+      // Track resolved mqt_id for each (mq,mqt) key.
+      const resolved = new Map<string, string>();
+      const { qualitiesApi } = await import('@/lib/api');
+
+      for (const pair of bulkPendingPairs) {
+        const key = `${pair.mq.toLowerCase()}|${pair.mqt.toLowerCase()}`;
+        let mq = findMq(pair.mq);
+        if (!mq) {
+          const newMqtId = `mqt-${Math.random().toString(36).slice(2, 10)}`;
+          const newMq: StoredMQ = {
+            id: `mq-${Math.random().toString(36).slice(2, 10)}`,
+            name: pair.mq,
+            mqts: [{ id: newMqtId, name: pair.mqt }],
+          };
+          await qualitiesApi.create(newMq as any);
+          catalogCopy = [...catalogCopy, newMq];
+          resolved.set(key, newMqtId);
+          continue;
+        }
+        let mqt = findMqt(mq, pair.mqt);
+        if (!mqt) {
+          const newMqtId = `mqt-${Math.random().toString(36).slice(2, 10)}`;
+          mqt = { id: newMqtId, name: pair.mqt };
+          const updated: StoredMQ = { ...mq, mqts: [...mq.mqts, mqt] };
+          await qualitiesApi.update(mq.id, { mqts: updated.mqts } as any);
+          catalogCopy = catalogCopy.map((m) => (m.id === mq!.id ? updated : m));
+        }
+        resolved.set(key, mqt.id);
+      }
+      // Push the updated catalog into state so downstream code (MQT pickers,
+      // upsert payload) sees the newly-created MQs/MQTs without a round-trip.
+      setCatalog(catalogCopy);
+
+      // Sections (created on-the-fly when sections mode is on).
+      const nextSections = [...sections];
+      const sectionIdByTitle = new Map<string, string>();
+      nextSections.forEach((s) => sectionIdByTitle.set(s.title.toLowerCase(), s.id));
+
+      // Fallback: if a row has a score but no MQ/MQT, we default to the first
+      // MQT in the resolved catalog so the score isn't silently dropped.
+      const firstMqtInCatalog = catalogCopy[0]?.mqts[0];
+
+      const newQuestions: Question[] = valid.map((r) => {
+        let sectionId: string | undefined;
+        let sectionTitle: string | undefined;
+        if (useSections && r.section) {
+          const sKey = r.section.toLowerCase();
+          let id = sectionIdByTitle.get(sKey);
+          if (!id) {
+            id = `sec-${Math.random().toString(36).slice(2, 8)}`;
+            sectionIdByTitle.set(sKey, id);
+            nextSections.push({ id, title: r.section });
+          }
+          sectionId = id;
+          sectionTitle = nextSections.find((s) => s.id === id)?.title;
+        }
+        return {
+          id: crypto.randomUUID(),
+          stem: r.stem,
+          format: r.format,
+          media_url: '',
+          media_type: 'none',
+          options: r.options.map((o) => {
+            const scores: Array<{ mqt_id: string; score: number }> = [];
+            if (o.mq && o.mqt && o.score !== null) {
+              const key = `${o.mq.toLowerCase()}|${o.mqt.toLowerCase()}`;
+              const mqtId = resolved.get(key);
+              if (mqtId) scores.push({ mqt_id: mqtId, score: o.score });
+            } else if (!o.mq && !o.mqt && o.score !== null && firstMqtInCatalog) {
+              scores.push({ mqt_id: firstMqtInCatalog.id, score: o.score });
+            }
+            return { text: o.text, scores };
+          }),
+          clinical_risk_flag: r.risk_flag,
+          risk_flag_rule: r.risk_rule,
+          sectionId,
+          sectionTitle,
+        };
+      });
+
+      if (nextSections.length !== sections.length) setSections(nextSections);
+      setQuestions((prev) => [...prev, ...newQuestions]);
+      setBulkOpen(false);
+    } catch (e: any) {
+      setBulkError(`Import failed: ${e?.message || 'unknown error'}. Some MQs/MQTs may not have been created.`);
+    } finally {
+      setBulkImporting(false);
+    }
+  };
+
+  const downloadBulkTemplate = () => {
+    const header = [
+      'stem', 'format', 'section', 'risk_flag', 'risk_rule',
+      'option1', 'option1_mq', 'option1_mqt', 'option1_score',
+      'option2', 'option2_mq', 'option2_mqt', 'option2_score',
+      'option3', 'option3_mq', 'option3_mqt', 'option3_score',
+      'option4', 'option4_mq', 'option4_mqt', 'option4_score',
+    ];
+    const sample = [
+      ['How often do you feel overwhelmed by work?', 'LIKERT', 'Stress', 'false', '',
+        'Never',      'Wellbeing', 'Stress Level', '0',
+        'Sometimes',  'Wellbeing', 'Stress Level', '1',
+        'Often',      'Wellbeing', 'Stress Level', '2',
+        'Always',     'Wellbeing', 'Stress Level', '3'],
+      ['I find it easy to focus for long periods.', 'LIKERT', 'Focus', 'false', '',
+        'Strongly disagree', 'Cognitive', 'Attention', '0',
+        'Disagree',          'Cognitive', 'Attention', '1',
+        'Agree',             'Cognitive', 'Attention', '2',
+        'Strongly agree',    'Cognitive', 'Attention', '3'],
+    ];
+    const csv = [header, ...sample]
+      .map((row) => row.map((cell) => {
+        const s = String(cell);
+        return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+      }).join(','))
+      .join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'questionnaire-template.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   // ---- Question handlers ----
 
-  const addQuestion = () => {
-    setQuestions([
-      ...questions,
+  const addQuestion = (sectionId?: string, sectionTitle?: string) => {
+    setQuestions((prev) => [
+      ...prev,
       {
         id: crypto.randomUUID(),
         stem: '',
@@ -482,8 +755,230 @@ export default function CreateAssessmentPage() {
         ],
         clinical_risk_flag: false,
         risk_flag_rule: '',
+        sectionId,
+        sectionTitle,
       },
     ]);
+  };
+
+  const addSection = () => {
+    const id = `sec-${Math.random().toString(36).slice(2, 8)}`;
+    const title = `Section ${sections.length + 1}`;
+    setSections((prev) => [...prev, { id, title }]);
+  };
+
+  const renameSection = (sectionId: string, title: string) => {
+    setSections((prev) => prev.map((s) => s.id === sectionId ? { ...s, title } : s));
+    // Keep the denormalized title on each question in sync, so it persists through save.
+    setQuestions((prev) => prev.map((q) => q.sectionId === sectionId ? { ...q, sectionTitle: title } : q));
+  };
+
+  const deleteSection = (sectionId: string) => {
+    if (!confirm('Remove this section and all questions in it?')) return;
+    setSections((prev) => prev.filter((s) => s.id !== sectionId));
+    setQuestions((prev) => prev.filter((q) => q.sectionId !== sectionId));
+  };
+
+  const moveQuestionToSection = (qId: string, sectionId?: string) => {
+    const title = sectionId ? (sections.find((s) => s.id === sectionId)?.title || '') : undefined;
+    setQuestions((prev) => prev.map((q) => q.id === qId ? { ...q, sectionId, sectionTitle: sectionId ? title : undefined } : q));
+  };
+
+  // renderQuestionCard is reused by both the flat list and the per-section groups.
+  const renderQuestionCard = (q: Question, idx: number) => {
+    const dupes = duplicateMqtsForQuestion(q);
+    const dupKey = (mqtId: string, score: number) => dupes.some((d) => d.mqtId === mqtId && d.score === score);
+    return (
+      <Card key={q.id} className={cn(dupes.length > 0 && 'border-red-300')}>
+        <CardContent className="p-5 space-y-4">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <GripVertical className="h-4 w-4 text-muted-foreground cursor-grab" />
+              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-primary text-xs font-semibold">{idx + 1}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              {useSections && sections.length > 0 && (
+                <select
+                  value={q.sectionId || ''}
+                  onChange={(e) => moveQuestionToSection(q.id, e.target.value || undefined)}
+                  className="rounded-lg border border-border bg-background px-2 py-1.5 text-xs outline-none focus:border-primary"
+                  title="Section"
+                >
+                  <option value="">— No section —</option>
+                  {sections.map((s) => (
+                    <option key={s.id} value={s.id}>{s.title || 'Untitled section'}</option>
+                  ))}
+                </select>
+              )}
+              <select value={q.format} onChange={(e) => updateQuestion(q.id, { format: e.target.value })} className="rounded-lg border border-border bg-background px-2 py-1.5 text-xs outline-none focus:border-primary">
+                {FORMATS.map((f) => <option key={f} value={f}>{f}</option>)}
+              </select>
+              <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <input type="checkbox" checked={q.clinical_risk_flag} onChange={(e) => updateQuestion(q.id, { clinical_risk_flag: e.target.checked })} className="rounded" />
+                <AlertTriangle className="h-3 w-3 text-red-500" /> Risk flag
+              </label>
+              <button onClick={() => removeQuestion(q.id)} className="text-muted-foreground hover:text-red-500"><Trash2 className="h-4 w-4" /></button>
+            </div>
+          </div>
+
+          <textarea
+            value={q.stem}
+            onChange={(e) => updateQuestion(q.id, { stem: e.target.value })}
+            placeholder={`Question ${idx + 1}: Enter question text...`}
+            rows={2}
+            className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+          />
+
+          <div>
+            <p className="text-xs font-medium text-muted-foreground mb-1.5">Question Media (optional)</p>
+            <MediaPicker
+              url={q.media_url}
+              type={q.media_type}
+              onChange={(url, type) => updateQuestion(q.id, { media_url: url, media_type: type })}
+            />
+          </div>
+
+          {q.clinical_risk_flag && (
+            <input
+              value={q.risk_flag_rule}
+              onChange={(e) => updateQuestion(q.id, { risk_flag_rule: e.target.value })}
+              placeholder="Risk rule (e.g., value >= 2 triggers suicidality alert)"
+              className="w-full rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/20 px-3 py-2 text-xs outline-none focus:border-red-500"
+            />
+          )}
+
+          {dupes.length > 0 && (
+            <div className="flex items-start gap-2 rounded-lg border border-red-300 bg-red-50 dark:bg-red-950/30 px-3 py-2 text-xs text-red-700 dark:text-red-400">
+              <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+              <span>
+                Two or more options share the same score for:{' '}
+                {dupes.map((d, i) => (
+                  <span key={`${d.mqtId}-${d.score}`}>
+                    <strong>{mqtIndex[d.mqtId]?.mqt.name}</strong> = {d.score}
+                    {i < dupes.length - 1 ? ', ' : ''}
+                  </span>
+                ))}
+                . Scores must be unique per MQT within a question.
+              </span>
+            </div>
+          )}
+
+          {['MCQ', 'RATING_SCALE', 'LIKERT', 'SJT', 'IMAGE_CHOICE'].includes(q.format) && (
+            <div className="space-y-3">
+              <p className="text-xs font-medium text-muted-foreground">
+                Answer Options &mdash; check MQTs this option maps to and assign a score. No two options may share a score for the same MQT.
+              </p>
+              {q.options.map((opt, oi) => (
+                <div key={oi} className="rounded-lg border border-border p-3 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground w-6 text-right">{oi + 1}.</span>
+                    <input
+                      value={opt.text}
+                      onChange={(e) => updateOption(q.id, oi, { text: e.target.value })}
+                      placeholder={`Option ${oi + 1}`}
+                      className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary"
+                    />
+                    {q.options.length > 2 && (
+                      <button onClick={() => removeOption(q.id, oi)} className="text-muted-foreground hover:text-red-500">
+                        <X className="h-3 w-3" />
+                      </button>
+                    )}
+                  </div>
+
+                  {allMqts.length > 0 && (
+                    <div className="rounded-md bg-muted/40 border border-border px-3 py-2 space-y-2">
+                      <p className="text-[0.6875rem] font-medium text-muted-foreground">Scores per MQT</p>
+                      {opt.scores.length === 0 ? (
+                        <p className="text-[0.6875rem] text-muted-foreground italic">No MQT scores yet — click "+ Add MQT score" below.</p>
+                      ) : (
+                        <div className="space-y-1.5">
+                          {opt.scores.map((sc) => {
+                            const entry = mqtIndex[sc.mqt_id];
+                            const usedIds = new Set(opt.scores.map((s) => s.mqt_id).filter((id) => id !== sc.mqt_id));
+                            const isDup = dupKey(sc.mqt_id, sc.score);
+                            return (
+                              <div key={sc.mqt_id} className="flex items-center gap-2">
+                                <select
+                                  value={sc.mqt_id}
+                                  onChange={(e) => {
+                                    const newId = e.target.value;
+                                    if (newId === sc.mqt_id) return;
+                                    setQuestions((prev) => prev.map((qq) => {
+                                      if (qq.id !== q.id) return qq;
+                                      const opts = [...qq.options];
+                                      opts[oi] = {
+                                        ...opts[oi],
+                                        scores: opts[oi].scores.map((s) => s.mqt_id === sc.mqt_id ? { ...s, mqt_id: newId } : s),
+                                      };
+                                      return { ...qq, options: opts };
+                                    }));
+                                  }}
+                                  className="flex-1 min-w-0 rounded-md border border-border bg-background px-2 py-1 text-xs outline-none focus:border-primary"
+                                >
+                                  {!entry && <option value={sc.mqt_id}>(missing MQT)</option>}
+                                  {allMqts.map(({ mqt, mq }) => (
+                                    <option key={mqt.id} value={mqt.id} disabled={usedIds.has(mqt.id)}>
+                                      {mq.name}: {mqt.name}{usedIds.has(mqt.id) ? ' (already used)' : ''}
+                                    </option>
+                                  ))}
+                                </select>
+                                <input
+                                  type="number"
+                                  step="1"
+                                  value={sc.score}
+                                  onChange={(e) => setOptionMqtScore(q.id, oi, sc.mqt_id, Number(e.target.value))}
+                                  className={cn(
+                                    'w-16 shrink-0 rounded-md border bg-background px-2 py-1 text-xs text-center outline-none focus:border-primary',
+                                    isDup ? 'border-red-400 text-red-600' : 'border-border',
+                                  )}
+                                  title="Score for this MQT"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => toggleOptionMqt(q.id, oi, sc.mqt_id)}
+                                  className="shrink-0 text-muted-foreground hover:text-red-500"
+                                  title="Remove this MQT score"
+                                >
+                                  <X className="h-3 w-3" />
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                      {(() => {
+                        const unusedMqts = allMqts.filter(({ mqt }) => !opt.scores.some((s) => s.mqt_id === mqt.id));
+                        if (unusedMqts.length === 0) return null;
+                        return (
+                          <button
+                            type="button"
+                            onClick={() => toggleOptionMqt(q.id, oi, unusedMqts[0].mqt.id)}
+                            className="text-[0.6875rem] text-primary hover:underline inline-flex items-center gap-1"
+                          >
+                            <Plus className="h-3 w-3" /> Add MQT score
+                          </button>
+                        );
+                      })()}
+                    </div>
+                  )}
+
+                  <div>
+                    <MediaPicker
+                      url={opt.media_url || ''}
+                      type={opt.media_type || 'none'}
+                      onChange={(url, type) => updateOption(q.id, oi, { media_url: url, media_type: type })}
+                    />
+                  </div>
+                </div>
+              ))}
+              <button onClick={() => addOption(q.id)} className="text-xs text-primary hover:underline flex items-center gap-1">
+                <Plus className="h-3 w-3" /> Add option
+              </button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    );
   };
 
   const updateQuestion = (id: string, patch: Partial<Question>) => {
@@ -573,50 +1068,18 @@ export default function CreateAssessmentPage() {
       setError('Name and vertical are required');
       return;
     }
-    // Refresh the catalog on submit so Step 2's MQT scoring picks up any MQs
-    // added on the /qualities page since this tab was opened. No enforcement —
-    // assessments without MQTs are allowed (options simply won't have per-MQT scoring).
+    // Refresh the catalog so Step 2's MQT scoring picks up any new MQs.
     try {
       const freshCatalog = await getMQs();
       if (freshCatalog.length !== catalog.length) setCatalog(freshCatalog);
     } catch {}
-    setSaving(true);
+    // No DB write here — the instrument is only persisted when the user
+    // clicks Publish in Step 2. This avoids leaving orphan rows behind if
+    // the user abandons the flow halfway.
     setError('');
-    const scoring_config = {
-      model: 'MQ_MQT',
-      mqs: mqs.map((m) => ({ id: m.id, name: m.name, mqts: m.mqts.map((t) => ({ id: t.id, name: t.name })) })),
-    };
-    let id: string | null = null;
-    try {
-      const res = await fetch(`${API_BASE}/instruments`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: instName,
-          short_name: instShortName,
-          vertical: instVertical,
-          category: instCategory,
-          description: instDescription,
-          duration_minutes: instDuration,
-          tier_required: instTier,
-          languages: instLanguages,
-          is_adaptive: instIsAdaptive,
-          is_fixed_sequence: instIsFixed,
-          uses_weighted_scoring: true,
-          scoring_config,
-        }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        id = data.id;
-      }
-    } catch {
-      // Backend unavailable — proceed with local-only flow
-    }
-    setInstrumentId(id || crypto.randomUUID());
+    if (!instrumentId) setInstrumentId(crypto.randomUUID());
     setStep(2);
-    setSuccess(`Instrument "${instName}" created. Add questions below.`);
-    setSaving(false);
+    setSuccess('');
   };
 
   const handleSaveQuestions = async () => {
@@ -679,10 +1142,40 @@ export default function CreateAssessmentPage() {
             })),
           clinical_risk_flag: q.clinical_risk_flag,
           risk_flag_rule: q.risk_flag_rule,
+          ...(useSections && q.sectionId ? { sectionId: q.sectionId, sectionTitle: q.sectionTitle || '' } : {}),
         })),
         isDemo: false,
         demographicFieldKeys: demoFieldKeys,
       });
+
+      // Also register the instrument in the /instruments catalog so it
+      // shows up in the Instrument Library. Best-effort — if this fails we
+      // keep the published_questionnaires write.
+      try {
+        const scoring_config = {
+          model: 'MQ_MQT',
+          mqs: mqs.map((m) => ({ id: m.id, name: m.name, mqts: m.mqts.map((t) => ({ id: t.id, name: t.name })) })),
+        };
+        await fetch(`${API_BASE}/instruments`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: instName,
+            short_name: instShortName,
+            vertical: instVertical,
+            category: instCategory,
+            description: instDescription,
+            duration_minutes: instDuration,
+            tier_required: instTier,
+            languages: instLanguages,
+            is_adaptive: instIsAdaptive,
+            is_fixed_sequence: instIsFixed,
+            uses_weighted_scoring: true,
+            scoring_config,
+          }),
+        });
+      } catch {}
+
       setInstrumentId(qid);
       setStep(3);
       setSuccess(
@@ -971,12 +1464,15 @@ export default function CreateAssessmentPage() {
                 </div>
               </div>
 
-              <div className="flex items-center gap-6">
+              <div className="flex items-center gap-6 flex-wrap">
                 <label className="flex items-center gap-2 text-sm">
                   <input type="checkbox" checked={instIsAdaptive} onChange={(e) => setInstIsAdaptive(e.target.checked)} className="rounded" /> Adaptive (CAT)
                 </label>
                 <label className="flex items-center gap-2 text-sm">
                   <input type="checkbox" checked={instIsFixed} onChange={(e) => setInstIsFixed(e.target.checked)} className="rounded" /> Fixed sequence
+                </label>
+                <label className="flex items-center gap-2 text-sm" title="Organize questions into labelled sections (e.g., Part A, Part B)">
+                  <input type="checkbox" checked={useSections} onChange={(e) => setUseSections(e.target.checked)} className="rounded" /> Organize into sections
                 </label>
               </div>
             </CardContent>
@@ -985,7 +1481,7 @@ export default function CreateAssessmentPage() {
 
           <div className="flex justify-end">
             <Button variant="primary" onClick={handleCreateInstrument} disabled={saving}>
-              {saving ? 'Creating...' : 'Continue to Questions'}
+              Continue to Questions
               <ChevronRight className="h-4 w-4" />
             </Button>
           </div>
@@ -1006,212 +1502,127 @@ export default function CreateAssessmentPage() {
               <Button variant="outline" onClick={() => { setStep(1); setError(''); }}>
                 <ChevronLeft className="h-4 w-4" /> Previous Step
               </Button>
-              <Button variant="outline" onClick={openImport}><Copy className="h-4 w-4" /> Copy from Questionnaire</Button>
-              <Button variant="outline" onClick={addQuestion}><Plus className="h-4 w-4" /> Add Question</Button>
-              <Button variant="outline" onClick={openPreview} disabled={questions.length === 0}>
-                <Eye className="h-4 w-4" /> Preview
-              </Button>
               <Button variant="primary" onClick={handleSaveQuestions} disabled={saving || questions.length === 0}>
                 <Save className="h-4 w-4" /> {saving ? (editMode ? 'Saving...' : 'Publishing...') : editMode ? `Save ${questions.length} Questions` : `Publish ${questions.length} Questions`}
               </Button>
             </div>
           </div>
 
-          {questions.length === 0 && (
+          {/* Empty state — varies based on sections mode */}
+          {!useSections && questions.length === 0 && (
             <Card className="border-dashed">
-              <CardContent className="p-12 text-center">
-                <p className="text-muted-foreground mb-4">No questions yet. Click "Add Question" to start.</p>
-                <Button variant="outline" onClick={addQuestion}><Plus className="h-4 w-4" /> Add First Question</Button>
+              <CardContent className="p-12 text-center space-y-4">
+                <p className="text-muted-foreground">No questions yet. Click "Add Question" below to start.</p>
+                <Button variant="outline" onClick={() => addQuestion()}><Plus className="h-4 w-4" /> Add First Question</Button>
+              </CardContent>
+            </Card>
+          )}
+          {useSections && sections.length === 0 && (
+            <Card className="border-dashed">
+              <CardContent className="p-12 text-center space-y-4">
+                <p className="text-muted-foreground">
+                  Sections mode is on. Start by creating a section — you can then add questions inside each section.
+                </p>
+                <Button variant="outline" onClick={addSection}><Layers className="h-4 w-4" /> Add First Section</Button>
               </CardContent>
             </Card>
           )}
 
-          <div className="space-y-4">
-            {questions.map((q, idx) => {
-              const dupes = duplicateMqtsForQuestion(q);
-              const dupKey = (mqtId: string, score: number) => dupes.some((d) => d.mqtId === mqtId && d.score === score);
-              return (
-                <Card key={q.id} className={cn(dupes.length > 0 && 'border-red-300')}>
-                  <CardContent className="p-5 space-y-4">
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="flex items-center gap-3">
-                        <GripVertical className="h-4 w-4 text-muted-foreground cursor-grab" />
-                        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-primary text-xs font-semibold">{idx + 1}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <select value={q.format} onChange={(e) => updateQuestion(q.id, { format: e.target.value })} className="rounded-lg border border-border bg-background px-2 py-1.5 text-xs outline-none focus:border-primary">
-                          {FORMATS.map((f) => <option key={f} value={f}>{f}</option>)}
-                        </select>
-                        <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                          <input type="checkbox" checked={q.clinical_risk_flag} onChange={(e) => updateQuestion(q.id, { clinical_risk_flag: e.target.checked })} className="rounded" />
-                          <AlertTriangle className="h-3 w-3 text-red-500" /> Risk flag
-                        </label>
-                        <button onClick={() => removeQuestion(q.id)} className="text-muted-foreground hover:text-red-500"><Trash2 className="h-4 w-4" /></button>
-                      </div>
-                    </div>
+          {/* Flat rendering — when sections toggle is off */}
+          {!useSections && questions.length > 0 && (
+            <div className="space-y-4">
+              {questions.map((q, idx) => renderQuestionCard(q, idx))}
+            </div>
+          )}
 
-                    <textarea
-                      value={q.stem}
-                      onChange={(e) => updateQuestion(q.id, { stem: e.target.value })}
-                      placeholder={`Question ${idx + 1}: Enter question text...`}
-                      rows={2}
-                      className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-                    />
-
-                    <div>
-                      <p className="text-xs font-medium text-muted-foreground mb-1.5">Question Media (optional)</p>
-                      <MediaPicker
-                        url={q.media_url}
-                        type={q.media_type}
-                        onChange={(url, type) => updateQuestion(q.id, { media_url: url, media_type: type })}
-                      />
-                    </div>
-
-                    {q.clinical_risk_flag && (
+          {/* Grouped rendering — when sections toggle is on */}
+          {useSections && sections.length > 0 && (
+            <div className="space-y-6">
+              {sections.map((section) => {
+                const sectionQuestions = questions.filter((q) => q.sectionId === section.id);
+                return (
+                  <div key={section.id} className="rounded-xl border border-border bg-muted/20">
+                    <div className="flex items-center gap-2 border-b border-border bg-background px-4 py-3 rounded-t-xl">
+                      <Layers className="h-4 w-4 text-primary shrink-0" />
                       <input
-                        value={q.risk_flag_rule}
-                        onChange={(e) => updateQuestion(q.id, { risk_flag_rule: e.target.value })}
-                        placeholder="Risk rule (e.g., value >= 2 triggers suicidality alert)"
-                        className="w-full rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/20 px-3 py-2 text-xs outline-none focus:border-red-500"
+                        value={section.title}
+                        onChange={(e) => renameSection(section.id, e.target.value)}
+                        placeholder="Section title"
+                        className="flex-1 rounded-lg border border-border bg-background px-3 py-1.5 text-sm font-semibold outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
                       />
-                    )}
-
-                    {dupes.length > 0 && (
-                      <div className="flex items-start gap-2 rounded-lg border border-red-300 bg-red-50 dark:bg-red-950/30 px-3 py-2 text-xs text-red-700 dark:text-red-400">
-                        <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                        <span>
-                          Two or more options share the same score for:{' '}
-                          {dupes.map((d, i) => (
-                            <span key={`${d.mqtId}-${d.score}`}>
-                              <strong>{mqtIndex[d.mqtId]?.mqt.name}</strong> = {d.score}
-                              {i < dupes.length - 1 ? ', ' : ''}
-                            </span>
-                          ))}
-                          . Scores must be unique per MQT within a question.
-                        </span>
-                      </div>
-                    )}
-
-                    {['MCQ', 'RATING_SCALE', 'LIKERT', 'SJT', 'IMAGE_CHOICE'].includes(q.format) && (
-                      <div className="space-y-3">
-                        <p className="text-xs font-medium text-muted-foreground">
-                          Answer Options &mdash; check MQTs this option maps to and assign a score. No two options may share a score for the same MQT.
+                      <span className="text-[0.6875rem] text-muted-foreground shrink-0">
+                        {sectionQuestions.length} question{sectionQuestions.length !== 1 ? 's' : ''}
+                      </span>
+                      <button
+                        onClick={() => deleteSection(section.id)}
+                        className="text-muted-foreground hover:text-red-500 shrink-0"
+                        title="Delete section (removes all questions inside)"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                    <div className="p-4 space-y-4">
+                      {sectionQuestions.length === 0 ? (
+                        <p className="text-xs text-muted-foreground italic text-center py-4">
+                          No questions in this section yet.
                         </p>
-                        {q.options.map((opt, oi) => (
-                          <div key={oi} className="rounded-lg border border-border p-3 space-y-3">
-                            <div className="flex items-center gap-2">
-                              <span className="text-xs text-muted-foreground w-6 text-right">{oi + 1}.</span>
-                              <input
-                                value={opt.text}
-                                onChange={(e) => updateOption(q.id, oi, { text: e.target.value })}
-                                placeholder={`Option ${oi + 1}`}
-                                className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary"
-                              />
-                              {q.options.length > 2 && (
-                                <button onClick={() => removeOption(q.id, oi)} className="text-muted-foreground hover:text-red-500">
-                                  <X className="h-3 w-3" />
-                                </button>
-                              )}
-                            </div>
-
-                            {/* MQT scoring for this option — dropdown-based */}
-                            {allMqts.length > 0 && (
-                              <div className="rounded-md bg-muted/40 border border-border px-3 py-2 space-y-2">
-                                <p className="text-[0.6875rem] font-medium text-muted-foreground">Scores per MQT</p>
-                                {opt.scores.length === 0 ? (
-                                  <p className="text-[0.6875rem] text-muted-foreground italic">No MQT scores yet — click "+ Add MQT score" below.</p>
-                                ) : (
-                                  <div className="space-y-1.5">
-                                    {opt.scores.map((sc) => {
-                                      const entry = mqtIndex[sc.mqt_id];
-                                      const usedIds = new Set(opt.scores.map((s) => s.mqt_id).filter((id) => id !== sc.mqt_id));
-                                      const isDup = dupKey(sc.mqt_id, sc.score);
-                                      return (
-                                        <div key={sc.mqt_id} className="flex items-center gap-2">
-                                          <select
-                                            value={sc.mqt_id}
-                                            onChange={(e) => {
-                                              const newId = e.target.value;
-                                              if (newId === sc.mqt_id) return;
-                                              // Swap this score's mqt_id — preserve the numeric score value
-                                              setQuestions((prev) => prev.map((qq) => {
-                                                if (qq.id !== q.id) return qq;
-                                                const opts = [...qq.options];
-                                                opts[oi] = {
-                                                  ...opts[oi],
-                                                  scores: opts[oi].scores.map((s) => s.mqt_id === sc.mqt_id ? { ...s, mqt_id: newId } : s),
-                                                };
-                                                return { ...qq, options: opts };
-                                              }));
-                                            }}
-                                            className="flex-1 min-w-0 rounded-md border border-border bg-background px-2 py-1 text-xs outline-none focus:border-primary"
-                                          >
-                                            {!entry && <option value={sc.mqt_id}>(missing MQT)</option>}
-                                            {allMqts.map(({ mqt, mq }) => (
-                                              <option key={mqt.id} value={mqt.id} disabled={usedIds.has(mqt.id)}>
-                                                {mq.name}: {mqt.name}{usedIds.has(mqt.id) ? ' (already used)' : ''}
-                                              </option>
-                                            ))}
-                                          </select>
-                                          <input
-                                            type="number"
-                                            step="1"
-                                            value={sc.score}
-                                            onChange={(e) => setOptionMqtScore(q.id, oi, sc.mqt_id, Number(e.target.value))}
-                                            className={cn(
-                                              'w-16 shrink-0 rounded-md border bg-background px-2 py-1 text-xs text-center outline-none focus:border-primary',
-                                              isDup ? 'border-red-400 text-red-600' : 'border-border',
-                                            )}
-                                            title="Score for this MQT"
-                                          />
-                                          <button
-                                            type="button"
-                                            onClick={() => toggleOptionMqt(q.id, oi, sc.mqt_id)}
-                                            className="shrink-0 text-muted-foreground hover:text-red-500"
-                                            title="Remove this MQT score"
-                                          >
-                                            <X className="h-3 w-3" />
-                                          </button>
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                )}
-                                {(() => {
-                                  const unusedMqts = allMqts.filter(({ mqt }) => !opt.scores.some((s) => s.mqt_id === mqt.id));
-                                  if (unusedMqts.length === 0) return null;
-                                  return (
-                                    <button
-                                      type="button"
-                                      onClick={() => toggleOptionMqt(q.id, oi, unusedMqts[0].mqt.id)}
-                                      className="text-[0.6875rem] text-primary hover:underline inline-flex items-center gap-1"
-                                    >
-                                      <Plus className="h-3 w-3" /> Add MQT score
-                                    </button>
-                                  );
-                                })()}
-                              </div>
-                            )}
-
-                            {/* Option media */}
-                            <div>
-                              <MediaPicker
-                                url={opt.media_url || ''}
-                                type={opt.media_type || 'none'}
-                                onChange={(url, type) => updateOption(q.id, oi, { media_url: url, media_type: type })}
-                              />
-                            </div>
-                          </div>
-                        ))}
-                        <button onClick={() => addOption(q.id)} className="text-xs text-primary hover:underline flex items-center gap-1">
-                          <Plus className="h-3 w-3" /> Add option
-                        </button>
+                      ) : (
+                        sectionQuestions.map((q) => renderQuestionCard(q, questions.indexOf(q)))
+                      )}
+                      <div className="pt-1">
+                        <Button variant="outline" size="sm" onClick={() => addQuestion(section.id, section.title)}>
+                          <Plus className="h-4 w-4" /> Add Question to this Section
+                        </Button>
                       </div>
-                    )}
-                  </CardContent>
-                </Card>
-              );
-            })}
+                    </div>
+                  </div>
+                );
+              })}
+
+              {/* Ungrouped questions (sectionId not in sections list) */}
+              {(() => {
+                const sectionIds = new Set(sections.map((s) => s.id));
+                const ungrouped = questions.filter((q) => !q.sectionId || !sectionIds.has(q.sectionId));
+                if (ungrouped.length === 0) return null;
+                return (
+                  <div className="rounded-xl border border-dashed border-border bg-muted/10">
+                    <div className="px-4 py-3 border-b border-border text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                      Unassigned ({ungrouped.length})
+                    </div>
+                    <div className="p-4 space-y-4">
+                      {ungrouped.map((q) => renderQuestionCard(q, questions.indexOf(q)))}
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+
+          {/* ===== Bottom toolbar: add/preview/copy (sticky) ===== */}
+          <div className="sticky bottom-4 z-30 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-background/95 backdrop-blur px-4 py-3 shadow-lg mt-6">
+            <div className="flex flex-wrap gap-2">
+              {useSections ? (
+                <Button variant="outline" onClick={addSection}>
+                  <Layers className="h-4 w-4" /> Add Section
+                </Button>
+              ) : (
+                <Button variant="outline" onClick={() => addQuestion()}>
+                  <Plus className="h-4 w-4" /> Add Question
+                </Button>
+              )}
+              <Button variant="outline" onClick={openImport}>
+                <Copy className="h-4 w-4" /> Copy from Questionnaire
+              </Button>
+              <Button variant="outline" onClick={openBulkImport}>
+                <UploadIcon className="h-4 w-4" /> Import CSV/Excel
+              </Button>
+              <Button variant="outline" onClick={openPreview} disabled={questions.length === 0}>
+                <Eye className="h-4 w-4" /> Preview
+              </Button>
+            </div>
+            <Button variant="primary" onClick={handleSaveQuestions} disabled={saving || questions.length === 0}>
+              <Save className="h-4 w-4" /> {saving ? (editMode ? 'Saving...' : 'Publishing...') : editMode ? `Save ${questions.length} Questions` : `Publish ${questions.length} Questions`}
+            </Button>
           </div>
         </>
       )}
@@ -1583,6 +1994,168 @@ export default function CreateAssessmentPage() {
             </div>
           </CardContent>
         </Card>
+      )}
+
+      {/* ===== Bulk import from CSV/XLSX ===== */}
+      {bulkOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={() => setBulkOpen(false)}>
+          <Card className="w-full max-w-3xl max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <CardHeader className="flex flex-row items-center justify-between pb-3 shrink-0">
+              <CardTitle className="text-base">Import Questions from CSV or Excel</CardTitle>
+              <button onClick={() => setBulkOpen(false)} className="text-muted-foreground hover:text-foreground">
+                <X className="h-4 w-4" />
+              </button>
+            </CardHeader>
+            <CardContent className="flex-1 min-h-0 overflow-y-auto space-y-4">
+              <div className="rounded-lg border border-border bg-muted/30 p-3 text-xs text-muted-foreground">
+                <p className="font-medium text-foreground mb-1">Expected columns (case-insensitive)</p>
+                <p>
+                  <code className="font-mono">stem</code> (required),{' '}
+                  <code className="font-mono">format</code>,{' '}
+                  <code className="font-mono">section</code>,{' '}
+                  <code className="font-mono">risk_flag</code>,{' '}
+                  <code className="font-mono">risk_rule</code>,{' '}
+                  <code className="font-mono">option1</code>…<code className="font-mono">option8</code>,{' '}
+                  <code className="font-mono">option1_mq</code>,{' '}
+                  <code className="font-mono">option1_mqt</code>,{' '}
+                  <code className="font-mono">option1_score</code> (repeat per option)
+                </p>
+                <p className="mt-2">
+                  Format defaults to <strong>MCQ</strong>. Sections mode must be on for the{' '}
+                  <code className="font-mono">section</code> column to take effect. Each option can map to an MQ / MQT —
+                  missing ones are created in the database on import. If no MQ/MQT is given but a score is, the score is
+                  applied to the first MQT in the catalog (backward-compatible).
+                </p>
+                <div className="mt-2">
+                  <button onClick={downloadBulkTemplate} className="text-primary hover:underline text-xs inline-flex items-center gap-1">
+                    <UploadIcon className="h-3 w-3 rotate-180" /> Download CSV template
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Choose file</label>
+                <input
+                  type="file"
+                  accept=".csv,.xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) parseBulkFile(f);
+                  }}
+                  className="block w-full text-sm file:mr-3 file:rounded-md file:border file:border-border file:bg-background file:px-3 file:py-1.5 file:text-xs file:font-medium hover:file:border-primary/50"
+                />
+                {bulkFileName && (
+                  <p className="text-[0.6875rem] text-muted-foreground">
+                    Parsed <strong>{bulkFileName}</strong> — {bulkRows.length} row{bulkRows.length !== 1 ? 's' : ''} found,{' '}
+                    {bulkRows.filter((r) => r.errors.length === 0).length} valid.
+                  </p>
+                )}
+              </div>
+
+              {bulkError && (
+                <div className="rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-3 py-2 text-xs text-red-700 dark:text-red-400 flex items-start gap-2">
+                  <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  <span>{bulkError}</span>
+                </div>
+              )}
+
+              {bulkParsing && (
+                <p className="text-xs text-muted-foreground">Parsing…</p>
+              )}
+
+              {bulkRows.length > 0 && (
+                <div className="rounded-lg border border-border overflow-hidden">
+                  <div className="max-h-72 overflow-y-auto">
+                    <table className="w-full text-xs">
+                      <thead className="bg-muted/50 sticky top-0">
+                        <tr className="text-left">
+                          <th className="px-2 py-1.5 w-8">#</th>
+                          <th className="px-2 py-1.5">Stem</th>
+                          <th className="px-2 py-1.5 w-20">Format</th>
+                          <th className="px-2 py-1.5 w-24">Section</th>
+                          <th className="px-2 py-1.5 w-16">Options</th>
+                          <th className="px-2 py-1.5 w-24">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {bulkRows.map((r, i) => (
+                          <tr key={i} className={cn('border-t border-border', r.errors.length > 0 && 'bg-red-50 dark:bg-red-950/20')}>
+                            <td className="px-2 py-1.5 text-muted-foreground">{i + 1}</td>
+                            <td className="px-2 py-1.5 truncate max-w-xs" title={r.stem}>{r.stem || <em className="text-muted-foreground">(empty)</em>}</td>
+                            <td className="px-2 py-1.5 font-mono">{r.format}</td>
+                            <td className="px-2 py-1.5 truncate" title={r.section}>{r.section || '—'}</td>
+                            <td className="px-2 py-1.5">{r.options.length}</td>
+                            <td className="px-2 py-1.5">
+                              {r.errors.length === 0 ? (
+                                <span className="text-green-600">Ready</span>
+                              ) : (
+                                <span className="text-red-600" title={r.errors.join('; ')}>{r.errors[0]}</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {bulkPendingPairs.length > 0 && (
+                <div className="rounded-lg border border-border p-3 space-y-2">
+                  <p className="text-xs font-medium">MQ / MQT references ({bulkPendingPairs.length})</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {bulkPendingPairs.map((p, i) => (
+                      <span
+                        key={i}
+                        className={cn(
+                          'inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[0.6875rem]',
+                          p.isNew
+                            ? 'border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300'
+                            : 'border-border bg-muted/40 text-muted-foreground',
+                        )}
+                        title={p.isNew ? 'Will be created in the database on import' : 'Already exists in the catalog'}
+                      >
+                        <strong className="font-mono">{p.mq}</strong>
+                        <span className="opacity-60">›</span>
+                        <span className="font-mono">{p.mqt}</span>
+                        {p.isNew && <span className="ml-1 opacity-80">new</span>}
+                      </span>
+                    ))}
+                  </div>
+                  <p className="text-[0.6875rem] text-muted-foreground">
+                    Amber = will be created on import. Plain = already in the catalog.
+                  </p>
+                </div>
+              )}
+            </CardContent>
+            <div className="shrink-0 border-t border-border px-5 py-3 flex items-center justify-between gap-2">
+              <p className="text-[0.6875rem] text-muted-foreground">
+                {useSections ? 'Sections will be created from the section column.' : 'Turn on sections in Step 1 to use the section column.'}
+                {bulkPendingPairs.some((p) => p.isNew) && (
+                  <>
+                    {' '}
+                    <span className="text-amber-700 dark:text-amber-400">
+                      {bulkPendingPairs.filter((p) => p.isNew).length} new MQ/MQT entr
+                      {bulkPendingPairs.filter((p) => p.isNew).length === 1 ? 'y' : 'ies'} will be created in the catalog.
+                    </span>
+                  </>
+                )}
+              </p>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={() => setBulkOpen(false)} disabled={bulkImporting}>Cancel</Button>
+                <Button
+                  variant="primary"
+                  onClick={confirmBulkImport}
+                  disabled={bulkImporting || bulkRows.length === 0 || bulkRows.every((r) => r.errors.length > 0)}
+                >
+                  {bulkImporting
+                    ? 'Importing…'
+                    : `Import ${bulkRows.filter((r) => r.errors.length === 0).length} Question${bulkRows.filter((r) => r.errors.length === 0).length !== 1 ? 's' : ''}`}
+                </Button>
+              </div>
+            </div>
+          </Card>
+        </div>
       )}
     </div>
   );
