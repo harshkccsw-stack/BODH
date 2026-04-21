@@ -147,7 +147,7 @@ export default function NormsPage() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
         {[
           { label: 'Total Norm Groups', value: '47', icon: Database, change: '12 added this quarter' },
-          { label: 'Instruments Normed', value: '23', icon: BookOpen, change: 'Across 4 verticals' },
+          { label: 'Questionnaires Normed', value: '23', icon: BookOpen, change: 'Across 4 verticals' },
           { label: 'Population Coverage', value: '1,18,400', icon: Users, change: '11 languages, 18 states' },
         ].map((stat) => (
           <Card key={stat.label}>

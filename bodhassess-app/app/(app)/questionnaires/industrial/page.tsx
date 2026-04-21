@@ -190,19 +190,19 @@ export default function IndustrialInstrumentsPage() {
     <div className="p-5 lg:p-7.5 space-y-7">
       <div>
         <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
-          <span>BodhAssess</span><span>/</span><span>Instruments</span><span>/</span>
+          <span>BodhAssess</span><span>/</span><span>Questionnaires</span><span>/</span>
           <span className="text-foreground font-medium">Industrial Psychology</span>
         </div>
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Industrial Instruments</h1>
+            <h1 className="text-2xl font-semibold tracking-tight">Industrial Questionnaires</h1>
             <p className="text-sm text-muted-foreground mt-1">Validated psychometric batteries for talent selection, development, and AI readiness.</p>
           </div>
         </div>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-5">
-        <Card><CardContent className="p-5 text-center"><p className="text-2xl font-semibold">{instruments.length}</p><p className="text-xs text-muted-foreground mt-1">Instruments</p></CardContent></Card>
+        <Card><CardContent className="p-5 text-center"><p className="text-2xl font-semibold">{instruments.length}</p><p className="text-xs text-muted-foreground mt-1">Questionnaires</p></CardContent></Card>
         <Card><CardContent className="p-5 text-center"><p className="text-2xl font-semibold">5</p><p className="text-xs text-muted-foreground mt-1">Categories</p></CardContent></Card>
         <Card><CardContent className="p-5 text-center"><p className="text-2xl font-semibold">6</p><p className="text-xs text-muted-foreground mt-1">Languages</p></CardContent></Card>
         <Card><CardContent className="p-5 text-center"><p className="text-2xl font-semibold">AI Proctoring</p><p className="text-xs text-muted-foreground mt-1">Default for Selection</p></CardContent></Card>
@@ -214,7 +214,7 @@ export default function IndustrialInstrumentsPage() {
           type="text"
           autoComplete="off"
           spellCheck={false}
-          placeholder="Search industrial instruments..."
+          placeholder="Search industrial questionnaires..."
           value={search}
           onChange={(e) => setSearch(e.currentTarget.value)}
           onInput={(e) => setSearch((e.currentTarget as HTMLInputElement).value)}
@@ -267,7 +267,7 @@ export default function IndustrialInstrumentsPage() {
               </div>
 
               <div className="flex gap-2">
-                <Button variant="primary" size="sm" className="flex-1" onClick={() => window.location.href = `/sessions/create?instrument=${encodeURIComponent(inst.name)}`}>Start Session</Button>
+                <Button variant="primary" size="sm" className="flex-1" onClick={() => window.location.href = `/assessments/create?instrument=${encodeURIComponent(inst.name)}`}>Allot Assessment</Button>
                 <Button variant="outline" size="sm" onClick={() => openEdit(inst)}><Pencil className="h-3.5 w-3.5" />Edit</Button>
               </div>
             </CardContent>
@@ -279,7 +279,7 @@ export default function IndustrialInstrumentsPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={() => setEditing(null)}>
           <Card className="w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
             <CardHeader className="flex flex-row items-center justify-between pb-3">
-              <CardTitle className="text-base">Edit Instrument</CardTitle>
+              <CardTitle className="text-base">Edit Questionnaire</CardTitle>
               <button onClick={() => setEditing(null)} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
             </CardHeader>
             <CardContent className="space-y-4">

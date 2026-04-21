@@ -18,7 +18,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 
 const statsData = [
-  { label: 'Active Sessions', value: '3', icon: Activity, change: 'Live now' },
+  { label: 'Active Assessments', value: '3', icon: Activity, change: 'Live now' },
   { label: 'Avg Trust Score', value: '94%', icon: ShieldCheck, change: '+2% from last week' },
   { label: 'Flagged Today', value: '4', icon: AlertTriangle, change: '2 under review' },
   { label: 'BPaaS API Calls', value: '1,247', icon: Wifi, change: 'Today\'s usage' },

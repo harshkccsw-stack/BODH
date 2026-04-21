@@ -100,7 +100,7 @@ export default function CalibrationPage() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
         {[
           { label: 'Total Jobs Run', value: '51', icon: Activity, change: '+3 this week' },
-          { label: 'Instruments Calibrated', value: '14', icon: FlaskConical, change: '9 fully validated' },
+          { label: 'Questionnaires Calibrated', value: '14', icon: FlaskConical, change: '9 fully validated' },
           { label: 'Avg RMSEA', value: '0.034', icon: TrendingUp, change: 'Good model fit' },
           { label: 'Last Calibration', value: '2h ago', icon: Clock, change: 'DASS-21 running' },
         ].map((stat) => (

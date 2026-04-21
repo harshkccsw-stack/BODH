@@ -105,6 +105,7 @@ function normalizeVertical(v: unknown): Vertical {
 }
 
 export default function CreateSessionPage() {
+  const [assessmentName, setAssessmentName] = useState<string>('');
   const [vertical, setVertical] = useState<string>('all');
   const [selectedInstrument, setSelectedInstrument] = useState<string>('');
   const [respondentSearch, setRespondentSearch] = useState('');
@@ -168,7 +169,7 @@ export default function CreateSessionPage() {
     // Optional: also surface built-in /instruments endpoint rows (if any exist there)
     (async () => {
       try {
-        const res = await fetch(`${API_BASE}/instruments`);
+        const res = await fetch(`${API_BASE}/questionnaires-catalog`);
         if (!res.ok) return;
         const data = await res.json();
         const list: any[] = Array.isArray(data) ? data : (data.instruments || []);
@@ -285,7 +286,7 @@ export default function CreateSessionPage() {
     const { sendInvite = false, copyLink = false } = opts;
     setError('');
     if (!selectedInstrument) {
-      setError('Please select an instrument.');
+      setError('Please select a questionnaire.');
       return;
     }
     if (assignMode === 'respondent' && !selectedRespondent) {
@@ -312,6 +313,7 @@ export default function CreateSessionPage() {
           .filter((r): r is RespondentRow => !!r)
           .map((r) => ({
             id: `SESS-${Math.random().toString(36).slice(2, 8).toUpperCase()}`,
+            name: assessmentName.trim(),
             respondentId: r.id,
             respondent: r.name,
             respondentEmail: r.email,
@@ -350,6 +352,7 @@ export default function CreateSessionPage() {
       const id = `SESS-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
       const entry = {
         id,
+        name: assessmentName.trim(),
         respondentId: selectedRespondentData?.id || '',
         respondent: selectedRespondentData?.name || '',
         respondentEmail: selectedRespondentData?.email || '',
@@ -389,23 +392,23 @@ export default function CreateSessionPage() {
       <div>
         <div className="flex items-center gap-2 text-sm text-muted-foreground mb-3">
           <button
-            onClick={() => { window.location.href = '/sessions'; }}
+            onClick={() => { window.location.href = '/assessments'; }}
             className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
           >
             <ArrowLeft className="h-3.5 w-3.5" />
-            Back to Sessions
+            Back to Assessments
           </button>
         </div>
         <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
           <span>BodhAssess</span>
           <span>/</span>
-          <a href="/sessions" className="hover:text-foreground transition-colors">Sessions</a>
+          <a href="/assessments" className="hover:text-foreground transition-colors">Assessments</a>
           <span>/</span>
           <span className="text-foreground font-medium">Create</span>
         </div>
-        <h1 className="text-2xl font-semibold tracking-tight">Create Session</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Create Assessment</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Configure and launch a new assessment session for a respondent.
+          Configure and launch a new assessment for a respondent.
         </p>
       </div>
 
@@ -417,10 +420,25 @@ export default function CreateSessionPage() {
             <CardHeader className="pb-3">
               <CardTitle className="text-base flex items-center gap-2">
                 <ClipboardCheck className="size-4 text-primary" />
-                Select Instrument
+                Select Questionnaire
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
+              <div>
+                <label className="text-sm font-medium mb-1.5 block">
+                  Assessment Name <span className="text-muted-foreground font-normal">(optional)</span>
+                </label>
+                <Input
+                  variant="md"
+                  placeholder="e.g., Q1 2026 Depression Screening"
+                  value={assessmentName}
+                  onChange={(e) => setAssessmentName(e.target.value)}
+                />
+                <p className="text-[0.6875rem] text-muted-foreground mt-1">
+                  A label shown alongside the auto-generated ID. Useful for batches or named campaigns.
+                </p>
+              </div>
+
               <div>
                 <label className="text-sm font-medium mb-1.5 block">Vertical</label>
                 <Select value={vertical} onValueChange={setVertical}>
@@ -438,10 +456,10 @@ export default function CreateSessionPage() {
               </div>
 
               <div>
-                <label className="text-sm font-medium mb-1.5 block">Instrument</label>
+                <label className="text-sm font-medium mb-1.5 block">Questionnaire</label>
                 <Select value={selectedInstrument} onValueChange={setSelectedInstrument}>
                   <SelectTrigger className="w-full" size="md">
-                    <SelectValue placeholder="Choose an instrument" />
+                    <SelectValue placeholder="Choose a questionnaire" />
                   </SelectTrigger>
                   <SelectContent>
                     {vertical === 'all' ? (
@@ -617,7 +635,7 @@ export default function CreateSessionPage() {
             <CardHeader className="pb-3">
               <CardTitle className="text-base flex items-center gap-2">
                 <Monitor className="size-4 text-primary" />
-                Session Settings
+                Assessment Settings
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -684,13 +702,19 @@ export default function CreateSessionPage() {
             <CardHeader className="pb-3">
               <CardTitle className="text-base flex items-center gap-2">
                 <Eye className="size-4 text-primary" />
-                Session Preview
+                Assessment Preview
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-3 text-sm">
                 <div className="flex items-center justify-between py-2 border-b border-border">
-                  <span className="text-muted-foreground">Instrument</span>
+                  <span className="text-muted-foreground">Name</span>
+                  <span className="font-medium text-right max-w-[60%] truncate">
+                    {assessmentName.trim() || <em className="text-muted-foreground font-normal">Untitled</em>}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between py-2 border-b border-border">
+                  <span className="text-muted-foreground">Questionnaire</span>
                   <span className="font-medium text-right max-w-[60%] truncate">
                     {selectedInstrumentData?.name || '--'}
                   </span>
@@ -758,11 +782,11 @@ export default function CreateSessionPage() {
                 <div className="flex items-start gap-2 rounded-lg border border-green-200 bg-green-50 dark:border-green-900 dark:bg-green-950/30 px-3 py-2 text-xs text-green-700 dark:text-green-400">
                   <Check className="h-3.5 w-3.5 mt-0.5 shrink-0" />
                   <span>
-                    Session <strong>{created.id}</strong> created.{' '}
+                    Assessment <strong>{created.id}</strong> created.{' '}
                     {linkCopied && (
                       <>Login URL copied to clipboard. </>
                     )}
-                    <a href="/sessions" className="underline">View in Sessions</a>
+                    <a href="/assessments" className="underline">View in Assessments</a>
                   </span>
                 </div>
               )}
@@ -778,8 +802,8 @@ export default function CreateSessionPage() {
                   {saving
                     ? 'Creating...'
                     : assignMode === 'group' && selectedGroupData
-                    ? `Create ${selectedGroupData.memberIds.length} Sessions`
-                    : 'Create Session'}
+                    ? `Create ${selectedGroupData.memberIds.length} Assessments`
+                    : 'Create Assessment'}
                 </Button>
                 <Button
                   variant="outline"

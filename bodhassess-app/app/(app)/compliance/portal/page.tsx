@@ -123,7 +123,7 @@ export default function PortalPage() {
                 <tr className="border-b border-border last:border-0 hover:bg-muted/50 transition-colors">
                   <td className="px-5 py-3 text-muted-foreground">2026-04-01</td>
                   <td className="px-5 py-3">Assessment Completed</td>
-                  <td className="px-5 py-3 text-muted-foreground">DASS-21 Session SESS-0039</td>
+                  <td className="px-5 py-3 text-muted-foreground">DASS-21 Assessment SESS-0039</td>
                 </tr>
               </tbody>
             </table>

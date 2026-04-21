@@ -248,7 +248,7 @@ export default function CreateAssessmentPage() {
           try { match = await questionnairesApi.get(editKey); } catch {}
         }
         if (!match) {
-          setError(`Could not find "${editKey}" in the Instrument Library.`);
+          setError(`Could not find "${editKey}" in the Questionnaire Library.`);
           return;
         }
         setInstName(match.name || '');
@@ -1156,7 +1156,7 @@ export default function CreateAssessmentPage() {
           model: 'MQ_MQT',
           mqs: mqs.map((m) => ({ id: m.id, name: m.name, mqts: m.mqts.map((t) => ({ id: t.id, name: t.name })) })),
         };
-        await fetch(`${API_BASE}/instruments`, {
+        await fetch(`${API_BASE}/questionnaires-catalog`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1199,14 +1199,14 @@ export default function CreateAssessmentPage() {
           <button
             onClick={() => {
               if (step === 2) { setStep(1); setError(''); return; }
-              if (step === 3) { window.location.href = '/instruments'; return; }
+              if (step === 3) { window.location.href = '/questionnaires'; return; }
               if (window.history.length > 1) window.history.back();
               else window.location.href = '/question-bank';
             }}
             className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
           >
             <ArrowLeft className="h-3.5 w-3.5" />
-            {step === 2 ? 'Back to Instrument Details' : step === 3 ? 'View Library' : 'Back'}
+            {step === 2 ? 'Back to Questionnaire Details' : step === 3 ? 'View Library' : 'Back'}
           </button>
         </div>
         <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
@@ -1216,7 +1216,7 @@ export default function CreateAssessmentPage() {
         <h1 className="text-2xl font-semibold tracking-tight">{editMode ? 'Edit Questionnaire' : 'Create Questionnaire'}</h1>
         <p className="text-sm text-muted-foreground mt-1">
           {editMode
-            ? 'Update questions, options, media, and scoring. Publishing will replace the existing version in the Instrument Library.'
+            ? 'Update questions, options, media, and scoring. Publishing will replace the existing version in the Questionnaire Library.'
             : 'Define your instrument with Measured Qualities (MQ) and their MQTs, then score each option against one or more MQTs.'}
         </p>
       </div>
@@ -1224,7 +1224,7 @@ export default function CreateAssessmentPage() {
       {/* Step indicator */}
       <div className="flex items-center gap-3">
         {[
-          { n: 1, label: 'Define Instrument' },
+          { n: 1, label: 'Define Questionnaire' },
           { n: 2, label: 'Add Questions' },
           { n: 3, label: 'Published' },
         ].map((s, i) => (
@@ -1255,7 +1255,7 @@ export default function CreateAssessmentPage() {
       {step === 1 && (
         <>
           <Card>
-            <CardHeader><CardTitle className="text-base">Instrument Details</CardTitle></CardHeader>
+            <CardHeader><CardTitle className="text-base">Questionnaire Details</CardTitle></CardHeader>
             <CardContent className="space-y-5">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                 <div className="space-y-1.5">
@@ -1406,7 +1406,7 @@ export default function CreateAssessmentPage() {
                 </div>
                 {demoFieldCatalog.length === 0 ? (
                   <div className="rounded-lg border border-dashed border-border bg-muted/30 px-3 py-4 text-center text-xs text-muted-foreground">
-                    No demographic fields defined yet. Manage them at <a href="/instruments/demographics" className="text-primary hover:underline">Instrument Library → Demographic Fields</a>.
+                    No demographic fields defined yet. Manage them at <a href="/questionnaires/demographics" className="text-primary hover:underline">Questionnaire Library → Demographic Fields</a>.
                   </div>
                 ) : (
                   <div className="rounded-lg border border-border bg-background p-3">
@@ -1810,7 +1810,7 @@ export default function CreateAssessmentPage() {
             {/* Footer */}
             <div className="shrink-0 border-t border-border px-5 py-3 flex items-center justify-between gap-3">
               <p className="text-xs text-muted-foreground">
-                This preview is not saved. Close to keep editing, or publish to make it available in the Instrument Library.
+                This preview is not saved. Close to keep editing, or publish to make it available in the Questionnaire Library.
               </p>
               <div className="flex items-center gap-2">
                 <Button variant="outline" onClick={() => setPreviewOpen(false)}>Close</Button>
@@ -1984,13 +1984,13 @@ export default function CreateAssessmentPage() {
             <div className="flex h-16 w-16 items-center justify-center rounded-full bg-green-100 dark:bg-green-900/30 mx-auto">
               <Check className="h-8 w-8 text-green-600" />
             </div>
-            <h2 className="text-xl font-semibold">Published to Instrument Library</h2>
+            <h2 className="text-xl font-semibold">Published to Questionnaire Library</h2>
             <p className="text-muted-foreground max-w-md mx-auto">
               <strong>{instName}</strong> with {questions.length} questions, {mqs.length} MQ{mqs.length !== 1 ? 's' : ''} and {allMqts.length} MQT{allMqts.length !== 1 ? 's' : ''} is now live.
             </p>
             <div className="flex justify-center gap-3 pt-4">
-              <Button variant="outline" onClick={() => window.location.href = '/instruments'}>View in Library</Button>
-              <Button variant="primary" onClick={() => window.location.href = '/sessions/create'}>Create Session</Button>
+              <Button variant="outline" onClick={() => window.location.href = '/questionnaires'}>View in Library</Button>
+              <Button variant="primary" onClick={() => window.location.href = '/assessments/create'}>Create Assessment</Button>
             </div>
           </CardContent>
         </Card>

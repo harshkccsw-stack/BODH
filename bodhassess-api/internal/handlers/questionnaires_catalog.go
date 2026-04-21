@@ -10,15 +10,15 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type InstrumentsHandler struct {
+type QuestionnairesCatalogHandler struct {
 	db *pgxpool.Pool
 }
 
-func NewInstrumentsHandler(db *pgxpool.Pool) *InstrumentsHandler {
-	return &InstrumentsHandler{db: db}
+func NewQuestionnairesCatalogHandler(db *pgxpool.Pool) *QuestionnairesCatalogHandler {
+	return &QuestionnairesCatalogHandler{db: db}
 }
 
-func (h *InstrumentsHandler) List(w http.ResponseWriter, r *http.Request) {
+func (h *QuestionnairesCatalogHandler) List(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
@@ -76,7 +76,7 @@ func (h *InstrumentsHandler) List(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (h *InstrumentsHandler) GetByID(w http.ResponseWriter, r *http.Request) {
+func (h *QuestionnairesCatalogHandler) GetByID(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 

@@ -78,23 +78,23 @@ export default function BatchUploadPage() {
       <div>
         <div className="flex items-center gap-2 text-sm text-muted-foreground mb-3">
           <button
-            onClick={() => { window.location.href = '/sessions'; }}
+            onClick={() => { window.location.href = '/assessments'; }}
             className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
           >
             <ArrowLeft className="h-3.5 w-3.5" />
-            Back to Sessions
+            Back to Assessments
           </button>
         </div>
         <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
           <span>BodhAssess</span>
           <span>/</span>
-          <a href="/sessions" className="hover:text-foreground transition-colors">Sessions</a>
+          <a href="/assessments" className="hover:text-foreground transition-colors">Assessments</a>
           <span>/</span>
           <span className="text-foreground font-medium">Batch Upload</span>
         </div>
         <h1 className="text-2xl font-semibold tracking-tight">Batch Upload</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Upload a CSV file to create multiple assessment sessions at once.
+          Upload a CSV file to create multiple assessments at once.
         </p>
       </div>
 
@@ -175,7 +175,7 @@ export default function BatchUploadPage() {
                 </div>
                 <div>
                   <p className="text-2xl font-semibold">5</p>
-                  <p className="text-sm text-muted-foreground">Sessions Created</p>
+                  <p className="text-sm text-muted-foreground">Assessments Created</p>
                 </div>
               </div>
             </CardContent>
@@ -242,7 +242,7 @@ export default function BatchUploadPage() {
                     <th className="px-5 py-3 text-left font-medium text-muted-foreground">#</th>
                     <th className="px-5 py-3 text-left font-medium text-muted-foreground">Email</th>
                     <th className="px-5 py-3 text-left font-medium text-muted-foreground">Name</th>
-                    <th className="px-5 py-3 text-left font-medium text-muted-foreground">Instrument</th>
+                    <th className="px-5 py-3 text-left font-medium text-muted-foreground">Questionnaire</th>
                     <th className="px-5 py-3 text-left font-medium text-muted-foreground">Language</th>
                     {uploadState === 'done' && (
                       <th className="px-5 py-3 text-left font-medium text-muted-foreground">Status</th>
@@ -292,7 +292,7 @@ export default function BatchUploadPage() {
           </Button>
           <Button variant="primary" size="md" onClick={handleUpload}>
             <Upload className="size-4" />
-            Upload &amp; Create Sessions
+            Upload &amp; Create Assessments
           </Button>
         </div>
       )}

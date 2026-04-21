@@ -202,9 +202,9 @@ export default function ReportsPage() {
               <thead>
                 <tr className="border-b border-border">
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Report ID</th>
-                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Session ID</th>
+                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Assessment ID</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Respondent</th>
-                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Instrument</th>
+                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Questionnaire</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Vertical</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Format</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Status</th>

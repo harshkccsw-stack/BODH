@@ -165,7 +165,7 @@ export default function DemographicFieldsPage() {
     <div className="p-5 lg:p-7.5 space-y-7">
       <div>
         <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
-          <span>BodhAssess</span><span>/</span><span>Instrument Library</span><span>/</span>
+          <span>BodhAssess</span><span>/</span><span>Questionnaire Library</span><span>/</span>
           <span className="text-foreground font-medium">Demographic Fields</span>
         </div>
         <div className="flex items-start justify-between gap-4">

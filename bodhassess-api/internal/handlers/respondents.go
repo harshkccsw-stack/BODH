@@ -24,18 +24,23 @@ type respondentPayload struct {
 	ID             string `json:"id"`
 	Name           string `json:"name"`
 	Email          string `json:"email"`
+	Phone          string `json:"phone,omitempty"`
 	DOB            string `json:"dob,omitempty"`
 	Consent        string `json:"consent,omitempty"`
 	SessionsCount  int    `json:"sessions_count,omitempty"`
 	LastAssessment string `json:"last_assessment,omitempty"`
+	AccountType    string `json:"accountType,omitempty"`
+	OrgName        string `json:"orgName,omitempty"`
+	OrgWebsite     string `json:"orgWebsite,omitempty"`
 }
 
 func (h *RespondentsHandler) List(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 	rows, err := h.db.Query(ctx, `
-		SELECT id, name, email, COALESCE(dob, ''), COALESCE(consent, 'Pending'),
-		       COALESCE(sessions_count, 0), COALESCE(last_assessment, '')
+		SELECT id, name, email, COALESCE(phone, ''), COALESCE(dob, ''), COALESCE(consent, 'Pending'),
+		       COALESCE(sessions_count, 0), COALESCE(last_assessment, ''),
+		       COALESCE(account_type, 'individual'), COALESCE(org_name, ''), COALESCE(org_website, '')
 		FROM respondents ORDER BY created_at DESC`)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -45,7 +50,7 @@ func (h *RespondentsHandler) List(w http.ResponseWriter, r *http.Request) {
 	out := make([]respondentPayload, 0)
 	for rows.Next() {
 		var p respondentPayload
-		if err := rows.Scan(&p.ID, &p.Name, &p.Email, &p.DOB, &p.Consent, &p.SessionsCount, &p.LastAssessment); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.Email, &p.Phone, &p.DOB, &p.Consent, &p.SessionsCount, &p.LastAssessment, &p.AccountType, &p.OrgName, &p.OrgWebsite); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -72,14 +77,18 @@ func (h *RespondentsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	if p.Consent == "" {
 		p.Consent = "Pending"
 	}
+	if p.AccountType == "" {
+		p.AccountType = "individual"
+	}
 	_, err := h.db.Exec(ctx, `
-		INSERT INTO respondents (id, name, email, dob, consent, sessions_count, last_assessment)
-		VALUES ($1, $2, $3, NULLIF($4, ''), $5, $6, NULLIF($7, ''))
+		INSERT INTO respondents (id, name, email, phone, dob, consent, sessions_count, last_assessment, account_type, org_name, org_website)
+		VALUES ($1, $2, $3, NULLIF($4, ''), NULLIF($5, ''), $6, $7, NULLIF($8, ''), $9, NULLIF($10, ''), NULLIF($11, ''))
 		ON CONFLICT (id) DO UPDATE
-		SET name = EXCLUDED.name, email = EXCLUDED.email, dob = EXCLUDED.dob,
+		SET name = EXCLUDED.name, email = EXCLUDED.email, phone = EXCLUDED.phone, dob = EXCLUDED.dob,
 		    consent = EXCLUDED.consent, sessions_count = EXCLUDED.sessions_count,
-		    last_assessment = EXCLUDED.last_assessment`,
-		p.ID, p.Name, p.Email, p.DOB, p.Consent, p.SessionsCount, p.LastAssessment)
+		    last_assessment = EXCLUDED.last_assessment, account_type = EXCLUDED.account_type,
+		    org_name = EXCLUDED.org_name, org_website = EXCLUDED.org_website`,
+		p.ID, p.Name, p.Email, p.Phone, p.DOB, p.Consent, p.SessionsCount, p.LastAssessment, p.AccountType, p.OrgName, p.OrgWebsite)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -100,12 +109,16 @@ func (h *RespondentsHandler) Update(w http.ResponseWriter, r *http.Request) {
 		UPDATE respondents
 		SET name = COALESCE(NULLIF($2, ''), name),
 		    email = COALESCE(NULLIF($3, ''), email),
-		    dob = NULLIF($4, ''),
-		    consent = COALESCE(NULLIF($5, ''), consent),
-		    sessions_count = $6,
-		    last_assessment = NULLIF($7, '')
+		    phone = COALESCE(NULLIF($4, ''), phone),
+		    dob = NULLIF($5, ''),
+		    consent = COALESCE(NULLIF($6, ''), consent),
+		    sessions_count = $7,
+		    last_assessment = NULLIF($8, ''),
+		    account_type = COALESCE(NULLIF($9, ''), account_type),
+		    org_name = COALESCE(NULLIF($10, ''), org_name),
+		    org_website = COALESCE(NULLIF($11, ''), org_website)
 		WHERE id = $1`,
-		id, p.Name, p.Email, p.DOB, p.Consent, p.SessionsCount, p.LastAssessment)
+		id, p.Name, p.Email, p.Phone, p.DOB, p.Consent, p.SessionsCount, p.LastAssessment, p.AccountType, p.OrgName, p.OrgWebsite)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -135,10 +148,11 @@ func (h *RespondentsHandler) Get(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	var p respondentPayload
 	row := h.db.QueryRow(ctx, `
-		SELECT id, name, email, COALESCE(dob, ''), COALESCE(consent, 'Pending'),
-		       COALESCE(sessions_count, 0), COALESCE(last_assessment, '')
+		SELECT id, name, email, COALESCE(phone, ''), COALESCE(dob, ''), COALESCE(consent, 'Pending'),
+		       COALESCE(sessions_count, 0), COALESCE(last_assessment, ''),
+		       COALESCE(account_type, 'individual'), COALESCE(org_name, ''), COALESCE(org_website, '')
 		FROM respondents WHERE id = $1`, id)
-	if err := row.Scan(&p.ID, &p.Name, &p.Email, &p.DOB, &p.Consent, &p.SessionsCount, &p.LastAssessment); err != nil {
+	if err := row.Scan(&p.ID, &p.Name, &p.Email, &p.Phone, &p.DOB, &p.Consent, &p.SessionsCount, &p.LastAssessment, &p.AccountType, &p.OrgName, &p.OrgWebsite); err != nil {
 		if err == pgx.ErrNoRows {
 			http.Error(w, "not found", http.StatusNotFound)
 			return

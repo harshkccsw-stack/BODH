@@ -46,7 +46,7 @@ export default function RespondentsPage() {
     const pct = respondents.length ? Math.round((granted / respondents.length) * 100) : 0;
     return [
       { label: 'Total Respondents', value: String(respondents.length), icon: Users, change: `${granted} with consent` },
-      { label: 'Sessions Completed', value: String(totalSessions), icon: ClipboardCheck, change: 'Across all respondents' },
+      { label: 'Assessments Completed', value: String(totalSessions), icon: ClipboardCheck, change: 'Across all respondents' },
       { label: 'Consent Granted', value: `${pct}%`, icon: ShieldCheck, change: `${granted} of ${respondents.length} respondents` },
     ];
   }, [respondents]);
