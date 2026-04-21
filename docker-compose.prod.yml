@@ -1,0 +1,107 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: bodh-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      - bodh_pgdata:/var/lib/postgresql/data
+      - ./bodhassess-api/migrations/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks: [bodh]
+
+  redis:
+    image: redis:7-alpine
+    container_name: bodh-redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks: [bodh]
+
+  minio:
+    image: minio/minio:latest
+    container_name: bodh-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - bodh_minio:/data
+    networks: [bodh]
+
+  api:
+    image: ${DOCR_REGISTRY}/bodhassess-api:${IMAGE_TAG:-latest}
+    container_name: bodh-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      APP_ENV: production
+      APP_PORT: "8080"
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      DB_SSLMODE: disable
+      REDIS_URL: redis:6379
+      JWT_SECRET: ${JWT_SECRET}
+    volumes:
+      - bodh_uploads:/app/uploads
+    networks: [bodh]
+
+  app:
+    image: ${DOCR_REGISTRY}/bodhassess-app:${IMAGE_TAG:-latest}
+    container_name: bodh-app
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+    networks: [bodh]
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: bodh-caddy
+    restart: unless-stopped
+    depends_on:
+      - api
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN}
+      API_DOMAIN: ${API_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [bodh]
+
+networks:
+  bodh:
+    driver: bridge
+
+volumes:
+  bodh_pgdata:
+  bodh_minio:
+  bodh_uploads:
+  caddy_data:
+  caddy_config:

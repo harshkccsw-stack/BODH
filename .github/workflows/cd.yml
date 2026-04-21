@@ -1,0 +1,140 @@
+name: CD
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Image tag to deploy (defaults to commit SHA)"
+        required: false
+
+concurrency:
+  group: cd-master
+  cancel-in-progress: false
+
+env:
+  DOCR_REGISTRY: ${{ secrets.DOCR_REGISTRY }}           # e.g. registry.digitalocean.com/bodh
+  API_IMAGE: ${{ secrets.DOCR_REGISTRY }}/bodhassess-api
+  APP_IMAGE: ${{ secrets.DOCR_REGISTRY }}/bodhassess-app
+
+jobs:
+  build-and-push:
+    name: Build & push images to DOCR
+    runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.meta.outputs.tag }}
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute image tag
+        id: meta
+        run: |
+          TAG="${{ github.event.inputs.image_tag }}"
+          if [ -z "$TAG" ]; then TAG="${GITHUB_SHA::12}"; fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Log in to DOCR
+        run: doctl registry login --expiry-seconds 1800
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build & push API image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./bodhassess-api
+          file: ./bodhassess-api/Dockerfile
+          push: true
+          tags: |
+            ${{ env.API_IMAGE }}:${{ steps.meta.outputs.tag }}
+            ${{ env.API_IMAGE }}:latest
+          cache-from: type=registry,ref=${{ env.API_IMAGE }}:buildcache
+          cache-to: type=registry,ref=${{ env.API_IMAGE }}:buildcache,mode=max
+
+      - name: Build & push App image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./bodhassess-app
+          file: ./bodhassess-app/Dockerfile
+          push: true
+          build-args: |
+            NEXT_PUBLIC_BASE_PATH=${{ secrets.NEXT_PUBLIC_BASE_PATH }}
+            NEXT_PUBLIC_API_URL=${{ secrets.NEXT_PUBLIC_API_URL }}
+          tags: |
+            ${{ env.APP_IMAGE }}:${{ steps.meta.outputs.tag }}
+            ${{ env.APP_IMAGE }}:latest
+          cache-from: type=registry,ref=${{ env.APP_IMAGE }}:buildcache
+          cache-to: type=registry,ref=${{ env.APP_IMAGE }}:buildcache,mode=max
+
+  deploy:
+    name: Deploy to droplet
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://${{ secrets.APP_DOMAIN }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Copy compose files to droplet
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.DROPLET_HOST }}
+          username: ${{ secrets.DROPLET_USER }}
+          key: ${{ secrets.DROPLET_SSH_KEY }}
+          port: ${{ secrets.DROPLET_SSH_PORT || 22 }}
+          source: "docker-compose.prod.yml,Caddyfile,bodhassess-api/migrations/001_init.sql"
+          target: "/opt/bodhassess"
+          strip_components: 0
+          overwrite: true
+
+      - name: Deploy on droplet
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.DROPLET_HOST }}
+          username: ${{ secrets.DROPLET_USER }}
+          key: ${{ secrets.DROPLET_SSH_KEY }}
+          port: ${{ secrets.DROPLET_SSH_PORT || 22 }}
+          envs: IMAGE_TAG,DIGITALOCEAN_ACCESS_TOKEN,DOCR_REGISTRY
+          script_stop: true
+          script: |
+            set -euo pipefail
+            export IMAGE_TAG="${{ needs.build-and-push.outputs.image_tag }}"
+            cd /opt/bodhassess
+
+            # Log in to DOCR on the droplet (expects doctl installed, see DEPLOYMENT.md)
+            echo "${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}" | docker login registry.digitalocean.com -u "${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}" --password-stdin
+
+            # .env.prod must already exist on the droplet (one-time bootstrap).
+            test -f .env.prod || { echo "Missing /opt/bodhassess/.env.prod — see DEPLOYMENT.md"; exit 1; }
+
+            # Overwrite IMAGE_TAG so the right image is pulled.
+            sed -i "s|^IMAGE_TAG=.*|IMAGE_TAG=${IMAGE_TAG}|" .env.prod
+
+            docker compose --env-file .env.prod -f docker-compose.prod.yml pull
+            docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --remove-orphans
+            docker image prune -f
+
+      - name: Smoke test API health
+        run: |
+          set -e
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            if curl -fsS "https://${{ secrets.API_DOMAIN }}/api/v1/health" >/dev/null; then
+              echo "API healthy"
+              exit 0
+            fi
+            echo "attempt $i: API not ready, retrying..."
+            sleep 6
+          done
+          echo "API never became healthy" >&2
+          exit 1

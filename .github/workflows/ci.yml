@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [master]
+  push:
+    branches-ignore: [master]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  api:
+    name: API (Go)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: bodhassess-api
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: bodh
+          POSTGRES_PASSWORD: bodh_ci
+          POSTGRES_DB: bodhassess_ci
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd="pg_isready -U bodh -d bodhassess_ci"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+
+    env:
+      DB_HOST: localhost
+      DB_PORT: "5432"
+      DB_USER: bodh
+      DB_PASSWORD: bodh_ci
+      DB_NAME: bodhassess_ci
+      DB_SSLMODE: disable
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+          cache-dependency-path: bodhassess-api/go.sum
+
+      - name: go mod verify
+        run: go mod verify
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go build
+        run: go build ./...
+
+      - name: go test
+        run: go test -race -count=1 ./...
+
+      - name: Docker build (smoke)
+        run: docker build -t bodhassess-api:ci .
+
+  app:
+    name: App (Next.js)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: bodhassess-app
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: bodhassess-app/package-lock.json
+
+      - name: Install deps
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci --no-audit --no-fund
+          else
+            npm install --no-audit --no-fund
+          fi
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+
+      - name: Docker build (smoke)
+        run: docker build -t bodhassess-app:ci .
