@@ -131,7 +131,7 @@ export default function InstrumentsPage() {
   const [editing, setEditing] = useState<Instrument | null>(null);
   const [editForm, setEditForm] = useState({
     name: '', category: '', duration: '', items: 0, tier: 1,
-    languages: '', normStatus: '',
+    languages: '', normStatus: '', vertical: '',
   });
   const [customVerticals, setCustomVerticals] = useState<StoredVertical[]>([]);
   const [localInstruments, setLocalInstruments] = useState<Instrument[]>([]);
@@ -254,6 +254,7 @@ export default function InstrumentsPage() {
       tier: inst.tier,
       languages: inst.languages.join(', '),
       normStatus: inst.normStatus,
+      vertical: String(inst.vertical || '').toLowerCase(),
     });
   };
 
@@ -268,6 +269,7 @@ export default function InstrumentsPage() {
       tier: Number(editForm.tier) || 1,
       languages: editForm.languages.split(',').map((s) => s.trim()).filter(Boolean),
       normStatus: editForm.normStatus.trim(),
+      vertical: editForm.vertical.trim().toLowerCase() || editing.vertical,
     };
     setOverrides(saveOverride(key, patch));
     setEditing(null);
@@ -548,6 +550,22 @@ export default function InstrumentsPage() {
                     {[1, 2, 3, 4, 5].map((t) => <option key={t} value={t}>T{t}</option>)}
                   </select>
                 </div>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Vertical</label>
+                <select
+                  value={editForm.vertical}
+                  onChange={(e) => setEditForm({ ...editForm, vertical: e.target.value })}
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                >
+                  {verticals
+                    .filter((v) => v.key !== 'all')
+                    .map((v) => (
+                      <option key={v.key} value={v.key}>
+                        {v.label}
+                      </option>
+                    ))}
+                </select>
               </div>
               <div className="space-y-1.5">
                 <label className="text-sm font-medium">Languages (comma-separated)</label>

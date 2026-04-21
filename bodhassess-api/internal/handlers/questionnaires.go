@@ -21,34 +21,38 @@ func NewQuestionnairesHandler(db *pgxpool.Pool) *QuestionnairesHandler {
 }
 
 type questionnairePayload struct {
-	ID          string          `json:"id"`
-	Name        string          `json:"name"`
-	ShortName   string          `json:"shortName"`
-	Vertical    string          `json:"vertical"`
-	Category    string          `json:"category"`
-	Description string          `json:"description"`
-	Duration    int             `json:"duration"`
-	Tier        string          `json:"tier"`
-	Languages   []string        `json:"languages"`
-	MQs         json.RawMessage `json:"mqs"`
-	Questions   json.RawMessage `json:"questions"`
-	IsDemo      bool            `json:"isDemo"`
-	CreatedAt   string          `json:"createdAt,omitempty"`
+	ID                    string          `json:"id"`
+	Name                  string          `json:"name"`
+	ShortName             string          `json:"shortName"`
+	Vertical              string          `json:"vertical"`
+	Category              string          `json:"category"`
+	Description           string          `json:"description"`
+	Duration              int             `json:"duration"`
+	Tier                  string          `json:"tier"`
+	Languages             []string        `json:"languages"`
+	MQs                   json.RawMessage `json:"mqs"`
+	Questions             json.RawMessage `json:"questions"`
+	IsDemo                bool            `json:"isDemo"`
+	Disclaimer            string          `json:"disclaimer,omitempty"`
+	DemographicFieldKeys  []string        `json:"demographicFieldKeys"`
+	CreatedAt             string          `json:"createdAt,omitempty"`
 }
 
 const qnSelect = `
 	SELECT id, name, COALESCE(short_name, ''), COALESCE(vertical, ''),
 	       COALESCE(category, ''), COALESCE(description, ''),
 	       COALESCE(duration, 0), COALESCE(tier, ''),
-	       languages, mqs, questions, is_demo, created_at
+	       languages, mqs, questions, is_demo,
+	       COALESCE(disclaimer, ''), demographic_field_keys, created_at
 	FROM published_questionnaires`
 
 func scanQuestionnaire(row pgx.Row) (questionnairePayload, error) {
 	var q questionnairePayload
-	var langsJSON []byte
+	var langsJSON, demoKeysJSON []byte
 	var createdAt time.Time
 	err := row.Scan(&q.ID, &q.Name, &q.ShortName, &q.Vertical, &q.Category, &q.Description,
-		&q.Duration, &q.Tier, &langsJSON, &q.MQs, &q.Questions, &q.IsDemo, &createdAt)
+		&q.Duration, &q.Tier, &langsJSON, &q.MQs, &q.Questions, &q.IsDemo,
+		&q.Disclaimer, &demoKeysJSON, &createdAt)
 	if err != nil {
 		return q, err
 	}
@@ -57,6 +61,12 @@ func scanQuestionnaire(row pgx.Row) (questionnairePayload, error) {
 	}
 	if q.Languages == nil {
 		q.Languages = []string{}
+	}
+	if len(demoKeysJSON) > 0 {
+		_ = json.Unmarshal(demoKeysJSON, &q.DemographicFieldKeys)
+	}
+	if q.DemographicFieldKeys == nil {
+		q.DemographicFieldKeys = []string{}
 	}
 	if len(q.MQs) == 0 {
 		q.MQs = json.RawMessage("[]")
@@ -153,6 +163,9 @@ func (h *QuestionnairesHandler) Upsert(w http.ResponseWriter, r *http.Request) {
 	if q.Languages == nil {
 		q.Languages = []string{}
 	}
+	if q.DemographicFieldKeys == nil {
+		q.DemographicFieldKeys = []string{}
+	}
 	if len(q.MQs) == 0 {
 		q.MQs = json.RawMessage("[]")
 	}
@@ -160,6 +173,7 @@ func (h *QuestionnairesHandler) Upsert(w http.ResponseWriter, r *http.Request) {
 		q.Questions = json.RawMessage("[]")
 	}
 	langsJSON, _ := json.Marshal(q.Languages)
+	demoKeysJSON, _ := json.Marshal(q.DemographicFieldKeys)
 
 	// First, ensure no other row holds this name (frontend re-publishes may
 	// rename; dedup by name).
@@ -173,10 +187,12 @@ func (h *QuestionnairesHandler) Upsert(w http.ResponseWriter, r *http.Request) {
 	_, err := h.db.Exec(ctx, `
 		INSERT INTO published_questionnaires (
 			id, name, short_name, vertical, category, description,
-			duration, tier, languages, mqs, questions, is_demo
+			duration, tier, languages, mqs, questions, is_demo, disclaimer,
+			demographic_field_keys
 		) VALUES (
 			$1, $2, NULLIF($3, ''), NULLIF($4, ''), NULLIF($5, ''), NULLIF($6, ''),
-			NULLIF($7, 0), NULLIF($8, ''), $9, $10, $11, $12
+			NULLIF($7, 0), NULLIF($8, ''), $9, $10, $11, $12, NULLIF($13, ''),
+			$14
 		)
 		ON CONFLICT (id) DO UPDATE SET
 			name = EXCLUDED.name,
@@ -189,9 +205,12 @@ func (h *QuestionnairesHandler) Upsert(w http.ResponseWriter, r *http.Request) {
 			languages = EXCLUDED.languages,
 			mqs = EXCLUDED.mqs,
 			questions = EXCLUDED.questions,
-			is_demo = EXCLUDED.is_demo`,
+			is_demo = EXCLUDED.is_demo,
+			disclaimer = EXCLUDED.disclaimer,
+			demographic_field_keys = EXCLUDED.demographic_field_keys`,
 		q.ID, q.Name, q.ShortName, q.Vertical, q.Category, q.Description,
-		q.Duration, q.Tier, langsJSON, []byte(q.MQs), []byte(q.Questions), q.IsDemo,
+		q.Duration, q.Tier, langsJSON, []byte(q.MQs), []byte(q.Questions), q.IsDemo, q.Disclaimer,
+		demoKeysJSON,
 	)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)

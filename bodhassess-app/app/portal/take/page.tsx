@@ -5,7 +5,7 @@ import { Brain, Check, ChevronLeft, ChevronRight, AlertTriangle } from 'lucide-r
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { portalSessionsApi, questionnairesApi, respondentsApi, type PortalSession, type Respondent } from '@/lib/api';
+import { portalSessionsApi, questionnairesApi, respondentsApi, demographicFieldsApi, type PortalSession, type Respondent, type DemographicField } from '@/lib/api';
 
 type AuthUser = Respondent;
 interface MQT { id: string; name: string; }
@@ -26,6 +26,8 @@ interface StoredInstrument {
   shortName?: string;
   mqs: MQ[];
   questions: Question[];
+  disclaimer?: string;
+  demographicFieldKeys?: string[];
 }
 type StoredSession = PortalSession;
 
@@ -55,9 +57,36 @@ export default function PortalTakePage() {
   const [session, setSession] = useState<StoredSession | null>(null);
   const [instrument, setInstrument] = useState<StoredInstrument | null>(null);
   const [index, setIndex] = useState(0);
-  const [answers, setAnswers] = useState<Record<string, number>>({});
+  // Number for selected-option indexes (MCQ/Likert/etc), string for FREE_TEXT answers
+  const [answers, setAnswers] = useState<Record<string, number | string>>({});
   const [loadError, setLoadError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [agreedToDisclaimer, setAgreedToDisclaimer] = useState(false);
+  const [disclaimerChecked, setDisclaimerChecked] = useState(false);
+
+  // Demographics gate — fields come from the admin-managed catalog, filtered per-questionnaire.
+  const [demographicsSubmitted, setDemographicsSubmitted] = useState(false);
+  const [savingDemographics, setSavingDemographics] = useState(false);
+  const [demographicsError, setDemographicsError] = useState('');
+  const [demographics, setDemographics] = useState<Record<string, string>>({});
+  const [demoFieldCatalog, setDemoFieldCatalog] = useState<DemographicField[]>([]);
+
+  useEffect(() => {
+    demographicFieldsApi.list(true).then(setDemoFieldCatalog).catch(() => setDemoFieldCatalog([]));
+  }, []);
+
+  // Pre-fill what we can from the authenticated user + mark as already
+  // submitted if the session already has demographics captured.
+  useEffect(() => {
+    if (user && !demographics.fullName) {
+      setDemographics((prev) => ({ ...prev, fullName: prev.fullName || user.name || '' }));
+    }
+  }, [user]);
+  useEffect(() => {
+    if (session && (session as any).demographics && Object.keys((session as any).demographics).length > 0) {
+      setDemographicsSubmitted(true);
+    }
+  }, [session]);
 
   useEffect(() => {
     (async () => {
@@ -122,9 +151,11 @@ export default function PortalTakePage() {
     }));
 
     instrument.questions.forEach((q) => {
-      const optIdx = answers[q.id];
-      if (optIdx === undefined) return;
-      const opt = q.options[optIdx];
+      const ans = answers[q.id];
+      if (ans === undefined) return;
+      // Free-text answers are strings — no MQT score contribution
+      if (typeof ans !== 'number') return;
+      const opt = q.options[ans];
       if (!opt) return;
       (opt.scores || []).forEach((s) => {
         totals[s.mqt_id] = (totals[s.mqt_id] || 0) + s.score;
@@ -170,6 +201,228 @@ export default function PortalTakePage() {
     return <div className="min-h-screen flex items-center justify-center text-sm text-muted-foreground">Loading assessment...</div>;
   }
 
+  // Disclaimer gate — only shown if the questionnaire has one and the
+  // respondent hasn't agreed yet this session.
+  const hasDisclaimer = !!(instrument.disclaimer && instrument.disclaimer.trim().length > 0);
+  if (hasDisclaimer && !agreedToDisclaimer) {
+    return (
+      <div className="flex-1 min-h-screen w-full bg-linear-to-b from-muted/30 via-background to-background">
+        <header className="border-b border-border bg-background">
+          <div className="max-w-3xl mx-auto px-5 py-4 flex items-center gap-3">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+              <Brain className="h-4 w-4" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold">{instrument.name}</p>
+              <p className="text-xs text-muted-foreground">{user?.name} · Session {session.id}</p>
+            </div>
+          </div>
+        </header>
+        <main className="max-w-3xl mx-auto px-5 py-8">
+          <Card>
+            <CardContent className="p-6 space-y-5">
+              <div>
+                <p className="text-[0.6875rem] font-medium uppercase tracking-wider text-primary">Before you begin</p>
+                <h2 className="text-xl font-semibold tracking-tight mt-1">Terms &amp; Conditions</h2>
+              </div>
+              <div className="rounded-lg border border-border bg-muted/30 p-4 whitespace-pre-wrap text-sm leading-relaxed max-h-[50vh] overflow-y-auto">
+                {instrument.disclaimer}
+              </div>
+              <label className="flex items-start gap-3 rounded-lg border border-border p-3 hover:bg-muted/40 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={disclaimerChecked}
+                  onChange={(e) => setDisclaimerChecked(e.target.checked)}
+                  className="mt-0.5 rounded"
+                />
+                <span className="text-sm">
+                  I have read and understood the terms above, and I agree to continue with this assessment.
+                </span>
+              </label>
+              <div className="flex items-center justify-between gap-3 pt-1">
+                <Button variant="outline" onClick={() => window.location.href = '/portal/assessments'}>
+                  Cancel
+                </Button>
+                <Button
+                  variant="primary"
+                  onClick={() => setAgreedToDisclaimer(true)}
+                  disabled={!disclaimerChecked}
+                >
+                  <Check className="h-4 w-4" />
+                  Agree &amp; Continue
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </main>
+      </div>
+    );
+  }
+
+  // Demographics gate — after disclaimer, before questions. Skipped if already captured on this session.
+  // Fields resolved from the catalogue, filtered by the questionnaire's opt-in list (empty = all active).
+  const activeDemoFields = (() => {
+    const keys = instrument.demographicFieldKeys || [];
+    if (keys.length === 0) return demoFieldCatalog;
+    const keySet = new Set(keys);
+    return demoFieldCatalog.filter((f) => keySet.has(f.fieldKey));
+  })();
+
+  const submitDemographics = async () => {
+    const missing = activeDemoFields
+      .filter((f) => f.required)
+      .filter((f) => !(demographics[f.fieldKey] || '').trim());
+    if (missing.length > 0) {
+      setDemographicsError(`Please fill: ${missing.map((f) => f.label).join(', ')}`);
+      return;
+    }
+    if (!session) return;
+    setSavingDemographics(true);
+    setDemographicsError('');
+    try {
+      const clean: Record<string, string> = {};
+      activeDemoFields.forEach((f) => {
+        const v = (demographics[f.fieldKey] || '').trim();
+        if (v) clean[f.fieldKey] = v;
+      });
+      await portalSessionsApi.update(session.id, { demographics: clean } as any);
+      setDemographicsSubmitted(true);
+    } catch (e: any) {
+      setDemographicsError(`Failed to save: ${e?.message || 'unknown error'}`);
+    } finally {
+      setSavingDemographics(false);
+    }
+  };
+
+  // When a DOB is entered, auto-compute age if an "age" field exists in the active subset.
+  const handleDemoFieldChange = (field: DemographicField, value: string) => {
+    setDemographics((prev) => {
+      const next = { ...prev, [field.fieldKey]: value };
+      if (field.fieldKey === 'dob' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+        const today = new Date();
+        const d = new Date(value);
+        let a = today.getFullYear() - d.getFullYear();
+        const m = today.getMonth() - d.getMonth();
+        if (m < 0 || (m === 0 && today.getDate() < d.getDate())) a--;
+        if (a >= 0 && a < 130 && activeDemoFields.some((f) => f.fieldKey === 'age')) {
+          next.age = String(a);
+        }
+      }
+      return next;
+    });
+  };
+
+  if (!demographicsSubmitted) {
+    return (
+      <div className="flex-1 min-h-screen w-full bg-linear-to-b from-muted/30 via-background to-background">
+        <header className="border-b border-border bg-background">
+          <div className="max-w-3xl mx-auto px-5 py-4 flex items-center gap-3">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+              <Brain className="h-4 w-4" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold">{instrument.name}</p>
+              <p className="text-xs text-muted-foreground">{user?.name} · Session {session.id}</p>
+            </div>
+          </div>
+        </header>
+        <main className="max-w-3xl mx-auto px-5 py-8">
+          <Card>
+            <CardContent className="p-6 space-y-5">
+              <div>
+                <p className="text-[0.6875rem] font-medium uppercase tracking-wider text-primary">About you</p>
+                <h2 className="text-xl font-semibold tracking-tight mt-1">Demographic Details</h2>
+                <p className="text-sm text-muted-foreground mt-1">
+                  We collect this once before the assessment so your results can be interpreted in context. All fields marked * are required.
+                </p>
+              </div>
+
+              {demographicsError && (
+                <div className="rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-3 py-2 text-xs text-red-700 dark:text-red-400 flex items-start gap-2">
+                  <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  <span>{demographicsError}</span>
+                </div>
+              )}
+
+              {activeDemoFields.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-border bg-muted/30 px-3 py-6 text-center text-sm text-muted-foreground">
+                  No demographic fields configured. Ask your administrator to add some in the Instrument Library.
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {activeDemoFields.map((f) => {
+                    const value = demographics[f.fieldKey] || '';
+                    const wide = f.type === 'textarea';
+                    const inputClass = 'w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20';
+                    return (
+                      <div key={f.id} className={cn('space-y-1.5', wide && 'md:col-span-2')}>
+                        <label className="text-sm font-medium">
+                          {f.label}{f.required && ' *'}
+                        </label>
+                        {f.type === 'select' ? (
+                          <select
+                            value={value}
+                            onChange={(e) => handleDemoFieldChange(f, e.target.value)}
+                            className={inputClass}
+                          >
+                            <option value="">Select…</option>
+                            {f.options.map((opt) => (
+                              <option key={opt} value={opt}>{opt}</option>
+                            ))}
+                          </select>
+                        ) : f.type === 'textarea' ? (
+                          <textarea
+                            rows={3}
+                            value={value}
+                            placeholder={f.placeholder}
+                            onChange={(e) => handleDemoFieldChange(f, e.target.value)}
+                            className={inputClass}
+                          />
+                        ) : f.type === 'date' ? (
+                          <input
+                            type="date"
+                            value={value}
+                            onChange={(e) => handleDemoFieldChange(f, e.target.value)}
+                            className={inputClass}
+                          />
+                        ) : f.type === 'number' ? (
+                          <input
+                            type="number"
+                            value={value}
+                            placeholder={f.placeholder}
+                            onChange={(e) => handleDemoFieldChange(f, e.target.value)}
+                            className={inputClass}
+                          />
+                        ) : (
+                          <input
+                            value={value}
+                            placeholder={f.placeholder}
+                            onChange={(e) => handleDemoFieldChange(f, e.target.value)}
+                            className={inputClass}
+                          />
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              <div className="flex items-center justify-between gap-3 pt-1">
+                <Button variant="outline" onClick={() => window.location.href = '/portal/assessments'}>
+                  Cancel
+                </Button>
+                <Button variant="primary" onClick={submitDemographics} disabled={savingDemographics}>
+                  <Check className="h-4 w-4" />
+                  {savingDemographics ? 'Saving…' : 'Continue to Assessment'}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </main>
+      </div>
+    );
+  }
+
   const total = instrument.questions.length;
   if (total === 0) {
     return (
@@ -186,8 +439,11 @@ export default function PortalTakePage() {
 
   const q = instrument.questions[index];
   const progress = Math.round(((index + 1) / total) * 100);
+  const isFreeText = String(q.format || '').toUpperCase().replace(/_/g, '') === 'FREETEXT';
   const selected = answers[q.id];
-  const answered = selected !== undefined;
+  const answered = isFreeText
+    ? typeof selected === 'string' && selected.trim().length > 0
+    : selected !== undefined;
   const isLast = index === total - 1;
 
   return (
@@ -218,35 +474,50 @@ export default function PortalTakePage() {
             {q.stem && <p className="text-base font-medium leading-relaxed">{q.stem}</p>}
             <Media url={q.media_url} type={q.media_type} />
 
-            <div className="space-y-2">
-              {q.options.map((opt, oi) => {
-                const on = selected === oi;
-                return (
-                  <button
-                    key={oi}
-                    type="button"
-                    onClick={() => setAnswers({ ...answers, [q.id]: oi })}
-                    className={cn(
-                      'w-full text-left rounded-lg border p-4 transition-colors',
-                      on ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40',
-                    )}
-                  >
-                    <div className="flex items-start gap-3">
-                      <span className={cn(
-                        'mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border',
-                        on ? 'border-primary bg-primary text-primary-foreground' : 'border-border',
-                      )}>
-                        {on && <Check className="h-3 w-3" />}
-                      </span>
-                      <div className="flex-1 space-y-2">
-                        <p className="text-sm">{opt.text || `Option ${oi + 1}`}</p>
-                        <Media url={opt.media_url} type={opt.media_type} />
+            {isFreeText ? (
+              <div className="space-y-1.5">
+                <textarea
+                  rows={7}
+                  value={typeof selected === 'string' ? selected : ''}
+                  onChange={(e) => setAnswers({ ...answers, [q.id]: e.target.value })}
+                  placeholder="Type your answer here…"
+                  className="w-full rounded-lg border border-border bg-background px-3 py-3 text-sm leading-relaxed outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 resize-y"
+                />
+                <p className="text-xs text-muted-foreground text-right">
+                  {typeof selected === 'string' ? selected.length : 0} characters
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {q.options.map((opt, oi) => {
+                  const on = selected === oi;
+                  return (
+                    <button
+                      key={oi}
+                      type="button"
+                      onClick={() => setAnswers({ ...answers, [q.id]: oi })}
+                      className={cn(
+                        'w-full text-left rounded-lg border p-4 transition-colors',
+                        on ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40',
+                      )}
+                    >
+                      <div className="flex items-start gap-3">
+                        <span className={cn(
+                          'mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border',
+                          on ? 'border-primary bg-primary text-primary-foreground' : 'border-border',
+                        )}>
+                          {on && <Check className="h-3 w-3" />}
+                        </span>
+                        <div className="flex-1 space-y-2">
+                          <p className="text-sm">{opt.text || `Option ${oi + 1}`}</p>
+                          <Media url={opt.media_url} type={opt.media_type} />
+                        </div>
                       </div>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </CardContent>
         </Card>
 

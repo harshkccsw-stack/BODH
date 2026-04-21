@@ -109,6 +109,29 @@ export const qualitiesApi = {
   delete: (id: string) => jsonFetch<null>(`/qualities/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 };
 
+// ---------- Demographic Fields (catalogue for portal pre-assessment form) ----------
+export interface DemographicField {
+  id: string;
+  fieldKey: string;
+  label: string;
+  type: 'text' | 'number' | 'date' | 'select' | 'textarea';
+  required: boolean;
+  placeholder?: string;
+  options: string[];
+  sortOrder: number;
+  active: boolean;
+}
+export const demographicFieldsApi = {
+  list: (activeOnly = false) => jsonFetch<DemographicField[]>(
+    `/demographic-fields${activeOnly ? '?active=true' : ''}`,
+  ),
+  upsert: (f: DemographicField) => jsonFetch<DemographicField>('/demographic-fields', {
+    method: 'POST',
+    body: JSON.stringify(f),
+  }),
+  delete: (id: string) => jsonFetch<null>(`/demographic-fields/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+};
+
 // ---------- Item Display State (Item Explorer overrides + soft-deletes) ----------
 export interface ItemDisplayRow {
   itemId: string;
@@ -151,6 +174,8 @@ export interface PublishedQuestionnaire {
     risk_flag_rule: string;
   }>;
   isDemo?: boolean;
+  disclaimer?: string;
+  demographicFieldKeys?: string[];
   createdAt?: string;
 }
 export const questionnairesApi = {
