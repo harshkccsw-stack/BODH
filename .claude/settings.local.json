@@ -10,7 +10,19 @@
       "Bash(./node_modules/.bin/tsc --noEmit)",
       "Bash(curl -sI \"https://bodhh.vercel.app/\")",
       "Bash(curl -sI \"https://bodhh.vercel.app/dashboard\")",
-      "Bash(curl -sI \"https://bodhh.vercel.app/portal/login\")"
+      "Bash(curl -sI \"https://bodhh.vercel.app/portal/login\")",
+      "Bash(go version *)",
+      "Bash(npm --version)",
+      "Bash(docker --version)",
+      "Bash(winget --version)",
+      "Bash(choco --version)",
+      "Bash(winget install *)",
+      "Bash(winget search *)",
+      "Bash(wsl --status)",
+      "Bash(systeminfo)",
+      "Bash(docker info *)",
+      "Bash(docker compose *)",
+      "Bash(git config *)"
     ]
   }
 }
