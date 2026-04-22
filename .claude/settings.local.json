@@ -22,7 +22,13 @@
       "Bash(systeminfo)",
       "Bash(docker info *)",
       "Bash(docker compose *)",
-      "Bash(git config *)"
+      "Bash(git config *)",
+      "Read(//root/.nvm/versions/**)",
+      "Read(//usr/local/bin/**)",
+      "Bash(pip3 install *)",
+      "Bash(python3 -c \"import acme_tiny; print\\('acme_tiny version:', acme_tiny.__name__\\)\")",
+      "Bash(curl -sS -o /dev/null -w \"HTTPS status: %{http_code}\\\\nSSL verify: %{ssl_verify_result}\\\\n\" https://api.bodh.biz/ --max-time 10)",
+      "Bash(curl -sSIv https://api.bodh.biz/ --max-time 10)"
     ]
   }
 }
