@@ -1,5 +1,3 @@
-'use client';
-
 import { JSX, useCallback } from 'react';
 import { MENU_SIDEBAR } from '@/config/bodhassess.config';
 import { MenuConfig, MenuItem } from '@/config/types';
@@ -16,8 +14,8 @@ import {
 } from '@/components/ui/accordion-menu';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { usePathname } from 'next/navigation';
-import Link from 'next/link';
+import { usePathname } from '@/src/lib/next-compat';
+import Link from '@/src/lib/next-compat';
 
 export function SidebarMenu() {
   const pathname = usePathname();

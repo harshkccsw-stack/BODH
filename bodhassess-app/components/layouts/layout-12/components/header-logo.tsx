@@ -11,8 +11,8 @@ import {
 } from '@/components/ui/sheet';
 import { HeaderSearch } from './header-search';
 import { Button } from '@/components/ui/button';
-import { usePathname } from 'next/navigation';
-import Link from 'next/link';
+import { usePathname } from '@/src/lib/next-compat';
+import Link from '@/src/lib/next-compat';
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { SidebarFeeds } from "./sidebar-feeds";

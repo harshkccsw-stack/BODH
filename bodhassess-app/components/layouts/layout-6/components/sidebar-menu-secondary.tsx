@@ -1,5 +1,3 @@
-'use client';
-
 import { Fragment } from 'react';
 import {
   Activity,
@@ -23,7 +21,7 @@ import {
   AccordionMenuSubContent,
   AccordionMenuSubTrigger,
 } from '@/components/ui/accordion-menu';
-import Link from 'next/link';
+import Link from '@/src/lib/next-compat';
 
 interface Item {
   title: string;

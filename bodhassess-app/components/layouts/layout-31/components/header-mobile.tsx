@@ -4,7 +4,7 @@ import { Menu } from 'lucide-react';
 import { useState } from 'react';
 import { toAbsoluteUrl } from '@/lib/helpers';
 import { Sidebar } from './sidebar';
-import Link from 'next/link';
+import Link from '@/src/lib/next-compat';
 
 export function HeaderMobile() {
   const [isSidebarSheetOpen, setIsSidebarSheetOpen] = useState(false);

@@ -7,8 +7,8 @@ import {
   AccordionMenuLabel,
 } from '@/components/ui/accordion-menu';
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { usePathname } from "next/navigation";
-import Link from "next/link";
+import { usePathname } from '@/src/lib/next-compat';
+import Link from '@/src/lib/next-compat';
 
 export function SidebarMenu() {
   const pathname = usePathname();

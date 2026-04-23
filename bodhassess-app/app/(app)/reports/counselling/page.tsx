@@ -1,5 +1,3 @@
-'use client';
-
 import { useEffect, useMemo, useState } from 'react';
 import { getSessions, getSessionById, sessionsToReports, downloadJson } from '@/lib/data-store';
 import {

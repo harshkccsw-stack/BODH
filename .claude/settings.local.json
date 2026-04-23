@@ -10,7 +10,11 @@
       "Bash(./node_modules/.bin/tsc --noEmit)",
       "Bash(curl -sI \"https://bodhh.vercel.app/\")",
       "Bash(curl -sI \"https://bodhh.vercel.app/dashboard\")",
-      "Bash(curl -sI \"https://bodhh.vercel.app/portal/login\")"
+      "Bash(curl -sI \"https://bodhh.vercel.app/portal/login\")",
+      "Bash(curl -sS -o /tmp/layout1-page.js -w 'layout-1 page=%{http_code} size=%{size_download}\\\\n' 'http://127.0.0.1:3000/app/\\(layouts\\)/layout-1/page.tsx')",
+      "Bash(curl -sS -o /tmp/layout1-comp.js -w 'layout-1 index=%{http_code} size=%{size_download}\\\\n' 'http://127.0.0.1:3000/components/layouts/layout-1/index.tsx')",
+      "Bash(curl -sS -o /tmp/register.js -w 'register=%{http_code} size=%{size_download}\\\\n' 'http://127.0.0.1:3000/app/register/page.tsx')",
+      "Bash(pkill -f 'vite dev')"
     ]
   }
 }

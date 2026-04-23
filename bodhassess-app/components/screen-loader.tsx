@@ -1,5 +1,3 @@
-'use client';
-
 import { toAbsoluteUrl } from '@/lib/helpers';
 
 export function ScreenLoader() {

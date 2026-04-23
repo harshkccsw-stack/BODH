@@ -1,7 +1,7 @@
 import { Button } from '@/components/ui/button';
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
 import { Coffee, MessageSquareCode, NotebookText, Pin, Plus } from 'lucide-react';
-import Link from 'next/link';
+import Link from '@/src/lib/next-compat';
 
 function Toolbar() {
   return (

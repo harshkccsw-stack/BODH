@@ -1,5 +1,3 @@
-'use client';
-
 import { useEffect, useMemo, useState } from 'react';
 import { portalSessionsApi, type PortalSession } from '@/lib/api';
 import {

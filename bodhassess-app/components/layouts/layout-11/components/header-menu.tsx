@@ -2,8 +2,8 @@ import { useMenu } from "@/hooks/use-menu";
 import { cn } from "@/lib/utils";
 import { MENU_HEADER } from "@/config/layout-11.config";
 import { Separator } from "@/components/ui/separator";
-import { usePathname } from 'next/navigation';
-import Link from 'next/link';
+import { usePathname } from '@/src/lib/next-compat';
+import Link from '@/src/lib/next-compat';
 
 export function HeaderMenu() {
   const pathname = usePathname();

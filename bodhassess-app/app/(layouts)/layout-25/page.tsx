@@ -1,5 +1,3 @@
-'use client';
-
 import { Skeleton } from "@/components/ui/skeleton";
 import { Toolbar, ToolbarHeading, ToolbarPageTitle, ToolbarActions } from "@/components/layouts/layout-25/components/toolbar";
 import { ToolbarBreadcrumbs } from "@/components/layouts/layout-25/components/toolbar-breadcrumbs";

@@ -1,5 +1,3 @@
-'use client';
-
 import { JSX, useCallback } from 'react';
 import { LucideIcon } from 'lucide-react';
 import { MENU_MEGA_MOBILE } from '@/config/bodhassess.config';
@@ -15,8 +13,8 @@ import {
   AccordionMenuSubTrigger,
 } from '@/components/ui/accordion-menu';
 import { Badge } from '@/components/ui/badge';
-import { usePathname } from 'next/navigation';
-import Link from 'next/link';
+import { usePathname } from '@/src/lib/next-compat';
+import Link from '@/src/lib/next-compat';
 
 export interface MenuItem {
   title?: string;

@@ -1,19 +1,7 @@
-import { Metadata } from 'next';
 import { Wrapper } from './components/wrapper';
 import { LayoutProvider } from './components/context';
 import type { CSSProperties } from 'react';
 import { cn } from '@/lib/utils';
-
-// Generate metadata for the layout
-export async function generateMetadata(): Promise<Metadata> {
-  // You can access route params here if needed
-  // const { params } = props;
-  
-  return {
-    title: 'Dashboard',
-    description: '',
-  };
-}
 
 export function Layout28({ children }: { children: React.ReactNode }) {
   return (

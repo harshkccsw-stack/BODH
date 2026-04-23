@@ -1,6 +1,6 @@
 import { ReactNode } from 'react';
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import Link from '@/src/lib/next-compat';
+import { usePathname } from '@/src/lib/next-compat';
 import { MenuConfig } from '@/config/types';
 import { cn } from '@/lib/utils';
 import { useMenu } from '@/hooks/use-menu';

@@ -5,7 +5,7 @@ import { Menu } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { SidebarContent } from "./sidebar-content";
-import { usePathname } from 'next/navigation';
+import { usePathname } from '@/src/lib/next-compat';
 
 export function HeaderBrand() {
   const pathname = usePathname();

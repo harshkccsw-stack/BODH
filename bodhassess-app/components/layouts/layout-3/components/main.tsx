@@ -7,8 +7,8 @@ import { Header } from './header';
 import { Navbar } from './navbar';
 import { Sidebar } from './sidebar';
 import { Toolbar, ToolbarActions, ToolbarHeading } from './toolbar';
-import { usePathname } from 'next/navigation';
-import Link from 'next/link';
+import { usePathname } from '@/src/lib/next-compat';
+import Link from '@/src/lib/next-compat';
 
 export function Main({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();

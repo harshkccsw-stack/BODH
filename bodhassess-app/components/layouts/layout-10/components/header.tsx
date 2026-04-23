@@ -13,8 +13,8 @@ import {
 import { SidebarFooter } from './sidebar-footer';
 import { SidebarHeader } from './sidebar-header';
 import { SidebarMenu } from './sidebar-menu';
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import Link from '@/src/lib/next-compat';
+import { usePathname } from '@/src/lib/next-compat';
 
 export function Header() {
   const isMobile = useIsMobile();

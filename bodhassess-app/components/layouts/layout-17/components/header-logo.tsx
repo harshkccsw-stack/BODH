@@ -7,8 +7,8 @@ import { useEffect, useState } from 'react';
 import { Sheet, SheetTrigger, SheetContent, SheetHeader, SheetBody } from "@/components/ui/sheet";
 import { Menu } from "lucide-react";
 import { SidebarContent } from './sidebar-content';
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import Link from '@/src/lib/next-compat';
+import { usePathname } from '@/src/lib/next-compat';
 
 interface Project {
   logo: string;

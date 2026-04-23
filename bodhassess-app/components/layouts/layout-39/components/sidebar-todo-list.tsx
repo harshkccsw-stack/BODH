@@ -13,7 +13,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import Link from 'next/link';
+import Link from '@/src/lib/next-compat';
 
 interface SidebarTodoListProps {
   isCollapsed: boolean;

@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import Link from '@/src/lib/next-compat';
 import { Button } from '@/components/ui/button';
 import { NavigationMenuLink } from '@/components/ui/navigation-menu';
 

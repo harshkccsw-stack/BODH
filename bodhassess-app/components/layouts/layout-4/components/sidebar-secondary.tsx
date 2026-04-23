@@ -1,6 +1,6 @@
 import { SidebarMenuDefault } from '../../layout-5/components/sidebar-menu-default';
 import { SidebarMenuDashboard } from './sidebar-menu-dashboard';
-import { usePathname } from 'next/navigation';
+import { usePathname } from '@/src/lib/next-compat';
 
 export function SidebarSecondary() {
   const pathname = usePathname();

@@ -1,7 +1,5 @@
-'use client';
-
 import { Suspense, useEffect, useState } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams } from '@/src/lib/next-compat';
 import {
   Activity,
   AlertTriangle,

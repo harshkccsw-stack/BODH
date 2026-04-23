@@ -7,8 +7,8 @@ import { useEffect } from 'react';
 import { Navbar } from './navbar';
 import { WorkspaceMenu } from './workspace-menu';
 import { Logo } from './logo';
-import { usePathname } from 'next/navigation';
-import Link from 'next/link';
+import { usePathname } from '@/src/lib/next-compat';
+import Link from '@/src/lib/next-compat';
 
 export function HeaderLogo() {
   const pathname = usePathname();

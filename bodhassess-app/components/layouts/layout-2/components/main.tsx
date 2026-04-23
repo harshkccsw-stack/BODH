@@ -15,7 +15,7 @@ import { Footer } from './footer';
 import { Header } from './header';
 import { Navbar } from './navbar';
 import { Toolbar, ToolbarActions, ToolbarHeading } from './toolbar';
-import { usePathname } from 'next/navigation';
+import { usePathname } from '@/src/lib/next-compat';
 
 export function Main({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();

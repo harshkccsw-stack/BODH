@@ -1,6 +1,6 @@
 import { useCallback } from "react";
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import Link from '@/src/lib/next-compat';
+import { usePathname } from '@/src/lib/next-compat';
 import { MENU_SIDEBAR } from "@/config/layout-27.config";
 import {
   AccordionMenu,

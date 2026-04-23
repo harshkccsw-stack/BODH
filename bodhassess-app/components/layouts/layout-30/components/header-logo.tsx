@@ -10,7 +10,7 @@ import { HeaderBreadcrumbs } from './header-breadcrumbs';
 import { Sidebar } from './sidebar';
 import { HeaderTitleDefault } from './header-title-default';
 import { Breadcrumb, BreadcrumbList, BreadcrumbSeparator } from '@/components/ui/breadcrumb';
-import Link from 'next/link';
+import Link from '@/src/lib/next-compat';
 
 export function HeaderLogo() {
   const { isMobile } = useLayout();

@@ -11,8 +11,8 @@ import {
 import { Button } from '@/components/ui/button';
 import { toAbsoluteUrl } from '@/lib/helpers';
 import { Sidebar } from './sidebar';
-import { usePathname } from 'next/navigation';
-import Link from 'next/link';
+import { usePathname } from '@/src/lib/next-compat';
+import Link from '@/src/lib/next-compat';
 
 export function HeaderLogo() {
   const pathname = usePathname();

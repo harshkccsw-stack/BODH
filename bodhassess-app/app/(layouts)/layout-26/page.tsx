@@ -1,5 +1,3 @@
-'use client';
-
 import { Toolbar, ToolbarActions, ToolbarDescription, ToolbarHeading, ToolbarPageTitle, ToolbarSidebarToggle } from "@/components/layouts/layout-26/components/toolbar";
 import { Button } from "@/components/ui/button";
 import { ClipboardList, Coffee, MessageSquareCode, Pin, Plus } from "lucide-react";

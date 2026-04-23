@@ -1,0 +1,33 @@
+# DigitalOcean App Platform spec for the BodhAssess frontend (static site).
+# One-time create (after filling in <GITHUB_OWNER/REPO> and <API_DOMAIN>):
+#
+#   doctl apps create --spec bodhassess-app/.do/app.yaml
+#
+# After that, pushes to master auto-deploy.
+
+name: bodhassess-app
+region: nyc
+
+static_sites:
+  - name: web
+    source_dir: bodhassess-app
+    github:
+      repo: <GITHUB_OWNER>/<REPO>
+      branch: master
+      deploy_on_push: true
+    build_command: npm ci --no-audit --no-fund && npm run build
+    output_dir: dist
+    # SPA fallback — any path that doesn't match an asset is served index.html.
+    catchall_document: index.html
+    envs:
+      - key: VITE_API_URL
+        scope: BUILD_TIME
+        value: https://<API_DOMAIN>/api/v1
+      - key: VITE_APP_NAME
+        scope: BUILD_TIME
+        value: BodhAssess
+      - key: VITE_AUTH_STORAGE_KEY
+        scope: BUILD_TIME
+        value: bodhassess.auth.token
+    routes:
+      - path: /

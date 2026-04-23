@@ -11,8 +11,8 @@ import { useEffect, useState } from 'react';
 import { SidebarContent } from './sidebar-content';
 import { toAbsoluteUrl } from '@/lib/helpers';
 import { SidebarFooter } from './sidebar-footer';
-import { usePathname } from 'next/navigation';
-import Link from 'next/link';
+import { usePathname } from '@/src/lib/next-compat';
+import Link from '@/src/lib/next-compat';
 
 export function Header() {
   const pathname = usePathname();

@@ -1,5 +1,3 @@
-'use client';
-
 import React, { useCallback, useEffect, useState } from 'react';
 import { cva, type VariantProps } from 'class-variance-authority';
 import { Star } from 'lucide-react';

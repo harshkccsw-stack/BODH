@@ -9,8 +9,8 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Navbar } from "./navbar";
 import { useLayout } from "./context";
-import { usePathname } from 'next/navigation';
-import Link from 'next/link';
+import { usePathname } from '@/src/lib/next-compat';
+import Link from '@/src/lib/next-compat';
 
 export function SidebarMenu() {
   const pathname = usePathname();

@@ -27,8 +27,8 @@ import { useLayout } from "./context";
 import { useEffect, useState } from "react";
 import { Sheet, SheetBody, SheetContent, SheetHeader, SheetTrigger } from "@/components/ui/sheet";
 import { SidebarMenu } from "./sidebar-menu";
-import { usePathname } from 'next/navigation';
-import Link from 'next/link';
+import { usePathname } from '@/src/lib/next-compat';
+import Link from '@/src/lib/next-compat';
 
 export function HeaderToolbar() {
   const { theme, setTheme } = useTheme();

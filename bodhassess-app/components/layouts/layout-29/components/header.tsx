@@ -13,8 +13,8 @@ import { SidebarContent } from './sidebar-content';
 import { toAbsoluteUrl } from '@/lib/helpers';
 import { ToolbarActions } from './toolbar';
 import { Navbar } from './navbar';
-import { usePathname } from 'next/navigation';
-import Link from 'next/link';
+import { usePathname } from '@/src/lib/next-compat';
+import Link from '@/src/lib/next-compat';
 
 export function Header() {
   const { isMobile } = useLayout();

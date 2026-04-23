@@ -1,5 +1,3 @@
-'use client';
-
 import { useEffect, useState } from 'react';
 import { CheckCircle2, ClipboardList, LogOut } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';

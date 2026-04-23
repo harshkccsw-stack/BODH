@@ -45,7 +45,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
-import Link from 'next/link';
+import Link from '@/src/lib/next-compat';
 
 const menuItems = [
   {

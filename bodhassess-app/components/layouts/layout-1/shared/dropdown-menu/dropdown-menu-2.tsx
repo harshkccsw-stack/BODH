@@ -1,6 +1,6 @@
 import { ReactNode } from 'react';
 import { CloudCog, FileInput, Settings, ThumbsDown } from 'lucide-react';
-import Link from 'next/link';
+import Link from '@/src/lib/next-compat';
 import {
   DropdownMenu,
   DropdownMenuContent,

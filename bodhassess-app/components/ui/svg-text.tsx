@@ -1,5 +1,3 @@
-'use client';
-
 import * as React from 'react';
 import { ElementType, ReactNode, useEffect, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';

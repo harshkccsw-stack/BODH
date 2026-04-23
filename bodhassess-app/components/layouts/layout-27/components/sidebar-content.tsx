@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import Link from 'next/link';
+import Link from '@/src/lib/next-compat';
 import { cn } from '@/lib/utils';
-import { usePathname } from 'next/navigation';
+import { usePathname } from '@/src/lib/next-compat';
 import {
   Tooltip,
   TooltipContent,

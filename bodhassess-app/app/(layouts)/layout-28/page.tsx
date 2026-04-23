@@ -1,5 +1,3 @@
-'use client';
-
 import { Toolbar, ToolbarActions, ToolbarDescription, ToolbarHeading, ToolbarPageTitle } from "@/components/layouts/layout-28/components/toolbar";
 import { Button } from "@/components/ui/button";
 import { Input, InputWrapper } from "@/components/ui/input";

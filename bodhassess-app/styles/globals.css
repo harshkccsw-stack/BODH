@@ -162,3 +162,5 @@ html {
 
 /* Metronic Configs */
 @import './config.metronic.css';
+@import './demos/demo1.css';
+@import './components/scrollable.css';

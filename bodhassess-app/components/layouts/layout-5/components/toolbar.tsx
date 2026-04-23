@@ -3,8 +3,8 @@ import { MENU_SIDEBAR } from '@/config/layout-5.config';
 import { MenuItem } from '@/config/types';
 import { cn } from '@/lib/utils';
 import { useMenu } from '@/hooks/use-menu';
-import { usePathname } from 'next/navigation';
-import Link from 'next/link';
+import { usePathname } from '@/src/lib/next-compat';
+import Link from '@/src/lib/next-compat';
 
 export interface ToolbarHeadingProps {
   title?: string | ReactNode;

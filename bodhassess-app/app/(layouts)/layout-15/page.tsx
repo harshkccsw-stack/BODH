@@ -1,5 +1,3 @@
-'use client';
-
 import { Content } from "@/components/layouts/layout-15/components/content";
 import { ContentHeader } from "@/components/layouts/layout-15/components/content-header";
 import { Skeleton } from "@/components/ui/skeleton";

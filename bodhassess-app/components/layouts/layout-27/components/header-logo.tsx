@@ -8,7 +8,7 @@ import { SidebarMenu } from './sidebar-menu';
 import { HeaderTitle } from './header-title';
 import { HeaderBreadcrumbs } from './header-breadcrumbs';
 import { Sidebar } from './sidebar';
-import Link from 'next/link';
+import Link from '@/src/lib/next-compat';
 
 export function HeaderLogo() {
   const { isMobile } = useLayout();

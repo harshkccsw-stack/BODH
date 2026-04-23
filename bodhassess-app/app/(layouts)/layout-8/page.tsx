@@ -1,12 +1,10 @@
-'use client';
-
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton"
 import { Toolbar, ToolbarActions, ToolbarHeading } from "@/components/layouts/layout-8/components/toolbar";
 import { SearchDialog } from "@/components/layouts/layout-1/shared/dialogs/search/search-dialog";
 import { ChatSheet } from "@/components/layouts/layout-1/shared/topbar/chat-sheet";
 import { Download, MessageCircleMore, Search } from "lucide-react";
-import Link from "next/link";
+import Link from '@/src/lib/next-compat';
 
 export default function Page() {
   return (

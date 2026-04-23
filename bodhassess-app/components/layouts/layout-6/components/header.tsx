@@ -13,8 +13,8 @@ import {
 import { SidebarHeader } from './sidebar-header';
 import { SidebarMenu } from './sidebar-menu';
 import { SidebarFooter } from './sidebar-footer';
-import { usePathname } from 'next/navigation';
-import Link from 'next/link';
+import { usePathname } from '@/src/lib/next-compat';
+import Link from '@/src/lib/next-compat';
 
 const Header = () => {
   const pathname = usePathname();

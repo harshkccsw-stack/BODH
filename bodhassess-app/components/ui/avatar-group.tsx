@@ -1,5 +1,3 @@
-'use client';
-
 import * as React from 'react';
 import { AnimatePresence, Easing, motion, useMotionValue, useSpring, useTransform } from 'motion/react';
 import { cn } from '@/lib/utils';

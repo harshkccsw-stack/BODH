@@ -1,8 +1,8 @@
 import { useCallback } from "react";
 import { MENU_HEADER } from "@/config/layout-22.config";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { usePathname } from 'next/navigation';
-import Link from 'next/link';
+import { usePathname } from '@/src/lib/next-compat';
+import Link from '@/src/lib/next-compat';
 
 export function SidebarMenu() {
   const pathname = usePathname();

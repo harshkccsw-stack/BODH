@@ -1,5 +1,3 @@
-'use client';
-
 import { Skeleton } from "@/components/ui/skeleton"
 import { Toolbar, ToolbarActions, ToolbarHeading } from "@/components/layouts/layout-10/components/toolbar";
 import { Button } from "@/components/ui/button";
@@ -9,7 +7,7 @@ import { addDays, format } from "date-fns";
 import { CalendarDays, Download } from "lucide-react";
 import { useState } from "react";
 import { DateRange } from "react-day-picker";
-import Link from "next/link";
+import Link from '@/src/lib/next-compat';
 
 export default function Page() {
   const [date, setDate] = useState<DateRange | undefined>({

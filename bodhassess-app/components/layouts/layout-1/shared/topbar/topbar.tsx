@@ -1,5 +1,5 @@
 import { Heart, Search, ShoppingCart, UserCircle } from 'lucide-react';
-import { usePathname } from 'next/navigation';
+import { usePathname } from '@/src/lib/next-compat';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';

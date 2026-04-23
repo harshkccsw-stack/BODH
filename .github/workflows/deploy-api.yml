@@ -1,0 +1,112 @@
+name: Deploy API
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "bodhassess-api/**"
+      - ".github/workflows/deploy-api.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-api
+  cancel-in-progress: false
+
+env:
+  IMAGE_NAME: bodhassess-api
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DO_API_TOKEN }}
+
+      - name: Log in to DOCR
+        run: doctl registry login --expiry-seconds 1200
+
+      - name: Compute image tags
+        id: tags
+        run: |
+          SHA="${GITHUB_SHA::12}"
+          REG="registry.digitalocean.com/${{ secrets.DOCR_REGISTRY }}"
+          echo "sha_tag=${REG}/${IMAGE_NAME}:${SHA}" >> "$GITHUB_OUTPUT"
+          echo "latest_tag=${REG}/${IMAGE_NAME}:latest" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build & push image
+        uses: docker/build-push-action@v5
+        with:
+          context: bodhassess-api
+          file: bodhassess-api/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.tags.outputs.sha_tag }}
+            ${{ steps.tags.outputs.latest_tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Install SSH key
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.DROPLET_SSH_KEY }}
+
+      - name: Add droplet to known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H "${{ secrets.DROPLET_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Sync compose + migrations to droplet
+        run: |
+          rsync -az --delete \
+            bodhassess-api/docker-compose.prod.yml \
+            bodhassess-api/Caddyfile \
+            bodhassess-api/scripts/migrate.sh \
+            ${{ secrets.DROPLET_USER }}@${{ secrets.DROPLET_HOST }}:/opt/bodhassess/
+          rsync -az --delete \
+            bodhassess-api/migrations/ \
+            ${{ secrets.DROPLET_USER }}@${{ secrets.DROPLET_HOST }}:/opt/bodhassess/migrations/
+
+      - name: Pull image + restart + migrate
+        env:
+          DROPLET_USER: ${{ secrets.DROPLET_USER }}
+          DROPLET_HOST: ${{ secrets.DROPLET_HOST }}
+          IMAGE: ${{ steps.tags.outputs.sha_tag }}
+        run: |
+          ssh -o StrictHostKeyChecking=yes "$DROPLET_USER@$DROPLET_HOST" bash -s <<EOF
+          set -euo pipefail
+          cd /opt/bodhassess
+          doctl registry login --access-token "${{ secrets.DO_API_TOKEN }}" --expiry-seconds 1200 || true
+          # Pin the exact image this deploy is rolling out
+          sed -i "s|^DOCR_IMAGE=.*|DOCR_IMAGE=$IMAGE|" .env
+          docker compose -f docker-compose.prod.yml pull
+          docker compose -f docker-compose.prod.yml up -d
+          # Wait for postgres then apply migrations
+          until docker compose -f docker-compose.prod.yml exec -T postgres pg_isready -U \$(grep ^DB_USER .env | cut -d= -f2) >/dev/null 2>&1; do
+            sleep 1
+          done
+          set -a; source ./.env; set +a
+          ./migrate.sh
+          docker image prune -f
+          EOF
+
+      - name: Smoke test
+        env:
+          API_DOMAIN: ${{ secrets.API_DOMAIN }}
+        run: |
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            if curl -fsS "https://$API_DOMAIN/api/v1/health" >/dev/null; then
+              echo "health OK"; exit 0
+            fi
+            sleep 3
+          done
+          echo "health check failed" >&2
+          exit 1

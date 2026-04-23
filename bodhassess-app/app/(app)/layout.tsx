@@ -1,5 +1,3 @@
-'use client';
-
 import { Layout1 } from '@/components/layouts/layout-1';
 import { ReactNode, useEffect, useState } from 'react';
 import { ScreenLoader } from '@/components/screen-loader';
