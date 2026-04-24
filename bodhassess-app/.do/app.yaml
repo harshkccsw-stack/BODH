@@ -12,7 +12,7 @@ static_sites:
   - name: web
     source_dir: bodhassess-app
     github:
-      repo: <GITHUB_OWNER>/<REPO>
+      repo: harshkccsw-stack/BODH
       branch: master
       deploy_on_push: true
     build_command: npm ci --no-audit --no-fund && npm run build
@@ -22,7 +22,7 @@ static_sites:
     envs:
       - key: VITE_API_URL
         scope: BUILD_TIME
-        value: https://<API_DOMAIN>/api/v1
+        value: https://api.bodh.biz/api/v1
       - key: VITE_APP_NAME
         scope: BUILD_TIME
         value: BodhAssess
