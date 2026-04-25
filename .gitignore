@@ -9,3 +9,5 @@ dist/
 package-lock.json
 nginx
 .env.staging
+deploy.production.env
+deploy.staging.env

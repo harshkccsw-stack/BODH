@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
-	"strings"
 
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
@@ -16,28 +14,6 @@ import (
 	"github.com/bodh-psychometric/bodhassess-api/internal/database"
 	"github.com/bodh-psychometric/bodhassess-api/internal/handlers"
 )
-
-func allowedOrigins() []string {
-	raw := os.Getenv("CORS_ORIGINS")
-	if raw == "" {
-		return []string{"http://localhost:3000", "http://localhost:3001"}
-	}
-	parts := strings.Split(raw, ",")
-	out := parts[:0]
-	for _, p := range parts {
-		if s := strings.TrimSpace(p); s != "" {
-			out = append(out, s)
-		}
-	}
-	return out
-}
-
-func uploadPublicBase(appPort string) string {
-	if v := os.Getenv("UPLOAD_PUBLIC_URL"); v != "" {
-		return v
-	}
-	return "http://localhost:" + appPort
-}
 
 func main() {
 	cfg := config.Load()
@@ -52,7 +28,7 @@ func main() {
 	r.Use(chimiddleware.RequestID)
 	r.Use(chimiddleware.RealIP)
 	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   allowedOrigins(),
+		AllowedOrigins:   []string{"http://localhost:3000", "http://localhost:3001"},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-Tenant-ID"},
 		ExposedHeaders:   []string{"Link"},
@@ -65,7 +41,7 @@ func main() {
 	questionnairesCatalogH := handlers.NewQuestionnairesCatalogHandler(db)
 	sessionsH := handlers.NewSessionsHandler(db)
 	itemsH := handlers.NewItemsHandler(db)
-	uploadH := handlers.NewUploadHandler("./uploads", uploadPublicBase(cfg.AppPort))
+	uploadH := handlers.NewUploadHandler("./uploads", "http://localhost:"+cfg.AppPort)
 	qualitiesH := handlers.NewQualitiesHandler(db)
 	verticalsH := handlers.NewVerticalsHandler(db)
 	respondentsH := handlers.NewRespondentsHandler(db)

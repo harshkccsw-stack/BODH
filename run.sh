@@ -53,10 +53,22 @@ start_infra() {
 start_api() {
   need go
   [ -f "$API_DIR/go.mod" ] || die "no go.mod at $API_DIR"
-  echo "==> Starting Go API on :8080 → $LOG_DIR/api.log"
-  ( cd "$API_DIR" && go run ./cmd/server > "$LOG_DIR/api.log" 2>&1 ) &
+
+  # Refuse to start if :8080 is already taken (orphan from a previous run, etc.)
+  if lsof -nP -iTCP:8080 -sTCP:LISTEN >/dev/null 2>&1; then
+    echo "==> :8080 already in use — killing the listener"
+    lsof -nP -iTCP:8080 -sTCP:LISTEN -t 2>/dev/null | xargs -r kill 2>/dev/null || true
+    sleep 1
+    lsof -nP -iTCP:8080 -sTCP:LISTEN -t 2>/dev/null | xargs -r kill -9 2>/dev/null || true
+  fi
+
+  echo "==> Building API binary → $LOG_DIR/api.log"
+  ( cd "$API_DIR" && go build -o "$LOG_DIR/bodh-server" ./cmd/server ) || die "go build failed"
+
+  echo "==> Starting Go API on :8080"
+  ( cd "$API_DIR" && "$LOG_DIR/bodh-server" > "$LOG_DIR/api.log" 2>&1 ) &
   echo $! > "$API_PID_FILE"
-  sleep 2
+  sleep 1
   if ! kill -0 "$(cat "$API_PID_FILE")" 2>/dev/null; then
     tail -20 "$LOG_DIR/api.log" >&2
     die "API failed to start"
