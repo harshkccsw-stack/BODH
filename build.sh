@@ -50,7 +50,12 @@ build_web() {
     ( cd "$WEB_DIR" && npm install --no-audit --no-fund )
   fi
   echo "==> Building web app"
-  ( cd "$WEB_DIR" && npm run build )
+  # Production URLs baked into the bundle. Local dev (`npm run dev`) ignores
+  # these and falls back to the defaults in lib/config.ts (localhost).
+  ( cd "$WEB_DIR" && \
+    VITE_API_URL="${VITE_API_URL:-https://api.bodh.biz/api/v1}" \
+    VITE_BASE_PATH="${VITE_BASE_PATH:-/dashboard}" \
+    npm run build )
 }
 
 commit_changes() {

@@ -1,1 +1,0 @@
-import{r}from"./index-BhLWDAZK.js";function c(o){r.useEffect(()=>{const t=o.split(/\s+/).filter(Boolean);return t.forEach(s=>{document.body.classList.add(s)}),()=>{t.forEach(s=>{document.body.classList.remove(s)})}},[o])}export{c as u};
