@@ -1,0 +1,10 @@
+.git
+.gitignore
+.run-logs
+uploads
+server
+*.log
+.DS_Store
+docker-compose.yml
+Dockerfile
+.dockerignore

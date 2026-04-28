@@ -1,28 +1,26 @@
 #!/usr/bin/env bash
-# host-do.sh — provision a Digital Ocean Ubuntu droplet to host bodhassess-api.
+# host-do.sh — provision a Digital Ocean Ubuntu droplet to host bodhassess-api
+# as a Docker Compose stack (postgres + api + nginx + certbot).
 #
 # Run this ON THE DROPLET (Ubuntu 22.04 / 24.04), as root or with sudo.
 #
-# Quick start:
-#   scp -r bodhassess-api host-do.sh root@<droplet-ip>:/root/
+# Quick start (from your Mac):
+#   scp -r bodhassess-api deploy host-do.sh root@<droplet-ip>:/root/
 #   ssh root@<droplet-ip>
-#   cd /root && DOMAIN=api.example.com EMAIL=you@example.com ./host-do.sh
+#   cd /root && DOMAIN=api.bodh.biz EMAIL=you@example.com ./host-do.sh
 #
-# Configurable via env vars (all optional except where noted):
-#   DOMAIN          domain pointing at this droplet (enables nginx + TLS)
-#   EMAIL           email for Let's Encrypt (required if DOMAIN is set)
-#   APP_PORT        local port the API binds to            (default 8080)
-#   APP_ENV         APP_ENV value passed to the API        (default production)
-#   DB_NAME         postgres database                       (default bodhassess)
-#   DB_USER         postgres role                           (default bodh)
-#   DB_PASSWORD     postgres password                       (default: random)
-#   JWT_SECRET      JWT signing secret                      (default: random)
-#   APP_USER        unix user that runs the API             (default bodh)
-#   APP_DIR         install dir for the binary + uploads    (default /opt/bodh)
-#   SOURCE_DIR      path to the bodhassess-api source       (default ./bodhassess-api)
-#   GO_VERSION      Go toolchain version                    (default 1.23.4)
-#   SKIP_TLS=1      skip certbot even if DOMAIN is set
-#   SKIP_NGINX=1    skip nginx (API will be reachable on $APP_PORT directly)
+# Configurable via env vars (all optional except as noted):
+#   DOMAIN          domain pointing at this droplet (default api.bodh.biz)
+#   EMAIL           email for Let's Encrypt        (default mittalkanni@gmail.com)
+#   APP_ENV         APP_ENV value passed to API     (default production)
+#   DB_NAME         postgres database               (default bodhassess)
+#   DB_USER         postgres role                   (default bodh)
+#   DB_PASSWORD     postgres password               (default: random, persisted in .env)
+#   JWT_SECRET      JWT signing secret              (default: random, persisted in .env)
+#   APP_DIR         install dir on droplet          (default /opt/bodh)
+#   SOURCE_DIR      dir containing bodhassess-api/ + deploy/  (default $(pwd))
+#   SKIP_TLS=1      skip certbot even if DOMAIN is set (HTTP only)
+#   STAGING_TLS=1   use Let's Encrypt staging (test certs, no rate limits)
 
 set -euo pipefail
 
@@ -43,251 +41,167 @@ die()  { printf "${RED}✗${N} %s\n" "$*" >&2; exit 1; }
 
 # ── config ────────────────────────────────────────────────────────────────
 DOMAIN="${DOMAIN:-api.bodh.biz}"
-EMAIL="${EMAIL:mittalkanni@gmail.com}"
-APP_PORT="${APP_PORT:-8080}"
+EMAIL="${EMAIL:-mittalkanni@gmail.com}"
 APP_ENV="${APP_ENV:-production}"
 DB_NAME="${DB_NAME:-bodhassess}"
 DB_USER="${DB_USER:-bodh}"
 DB_PASSWORD="${DB_PASSWORD:-$(openssl rand -base64 24 | tr -d '=+/' | cut -c1-24)}"
 JWT_SECRET="${JWT_SECRET:-$(openssl rand -base64 48 | tr -d '=+/' | cut -c1-48)}"
-APP_USER="${APP_USER:-bodh}"
 APP_DIR="${APP_DIR:-/opt/bodh}"
-SOURCE_DIR="${SOURCE_DIR:-$(pwd)/bodhassess-api}"
-GO_VERSION="${GO_VERSION:-1.23.4}"
+SOURCE_DIR="${SOURCE_DIR:-$(pwd)}"
 SKIP_TLS="${SKIP_TLS:-0}"
-SKIP_NGINX="${SKIP_NGINX:-0}"
+STAGING_TLS="${STAGING_TLS:-0}"
 
-[ -d "$SOURCE_DIR" ] || die "SOURCE_DIR not found: $SOURCE_DIR"
-[ -d "$SOURCE_DIR/cmd/server" ] || die "expected $SOURCE_DIR/cmd/server (is this the bodhassess-api source?)"
+[ -d "$SOURCE_DIR/bodhassess-api/cmd/server" ] || die "expected $SOURCE_DIR/bodhassess-api/cmd/server"
+[ -f "$SOURCE_DIR/deploy/docker-compose.yml" ]  || die "expected $SOURCE_DIR/deploy/docker-compose.yml"
+[ -d "$SOURCE_DIR/bodhassess-api/migrations" ]   || die "expected $SOURCE_DIR/bodhassess-api/migrations"
 if [ -n "$DOMAIN" ] && [ "$SKIP_TLS" != "1" ] && [ -z "$EMAIL" ]; then
-  die "EMAIL is required when DOMAIN is set (used for Let's Encrypt). Pass SKIP_TLS=1 to skip."
+  die "EMAIL is required when DOMAIN is set. Pass SKIP_TLS=1 to skip TLS."
 fi
 
 echo
-printf "  ${B}Domain:${N}        ${DOMAIN:-<none — API will be reachable by IP>}\n"
-printf "  ${B}App port:${N}      $APP_PORT\n"
-printf "  ${B}App user:${N}      $APP_USER\n"
-printf "  ${B}App dir:${N}       $APP_DIR\n"
-printf "  ${B}DB:${N}            $DB_NAME (user=$DB_USER)\n"
-printf "  ${B}Source:${N}        $SOURCE_DIR\n"
-printf "  ${B}Go:${N}            $GO_VERSION\n"
+printf "  ${B}Domain:${N}    ${DOMAIN:-<none>}\n"
+printf "  ${B}TLS:${N}       $([ "$SKIP_TLS" = "1" ] && echo "off (HTTP only)" || echo "Let's Encrypt$([ "$STAGING_TLS" = "1" ] && echo " (staging)")")\n"
+printf "  ${B}App dir:${N}   $APP_DIR\n"
+printf "  ${B}DB:${N}        $DB_NAME (user=$DB_USER)\n"
+printf "  ${B}Source:${N}    $SOURCE_DIR\n"
 echo
 
-# ── packages ──────────────────────────────────────────────────────────────
-info "Installing system packages"
+# ── packages: docker + plugin ─────────────────────────────────────────────
+info "Installing Docker"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
 apt-get install -y --no-install-recommends \
-  ca-certificates curl wget git ufw \
-  postgresql postgresql-contrib \
-  nginx
-ok "Base packages installed"
+  ca-certificates curl gettext-base ufw
 
-# ── Go ────────────────────────────────────────────────────────────────────
-GO_BIN=/usr/local/go/bin/go
-INSTALLED_GO_VERSION=""
-[ -x "$GO_BIN" ] && INSTALLED_GO_VERSION="$($GO_BIN version 2>/dev/null | awk '{print $3}' | sed 's/^go//')"
-if [ "$INSTALLED_GO_VERSION" != "$GO_VERSION" ]; then
-  info "Installing Go $GO_VERSION"
-  ARCH="$(dpkg --print-architecture)"
-  case "$ARCH" in
-    amd64) GO_ARCH=amd64 ;;
-    arm64) GO_ARCH=arm64 ;;
-    *) die "unsupported arch: $ARCH" ;;
-  esac
-  TMP="$(mktemp -d)"
-  curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${GO_ARCH}.tar.gz" -o "$TMP/go.tgz"
-  rm -rf /usr/local/go
-  tar -C /usr/local -xzf "$TMP/go.tgz"
-  rm -rf "$TMP"
-  ok "Go $GO_VERSION installed at /usr/local/go"
+if ! command -v docker >/dev/null 2>&1; then
+  install -m 0755 -d /etc/apt/keyrings
+  curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
+    -o /etc/apt/keyrings/docker.asc
+  chmod a+r /etc/apt/keyrings/docker.asc
+  echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] \
+https://download.docker.com/linux/ubuntu $VERSION_CODENAME stable" \
+    > /etc/apt/sources.list.d/docker.list
+  apt-get update -y
+  apt-get install -y --no-install-recommends \
+    docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+  systemctl enable --now docker
+  ok "Docker installed"
 else
-  ok "Go $GO_VERSION already installed"
+  apt-get install -y --no-install-recommends docker-compose-plugin || true
+  ok "Docker already present"
 fi
 
-# ── app user + dirs ───────────────────────────────────────────────────────
-if ! id -u "$APP_USER" >/dev/null 2>&1; then
-  info "Creating system user $APP_USER"
-  useradd --system --home "$APP_DIR" --shell /usr/sbin/nologin "$APP_USER"
-fi
-mkdir -p "$APP_DIR/bin" "$APP_DIR/uploads"
-chown -R "$APP_USER:$APP_USER" "$APP_DIR"
-
-# ── Postgres ──────────────────────────────────────────────────────────────
-info "Configuring Postgres role + database"
-systemctl enable --now postgresql
-PG_USER_EXISTS=$(sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='$DB_USER'" || true)
-if [ "$PG_USER_EXISTS" != "1" ]; then
-  sudo -u postgres psql -c "CREATE ROLE \"$DB_USER\" LOGIN PASSWORD '$DB_PASSWORD';"
-  ok "Created role $DB_USER"
+# ── stage source under $APP_DIR ───────────────────────────────────────────
+info "Staging source under $APP_DIR"
+mkdir -p "$APP_DIR"
+# copy with --delete so re-runs pick up code changes; keep volumes intact
+if command -v rsync >/dev/null 2>&1; then
+  rsync -a --delete \
+    --exclude='/bodhassess-api/uploads' \
+    --exclude='/bodhassess-api/server' \
+    --exclude='/bodhassess-api/.run-logs' \
+    "$SOURCE_DIR/bodhassess-api" "$SOURCE_DIR/deploy" "$APP_DIR/"
 else
-  sudo -u postgres psql -c "ALTER ROLE \"$DB_USER\" WITH LOGIN PASSWORD '$DB_PASSWORD';"
-  ok "Updated password for existing role $DB_USER"
+  cp -a "$SOURCE_DIR/bodhassess-api" "$APP_DIR/"
+  cp -a "$SOURCE_DIR/deploy"          "$APP_DIR/"
 fi
-PG_DB_EXISTS=$(sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='$DB_NAME'" || true)
-if [ "$PG_DB_EXISTS" != "1" ]; then
-  sudo -u postgres createdb -O "$DB_USER" "$DB_NAME"
-  ok "Created database $DB_NAME"
-else
-  ok "Database $DB_NAME already exists"
-fi
+ok "Source staged"
 
-# Apply migrations in order. Each file is run inside a transaction; if a file
-# was already applied, re-running will likely fail — we tolerate that and move on.
-info "Applying migrations from $SOURCE_DIR/migrations"
-shopt -s nullglob
-for mig in "$SOURCE_DIR"/migrations/*.sql; do
-  name="$(basename "$mig")"
-  if sudo -u postgres psql -v ON_ERROR_STOP=1 -d "$DB_NAME" -f "$mig" >/dev/null 2>&1; then
-    ok "applied $name"
-  else
-    warn "skipped $name (already applied or failed — check manually if first install)"
-  fi
-done
-shopt -u nullglob
-
-# ── build API ─────────────────────────────────────────────────────────────
-info "Building API binary"
-TMP_BIN="$(mktemp)"
-( cd "$SOURCE_DIR" && \
-  CGO_ENABLED=0 GOFLAGS=-trimpath \
-  "$GO_BIN" build -ldflags='-s -w' -o "$TMP_BIN" ./cmd/server )
-install -o "$APP_USER" -g "$APP_USER" -m 0755 "$TMP_BIN" "$APP_DIR/bin/server"
-rm -f "$TMP_BIN"
-ok "Installed binary at $APP_DIR/bin/server"
-
-# ── env file ──────────────────────────────────────────────────────────────
-ENV_FILE="$APP_DIR/bodh-api.env"
+# ── write .env ────────────────────────────────────────────────────────────
+ENV_FILE="$APP_DIR/deploy/.env"
 info "Writing $ENV_FILE"
 umask 077
 cat > "$ENV_FILE" <<EOF
 APP_ENV=$APP_ENV
-APP_PORT=$APP_PORT
-DB_HOST=127.0.0.1
-DB_PORT=5432
 DB_USER=$DB_USER
 DB_PASSWORD=$DB_PASSWORD
 DB_NAME=$DB_NAME
-DB_SSLMODE=disable
 JWT_SECRET=$JWT_SECRET
+DOMAIN=$DOMAIN
 EOF
-chown "$APP_USER:$APP_USER" "$ENV_FILE"
 chmod 600 "$ENV_FILE"
 umask 022
 
-# ── systemd service ───────────────────────────────────────────────────────
-info "Installing systemd unit"
-cat > /etc/systemd/system/bodh-api.service <<EOF
-[Unit]
-Description=BodhAssess API
-After=network.target postgresql.service
-Wants=postgresql.service
+# ── render initial nginx config (HTTP-only, with ACME location) ──────────
+NGINX_CONF_DIR="$APP_DIR/deploy/nginx/conf.d"
+mkdir -p "$NGINX_CONF_DIR"
+info "Rendering nginx HTTP config for $DOMAIN"
+DOMAIN="$DOMAIN" envsubst '${DOMAIN}' \
+  < "$APP_DIR/deploy/nginx/app.conf.http.tpl" \
+  > "$NGINX_CONF_DIR/app.conf"
+ok "Wrote $NGINX_CONF_DIR/app.conf"
 
-[Service]
-Type=simple
-User=$APP_USER
-Group=$APP_USER
-WorkingDirectory=$APP_DIR
-EnvironmentFile=$ENV_FILE
-ExecStart=$APP_DIR/bin/server
-Restart=on-failure
-RestartSec=3
-NoNewPrivileges=true
-ProtectSystem=strict
-ProtectHome=true
-ReadWritePaths=$APP_DIR/uploads
-PrivateTmp=true
+# ── bring up the stack ────────────────────────────────────────────────────
+cd "$APP_DIR/deploy"
+info "Building images and starting stack"
+docker compose pull --ignore-buildable 2>/dev/null || true
+docker compose build api
+docker compose up -d postgres api nginx
+ok "Stack up"
 
-[Install]
-WantedBy=multi-user.target
-EOF
-systemctl daemon-reload
-systemctl enable bodh-api
-systemctl restart bodh-api
-sleep 2
-if systemctl is-active --quiet bodh-api; then
-  ok "bodh-api running"
-else
-  systemctl --no-pager status bodh-api || true
-  die "bodh-api failed to start — see 'journalctl -u bodh-api'"
-fi
+# ── wait for API health ───────────────────────────────────────────────────
+info "Waiting for API health (via nginx :80)"
+HEALTHY=0
+for _ in $(seq 1 40); do
+  if curl -fsS -H "Host: $DOMAIN" http://127.0.0.1/api/v1/health >/dev/null 2>&1; then
+    HEALTHY=1; break
+  fi
+  sleep 2
+done
+[ "$HEALTHY" = "1" ] && ok "API healthy on :80" || warn "API not yet healthy — check 'docker compose logs api'"
 
-# ── nginx ─────────────────────────────────────────────────────────────────
-if [ "$SKIP_NGINX" = "1" ]; then
-  warn "Skipping nginx (SKIP_NGINX=1) — API on :$APP_PORT"
-else
-  SERVER_NAME="${DOMAIN:-_}"
-  info "Configuring nginx for $SERVER_NAME"
-  cat > /etc/nginx/sites-available/bodh-api <<EOF
-server {
-    listen 80;
-    listen [::]:80;
-    server_name $SERVER_NAME;
+# ── TLS: acquire cert, then swap nginx config ─────────────────────────────
+if [ -n "$DOMAIN" ] && [ "$SKIP_TLS" != "1" ]; then
+  info "Acquiring Let's Encrypt cert for $DOMAIN"
+  CERTBOT_FLAGS=(certonly --webroot -w /var/www/certbot
+                 --non-interactive --agree-tos -m "$EMAIL"
+                 -d "$DOMAIN" --keep-until-expiring)
+  [ "$STAGING_TLS" = "1" ] && CERTBOT_FLAGS+=(--staging)
 
-    client_max_body_size 32m;
-
-    location / {
-        proxy_pass http://127.0.0.1:$APP_PORT;
-        proxy_http_version 1.1;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_read_timeout 60s;
-    }
-}
-EOF
-  ln -sf /etc/nginx/sites-available/bodh-api /etc/nginx/sites-enabled/bodh-api
-  rm -f /etc/nginx/sites-enabled/default
-  nginx -t
-  systemctl enable --now nginx
-  systemctl reload nginx
-  ok "nginx reverse-proxy live"
-
-  # ── TLS via certbot ────────────────────────────────────────────────────
-  if [ -n "$DOMAIN" ] && [ "$SKIP_TLS" != "1" ]; then
-    info "Issuing Let's Encrypt cert for $DOMAIN"
-    apt-get install -y --no-install-recommends certbot python3-certbot-nginx
-    if certbot --nginx --non-interactive --agree-tos --redirect \
-        -d "$DOMAIN" -m "$EMAIL"; then
-      ok "TLS configured for https://$DOMAIN"
-    else
-      warn "certbot failed — check that $DOMAIN's A record points to this droplet"
-    fi
+  if docker compose run --rm certbot "${CERTBOT_FLAGS[@]}"; then
+    ok "Cert issued"
+    info "Swapping nginx to HTTPS config"
+    DOMAIN="$DOMAIN" envsubst '${DOMAIN}' \
+      < "$APP_DIR/deploy/nginx/app.conf.https.tpl" \
+      > "$NGINX_CONF_DIR/app.conf"
+    docker compose exec nginx nginx -t
+    docker compose exec nginx nginx -s reload
+    docker compose up -d certbot     # start renewal loop
+    ok "HTTPS live"
+  else
+    warn "certbot failed — staying on HTTP. Common causes:"
+    warn "  • DNS A record for $DOMAIN doesn't point to this droplet yet"
+    warn "  • Port 80 not reachable from the internet (check ufw / cloud firewall)"
+    warn "Re-run this script after DNS propagates."
   fi
 fi
 
 # ── firewall ──────────────────────────────────────────────────────────────
 info "Configuring ufw"
 ufw allow OpenSSH >/dev/null
-if [ "$SKIP_NGINX" = "1" ]; then
-  ufw allow "$APP_PORT"/tcp >/dev/null
-else
-  ufw allow 'Nginx Full' >/dev/null
-fi
+ufw allow 80/tcp >/dev/null
+ufw allow 443/tcp >/dev/null
 ufw --force enable >/dev/null
 ok "Firewall active"
 
 # ── summary ───────────────────────────────────────────────────────────────
 echo
-ok "bodhassess-api is up"
+ok "bodhassess-api stack is up"
 echo
-if [ -n "$DOMAIN" ] && [ "$SKIP_NGINX" != "1" ]; then
-  if [ "$SKIP_TLS" != "1" ]; then
-    printf "  ${B}URL:${N}     https://$DOMAIN/api/v1/health\n"
-  else
-    printf "  ${B}URL:${N}     http://$DOMAIN/api/v1/health\n"
-  fi
-elif [ "$SKIP_NGINX" = "1" ]; then
-  printf "  ${B}URL:${N}     http://<droplet-ip>:$APP_PORT/api/v1/health\n"
+if [ -n "$DOMAIN" ] && [ "$SKIP_TLS" != "1" ] && [ -f "/var/lib/docker/volumes/bodhassess_certbot_etc/_data/live/$DOMAIN/fullchain.pem" ]; then
+  printf "  ${B}URL:${N}     https://$DOMAIN/api/v1/health\n"
+elif [ -n "$DOMAIN" ]; then
+  printf "  ${B}URL:${N}     http://$DOMAIN/api/v1/health\n"
 else
   printf "  ${B}URL:${N}     http://<droplet-ip>/api/v1/health\n"
 fi
-printf "  ${B}Env:${N}     $ENV_FILE\n"
-printf "  ${B}Logs:${N}    journalctl -u bodh-api -f\n"
-printf "  ${B}Restart:${N} systemctl restart bodh-api\n"
+printf "  ${B}Compose:${N} cd $APP_DIR/deploy && docker compose <cmd>\n"
+printf "  ${B}Logs:${N}    docker compose logs -f api\n"
+printf "  ${B}Restart:${N} docker compose restart api\n"
+printf "  ${B}Env:${N}     $ENV_FILE  (chmod 600)\n"
 echo
-printf "  ${YEL}DB credentials (save these — they are also in $ENV_FILE):${N}\n"
+printf "  ${YEL}DB credentials (also in $ENV_FILE):${N}\n"
 printf "    DB_USER=$DB_USER\n"
 printf "    DB_PASSWORD=$DB_PASSWORD\n"
 echo
