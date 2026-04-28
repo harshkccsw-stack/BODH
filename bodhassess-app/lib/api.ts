@@ -99,12 +99,27 @@ export interface Practitioner {
   last_login?: string;
   dob?: string;
 }
+// /me returns the practitioner plus the merged url_paths from every role they
+// hold. The dashboard uses url_paths to gate page access and trim the sidebar.
+export interface PractitionerMe extends Practitioner {
+  url_paths: string[];
+}
+export interface PractitionerLoginResponse {
+  token: string;
+  practitioner: PractitionerMe;
+}
 export const practitionersApi = {
   list: () => jsonFetch<Practitioner[]>('/practitioners'),
   get: (id: string) => jsonFetch<Practitioner>(`/practitioners/${encodeURIComponent(id)}`),
   create: (p: Practitioner) => jsonFetch<Practitioner>('/practitioners', { method: 'POST', body: JSON.stringify(p) }),
   update: (id: string, p: Partial<Practitioner>) => jsonFetch<Practitioner>(`/practitioners/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(p) }),
   delete: (id: string) => jsonFetch<null>(`/practitioners/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  login: (id: string, dob: string) =>
+    jsonFetch<PractitionerLoginResponse>('/practitioners/login', { method: 'POST', body: JSON.stringify({ id, dob }) }),
+  me: (token: string) =>
+    jsonFetch<PractitionerMe>('/practitioners/me', { headers: { Authorization: `Bearer ${token}` } }),
+  logout: (token: string) =>
+    jsonFetch<null>('/practitioners/logout', { method: 'POST', headers: { Authorization: `Bearer ${token}` } }),
 };
 
 // ---------- Roles (page-access bundles) ----------
