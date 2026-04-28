@@ -21,8 +21,7 @@ export const config = {
   authStorageKey: read('VITE_AUTH_STORAGE_KEY', 'bodhassess.auth.token'),
 
   /** sessionStorage key used to persist the practitioner dashboard auth token. */
-  practitionerAuthStorageKey:
-    process.env.NEXT_PUBLIC_PRACTITIONER_AUTH_STORAGE_KEY || 'bodhassess.practitioner.token',
+  practitionerAuthStorageKey: read('VITE_PRACTITIONER_AUTH_STORAGE_KEY', 'bodhassess.practitioner.token'),
 
   /** Optional sub-path mount, e.g. "/bodh". Empty string means served at root. */
   basePath: read('VITE_BASE_PATH', ''),

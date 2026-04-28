@@ -1,10 +1,6 @@
 import { Layout1 } from '@/components/layouts/layout-1';
 import { ReactNode } from 'react';
-<<<<<<< HEAD
-
-export default function AppLayout({ children }: { children: ReactNode }) {
-=======
-import { usePathname } from 'next/navigation';
+import { usePathname } from '@/src/lib/next-compat';
 import { ScreenLoader } from '@/components/screen-loader';
 import { PractitionerAuthProvider, usePractitionerAuth } from '@/lib/practitioner-auth';
 import { Card, CardContent } from '@/components/ui/card';
@@ -58,6 +54,5 @@ function AuthGate({ children }: { children: ReactNode }) {
     );
   }
 
->>>>>>> b481d1ff7a2bd2af95e5f225094d8ad3d1b12e5a
   return <Layout1>{children}</Layout1>;
 }
