@@ -1,9 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Users, Plus, ClipboardCheck, ShieldCheck, X, Trash2 } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+'use client';
+
 import { Button } from '@/components/ui/button';
-import { getRespondents, createRespondent, deleteRespondent, type StoredRespondent } from '@/lib/data-store';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { API_BASE } from '@/lib/api';
+import { createRespondent, deleteRespondent, getRespondents, type StoredRespondent } from '@/lib/data-store';
+import { ClipboardCheck, Plus, ShieldCheck, Trash2, Upload, Users, X } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import BulkUploadModal from './bulk-upload-modal';
 
 type Consent = 'Granted' | 'Withdrawn' | 'Pending';
 
@@ -23,6 +26,12 @@ export default function RespondentsPage() {
   const [saving, setSaving] = useState(false);
   const [createdCred, setCreatedCred] = useState<{ id: string; dob: string } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<StoredRespondent | null>(null);
+  const [bulkOpen, setBulkOpen] = useState(false);
+
+  const existingEmails = useMemo(
+    () => new Set(respondents.map((r) => r.email.toLowerCase())),
+    [respondents],
+  );
 
   const refresh = async () => {
     setLoading(true);
@@ -98,10 +107,16 @@ export default function RespondentsPage() {
             <h1 className="text-2xl font-semibold tracking-tight">Respondents</h1>
             <p className="text-sm text-muted-foreground mt-1">View and manage assessment respondents.</p>
           </div>
-          <Button variant="primary" onClick={openModal}>
-            <Plus className="h-4 w-4" />
-            Add Respondent
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={() => setBulkOpen(true)}>
+              <Upload className="h-4 w-4" />
+              Bulk Upload
+            </Button>
+            <Button variant="primary" onClick={openModal}>
+              <Plus className="h-4 w-4" />
+              Add Respondent
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -179,6 +194,14 @@ export default function RespondentsPage() {
           </div>
         </CardContent>
       </Card>
+
+      {bulkOpen && (
+        <BulkUploadModal
+          onClose={() => setBulkOpen(false)}
+          onImported={refresh}
+          existingEmails={existingEmails}
+        />
+      )}
 
       {confirmDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={() => setConfirmDelete(null)}>

@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(sudo -S ss -tlnp)",
+      "Bash(sudo -S docker ps -a --format '{{.Names}}\\\\t{{.Status}}\\\\t{{.Ports}}')",
+      "Bash(sudo -S docker stop techjm-growsocial-postgres-1 techjm-growsocial-redis-1)",
+      "Bash(sudo -S docker compose up -d)",
+      "Bash(./server)",
+      "Bash(echo \"api pid: $!\")",
+      "Bash(npm run *)",
+      "Bash(echo \"app pid: $!\")",
+      "Bash(go build *)",
+      "Bash(npm install *)",
+      "Bash(node -e \"console.log\\(require\\('xlsx/package.json'\\).version\\)\")",
+      "Bash(npx tsc *)",
+      "Bash(go vet *)"
+    ],
+    "additionalDirectories": [
+      "/tmp"
+    ]
+  }
+}

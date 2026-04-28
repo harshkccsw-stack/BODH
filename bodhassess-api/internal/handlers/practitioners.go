@@ -24,17 +24,18 @@ type practitionerPayload struct {
 	ID        string   `json:"id"`
 	Name      string   `json:"name"`
 	Email     string   `json:"email"`
-	Role      string   `json:"role"`
+	Roles     []string `json:"roles"`
 	Verticals []string `json:"verticals"`
 	Status    string   `json:"status"`
 	LastLogin string   `json:"last_login,omitempty"`
+	DOB       string   `json:"dob,omitempty"`
 }
 
 func (h *PractitionersHandler) List(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 	rows, err := h.db.Query(ctx, `
-		SELECT id, name, email, role, verticals, status, COALESCE(last_login, '')
+		SELECT id, name, email, roles, verticals, status, COALESCE(last_login, ''), COALESCE(TO_CHAR(dob, 'YYYY-MM-DD'), '')
 		FROM practitioners ORDER BY created_at DESC`)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -44,10 +45,16 @@ func (h *PractitionersHandler) List(w http.ResponseWriter, r *http.Request) {
 	out := make([]practitionerPayload, 0)
 	for rows.Next() {
 		var p practitionerPayload
-		var vjson []byte
-		if err := rows.Scan(&p.ID, &p.Name, &p.Email, &p.Role, &vjson, &p.Status, &p.LastLogin); err != nil {
+		var rjson, vjson []byte
+		if err := rows.Scan(&p.ID, &p.Name, &p.Email, &rjson, &vjson, &p.Status, &p.LastLogin, &p.DOB); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
+		}
+		if len(rjson) > 0 {
+			_ = json.Unmarshal(rjson, &p.Roles)
+		}
+		if p.Roles == nil {
+			p.Roles = []string{}
 		}
 		if len(vjson) > 0 {
 			_ = json.Unmarshal(vjson, &p.Verticals)
@@ -75,8 +82,11 @@ func (h *PractitionersHandler) Create(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "id, name, and email are required", http.StatusBadRequest)
 		return
 	}
-	if p.Role == "" {
-		p.Role = "Practitioner"
+	if p.Roles == nil {
+		p.Roles = []string{}
+	}
+	if len(p.Roles) == 0 {
+		p.Roles = []string{"Practitioner"}
 	}
 	if p.Status == "" {
 		p.Status = "Active"
@@ -84,15 +94,16 @@ func (h *PractitionersHandler) Create(w http.ResponseWriter, r *http.Request) {
 	if p.Verticals == nil {
 		p.Verticals = []string{}
 	}
+	rjson, _ := json.Marshal(p.Roles)
 	vjson, _ := json.Marshal(p.Verticals)
 	_, err := h.db.Exec(ctx, `
-		INSERT INTO practitioners (id, name, email, role, verticals, status, last_login)
-		VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''))
+		INSERT INTO practitioners (id, name, email, roles, verticals, status, last_login, dob)
+		VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''), NULLIF($8, '')::date)
 		ON CONFLICT (id) DO UPDATE
-		SET name = EXCLUDED.name, email = EXCLUDED.email, role = EXCLUDED.role,
+		SET name = EXCLUDED.name, email = EXCLUDED.email, roles = EXCLUDED.roles,
 		    verticals = EXCLUDED.verticals, status = EXCLUDED.status,
-		    last_login = EXCLUDED.last_login`,
-		p.ID, p.Name, p.Email, p.Role, vjson, p.Status, p.LastLogin)
+		    last_login = EXCLUDED.last_login, dob = EXCLUDED.dob`,
+		p.ID, p.Name, p.Email, rjson, vjson, p.Status, p.LastLogin, p.DOB)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -112,17 +123,22 @@ func (h *PractitionersHandler) Update(w http.ResponseWriter, r *http.Request) {
 	if p.Verticals == nil {
 		p.Verticals = []string{}
 	}
+	if p.Roles == nil {
+		p.Roles = []string{}
+	}
+	rjson, _ := json.Marshal(p.Roles)
 	vjson, _ := json.Marshal(p.Verticals)
 	tag, err := h.db.Exec(ctx, `
 		UPDATE practitioners
 		SET name = COALESCE(NULLIF($2, ''), name),
 		    email = COALESCE(NULLIF($3, ''), email),
-		    role = COALESCE(NULLIF($4, ''), role),
+		    roles = $4,
 		    verticals = $5,
 		    status = COALESCE(NULLIF($6, ''), status),
-		    last_login = NULLIF($7, '')
+		    last_login = NULLIF($7, ''),
+		    dob = COALESCE(NULLIF($8, '')::date, dob)
 		WHERE id = $1`,
-		id, p.Name, p.Email, p.Role, vjson, p.Status, p.LastLogin)
+		id, p.Name, p.Email, rjson, vjson, p.Status, p.LastLogin, p.DOB)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -151,11 +167,11 @@ func (h *PractitionersHandler) Get(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	id := chi.URLParam(r, "id")
 	var p practitionerPayload
-	var vjson []byte
+	var rjson, vjson []byte
 	row := h.db.QueryRow(ctx, `
-		SELECT id, name, email, role, verticals, status, COALESCE(last_login, '')
+		SELECT id, name, email, roles, verticals, status, COALESCE(last_login, ''), COALESCE(TO_CHAR(dob, 'YYYY-MM-DD'), '')
 		FROM practitioners WHERE id = $1`, id)
-	if err := row.Scan(&p.ID, &p.Name, &p.Email, &p.Role, &vjson, &p.Status, &p.LastLogin); err != nil {
+	if err := row.Scan(&p.ID, &p.Name, &p.Email, &rjson, &vjson, &p.Status, &p.LastLogin, &p.DOB); err != nil {
 		if err == pgx.ErrNoRows {
 			http.Error(w, "not found", http.StatusNotFound)
 			return
@@ -163,8 +179,17 @@ func (h *PractitionersHandler) Get(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	if len(rjson) > 0 {
+		_ = json.Unmarshal(rjson, &p.Roles)
+	}
+	if p.Roles == nil {
+		p.Roles = []string{}
+	}
 	if len(vjson) > 0 {
 		_ = json.Unmarshal(vjson, &p.Verticals)
+	}
+	if p.Verticals == nil {
+		p.Verticals = []string{}
 	}
 	writeJSON(w, http.StatusOK, p)
 }

@@ -67,9 +67,9 @@ export default function RolesPage() {
           <span>/</span>
           <span>Admin</span>
           <span>/</span>
-          <span className="text-foreground font-medium">Roles & Permissions</span>
+          <span className="text-foreground font-medium">Permissions</span>
         </div>
-        <h1 className="text-2xl font-semibold tracking-tight">Roles & Permissions</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Permissions</h1>
         <p className="text-sm text-muted-foreground mt-1">Configure role-based access control for the platform.</p>
       </div>
 

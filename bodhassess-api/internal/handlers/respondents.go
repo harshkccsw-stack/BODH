@@ -3,7 +3,9 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -253,4 +255,182 @@ func (h *RespondentsHandler) Logout(w http.ResponseWriter, r *http.Request) {
 		_, _ = h.db.Exec(ctx, `DELETE FROM portal_auth_sessions WHERE token::text = $1`, token)
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- Bulk create (CSV / Excel upload) -------------------------------------
+//
+// Accepts a pre-parsed array of rows (the client parses the CSV / XLSX file
+// and sends JSON). Every row is re-validated server-side; IDs are generated
+// inside a single transaction under a Postgres advisory lock so concurrent
+// bulk uploads cannot collide. Duplicate emails (both within the batch and
+// against existing rows) are skipped with a structured error entry so the
+// admin gets per-row feedback.
+
+const maxBulkRespondents = 1000
+
+type bulkRespondentRow struct {
+	Name    string `json:"name"`
+	Email   string `json:"email"`
+	DOB     string `json:"dob"`
+	Consent string `json:"consent"`
+}
+
+type bulkRespondentReq struct {
+	Respondents []bulkRespondentRow `json:"respondents"`
+}
+
+type bulkRespondentError struct {
+	Row    int    `json:"row"` // 1-indexed row number from the uploaded file
+	Email  string `json:"email,omitempty"`
+	Reason string `json:"reason"`
+}
+
+type bulkRespondentResp struct {
+	Created  int                   `json:"created"`
+	Skipped  int                   `json:"skipped"`
+	Errors   []bulkRespondentError `json:"errors"`
+	Inserted []respondentPayload   `json:"inserted"`
+}
+
+var (
+	bulkEmailRegex = regexp.MustCompile(`^[^\s@]+@[^\s@]+\.[^\s@]+$`)
+	bulkDOBRegex   = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
+)
+
+func (h *RespondentsHandler) BulkCreate(w http.ResponseWriter, r *http.Request) {
+	// Bulk operations can take longer than the 5s cutoff used elsewhere;
+	// cap the request body to 1 MB to prevent memory exhaustion from a
+	// hostile payload.
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	var req bulkRespondentReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if len(req.Respondents) == 0 {
+		http.Error(w, "respondents array is empty", http.StatusBadRequest)
+		return
+	}
+	if len(req.Respondents) > maxBulkRespondents {
+		http.Error(w, fmt.Sprintf("max %d respondents per upload", maxBulkRespondents), http.StatusBadRequest)
+		return
+	}
+
+	resp := bulkRespondentResp{
+		Errors:   []bulkRespondentError{},
+		Inserted: []respondentPayload{},
+	}
+
+	tx, err := h.db.Begin(ctx)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// Serialize R-NNN id generation across concurrent bulk uploads. The lock
+	// is released automatically when the transaction commits or rolls back.
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('respondents_id_gen')::bigint)`); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Within-batch duplicate detection (file has the same email twice).
+	seenEmails := make(map[string]int, len(req.Respondents))
+
+	for i, row := range req.Respondents {
+		rowNum := i + 1
+		name := strings.TrimSpace(row.Name)
+		email := strings.ToLower(strings.TrimSpace(row.Email))
+		dob := strings.TrimSpace(row.DOB)
+		consent := strings.TrimSpace(row.Consent)
+
+		if name == "" {
+			resp.Errors = append(resp.Errors, bulkRespondentError{Row: rowNum, Reason: "name is required"})
+			continue
+		}
+		if !bulkEmailRegex.MatchString(email) {
+			resp.Errors = append(resp.Errors, bulkRespondentError{Row: rowNum, Email: email, Reason: "invalid email"})
+			continue
+		}
+		if !bulkDOBRegex.MatchString(dob) {
+			resp.Errors = append(resp.Errors, bulkRespondentError{Row: rowNum, Email: email, Reason: "dob must be YYYY-MM-DD"})
+			continue
+		}
+		dobDate, derr := time.Parse("2006-01-02", dob)
+		if derr != nil || dobDate.After(time.Now()) || dobDate.Year() < 1900 {
+			resp.Errors = append(resp.Errors, bulkRespondentError{Row: rowNum, Email: email, Reason: "dob is not a valid date"})
+			continue
+		}
+		if consent == "" {
+			consent = "Pending"
+		}
+		if consent != "Granted" && consent != "Pending" && consent != "Withdrawn" {
+			resp.Errors = append(resp.Errors, bulkRespondentError{Row: rowNum, Email: email, Reason: "consent must be Granted, Pending, or Withdrawn"})
+			continue
+		}
+		if prevRow, ok := seenEmails[email]; ok {
+			resp.Errors = append(resp.Errors, bulkRespondentError{
+				Row:    rowNum,
+				Email:  email,
+				Reason: fmt.Sprintf("duplicate email in file (also row %d)", prevRow),
+			})
+			continue
+		}
+		seenEmails[email] = rowNum
+
+		// Insert with server-generated R-NNN id. The CTE recomputes next id
+		// from the current MAX on every row so insert-then-skip cycles don't
+		// leak gaps — an id is only consumed when a row is actually inserted.
+		//
+		// ON CONFLICT DO NOTHING (no target) catches BOTH email UNIQUE and id
+		// PK conflicts. The id conflict can happen in the rare race where a
+		// concurrent single-create (POST /respondents) commits a new row
+		// between our MAX() and our INSERT — single-create doesn't take the
+		// advisory lock, so we can't exclude it. Without this, a PK conflict
+		// would abort the whole transaction and poison the rest of the batch.
+		var inserted respondentPayload
+		scanErr := tx.QueryRow(ctx, `
+			WITH next_id AS (
+				SELECT 'R-' || LPAD((COALESCE(MAX((SUBSTRING(id FROM 3))::int), 0) + 1)::text, 3, '0') AS id
+				FROM respondents
+				WHERE id ~ '^R-\d+$'
+			)
+			INSERT INTO respondents (id, name, email, dob, consent, sessions_count)
+			SELECT next_id.id, $1, $2, $3, $4, 0 FROM next_id
+			ON CONFLICT DO NOTHING
+			RETURNING id, name, email, COALESCE(dob, ''), COALESCE(consent, 'Pending'),
+			          COALESCE(sessions_count, 0), COALESCE(last_assessment, '')`,
+			name, email, dob, consent,
+		).Scan(
+			&inserted.ID, &inserted.Name, &inserted.Email,
+			&inserted.DOB, &inserted.Consent,
+			&inserted.SessionsCount, &inserted.LastAssessment,
+		)
+		if scanErr == pgx.ErrNoRows {
+			// Email already exists in the DB from a previous upload / manual add.
+			resp.Skipped++
+			resp.Errors = append(resp.Errors, bulkRespondentError{
+				Row: rowNum, Email: email, Reason: "email already exists",
+			})
+			continue
+		}
+		if scanErr != nil {
+			resp.Errors = append(resp.Errors, bulkRespondentError{
+				Row: rowNum, Email: email, Reason: scanErr.Error(),
+			})
+			continue
+		}
+		resp.Inserted = append(resp.Inserted, inserted)
+		resp.Created++
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
 }

@@ -10,3 +10,4 @@ nginx
 .env.staging
 deploy.production.env
 deploy.staging.env
+*.tsbuildinfo
