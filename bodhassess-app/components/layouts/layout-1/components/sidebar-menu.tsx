@@ -1,6 +1,9 @@
-import { JSX, useCallback } from 'react';
+'use client';
+
+import { JSX, useCallback, useMemo } from 'react';
 import { MENU_SIDEBAR } from '@/config/bodhassess.config';
 import { MenuConfig, MenuItem } from '@/config/types';
+import { usePractitionerAuth, canAccess } from '@/lib/practitioner-auth';
 import { cn } from '@/lib/utils';
 import {
   AccordionMenu,
@@ -19,6 +22,7 @@ import Link from '@/src/lib/next-compat';
 
 export function SidebarMenu() {
   const pathname = usePathname();
+  const auth = usePractitionerAuth();
 
   // Memoize matchPath to prevent unnecessary re-renders
   const matchPath = useCallback(
@@ -26,6 +30,35 @@ export function SidebarMenu() {
       path === pathname || (path.length > 1 && pathname.startsWith(path) && path !== '/layout-1'),
     [pathname],
   );
+
+  // Trim the menu so practitioners only see entries their role url_paths
+  // permit. A parent group is kept iff at least one of its children is
+  // accessible (or, for non-grouped items, iff the item's own path is).
+  // Headings are dropped when the section that follows them becomes empty.
+  const allowedMenu = useMemo<MenuConfig>(() => {
+    const urlPaths = auth.status === 'authenticated' ? auth.me.url_paths : [];
+    const itemAllowed = (item: MenuItem): boolean => {
+      if (item.heading) return true;
+      if (item.children) {
+        const kept = item.children.filter(itemAllowed);
+        return kept.length > 0;
+      }
+      if (!item.path) return true;
+      return canAccess(item.path, urlPaths);
+    };
+    const filterChildren = (items: MenuConfig): MenuConfig =>
+      items
+        .map((it) => (it.children ? { ...it, children: filterChildren(it.children) } : it))
+        .filter(itemAllowed);
+    const filtered = filterChildren(MENU_SIDEBAR);
+    // Drop headings that have no following section content (i.e. the next
+    // entry is another heading, or this heading is the last item).
+    return filtered.filter((it, i) => {
+      if (!it.heading) return true;
+      const next = filtered[i + 1];
+      return !!next && !next.heading;
+    });
+  }, [auth]);
 
   // Global classNames for consistent styling
   const classNames: AccordionMenuClassNames = {
@@ -218,7 +251,7 @@ export function SidebarMenu() {
         collapsible
         classNames={classNames}
       >
-        {buildMenu(MENU_SIDEBAR)}
+        {buildMenu(allowedMenu)}
       </AccordionMenu>
     </ScrollArea>
   );

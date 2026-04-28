@@ -108,6 +108,9 @@ func main() {
 		r.Route("/practitioners", func(r chi.Router) {
 			r.Get("/", practitionersH.List)
 			r.Post("/", practitionersH.Create)
+			r.Post("/login", practitionersH.Login)
+			r.Post("/logout", practitionersH.Logout)
+			r.Get("/me", practitionersH.Me)
 			r.Get("/{id}", practitionersH.Get)
 			r.Put("/{id}", practitionersH.Update)
 			r.Delete("/{id}", practitionersH.Delete)
