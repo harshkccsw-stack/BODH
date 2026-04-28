@@ -2,7 +2,9 @@
 // functions — no localStorage fallback. If the API is down, pages surface
 // the error to the caller so they can render a retry/empty state.
 
-export const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api/v1';
+import { config } from './config';
+
+export const API_BASE = config.apiBase;
 
 async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
@@ -272,7 +274,7 @@ export interface Assessment {
   language?: string;
   status: string;
   score?: string;
-  answers?: Record<string, number>;
+  answers?: Record<string, number | string>;
   mqtScores?: Record<string, number>;
   groupId?: string;
   groupName?: string;

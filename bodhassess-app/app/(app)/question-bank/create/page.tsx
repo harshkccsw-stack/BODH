@@ -26,9 +26,7 @@ import {
   Youtube,
 } from 'lucide-react';
 import { getMQs, getInstruments, getVerticals, BUILT_IN_VERTICALS, type MQ as StoredMQ, type StoredInstrument, type Vertical as StoredVertical } from '@/lib/data-store';
-import { demographicFieldsApi, type DemographicField } from '@/lib/api';
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api/v1';
+import { demographicFieldsApi, API_BASE, type DemographicField } from '@/lib/api';
 
 // --- Types ---
 
@@ -1313,7 +1311,7 @@ export default function CreateAssessmentPage() {
                                   <div className="min-w-0">
                                     <p className={cn('font-medium truncate', selected && 'text-primary')}>{v.name}</p>
                                     <p className="text-[0.6875rem] text-muted-foreground truncate font-mono">
-                                      {v.code}{v.isBuiltIn ? ' · built-in' : ''}
+                                      {v.code}{BUILT_IN_VERTICALS.some((b) => b.code === v.code) ? ' · built-in' : ''}
                                     </p>
                                   </div>
                                   {selected && <Check className="h-3.5 w-3.5 text-primary shrink-0" />}

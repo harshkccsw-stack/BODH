@@ -1,0 +1,34 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned -Force)",
+      "PowerShell(Get-ExecutionPolicy -Scope CurrentUser)",
+      "Bash(rm -rf node_modules package-lock.json)",
+      "Bash(npm install *)",
+      "Bash(npm run *)",
+      "Bash(npx tsc *)",
+      "Bash(./node_modules/.bin/tsc --noEmit)",
+      "Bash(curl -sI \"https://bodhh.vercel.app/\")",
+      "Bash(curl -sI \"https://bodhh.vercel.app/dashboard\")",
+      "Bash(curl -sI \"https://bodhh.vercel.app/portal/login\")",
+      "Bash(go version *)",
+      "Bash(npm --version)",
+      "Bash(docker --version)",
+      "Bash(winget --version)",
+      "Bash(choco --version)",
+      "Bash(winget install *)",
+      "Bash(winget search *)",
+      "Bash(wsl --status)",
+      "Bash(systeminfo)",
+      "Bash(docker info *)",
+      "Bash(docker compose *)",
+      "Bash(git config *)",
+      "Read(//root/.nvm/versions/**)",
+      "Read(//usr/local/bin/**)",
+      "Bash(pip3 install *)",
+      "Bash(python3 -c \"import acme_tiny; print\\('acme_tiny version:', acme_tiny.__name__\\)\")",
+      "Bash(curl -sS -o /dev/null -w \"HTTPS status: %{http_code}\\\\nSSL verify: %{ssl_verify_result}\\\\n\" https://api.bodh.biz/ --max-time 10)",
+      "Bash(curl -sSIv https://api.bodh.biz/ --max-time 10)"
+    ]
+  }
+}

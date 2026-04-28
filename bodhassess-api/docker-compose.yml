@@ -19,6 +19,8 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    networks:
+      - bodh_network
 
   redis:
     image: redis:7-alpine
@@ -31,6 +33,8 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    networks:
+      - bodh_network
 
   minio:
     image: minio/minio:latest
@@ -45,7 +49,13 @@ services:
       - "9003:9001"
     volumes:
       - bodh_minio:/data
+    networks:
+      - bodh_network
 
 volumes:
   bodh_pgdata:
   bodh_minio:
+
+networks:
+  bodh_network:
+    driver: bridge

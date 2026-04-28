@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { getRespondents, createRespondent, deleteRespondent, type StoredRespondent } from '@/lib/data-store';
 import BulkUploadModal from './bulk-upload-modal';
+import { API_BASE } from '@/lib/api';
 
 type Consent = 'Granted' | 'Withdrawn' | 'Pending';
 
@@ -121,7 +122,7 @@ export default function RespondentsPage() {
 
       {loadError && (
         <div className="rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-4 py-3 text-sm text-red-700 dark:text-red-400">
-          {loadError} — is the API running at {process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api/v1'}?
+          {loadError} — is the API running at {API_BASE}?
         </div>
       )}
 

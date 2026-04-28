@@ -20,7 +20,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input, InputWrapper } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { portalSessionsApi, respondentsApi, questionnairesApi, groupsApi, type Group } from '@/lib/api';
+import { portalSessionsApi, respondentsApi, questionnairesApi, groupsApi, API_BASE, type Group } from '@/lib/api';
 import { Users } from 'lucide-react';
 import {
   Select,
@@ -94,7 +94,6 @@ const seedRespondents: RespondentRow[] = [
   { id: 'R-006', name: 'Deepa Menon', email: 'deepa.m@gmail.com' },
 ];
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api/v1';
 
 function normalizeVertical(v: unknown): Vertical {
   const s = String(v || '').toLowerCase();

@@ -6,6 +6,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { portalSessionsApi, questionnairesApi, respondentsApi, demographicFieldsApi, type PortalSession, type Respondent, type DemographicField } from '@/lib/api';
+import { config } from '@/lib/config';
 
 type AuthUser = Respondent;
 interface MQT { id: string; name: string; }
@@ -31,7 +32,7 @@ interface StoredInstrument {
 }
 type StoredSession = PortalSession;
 
-const AUTH_KEY = 'bodhassess.auth.token';
+const AUTH_KEY = config.authStorageKey;
 
 function extractYoutubeId(url: string): string | null {
   const m = url?.match(/(?:youtube\.com\/(?:[^/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/);

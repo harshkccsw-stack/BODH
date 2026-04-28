@@ -1,3 +1,5 @@
+import { config } from './config';
+
 export const throttle = (
   func: (...args: unknown[]) => void,
   limit: number,
@@ -66,13 +68,10 @@ export function getInitials(
 }
 
 export function toAbsoluteUrl(pathname: string): string {
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_PATH;
-
-  if (baseUrl && baseUrl !== '/') {
-    return process.env.NEXT_PUBLIC_BASE_PATH + pathname;
-  } else {
-    return pathname;
+  if (config.basePath && config.basePath !== '/') {
+    return config.basePath + pathname;
   }
+  return pathname;
 }
 
 export function timeAgo(date: Date | string): string {
