@@ -15,6 +15,10 @@ export const config = {
   /** sessionStorage key used to persist the respondent's auth token. */
   authStorageKey: process.env.NEXT_PUBLIC_AUTH_STORAGE_KEY || 'bodhassess.auth.token',
 
+  /** sessionStorage key used to persist the practitioner dashboard auth token. */
+  practitionerAuthStorageKey:
+    process.env.NEXT_PUBLIC_PRACTITIONER_AUTH_STORAGE_KEY || 'bodhassess.practitioner.token',
+
   /** Optional sub-path mount, e.g. "/bodh". Empty string means served at root. */
   basePath: process.env.NEXT_PUBLIC_BASE_PATH || '',
 } as const;

@@ -1,3 +1,5 @@
+'use client';
+
 import { ReactNode } from 'react';
 import {
   BetweenHorizontalStart,
@@ -13,6 +15,7 @@ import {
   UserCircle,
   Users,
 } from 'lucide-react';
+import { usePractitionerAuth } from '@/lib/practitioner-auth';
 import { useTheme } from 'next-themes';
 import Link from 'next/link';
 import { toAbsoluteUrl } from '@/lib/helpers';
@@ -62,6 +65,8 @@ const I18N_LANGUAGES = [
 export function UserDropdownMenu({ trigger }: { trigger: ReactNode }) {
   const currenLanguage = I18N_LANGUAGES[0];
   const { theme, setTheme } = useTheme();
+  const auth = usePractitionerAuth();
+  const me = auth.status === 'authenticated' ? auth.me : null;
 
   const handleThemeToggle = (checked: boolean) => {
     setTheme(checked ? 'dark' : 'light');
@@ -80,22 +85,19 @@ export function UserDropdownMenu({ trigger }: { trigger: ReactNode }) {
               alt="User avatar"
             />
             <div className="flex flex-col">
-              <Link
-                href="#"
-                className="text-sm text-mono hover:text-primary font-semibold"
-              >
-                Sean
-              </Link>
+              <span className="text-sm text-mono font-semibold">
+                {me?.name || 'Practitioner'}
+              </span>
               <a
-                href={`mailto:sean@kt.com`}
+                href={me?.email ? `mailto:${me.email}` : '#'}
                 className="text-xs text-muted-foreground hover:text-primary"
               >
-                sean@kt.com
+                {me?.email || '—'}
               </a>
             </div>
           </div>
           <Badge variant="primary" appearance="light" size="sm">
-            Pro
+            {me?.id || 'Guest'}
           </Badge>
         </div>
 
@@ -252,7 +254,7 @@ export function UserDropdownMenu({ trigger }: { trigger: ReactNode }) {
           </div>
         </DropdownMenuItem>
         <div className="p-2 mt-1">
-          <Button variant="outline" size="sm" className="w-full">
+          <Button variant="outline" size="sm" className="w-full" onClick={() => auth.logout()}>
             Logout
           </Button>
         </div>
