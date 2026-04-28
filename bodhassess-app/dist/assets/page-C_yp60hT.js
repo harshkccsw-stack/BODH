@@ -1,1 +1,0 @@
-import{j as r}from"./index-DQdA1Dnd.js";import{P as e}from"./pattern-Dm9bWf5L.js";function a(){return r.jsx("div",{className:"container-fluid py-5 bg-muted/30 dark:bg-zinc-900 ",children:r.jsx(e,{className:"rounded-lg grow h-screen border border-dashed border-input bg-background text-subtle-stroke relative text-border"})})}export{a as default};
