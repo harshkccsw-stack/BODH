@@ -1,12 +1,13 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Users, Plus, Clock, X, Trash2 } from 'lucide-react';
+import { Users, Plus, Clock, X, Trash2, Pencil } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
-  getPractitioners, createPractitioner, deletePractitioner,
-  type StoredPractitioner,
+  getPractitioners, createPractitioner, updatePractitioner, deletePractitioner,
+  getRoles,
+  type StoredPractitioner, type Role,
 } from '@/lib/data-store';
 
 const statusColors: Record<string, string> = {
@@ -14,25 +15,40 @@ const statusColors: Record<string, string> = {
   Inactive: 'bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-400',
 };
 
-const ROLES = ['Practitioner', 'Senior Practitioner', 'HR Professional', 'Researcher', 'Platform Admin'];
 const VERTICALS = ['Clinical', 'Industrial', 'Counselling', 'Experiments', 'White-Label'];
+
+type FormState = {
+  name: string;
+  email: string;
+  dob: string;
+  roles: string[];
+  verticals: string[];
+  status: 'Active' | 'Inactive';
+};
+
+const emptyForm: FormState = { name: '', email: '', dob: '', roles: [], verticals: [], status: 'Active' };
 
 export default function PractitionersPage() {
   const [practitioners, setPractitioners] = useState<StoredPractitioner[]>([]);
+  const [roles, setRoles] = useState<Role[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
-  const [form, setForm] = useState({ name: '', email: '', role: 'Practitioner', verticals: [] as string[], status: 'Active' as 'Active' | 'Inactive' });
+  const [editing, setEditing] = useState<StoredPractitioner | null>(null);
+  const [form, setForm] = useState<FormState>(emptyForm);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<StoredPractitioner | null>(null);
+
+  const roleNames = useMemo(() => roles.map((r) => r.name), [roles]);
 
   const refresh = async () => {
     setLoading(true);
     setLoadError('');
     try {
-      const list = await getPractitioners();
+      const [list, roleList] = await Promise.all([getPractitioners(), getRoles()]);
       setPractitioners(list);
+      setRoles(roleList);
     } catch (e: any) {
       setLoadError(e?.message || 'Failed to load practitioners');
     } finally {
@@ -50,8 +66,23 @@ export default function PractitionersPage() {
     };
   }, [practitioners]);
 
-  const openModal = () => {
-    setForm({ name: '', email: '', role: 'Practitioner', verticals: [], status: 'Active' });
+  const openCreate = () => {
+    setEditing(null);
+    setForm({ ...emptyForm, roles: roleNames.includes('Practitioner') ? ['Practitioner'] : [] });
+    setError('');
+    setModalOpen(true);
+  };
+
+  const openEdit = (p: StoredPractitioner) => {
+    setEditing(p);
+    setForm({
+      name: p.name,
+      email: p.email,
+      dob: p.dob || '',
+      roles: p.roles || [],
+      verticals: p.verticals || [],
+      status: (p.status as 'Active' | 'Inactive') || 'Active',
+    });
     setError('');
     setModalOpen(true);
   };
@@ -60,23 +91,50 @@ export default function PractitionersPage() {
     setForm((f) => ({ ...f, verticals: f.verticals.includes(v) ? f.verticals.filter((x) => x !== v) : [...f.verticals, v] }));
   };
 
+  const toggleRole = (r: string) => {
+    setForm((f) => ({ ...f, roles: f.roles.includes(r) ? f.roles.filter((x) => x !== r) : [...f.roles, r] }));
+  };
+
   const submit = async () => {
     const name = form.name.trim();
     const email = form.email.trim();
+    const dob = form.dob.trim();
     if (!name || !email) { setError('Name and email are required'); return; }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setError('Enter a valid email address'); return; }
+    if (dob && !/^\d{4}-\d{2}-\d{2}$/.test(dob)) { setError('Enter date of birth as YYYY-MM-DD'); return; }
+    if (form.roles.length === 0) { setError('Assign at least one role'); return; }
     if (form.verticals.length === 0) { setError('Assign at least one vertical'); return; }
-    if (practitioners.some((p) => p.email.toLowerCase() === email.toLowerCase())) {
-      setError('A practitioner with this email already exists'); return;
-    }
-    const nums = practitioners.map((p) => parseInt(p.id.replace(/^P-/, ''), 10)).filter((n) => !Number.isNaN(n));
-    const nextNum = (nums.length ? Math.max(...nums) : 0) + 1;
-    const id = `P-${String(nextNum).padStart(3, '0')}`;
-    const today = new Date().toISOString().slice(0, 16).replace('T', ' ');
+
     setSaving(true);
-    const created = await createPractitioner({ id, name, email, role: form.role, verticals: form.verticals, status: form.status, last_login: today });
-    setSaving(false);
-    if (!created) { setError('Failed to save — check that the API is running'); return; }
+    if (editing) {
+      const updated = await updatePractitioner(editing.id, {
+        name, email,
+        dob: dob || undefined,
+        roles: form.roles,
+        verticals: form.verticals,
+        status: form.status,
+      });
+      setSaving(false);
+      if (!updated) { setError('Failed to save — check that the API is running'); return; }
+    } else {
+      if (practitioners.some((p) => p.email.toLowerCase() === email.toLowerCase())) {
+        setSaving(false); setError('A practitioner with this email already exists'); return;
+      }
+      const nums = practitioners.map((p) => parseInt(p.id.replace(/^P-/, ''), 10)).filter((n) => !Number.isNaN(n));
+      const nextNum = (nums.length ? Math.max(...nums) : 0) + 1;
+      const id = `P-${String(nextNum).padStart(3, '0')}`;
+      const today = new Date().toISOString().slice(0, 16).replace('T', ' ');
+      const created = await createPractitioner({
+        id, name, email,
+        dob: dob || undefined,
+        roles: form.roles,
+        verticals: form.verticals,
+        status: form.status,
+        last_login: today,
+      });
+      setSaving(false);
+      if (!created) { setError('Failed to save — check that the API is running'); return; }
+    }
     await refresh();
     setModalOpen(false);
   };
@@ -87,6 +145,12 @@ export default function PractitionersPage() {
     setConfirmDelete(null);
     if (ok) await refresh();
   };
+
+  const allRolesForForm = useMemo(() => {
+    if (!editing) return roleNames;
+    const extra = (editing.roles || []).filter((r) => !roleNames.includes(r));
+    return [...roleNames, ...extra];
+  }, [editing, roleNames]);
 
   return (
     <div className="p-5 lg:p-7.5 space-y-7">
@@ -99,7 +163,7 @@ export default function PractitionersPage() {
             <h1 className="text-2xl font-semibold tracking-tight">Practitioners</h1>
             <p className="text-sm text-muted-foreground mt-1">Manage practitioners, clinicians, and HR professionals.</p>
           </div>
-          <Button variant="primary" onClick={openModal}>
+          <Button variant="primary" onClick={openCreate}>
             <Plus className="h-4 w-4" /> Add Practitioner
           </Button>
         </div>
@@ -148,7 +212,7 @@ export default function PractitionersPage() {
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">ID</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Name</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Email</th>
-                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Role</th>
+                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Roles</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Vertical Access</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Status</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Last Login</th>
@@ -165,7 +229,14 @@ export default function PractitionersPage() {
                     <td className="px-5 py-3 font-mono text-xs">{p.id}</td>
                     <td className="px-5 py-3 font-medium">{p.name}</td>
                     <td className="px-5 py-3 font-mono text-xs">{p.email}</td>
-                    <td className="px-5 py-3">{p.role}</td>
+                    <td className="px-5 py-3">
+                      <div className="flex gap-1 flex-wrap">
+                        {(p.roles || []).length === 0 ? <span className="text-xs text-muted-foreground">—</span> :
+                          (p.roles || []).map((r) => (
+                            <span key={r} className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400">{r}</span>
+                          ))}
+                      </div>
+                    </td>
                     <td className="px-5 py-3">
                       <div className="flex gap-1 flex-wrap">
                         {(p.verticals || []).map((v) => (
@@ -180,12 +251,20 @@ export default function PractitionersPage() {
                       <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{p.last_login || '—'}</span>
                     </td>
                     <td className="px-5 py-3 text-right">
-                      <button
-                        onClick={() => setConfirmDelete(p)}
-                        className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/30 transition-colors"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" /> Delete
-                      </button>
+                      <div className="inline-flex gap-1">
+                        <button
+                          onClick={() => openEdit(p)}
+                          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-950/30 transition-colors"
+                        >
+                          <Pencil className="h-3.5 w-3.5" /> Edit
+                        </button>
+                        <button
+                          onClick={() => setConfirmDelete(p)}
+                          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/30 transition-colors"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" /> Delete
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -197,9 +276,9 @@ export default function PractitionersPage() {
 
       {modalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={() => setModalOpen(false)}>
-          <Card className="w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+          <Card className="w-full max-w-md max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <CardHeader className="flex flex-row items-center justify-between pb-3">
-              <CardTitle className="text-base">Add Practitioner</CardTitle>
+              <CardTitle className="text-base">{editing ? `Edit Practitioner — ${editing.id}` : 'Add Practitioner'}</CardTitle>
               <button onClick={() => setModalOpen(false)} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -214,10 +293,8 @@ export default function PractitionersPage() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <label className="text-sm font-medium">Role</label>
-                  <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
-                    {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
-                  </select>
+                  <label className="text-sm font-medium">Date of Birth</label>
+                  <input type="date" value={form.dob} onChange={(e) => setForm({ ...form, dob: e.target.value })} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" />
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-sm font-medium">Status</label>
@@ -228,7 +305,23 @@ export default function PractitionersPage() {
                 </div>
               </div>
               <div className="space-y-1.5">
-                <label className="text-sm font-medium">Vertical Access</label>
+                <label className="text-sm font-medium">Roles *</label>
+                {allRolesForForm.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">No roles defined yet — create roles in Permissions first.</p>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {allRolesForForm.map((r) => (
+                      <button key={r} type="button" onClick={() => toggleRole(r)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${form.roles.includes(r) ? 'bg-primary text-primary-foreground border-primary' : 'bg-background text-muted-foreground border-border hover:border-primary/50'}`}>
+                        {r}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <p className="text-xs text-muted-foreground">Pick one or more. Roles are managed in Permissions.</p>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Vertical Access *</label>
                 <div className="flex flex-wrap gap-2">
                   {VERTICALS.map((v) => (
                     <button key={v} type="button" onClick={() => toggleVertical(v)}
@@ -240,7 +333,9 @@ export default function PractitionersPage() {
               </div>
               <div className="flex justify-end gap-2 pt-1">
                 <Button variant="outline" onClick={() => setModalOpen(false)}>Cancel</Button>
-                <Button variant="primary" onClick={submit} disabled={saving}>{saving ? 'Saving…' : 'Add Practitioner'}</Button>
+                <Button variant="primary" onClick={submit} disabled={saving}>
+                  {saving ? 'Saving…' : (editing ? 'Save Changes' : 'Add Practitioner')}
+                </Button>
               </div>
             </CardContent>
           </Card>

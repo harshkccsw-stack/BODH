@@ -134,9 +134,10 @@ export const MENU_SIDEBAR: MenuConfig = [
     icon: Users,
     children: [
       { title: 'Practitioners', path: '/admin/practitioners' },
+      { title: 'Roles & Permissions', path: '/admin/permissions' },
       { title: 'Respondents', path: '/admin/respondents' },
       { title: 'Groups', path: '/admin/groups' },
-      { title: 'Roles & Permissions', path: '/admin/roles' },
+      { title: 'Permissions', path: '/admin/roles' },
     ],
   },
   {

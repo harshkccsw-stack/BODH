@@ -51,6 +51,7 @@ func main() {
 	questionnairesH := handlers.NewQuestionnairesHandler(db)
 	itemDisplayH := handlers.NewItemDisplayHandler(db)
 	demoFieldsH := handlers.NewDemographicFieldsHandler(db)
+	rolesH := handlers.NewRolesHandler(db)
 
 	// Static files for uploaded media
 	fileServer := http.FileServer(http.Dir("./uploads"))
@@ -148,6 +149,14 @@ func main() {
 			r.Get("/", demoFieldsH.List)
 			r.Post("/", demoFieldsH.Upsert)
 			r.Delete("/{id}", demoFieldsH.Delete)
+		})
+
+		r.Route("/roles", func(r chi.Router) {
+			r.Get("/", rolesH.List)
+			r.Post("/", rolesH.Create)
+			r.Get("/{id}", rolesH.Get)
+			r.Put("/{id}", rolesH.Update)
+			r.Delete("/{id}", rolesH.Delete)
 		})
 	})
 

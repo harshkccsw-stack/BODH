@@ -1,7 +1,6 @@
 import { useEffect } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useLayout } from './context';
-import { Footer } from './footer';
 import { Header } from './header';
 import { Sidebar } from './sidebar';
 
@@ -52,8 +51,6 @@ export function Main({ children }: { children: React.ReactNode }) {
         <main className="grow pt-5" role="content">
           {children}
         </main>
-
-        <Footer />
       </div>
     </>
   );

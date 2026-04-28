@@ -3,13 +3,14 @@
 
 import {
   respondentsApi, practitionersApi, groupsApi,
-  qualitiesApi, verticalsApi,
+  qualitiesApi, verticalsApi, rolesApi,
   type Respondent as ApiRespondent,
   type Practitioner as ApiPractitioner,
   type Group as ApiGroup,
   type MQ as ApiMQ,
   type MQT as ApiMQT,
   type Vertical as ApiVertical,
+  type Role as ApiRole,
   type BulkRespondentRow,
   type BulkRespondentResult,
 } from './api';
@@ -23,6 +24,7 @@ export type Group = ApiGroup;
 export type MQ = ApiMQ;
 export type MQT = ApiMQT;
 export type Vertical = ApiVertical;
+export type Role = ApiRole;
 
 // Legacy shape used by a handful of pages (sessions list, reports, etc.)
 export interface StoredSession {
@@ -99,6 +101,20 @@ export async function updatePractitioner(id: string, p: Partial<StoredPractition
 }
 export async function deletePractitioner(id: string): Promise<boolean> {
   try { await practitionersApi.delete(id); return true; } catch (e) { console.error(e); return false; }
+}
+
+// ---- Roles ----
+export async function getRoles(): Promise<Role[]> {
+  try { return await rolesApi.list(); } catch (e) { console.error(e); return []; }
+}
+export async function createRole(r: Role): Promise<Role | null> {
+  try { return await rolesApi.create(r); } catch (e) { console.error(e); return null; }
+}
+export async function updateRole(id: string, r: Partial<Role>): Promise<Role | null> {
+  try { return await rolesApi.update(id, r); } catch (e) { console.error(e); return null; }
+}
+export async function deleteRole(id: string): Promise<boolean> {
+  try { await rolesApi.delete(id); return true; } catch (e) { console.error(e); return false; }
 }
 
 // ---- Groups ----

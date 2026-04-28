@@ -93,10 +93,11 @@ export interface Practitioner {
   id: string;
   name: string;
   email: string;
-  role: string;
+  roles: string[];
   verticals: string[];
   status: 'Active' | 'Inactive' | string;
   last_login?: string;
+  dob?: string;
 }
 export const practitionersApi = {
   list: () => jsonFetch<Practitioner[]>('/practitioners'),
@@ -104,6 +105,21 @@ export const practitionersApi = {
   create: (p: Practitioner) => jsonFetch<Practitioner>('/practitioners', { method: 'POST', body: JSON.stringify(p) }),
   update: (id: string, p: Partial<Practitioner>) => jsonFetch<Practitioner>(`/practitioners/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(p) }),
   delete: (id: string) => jsonFetch<null>(`/practitioners/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+};
+
+// ---------- Roles (page-access bundles) ----------
+export interface Role {
+  id: string;
+  name: string;
+  description?: string;
+  url_paths: string[];
+}
+export const rolesApi = {
+  list: () => jsonFetch<Role[]>('/roles'),
+  get: (id: string) => jsonFetch<Role>(`/roles/${encodeURIComponent(id)}`),
+  create: (r: Role) => jsonFetch<Role>('/roles', { method: 'POST', body: JSON.stringify(r) }),
+  update: (id: string, r: Partial<Role>) => jsonFetch<Role>(`/roles/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(r) }),
+  delete: (id: string) => jsonFetch<null>(`/roles/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 };
 
 // ---------- Groups ----------
