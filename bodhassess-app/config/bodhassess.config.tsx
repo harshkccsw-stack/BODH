@@ -134,6 +134,7 @@ export const MENU_SIDEBAR: MenuConfig = [
     icon: Users,
     children: [
       { title: 'Practitioners', path: '/admin/practitioners' },
+      { title: 'Pending Requests', path: '/admin/practitioners/pending' },
       { title: 'Roles & Permissions', path: '/admin/permissions' },
       { title: 'Respondents', path: '/admin/respondents' },
       { title: 'Groups', path: '/admin/groups' },

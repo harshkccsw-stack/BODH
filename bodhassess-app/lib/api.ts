@@ -108,12 +108,21 @@ export interface PractitionerLoginResponse {
   token: string;
   practitioner: PractitionerMe;
 }
+export interface PractitionerSignupResponse {
+  id: string;
+  name: string;
+  email: string;
+  dob: string;
+  status: string;
+}
 export const practitionersApi = {
   list: () => jsonFetch<Practitioner[]>('/practitioners'),
   get: (id: string) => jsonFetch<Practitioner>(`/practitioners/${encodeURIComponent(id)}`),
   create: (p: Practitioner) => jsonFetch<Practitioner>('/practitioners', { method: 'POST', body: JSON.stringify(p) }),
   update: (id: string, p: Partial<Practitioner>) => jsonFetch<Practitioner>(`/practitioners/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(p) }),
   delete: (id: string) => jsonFetch<null>(`/practitioners/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  signup: (name: string, email: string, dob: string) =>
+    jsonFetch<PractitionerSignupResponse>('/practitioners/signup', { method: 'POST', body: JSON.stringify({ name, email, dob }) }),
   login: (id: string, dob: string) =>
     jsonFetch<PractitionerLoginResponse>('/practitioners/login', { method: 'POST', body: JSON.stringify({ id, dob }) }),
   me: (token: string) =>

@@ -100,6 +100,16 @@ export function PractitionerAuthProvider({ children }: { children: ReactNode }) 
     (async () => {
       try {
         const me = await practitionersApi.me(token);
+        // Defensive gate: if an admin moved the account back to Pending or
+        // Inactive after login, drop the session so the dashboard isn't
+        // reachable with a stale token.
+        if (me.status !== 'Active') {
+          if (!cancelled) {
+            clearPractitionerToken();
+            setState({ status: 'unauthenticated', me: null });
+          }
+          return;
+        }
         if (!cancelled) setState({ status: 'authenticated', me });
       } catch {
         if (!cancelled) {

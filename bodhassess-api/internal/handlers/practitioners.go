@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -205,7 +206,7 @@ func (h *PractitionersHandler) Login(w http.ResponseWriter, r *http.Request) {
 	row := h.db.QueryRow(ctx, `
 		SELECT id, name, email, roles, verticals, status, COALESCE(last_login, ''), COALESCE(TO_CHAR(dob, 'YYYY-MM-DD'), '')
 		FROM practitioners
-		WHERE LOWER(id) = LOWER($1) AND dob = $2::date AND status = 'Active'`,
+		WHERE LOWER(id) = LOWER($1) AND dob = $2::date`,
 		id, dob)
 	if err := row.Scan(&p.ID, &p.Name, &p.Email, &rjson, &vjson, &p.Status, &p.LastLogin, &p.DOB); err != nil {
 		if err == pgx.ErrNoRows {
@@ -213,6 +214,14 @@ func (h *PractitionersHandler) Login(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if p.Status == "Pending" {
+		http.Error(w, "Your account is awaiting admin approval.", http.StatusForbidden)
+		return
+	}
+	if p.Status != "Active" {
+		http.Error(w, "Your account is inactive. Contact your administrator.", http.StatusForbidden)
 		return
 	}
 	if len(rjson) > 0 {
@@ -248,6 +257,76 @@ func (h *PractitionersHandler) Login(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, practitionerLoginResponse{
 		Token:        token,
 		Practitioner: practitionerMePayload{practitionerPayload: p, URLPaths: urlPaths},
+	})
+}
+
+// --- Signup (self-service, pending admin approval) ----------------------
+//
+// Public endpoint: a prospective practitioner submits name, email, and DOB.
+// We mint the next sequential P-XXX id, insert the row with status='Pending'
+// and empty roles/verticals, and return the new PID. The user can then log
+// in with PID + DOB once an admin flips status to 'Active' and assigns
+// roles/verticals on the Pending Requests admin page.
+
+type practitionerSignupRequest struct {
+	Name  string `json:"name"`
+	Email string `json:"email"`
+	DOB   string `json:"dob"`
+}
+
+type practitionerSignupResponse struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Email  string `json:"email"`
+	DOB    string `json:"dob"`
+	Status string `json:"status"`
+}
+
+func (h *PractitionersHandler) Signup(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	var req practitionerSignupRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+	name := strings.TrimSpace(req.Name)
+	email := strings.TrimSpace(req.Email)
+	dob := strings.TrimSpace(req.DOB)
+	if name == "" || email == "" || dob == "" {
+		http.Error(w, "name, email, and dob are required", http.StatusBadRequest)
+		return
+	}
+
+	var existing string
+	err := h.db.QueryRow(ctx, `SELECT id FROM practitioners WHERE LOWER(email) = LOWER($1)`, email).Scan(&existing)
+	if err == nil {
+		http.Error(w, "An account with this email already exists.", http.StatusConflict)
+		return
+	} else if err != pgx.ErrNoRows {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	var maxNum int
+	_ = h.db.QueryRow(ctx, `
+		SELECT COALESCE(MAX(NULLIF(REGEXP_REPLACE(id, '^P-', ''), '')::int), 0)
+		FROM practitioners WHERE id ~ '^P-[0-9]+$'`).Scan(&maxNum)
+	nextID := fmt.Sprintf("P-%03d", maxNum+1)
+
+	rjson, _ := json.Marshal([]string{})
+	vjson, _ := json.Marshal([]string{})
+
+	if _, err := h.db.Exec(ctx, `
+		INSERT INTO practitioners (id, name, email, roles, verticals, status, dob)
+		VALUES ($1, $2, $3, $4, $5, 'Pending', NULLIF($6, '')::date)`,
+		nextID, name, email, rjson, vjson, dob); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, practitionerSignupResponse{
+		ID: nextID, Name: name, Email: email, DOB: dob, Status: "Pending",
 	})
 }
 

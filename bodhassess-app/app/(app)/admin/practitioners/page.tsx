@@ -47,7 +47,10 @@ export default function PractitionersPage() {
     setLoadError('');
     try {
       const [list, roleList] = await Promise.all([getPractitioners(), getRoles()]);
-      setPractitioners(list);
+      // Pending requests are reviewed on /admin/practitioners/pending; this
+      // table only shows practitioners who have been approved (Active or
+      // explicitly Inactive).
+      setPractitioners(list.filter((p) => (p.status || '').toLowerCase() !== 'pending'));
       setRoles(roleList);
     } catch (e: any) {
       setLoadError(e?.message || 'Failed to load practitioners');
