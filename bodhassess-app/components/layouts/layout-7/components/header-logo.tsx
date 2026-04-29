@@ -12,8 +12,8 @@ import {
 } from '@/components/ui/sheet';
 import { MegaMenu } from './mega-menu';
 import { MegaMenuMobile } from './mega-menu-mobile';
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import Link from '@/src/lib/next-compat';
+import { usePathname } from '@/src/lib/next-compat';
 
 const HeaderLogo = () => {
   const pathname = usePathname();

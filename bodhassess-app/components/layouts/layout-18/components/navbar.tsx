@@ -6,8 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Coffee, Pin, MessageSquareCode, Search } from "lucide-react";
 import { Input, InputWrapper } from "@/components/ui/input";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
-import { usePathname } from "next/navigation";
-import Link from "next/link";
+import { usePathname } from '@/src/lib/next-compat';
+import Link from '@/src/lib/next-compat';
 
 export function Navbar() {
   const pathname = usePathname();

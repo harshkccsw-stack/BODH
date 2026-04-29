@@ -1,5 +1,5 @@
 import { LoaderPinwheel, User } from 'lucide-react';
-import Link from 'next/link';
+import Link from '@/src/lib/next-compat';
 import { Button } from '@/components/ui/button';
 
 export function ShareProfileSettings() {

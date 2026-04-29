@@ -1,5 +1,3 @@
-'use client';
-
 import { Pattern } from "@/components/layouts/layout-34/components/pattern";
 
 export default function Page() {

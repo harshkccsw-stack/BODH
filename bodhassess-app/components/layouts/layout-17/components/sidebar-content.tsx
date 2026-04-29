@@ -8,8 +8,8 @@ import {
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { MENU_SIDEBAR_MAIN } from '@/config/layout-17.config';
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import Link from '@/src/lib/next-compat';
+import { usePathname } from '@/src/lib/next-compat';
 
 export function SidebarContent() {
   const pathname = usePathname();

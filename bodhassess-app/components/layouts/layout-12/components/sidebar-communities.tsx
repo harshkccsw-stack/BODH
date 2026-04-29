@@ -9,7 +9,7 @@ import {
   AccordionMenuItem,
 } from '@/components/ui/accordion-menu';
 import { Button } from "@/components/ui/button";
-import Link from 'next/link';
+import Link from '@/src/lib/next-compat';
 
 export function SidebarCommunities() {
   const communities = [

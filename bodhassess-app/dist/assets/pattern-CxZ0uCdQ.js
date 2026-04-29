@@ -1,0 +1,1 @@
+import{j as e}from"./index-BwU4HDer.js";function a({className:t,children:r}){return e.jsx("div",{className:t,style:{backgroundImage:"repeating-linear-gradient(125deg, transparent, transparent 5px, currentcolor 5px, currentcolor 6px)"},children:r&&r})}export{a as P};

@@ -8,7 +8,7 @@ import {
   ShieldUser,
   Plus,
 } from 'lucide-react';
-import Link from "next/link";
+import Link from '@/src/lib/next-compat';
 
 const menuItems = [
   {

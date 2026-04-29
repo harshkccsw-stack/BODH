@@ -1,5 +1,3 @@
-'use client';
-
 import { JSX, useCallback } from 'react';
 import { MENU_SIDEBAR_COMPACT } from '@/config/layout-6.config';
 import { MenuConfig, MenuItem } from '@/config/types';
@@ -13,8 +11,8 @@ import {
   AccordionMenuSubContent,
   AccordionMenuSubTrigger,
 } from '@/components/ui/accordion-menu';
-import { usePathname } from 'next/navigation';
-import Link from 'next/link';
+import { usePathname } from '@/src/lib/next-compat';
+import Link from '@/src/lib/next-compat';
 
 export function SidebarMenuPrimary() {
   const pathname = usePathname();

@@ -1,5 +1,3 @@
-'use client';
-
 import * as React from 'react';
 import { cva, type VariantProps } from 'class-variance-authority';
 import { ChevronDown } from 'lucide-react';
@@ -236,7 +234,12 @@ function AccordionMenuItem({
             if (onClick) {
               onClick(e);
             }
-            e.preventDefault();
+            // Only prevent the trigger's default (accordion toggle) when the
+            // click is NOT on/inside an anchor — otherwise we swallow the
+            // Link's navigation and the page never renders.
+            if (!(e.target as HTMLElement).closest('a')) {
+              e.preventDefault();
+            }
           }}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {

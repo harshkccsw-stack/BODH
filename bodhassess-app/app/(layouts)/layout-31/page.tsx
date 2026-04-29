@@ -1,5 +1,3 @@
-'use client';
-
 import { Toolbar, ToolbarHeading, ToolbarPageTitle, ToolbarWrapper } from "@/components/layouts/layout-31/components/toolbar";
 import { ToolbarSearch } from "@/components/layouts/layout-31/components/toolbar-search";
 import { Skeleton } from "@/components/ui/skeleton";

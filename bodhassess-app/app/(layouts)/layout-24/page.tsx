@@ -1,5 +1,3 @@
-'use client';
-
 export default function Page() {
   return (
     <div className="container-fluid h-screen p-5">

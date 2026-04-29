@@ -9,8 +9,8 @@ import { cn } from "@/lib/utils";
 import { LucideIcon, Plus, Clock, Archive, AlertTriangle, Trash, Tag } from "lucide-react";
 import { Button } from '@/components/ui/button';
 import CreateLabelDialog from './create-label';
-import { usePathname } from "next/navigation";
-import Link from "next/link";
+import { usePathname } from '@/src/lib/next-compat';
+import Link from '@/src/lib/next-compat';
 
 interface MenuLabelConfig {
   title: string;

@@ -1,6 +1,6 @@
 import { ReactNode } from 'react';
 import { Calendar, Settings, Settings2, Shield, Users } from 'lucide-react';
-import Link from 'next/link';
+import Link from '@/src/lib/next-compat';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,

@@ -11,7 +11,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { SidebarPrimary } from './sidebar-primary';
 import { SidebarSecondary } from './sidebar-secondary';
-import { usePathname } from 'next/navigation';
+import { usePathname } from '@/src/lib/next-compat';
 
 export function HeaderMenu() {
   const pathname = usePathname();

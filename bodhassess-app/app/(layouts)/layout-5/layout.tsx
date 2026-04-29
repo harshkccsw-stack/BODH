@@ -1,5 +1,3 @@
-'use client';
-
 import { Layout5 } from '@/components/layouts/layout-5';
 import { ReactNode, useEffect, useState } from 'react';
 

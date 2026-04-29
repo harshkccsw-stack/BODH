@@ -1,12 +1,13 @@
 {
-  "name": "metronic-react-starter-kit",
-  "version": "9.4.5",
+  "name": "bodhassess-app",
+  "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "build:staging": "cp .env.staging .env.local && next build",
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -b --noEmit",
     "lint": "eslint .",
     "format": "prettier --write ."
   },
@@ -17,7 +18,6 @@
     "@headless-tree/core": "^1.4.0",
     "@headless-tree/react": "^1.4.0",
     "@hookform/resolvers": "^5.2.1",
-    "@ianvs/prettier-plugin-sort-imports": "^4.6.2",
     "@remixicon/react": "^4.6.0",
     "@tanstack/react-query": "^5.85.5",
     "@tanstack/react-query-devtools": "^5.85.5",
@@ -34,7 +34,6 @@
     "leaflet": "^1.9.4",
     "lucide-react": "^0.556.0",
     "motion": "^12.23.12",
-    "next": "16.1.6",
     "next-themes": "^0.4.6",
     "radix-ui": "^1.4.3",
     "react": "^19.2.1",
@@ -48,6 +47,7 @@
     "react-is": "^19.2.1",
     "react-leaflet": "^5.0.0",
     "react-resizable-panels": "^3.0.5",
+    "react-router": "^7.11.0",
     "react-wrap-balancer": "^1.1.1",
     "recharts": "2.15.1",
     "sonner": "^2.0.7",
@@ -58,14 +58,16 @@
     "zod": "^4.1.13"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@tailwindcss/postcss": "^4.1.17",
+    "@tailwindcss/vite": "^4.1.17",
     "@types/leaflet": "^1.9.21",
     "@types/node": "^24.10.2",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.0.5",
     "autoprefixer": "^10.4.22",
     "eslint": "^9.34.0",
-    "eslint-config-next": "15.5.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^5.2.0",
@@ -74,7 +76,9 @@
     "prettier-plugin-organize-imports": "^4.2.0",
     "prettier-plugin-tailwindcss": "^0.6.14",
     "tailwindcss": "^4.1.17",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.59.0",
+    "vite": "^7.1.5"
   },
   "overrides": {
     "minimatch": "^10.2.1",

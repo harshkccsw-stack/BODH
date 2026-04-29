@@ -1,5 +1,3 @@
-'use client';
-
 import { Key, Plus, Activity, Clock, Shield, Copy } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';

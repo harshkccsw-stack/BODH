@@ -7,7 +7,7 @@ import { SidebarMenu } from './sidebar-menu';
 import { Aside } from './aside';
 import { AsideToolbar } from './aside-toolbar';
 import { toAbsoluteUrl } from '@/lib/helpers';
-import Link from 'next/link';
+import Link from '@/src/lib/next-compat';
 
 export function HeaderMobile() {
   const [isSidebarSheetOpen, setIsSidebarSheetOpen] = useState(false);

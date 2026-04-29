@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import Link from '@/src/lib/next-compat';
 import { toAbsoluteUrl } from '@/lib/helpers';
 import {
   AccordionMenu,

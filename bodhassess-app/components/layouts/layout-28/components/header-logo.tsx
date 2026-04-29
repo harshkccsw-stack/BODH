@@ -6,7 +6,7 @@ import { Sheet, SheetTrigger, SheetContent, SheetHeader, SheetBody } from "@/com
 import { Menu } from "lucide-react";
 import { HeaderMenu } from './header-menu';
 import { SidebarContent } from './sidebar-content';
-import Link from 'next/link';
+import Link from '@/src/lib/next-compat';
 
 export function HeaderLogo() {
   const { isMobile } = useLayout();

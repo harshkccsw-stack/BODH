@@ -1,109 +1,154 @@
 #!/usr/bin/env bash
-# Boot the full BodhAssess dev stack:
-#   1. Postgres / Redis / MinIO via docker compose (bodhassess-api/docker-compose.yml)
-#   2. Go API server (bodhassess-api/cmd/server)  → http://localhost:8080
-#   3. Next.js dev server (bodhassess-app)        → http://localhost:3000
+# Bring up the whole BodhAssess stack locally:
+#   1. docker-compose infra (postgres, redis, minio) from bodhassess-api/
+#   2. Go API server on :8080
+#   3. Vite dev server on :3000
 #
-# Logs stream into ./logs/. Ctrl+C stops the API + Next.js cleanly; the
-# docker containers are left running so the next `bash run.sh` is fast.
-# Pass `--down` to also stop the containers.
+# Usage:
+#   ./run.sh            # start everything (foreground, Ctrl-C stops it all)
+#   ./run.sh stop       # stop API + web + docker infra
+#   ./run.sh infra      # start docker infra only
+#   ./run.sh api        # start API only (infra must already be up)
+#   ./run.sh web        # start web only
+#   ./run.sh logs       # tail all logs
 
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$(dirname "$0")" && pwd)"
 API_DIR="$ROOT/bodhassess-api"
-APP_DIR="$ROOT/bodhassess-app"
-LOG_DIR="$ROOT/logs"
+WEB_DIR="$ROOT/bodhassess-app"
+LOG_DIR="$ROOT/.run-logs"
+API_PID_FILE="$LOG_DIR/api.pid"
+WEB_PID_FILE="$LOG_DIR/web.pid"
+
 mkdir -p "$LOG_DIR"
 
-# If the current user can't reach the docker socket, fall back to sudo.
-# (We expect passwordless sudo on this dev box; prompts will surface here.)
-DOCKER="docker"
-if ! docker info >/dev/null 2>&1; then
-  if sudo -n docker info >/dev/null 2>&1; then
-    DOCKER="sudo docker"
-    echo "[run.sh] Using 'sudo docker' (current user lacks docker socket access)."
+die() { echo "error: $*" >&2; exit 1; }
+
+need() { command -v "$1" >/dev/null 2>&1 || die "$1 not found in PATH"; }
+
+compose() {
+  if docker compose version >/dev/null 2>&1; then
+    docker compose -f "$API_DIR/docker-compose.yml" "$@"
   else
-    echo "[run.sh] ERROR: cannot access docker daemon. Either add your user to the 'docker' group ('sudo usermod -aG docker $USER' then re-login) or grant passwordless sudo for docker." >&2
-    exit 1
+    docker-compose -f "$API_DIR/docker-compose.yml" "$@"
   fi
-fi
-
-# Detect docker compose command (v2 plugin vs legacy docker-compose)
-if $DOCKER compose version >/dev/null 2>&1; then
-  DC="$DOCKER compose"
-elif command -v docker-compose >/dev/null 2>&1; then
-  DC="docker-compose"
-  if [[ "$DOCKER" == "sudo docker" ]]; then DC="sudo docker-compose"; fi
-else
-  echo "[run.sh] ERROR: docker compose is not installed." >&2
-  exit 1
-fi
-
-if [[ "${1:-}" == "--down" ]]; then
-  echo "[run.sh] Stopping docker compose services…"
-  (cd "$API_DIR" && $DC down)
-  exit 0
-fi
-
-API_PID=""
-APP_PID=""
-
-cleanup() {
-  echo
-  echo "[run.sh] Shutting down API + Next.js…"
-  [[ -n "$API_PID" ]] && kill "$API_PID" 2>/dev/null || true
-  [[ -n "$APP_PID" ]] && kill "$APP_PID" 2>/dev/null || true
-  wait 2>/dev/null || true
-  echo "[run.sh] Done. (Docker containers left running — use 'bash run.sh --down' to stop them.)"
 }
-trap cleanup EXIT INT TERM
 
-# 1. Bring up containers (idempotent — `up -d` is a no-op if already running)
-echo "[run.sh] Starting Postgres / Redis / MinIO…"
-(cd "$API_DIR" && $DC up -d)
+start_infra() {
+  need docker
+  echo "==> Starting docker infra (postgres, redis, minio)"
+  compose up -d
+  echo "    waiting for postgres healthcheck..."
+  for _ in $(seq 1 30); do
+    if compose ps postgres 2>/dev/null | grep -q healthy; then
+      echo "    postgres is healthy"
+      return 0
+    fi
+    sleep 1
+  done
+  die "postgres did not become healthy in 30s (check: ./run.sh logs)"
+}
 
-# Wait for Postgres to be ready (compose has a healthcheck — poll it briefly)
-echo -n "[run.sh] Waiting for Postgres to be ready"
-for i in {1..30}; do
-  if $DOCKER exec bodh-postgres pg_isready -U bodh -d bodhassess >/dev/null 2>&1; then
-    echo " — ready."
-    break
+start_api() {
+  need go
+  [ -f "$API_DIR/go.mod" ] || die "no go.mod at $API_DIR"
+
+  # Refuse to start if :8080 is already taken (orphan from a previous run, etc.)
+  if lsof -nP -iTCP:8080 -sTCP:LISTEN >/dev/null 2>&1; then
+    echo "==> :8080 already in use — killing the listener"
+    lsof -nP -iTCP:8080 -sTCP:LISTEN -t 2>/dev/null | xargs -r kill 2>/dev/null || true
+    sleep 1
+    lsof -nP -iTCP:8080 -sTCP:LISTEN -t 2>/dev/null | xargs -r kill -9 2>/dev/null || true
   fi
-  echo -n "."
+
+  echo "==> Building API binary → $LOG_DIR/api.log"
+  ( cd "$API_DIR" && go build -o "$LOG_DIR/bodh-server" ./cmd/server ) || die "go build failed"
+
+  echo "==> Starting Go API on :8080"
+  ( cd "$API_DIR" && "$LOG_DIR/bodh-server" > "$LOG_DIR/api.log" 2>&1 ) &
+  echo $! > "$API_PID_FILE"
   sleep 1
-done
+  if ! kill -0 "$(cat "$API_PID_FILE")" 2>/dev/null; then
+    tail -20 "$LOG_DIR/api.log" >&2
+    die "API failed to start"
+  fi
+}
 
-# 2. Apply any new migrations beyond 001_init.sql (compose only auto-runs 001).
-#    Run them in numeric order, skipping the init file (already applied).
-echo "[run.sh] Applying migrations 002+…"
-for f in $(ls "$API_DIR/migrations" | sort); do
-  if [[ "$f" == "001_init.sql" ]]; then continue; fi
-  if [[ "$f" != *.sql ]]; then continue; fi
-  $DOCKER exec -i bodh-postgres psql -U bodh -d bodhassess -v ON_ERROR_STOP=0 < "$API_DIR/migrations/$f" >/dev/null 2>&1 || true
-done
+start_web() {
+  need npm
+  [ -d "$WEB_DIR/node_modules" ] || ( cd "$WEB_DIR" && echo "==> npm install" && npm install --no-audit --no-fund )
+  echo "==> Starting Vite dev server on :3000 → $LOG_DIR/web.log"
+  ( cd "$WEB_DIR" && npm run dev > "$LOG_DIR/web.log" 2>&1 ) &
+  echo $! > "$WEB_PID_FILE"
+  sleep 2
+  if ! kill -0 "$(cat "$WEB_PID_FILE")" 2>/dev/null; then
+    tail -20 "$LOG_DIR/web.log" >&2
+    die "web failed to start"
+  fi
+}
 
-# 3. Start the Go API
-echo "[run.sh] Starting Go API → http://localhost:8080  (logs: $LOG_DIR/api.log)"
-(cd "$API_DIR" && go run ./cmd/server) >"$LOG_DIR/api.log" 2>&1 &
-API_PID=$!
+stop_proc() {
+  local pidfile="$1" label="$2"
+  if [ -f "$pidfile" ]; then
+    local pid; pid="$(cat "$pidfile" 2>/dev/null || true)"
+    if [ -n "${pid:-}" ] && kill -0 "$pid" 2>/dev/null; then
+      echo "==> Stopping $label (pid $pid)"
+      kill "$pid" 2>/dev/null || true
+      for _ in $(seq 1 10); do
+        kill -0 "$pid" 2>/dev/null || break
+        sleep 0.3
+      done
+      kill -9 "$pid" 2>/dev/null || true
+    fi
+    rm -f "$pidfile"
+  fi
+  # Vite spawns a child — kill anything still holding the port
+  if [ "$label" = "web" ]; then
+    pkill -f "vite.*--port 3000" 2>/dev/null || true
+  fi
+}
 
-# 4. Install + start Next.js dev server
-if [[ ! -d "$APP_DIR/node_modules" ]]; then
-  echo "[run.sh] Installing Next.js dependencies (first run)…"
-  (cd "$APP_DIR" && npm install)
-fi
+stop_all() {
+  stop_proc "$WEB_PID_FILE" web
+  stop_proc "$API_PID_FILE" api
+  echo "==> Stopping docker infra"
+  compose down
+}
 
-echo "[run.sh] Starting Next.js → http://localhost:3000  (logs: $LOG_DIR/app.log)"
-(cd "$APP_DIR" && npm run dev) >"$LOG_DIR/app.log" 2>&1 &
-APP_PID=$!
-
-echo
-echo "[run.sh] All services started. PIDs: api=$API_PID app=$APP_PID"
-echo "[run.sh] Tail logs in another terminal:"
-echo "          tail -f $LOG_DIR/api.log"
-echo "          tail -f $LOG_DIR/app.log"
-echo "[run.sh] Press Ctrl+C to stop the API and Next.js."
-
-# Wait until either child exits, then cleanup runs via trap
-wait -n "$API_PID" "$APP_PID" || true
+case "${1:-up}" in
+  up|start|"")
+    trap 'echo; stop_all; exit 0' INT TERM
+    start_infra
+    start_api
+    start_web
+    echo
+    echo "==> Stack is up"
+    echo "    web:      http://localhost:3000"
+    echo "    api:      http://localhost:8080/api/v1"
+    echo "    minio:    http://localhost:9001"
+    echo "    logs:     $LOG_DIR/{api,web}.log  (or ./run.sh logs)"
+    echo "    stop:     Ctrl-C  (or ./run.sh stop)"
+    echo
+    wait
+    ;;
+  stop|down)
+    stop_all
+    ;;
+  infra)
+    start_infra
+    ;;
+  api)
+    start_api
+    ;;
+  web)
+    start_web
+    ;;
+  logs)
+    tail -F "$LOG_DIR/api.log" "$LOG_DIR/web.log"
+    ;;
+  *)
+    echo "Usage: $0 [up|stop|infra|api|web|logs]" >&2
+    exit 1
+    ;;
+esac

@@ -8,7 +8,7 @@ import {
   Upload,
   Users,
 } from 'lucide-react';
-import Link from 'next/link';
+import Link from '@/src/lib/next-compat';
 import { toAbsoluteUrl } from '@/lib/helpers';
 import { cn } from '@/lib/utils';
 import {

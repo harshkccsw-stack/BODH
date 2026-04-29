@@ -1,7 +1,7 @@
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { MailListHeader } from "./mail-list-header";
 import { MailListWrapper } from "./mail-list-wrapper";  
-import Link from "next/link";
+import Link from '@/src/lib/next-compat';
 
 export function MailListEmpty() {
 

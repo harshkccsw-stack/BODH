@@ -14,8 +14,8 @@ import { MegaMenuSubAccount } from '../../layout-1/shared/mega-menu/mega-menu-su
 import { MegaMenuSubNetwork } from '../../layout-1/shared/mega-menu/mega-menu-sub-network';
 import { MegaMenuSubStore } from '../../layout-1/shared/mega-menu/mega-menu-sub-store';
 import { MegaMenuSubAuth } from '../../layout-1/shared/mega-menu/mega-menu-sub-auth';
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import Link from '@/src/lib/next-compat';
+import { usePathname } from '@/src/lib/next-compat';
 
 export function MegaMenu() {
   const pathname = usePathname();

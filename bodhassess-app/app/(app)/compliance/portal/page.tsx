@@ -1,5 +1,3 @@
-'use client';
-
 import { Eye, Download, Trash2, ShieldOff, User, ShieldCheck } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';

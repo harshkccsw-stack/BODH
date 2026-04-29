@@ -2,7 +2,7 @@ import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbP
 import { Button } from "@/components/ui/button";
 import { PanelRight } from "lucide-react";
 import { useLayout } from "./context";
-import Link from "next/link";
+import Link from '@/src/lib/next-compat';
 
 export function HeaderTitle() {    
   const { isSidebarOpen, isMobile, sidebarToggle } = useLayout();

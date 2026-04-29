@@ -1,5 +1,3 @@
-'use client';
-
 import { useLayout } from '@/components/layouts/layout-20/components/context';
 import { HeaderTitle } from '@/components/layouts/layout-20/components/header-title';
 import { Skeleton } from '@/components/ui/skeleton';

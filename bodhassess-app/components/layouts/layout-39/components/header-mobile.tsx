@@ -13,7 +13,7 @@ import { SidebarContent } from './sidebar-content';
 import { Aside } from './aside';
 import { UserDropdownMenu } from './user-dropdown-menu';
 import { SidebarFooter } from './sidebar-footer';
-import Link from 'next/link';
+import Link from '@/src/lib/next-compat';
 
 export function HeaderMobile() {
   const [isSidebarSheetOpen, setIsSidebarSheetOpen] = useState(false);

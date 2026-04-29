@@ -3,7 +3,7 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { Footer } from './footer';
 import { Header } from './header';
 import { Sidebar } from './sidebar';
-import { usePathname } from 'next/navigation';
+import { usePathname } from '@/src/lib/next-compat';
 
 export function Main({ children }: { children: React.ReactNode }) {
   const isMobile = useIsMobile();

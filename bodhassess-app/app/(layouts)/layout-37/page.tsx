@@ -1,5 +1,3 @@
-'use client';
-
 import { MailListEmpty } from "@/components/layouts/layout-37/components/mail-list-empty";
 import { MailViewEmpty } from "@/components/layouts/layout-37/components/mail-view-empty";
 

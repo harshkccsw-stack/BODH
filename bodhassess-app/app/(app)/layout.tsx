@@ -1,8 +1,6 @@
-'use client';
-
 import { Layout1 } from '@/components/layouts/layout-1';
 import { ReactNode } from 'react';
-import { usePathname } from 'next/navigation';
+import { usePathname } from '@/src/lib/next-compat';
 import { ScreenLoader } from '@/components/screen-loader';
 import { PractitionerAuthProvider, usePractitionerAuth } from '@/lib/practitioner-auth';
 import { Card, CardContent } from '@/components/ui/card';

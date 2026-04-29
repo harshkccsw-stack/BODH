@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Check, ChevronsUpDown } from 'lucide-react';
 import { useLayout } from './context';
 import { useState } from 'react';
-import Link from 'next/link';
+import Link from '@/src/lib/next-compat';
 
 interface Project {
   logo: string;

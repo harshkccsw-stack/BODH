@@ -7,7 +7,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Button } from "@/components/ui/button";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { toAbsoluteUrl } from "@/lib/helpers";
-import Link from "next/link";
+import Link from '@/src/lib/next-compat';
 
 export function MailViewMessageHeader() {   
   return ( 

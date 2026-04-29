@@ -9,8 +9,8 @@ import {
   AccordionMenuItem,
 } from '@/components/ui/accordion-menu';
 import { Badge } from '@/components/ui/badge';
-import { usePathname } from 'next/navigation';
-import Link from 'next/link';
+import { usePathname } from '@/src/lib/next-compat';
+import Link from '@/src/lib/next-compat';
 
 export function SidebarResourcesMenu() {
   const pathname = usePathname();

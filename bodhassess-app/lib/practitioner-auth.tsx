@@ -16,7 +16,7 @@ import {
   useMemo,
   useState,
 } from 'react';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname, useRouter } from '@/src/lib/next-compat';
 import { practitionersApi, type PractitionerMe } from '@/lib/api';
 import { config } from '@/lib/config';
 

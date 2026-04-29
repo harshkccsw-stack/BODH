@@ -1,5 +1,3 @@
-'use client';
-
 import { useState } from 'react';
 import { addDays, format } from 'date-fns';
 import { CalendarDays, Download } from 'lucide-react';
@@ -9,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Toolbar, ToolbarActions, ToolbarHeading } from '@/components/layouts/layout-6/components/toolbar';
-import Link from 'next/link';
+import Link from '@/src/lib/next-compat';
 
 export default function Page() {
   const [date, setDate] = useState<DateRange | undefined>({

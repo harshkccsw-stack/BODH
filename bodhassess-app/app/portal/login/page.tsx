@@ -1,5 +1,3 @@
-'use client';
-
 import { useState } from 'react';
 import { Brain, LogIn, AlertTriangle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';

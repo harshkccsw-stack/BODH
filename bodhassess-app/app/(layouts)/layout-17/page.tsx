@@ -1,5 +1,3 @@
-'use client';
-
 import { Toolbar } from '@/components/layouts/layout-17/components/toolbar';
 import { Skeleton } from '@/components/ui/skeleton';
 

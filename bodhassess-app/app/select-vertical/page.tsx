@@ -1,7 +1,5 @@
-'use client';
-
 import { Stethoscope, Briefcase, GraduationCap, FlaskConical, Tag } from 'lucide-react';
-import Link from 'next/link';
+import Link from '@/src/lib/next-compat';
 import { cn } from '@/lib/utils';
 
 const verticals = [

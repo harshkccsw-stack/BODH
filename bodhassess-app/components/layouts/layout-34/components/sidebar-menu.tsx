@@ -1,7 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { BookOpen, House, Layers, PanelLeft, SquareArrowOutUpRight } from "lucide-react";
-import Link from "next/link";
+import Link from '@/src/lib/next-compat';
 
 export function SidebarMenu() {
   const items = [

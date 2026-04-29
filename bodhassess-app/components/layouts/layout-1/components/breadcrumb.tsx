@@ -4,7 +4,7 @@ import { MENU_SIDEBAR } from '@/config/bodhassess.config';
 import { MenuItem } from '@/config/types';
 import { cn } from '@/lib/utils';
 import { useMenu } from '@/hooks/use-menu';
-import { usePathname } from 'next/navigation';
+import { usePathname } from '@/src/lib/next-compat';
 
 export function Breadcrumb() {
   const pathname = usePathname();

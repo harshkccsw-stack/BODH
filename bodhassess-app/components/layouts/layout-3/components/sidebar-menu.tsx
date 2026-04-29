@@ -18,7 +18,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import Link from 'next/link';
+import Link from '@/src/lib/next-compat';
 
 export interface Item {
   icon: React.ComponentType<{ className?: string }>;

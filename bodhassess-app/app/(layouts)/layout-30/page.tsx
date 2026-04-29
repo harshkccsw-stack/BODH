@@ -1,5 +1,3 @@
-'use client';
-
 import { useLayout } from "@/components/layouts/layout-30/components/context";
 import { Navbar } from "@/components/layouts/layout-30/components/navbar";
 import { Toolbar, ToolbarHeading, ToolbarPageTitle, ToolbarDescription, ToolbarActions } from "@/components/layouts/layout-30/components/toolbar";

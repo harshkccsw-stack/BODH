@@ -1,5 +1,5 @@
 import { toAbsoluteUrl } from '@/lib/helpers';
-import Link from 'next/link';
+import Link from '@/src/lib/next-compat';
 
 const items = [
   {

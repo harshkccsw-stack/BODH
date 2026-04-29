@@ -1,5 +1,3 @@
-'use client';
-
 import { useState } from "react";
 import AvatarDemo from "@/components/layouts/layout-36/components/avatar";
 import {

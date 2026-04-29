@@ -8,7 +8,7 @@ import SidebarCalendar from './sidebar-calendar';
 import { SidebarFooter } from './sidebar-footer';
 import { SidebarCalendarMenu } from './sidebar-calendar-menu';
 import { Separator } from '@/components/ui/separator';
-import Link from 'next/link';
+import Link from '@/src/lib/next-compat';
 
 export function HeaderMobile() {
   const [isSidebarSheetOpen, setIsSidebarSheetOpen] = useState(false);

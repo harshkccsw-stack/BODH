@@ -1,5 +1,3 @@
-'use client';
-
 import { createContext, ReactNode, useContext } from 'react';
 import { cn } from '@/lib/utils';
 import { ColumnFiltersState, RowData, SortingState, Table } from '@tanstack/react-table';
