@@ -27,11 +27,21 @@ die() { echo "error: $*" >&2; exit 1; }
 
 need() { command -v "$1" >/dev/null 2>&1 || die "$1 not found in PATH"; }
 
-compose() {
-  if docker compose version >/dev/null 2>&1; then
-    docker compose -f "$API_DIR/docker-compose.yml" "$@"
+_docker_prefix() {
+  # Use raw docker if the current user can reach the daemon, else sudo.
+  if docker info >/dev/null 2>&1; then
+    echo ""
   else
-    docker-compose -f "$API_DIR/docker-compose.yml" "$@"
+    echo "sudo"
+  fi
+}
+
+compose() {
+  local pfx; pfx="$(_docker_prefix)"
+  if $pfx docker compose version >/dev/null 2>&1; then
+    $pfx docker compose -f "$API_DIR/docker-compose.yml" "$@"
+  else
+    $pfx docker-compose -f "$API_DIR/docker-compose.yml" "$@"
   fi
 }
 
