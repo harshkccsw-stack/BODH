@@ -37,13 +37,14 @@ const verticalTerminology: Record<string, { respondent: string; practitioner: st
   whitelabel: { respondent: 'Users', practitioner: 'Administrators' },
 };
 
-const seedRecentSessions = [
-  { id: 'SESS-0047', respondent: 'Arjun Patel', instrument: 'PHQ-9', status: 'Completed', score: 'T=62', time: '12 min ago' },
-  { id: 'SESS-0046', respondent: 'Priya Sharma', instrument: 'GAD-7', status: 'In Progress', score: '—', time: '18 min ago' },
-  { id: 'SESS-0045', respondent: 'Rahul Verma', instrument: 'DASS-21', status: 'Completed', score: 'T=55', time: '1 hr ago' },
-  { id: 'SESS-0044', respondent: 'Ananya Reddy', instrument: 'Beck BDI-II', status: 'Pending Review', score: 'T=71', time: '2 hr ago' },
-  { id: 'SESS-0043', respondent: 'Vikram Singh', instrument: 'Big Five (IPIP-NEO)', status: 'Completed', score: 'Profile Ready', time: '3 hr ago' },
-];
+interface RecentSession {
+  id: string;
+  respondent: string;
+  instrument: string;
+  status: string;
+  score: string;
+  time: string;
+}
 
 function DashboardContent() {
   const searchParams = useSearchParams();
@@ -55,7 +56,7 @@ function DashboardContent() {
   const [practitionerCount, setPractitionerCount] = useState(0);
   const [instrumentCount, setInstrumentCount] = useState(0);
   const [sessionsForVertical, setSessionsForVertical] = useState<Array<{ status: string; score?: string }>>([]);
-  const [recentLive, setRecentLive] = useState<typeof seedRecentSessions>([]);
+  const [recentLive, setRecentLive] = useState<RecentSession[]>([]);
 
   useEffect(() => {
     getHealth().then(setHealth).catch(() => setHealth(null));
@@ -112,7 +113,7 @@ function DashboardContent() {
     { label: 'Questionnaires Available', value: String(instrumentCount || 0), icon: Library, change: pendingReviewCount > 0 ? `${pendingReviewCount} pending review` : 'Includes library + custom' },
   ];
 
-  const recentSessions = recentLive.length > 0 ? recentLive : seedRecentSessions;
+  const recentSessions = recentLive;
 
   return (
     <div className="p-5 lg:p-7.5 space-y-7">
@@ -208,6 +209,13 @@ function DashboardContent() {
                     </td>
                   </tr>
                 ))}
+                {recentSessions.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="px-5 py-12 text-center text-muted-foreground text-sm">
+                      No recent assessments yet.
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>

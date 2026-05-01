@@ -15,86 +15,19 @@ import {
 } from 'lucide-react';
 import { loadOverrides, saveOverride, applyOverrideById, type InstrumentOverride } from '@/lib/instrument-overrides';
 
-const instruments = [
-  {
-    id: 'scas',
-    name: 'Spence Children\'s Anxiety Scale (SCAS)',
-    category: 'Anxiety Screening',
-    ageRange: '6–18 years',
-    items: 45,
-    duration: '15 min',
-    languages: ['EN', 'HI', 'TA', 'TE', 'MR'],
-    tier: 'T1',
-    norms: 'Age-band Indian norms: 6–9, 10–13, 14–18. Hindi + 4 regional language versions',
-    informants: ['Self', 'Parent'],
-    description: 'Separation anxiety, social phobia, OCD, panic/agoraphobia, physical injury fears, generalised anxiety.',
-  },
-  {
-    id: 'cdi2',
-    name: 'Children\'s Depression Inventory-2 (CDI-2)',
-    category: 'Depression Screening',
-    ageRange: '7–17 years',
-    items: 28,
-    duration: '12 min',
-    languages: ['EN', 'HI'],
-    tier: 'T1',
-    norms: 'Hindi standardisation. Indian normative sample by age band and gender',
-    informants: ['Self', 'Parent'],
-    description: 'Negative mood/physical symptoms, negative self-esteem, interpersonal problems, ineffectiveness.',
-  },
-  {
-    id: 'adhd-rs5',
-    name: 'ADHD Rating Scale-5',
-    category: 'ADHD Assessment',
-    ageRange: '5–17 years',
-    items: 18,
-    duration: '10 min',
-    languages: ['EN', 'HI', 'TA'],
-    tier: 'T1',
-    norms: 'Parent and teacher forms. Indian school population norms. CBSE and state board samples',
-    informants: ['Parent', 'Teacher'],
-    description: 'Inattention and hyperactivity-impulsivity symptom domains aligned to DSM-5 criteria.',
-  },
-  {
-    id: 'dev-milestones',
-    name: 'Developmental Milestones Tracker',
-    category: 'Developmental Screening',
-    ageRange: '0–6 years',
-    items: 60,
-    duration: '20 min',
-    languages: ['EN', 'HI', 'TA', 'TE', 'MR', 'KN'],
-    tier: 'T1',
-    norms: 'Indian WHO growth standard-aligned. Covers gross motor, fine motor, language, social, cognitive',
-    informants: ['Parent'],
-    description: 'Five developmental domains mapped against age-appropriate milestones with Indian population benchmarks.',
-  },
-  {
-    id: 'school-adj',
-    name: 'School Adjustment Scale',
-    category: 'Adjustment & Wellbeing',
-    ageRange: '6–18 years',
-    items: 35,
-    duration: '12 min',
-    languages: ['EN', 'HI'],
-    tier: 'T1',
-    norms: 'Academic adjustment, peer relations, teacher relationship, family-school interface. Indian school norms',
-    informants: ['Self'],
-    description: 'Measures school adjustment across four domains for early identification of at-risk students.',
-  },
-  {
-    id: 'academic-stress',
-    name: 'Academic Stress Inventory',
-    category: 'Stress & Burnout',
-    ageRange: '10–18 years',
-    items: 40,
-    duration: '15 min',
-    languages: ['EN', 'HI', 'TA', 'TE'],
-    tier: 'T1',
-    norms: 'Academic pressure, exam anxiety, parental expectations, peer competition. Board exam season norms',
-    informants: ['Self'],
-    description: 'Measures academic stress specifically calibrated for Indian education context including board exam pressure.',
-  },
-];
+interface CounsInstrument {
+  id: string;
+  name: string;
+  category: string;
+  ageRange: string;
+  items: number;
+  duration: string;
+  languages: string[];
+  tier: string;
+  norms: string;
+  informants: string[];
+  description: string;
+}
 
 const tierColors: Record<string, string> = {
   T1: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
@@ -106,8 +39,6 @@ const informantColors: Record<string, string> = {
   Parent: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
   Teacher: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
 };
-
-type CounsInstrument = typeof instruments[number];
 
 async function loadUserInstrumentsForVertical(vertical: string): Promise<CounsInstrument[]> {
   try {
@@ -147,10 +78,19 @@ export default function CounsellingInstrumentsPage() {
   }, []);
 
   const mergedInstruments = useMemo(() => {
-    const seenIds = new Set(instruments.map((i) => i.id));
-    const uniqueUser = userInstruments.filter((u) => !seenIds.has(u.id));
-    return [...uniqueUser, ...instruments].map((i) => applyOverrideById(i, overrides));
+    return userInstruments.map((i) => applyOverrideById(i, overrides));
   }, [overrides, userInstruments]);
+
+  const stats = useMemo(() => {
+    const informantSet = new Set<string>();
+    mergedInstruments.forEach((i) => i.informants?.forEach((inf) => informantSet.add(inf)));
+    const ageRanges = mergedInstruments.map((i) => i.ageRange).filter(Boolean);
+    return {
+      total: mergedInstruments.length,
+      informants: informantSet.size,
+      ageRangeLabel: ageRanges.length > 0 ? '0–18' : '—',
+    };
+  }, [mergedInstruments]);
 
   const toStr = (v: unknown): string => (v == null ? '' : String(v)).toLowerCase();
   const query = search.trim().toLowerCase();
@@ -210,9 +150,9 @@ export default function CounsellingInstrumentsPage() {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-5">
-        <Card><CardContent className="p-5 text-center"><p className="text-2xl font-semibold">{instruments.length}</p><p className="text-xs text-muted-foreground mt-1">Questionnaires</p></CardContent></Card>
-        <Card><CardContent className="p-5 text-center"><p className="text-2xl font-semibold">0–18</p><p className="text-xs text-muted-foreground mt-1">Age Range (years)</p></CardContent></Card>
-        <Card><CardContent className="p-5 text-center"><p className="text-2xl font-semibold">3</p><p className="text-xs text-muted-foreground mt-1">Informant Types</p></CardContent></Card>
+        <Card><CardContent className="p-5 text-center"><p className="text-2xl font-semibold">{stats.total}</p><p className="text-xs text-muted-foreground mt-1">Questionnaires</p></CardContent></Card>
+        <Card><CardContent className="p-5 text-center"><p className="text-2xl font-semibold">{stats.ageRangeLabel}</p><p className="text-xs text-muted-foreground mt-1">Age Range (years)</p></CardContent></Card>
+        <Card><CardContent className="p-5 text-center"><p className="text-2xl font-semibold">{stats.informants}</p><p className="text-xs text-muted-foreground mt-1">Informant Types</p></CardContent></Card>
         <Card><CardContent className="p-5 text-center"><p className="text-2xl font-semibold flex items-center justify-center gap-1"><ShieldCheck className="h-5 w-5 text-green-600" />DPDP</p><p className="text-xs text-muted-foreground mt-1">Parental Consent Required</p></CardContent></Card>
       </div>
 

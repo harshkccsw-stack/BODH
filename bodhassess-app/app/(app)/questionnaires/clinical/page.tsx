@@ -34,97 +34,6 @@ interface ClinicalInstrument {
   tier: number;
 }
 
-const instruments: ClinicalInstrument[] = [
-  {
-    name: 'PHQ-9 -- Patient Health Questionnaire',
-    shortName: 'PHQ-9',
-    category: 'Depression Screening',
-    items: 9,
-    duration: '3-5 min',
-    languages: ['English', 'Hindi', 'Tamil', 'Bengali', 'Marathi'],
-    indianNormsStatus: 'Available',
-    severityCutoffs: 'None (0-4), Mild (5-9), Moderate (10-14), Mod. Severe (15-19), Severe (20-27)',
-    tier: 1,
-  },
-  {
-    name: 'PHQ-2 -- Ultra-Brief Depression Screen',
-    shortName: 'PHQ-2',
-    category: 'Depression Screening',
-    items: 2,
-    duration: '1-2 min',
-    languages: ['English', 'Hindi', 'Bengali'],
-    indianNormsStatus: 'Available',
-    severityCutoffs: 'Cutoff >= 3 indicates likely Major Depressive Disorder; sensitivity 83%, specificity 92%',
-    tier: 1,
-  },
-  {
-    name: 'GAD-7 -- Generalized Anxiety Disorder',
-    shortName: 'GAD-7',
-    category: 'Anxiety Screening',
-    items: 7,
-    duration: '3-5 min',
-    languages: ['English', 'Hindi', 'Kannada', 'Tamil'],
-    indianNormsStatus: 'Available',
-    severityCutoffs: 'Minimal (0-4), Mild (5-9), Moderate (10-14), Severe (15-21)',
-    tier: 1,
-  },
-  {
-    name: 'DASS-21 -- Depression Anxiety Stress Scales',
-    shortName: 'DASS-21',
-    category: 'Emotional Distress',
-    items: 21,
-    duration: '5-10 min',
-    languages: ['English', 'Hindi', 'Gujarati'],
-    indianNormsStatus: 'Available',
-    severityCutoffs: 'Normal, Mild, Moderate, Severe, Extremely Severe for each subscale (D, A, S)',
-    tier: 2,
-  },
-  {
-    name: 'Beck BDI-II -- Beck Depression Inventory',
-    shortName: 'BDI-II',
-    category: 'Depression Assessment',
-    items: 21,
-    duration: '5-10 min',
-    languages: ['English', 'Hindi'],
-    indianNormsStatus: 'Licensed',
-    severityCutoffs: 'Minimal (0-13), Mild (14-19), Moderate (20-28), Severe (29-63)',
-    tier: 3,
-  },
-  {
-    name: 'Beck Anxiety Inventory',
-    shortName: 'BAI',
-    category: 'Anxiety Assessment',
-    items: 21,
-    duration: '5-10 min',
-    languages: ['English', 'Hindi'],
-    indianNormsStatus: 'Licensed',
-    severityCutoffs: 'Minimal (0-7), Mild (8-15), Moderate (16-25), Severe (26-63)',
-    tier: 3,
-  },
-  {
-    name: 'PCL-5 -- PTSD Checklist',
-    shortName: 'PCL-5',
-    category: 'Trauma Screening',
-    items: 20,
-    duration: '5-10 min',
-    languages: ['English', 'Hindi', 'Telugu'],
-    indianNormsStatus: 'In Progress',
-    severityCutoffs: 'Provisional cutoff >= 33 for probable PTSD; cluster scoring for DSM-5 criteria B-E',
-    tier: 2,
-  },
-  {
-    name: 'AUDIT -- Alcohol Use Disorders Test',
-    shortName: 'AUDIT',
-    category: 'Substance Use Screening',
-    items: 10,
-    duration: '2-5 min',
-    languages: ['English', 'Hindi', 'Marathi', 'Punjabi'],
-    indianNormsStatus: 'Available',
-    severityCutoffs: 'Low risk (0-7), Hazardous (8-15), Harmful (16-19), Probable dependence (20-40)',
-    tier: 1,
-  },
-];
-
 const normsStatusStyles: Record<ClinicalInstrument['indianNormsStatus'], { variant: 'success' | 'warning' | 'info'; label: string }> = {
   'Available':   { variant: 'success', label: 'Indian Norms Available' },
   'In Progress': { variant: 'warning', label: 'Indian Norms In Progress' },
@@ -177,10 +86,25 @@ export default function ClinicalInstrumentsPage() {
   }, []);
 
   const mergedInstruments = useMemo(() => {
-    const seenShort = new Set(instruments.map((i) => i.shortName.toLowerCase()));
-    const uniqueUser = userInstruments.filter((u) => !seenShort.has(u.shortName.toLowerCase()));
-    return [...uniqueUser, ...instruments].map((i) => applyOverride(i as any, overrides) as ClinicalInstrument);
+    return userInstruments.map((i) => applyOverride(i as any, overrides) as ClinicalInstrument);
   }, [overrides, userInstruments]);
+
+  const stats = useMemo(() => {
+    const total = mergedInstruments.length;
+    const withNorms = mergedInstruments.filter((i) => i.indianNormsStatus === 'Available').length;
+    const inProgressOrLicensed = mergedInstruments.filter((i) => i.indianNormsStatus !== 'Available').length;
+    const langSet = new Set<string>();
+    mergedInstruments.forEach((i) => i.languages.forEach((l) => langSet.add(l)));
+    const langs = Array.from(langSet);
+    const categories = new Set(mergedInstruments.map((i) => i.category)).size;
+    return {
+      total,
+      withNorms,
+      inProgressOrLicensed,
+      langs,
+      categories,
+    };
+  }, [mergedInstruments]);
 
   const toStr = (v: unknown): string => (v == null ? '' : String(v)).toLowerCase();
   const query = search.trim().toLowerCase();
@@ -249,10 +173,10 @@ export default function ClinicalInstrumentsPage() {
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
         {[
-          { label: 'Clinical Questionnaires', value: '8', icon: ListChecks, change: 'Screening & assessment' },
-          { label: 'With Indian Norms', value: '6', icon: Globe, change: '2 in progress / licensed' },
-          { label: 'Languages Covered', value: '7', icon: Brain, change: 'EN, HI, TA, BN, MR, KN, TE' },
-          { label: 'Risk-Flag Items', value: '4', icon: AlertTriangle, change: 'PHQ-9 Item 9, PCL-5 items' },
+          { label: 'Clinical Questionnaires', value: String(stats.total), icon: ListChecks, change: 'Screening & assessment' },
+          { label: 'With Indian Norms', value: String(stats.withNorms), icon: Globe, change: stats.inProgressOrLicensed > 0 ? `${stats.inProgressOrLicensed} in progress / licensed` : '—' },
+          { label: 'Languages Covered', value: String(stats.langs.length), icon: Brain, change: stats.langs.length > 0 ? stats.langs.join(', ') : '—' },
+          { label: 'Categories', value: String(stats.categories), icon: AlertTriangle, change: 'Distinct assessment domains' },
         ].map((stat) => (
           <Card key={stat.label}>
             <CardContent className="p-5">

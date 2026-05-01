@@ -39,100 +39,6 @@ interface ClinicalReport {
   riskNote?: string;
 }
 
-const mockReports: ClinicalReport[] = [
-  {
-    id: 'RPT-0081',
-    sessionId: 'SESS-0047',
-    respondent: 'Arjun Patel',
-    instrument: 'PHQ-9',
-    format: 'PDF',
-    status: 'Finalized',
-    generatedAt: '2026-04-09',
-    diagnosticCodes: ['F32.1 (ICD-10)', '296.22 (DSM-5)'],
-    riskFlag: true,
-    riskNote: 'Item 9 flagged: suicidality ideation',
-  },
-  {
-    id: 'RPT-0080',
-    sessionId: 'SESS-0045',
-    respondent: 'Rahul Verma',
-    instrument: 'DASS-21',
-    format: 'Interactive',
-    status: 'Approved',
-    generatedAt: '2026-04-08',
-    diagnosticCodes: ['F41.1 (ICD-10)'],
-    riskFlag: false,
-  },
-  {
-    id: 'RPT-0079',
-    sessionId: 'SESS-0044',
-    respondent: 'Ananya Reddy',
-    instrument: 'Beck BDI-II',
-    format: 'PDF',
-    status: 'Draft',
-    generatedAt: '2026-04-08',
-    diagnosticCodes: ['F33.0 (ICD-10)', '296.31 (DSM-5)'],
-    riskFlag: true,
-    riskNote: 'Elevated hopelessness subscale',
-  },
-  {
-    id: 'RPT-0075',
-    sessionId: 'SESS-0037',
-    respondent: 'Rohan Deshmukh',
-    instrument: 'PHQ-9',
-    format: 'PDF',
-    status: 'Finalized',
-    generatedAt: '2026-04-04',
-    diagnosticCodes: ['F32.0 (ICD-10)'],
-    riskFlag: false,
-  },
-  {
-    id: 'RPT-0074',
-    sessionId: 'SESS-0036',
-    respondent: 'Divya Menon',
-    instrument: 'GAD-7',
-    format: 'Interactive',
-    status: 'Approved',
-    generatedAt: '2026-04-04',
-    diagnosticCodes: ['F41.1 (ICD-10)', '300.02 (DSM-5)'],
-    riskFlag: false,
-  },
-  {
-    id: 'RPT-0073',
-    sessionId: 'SESS-0033',
-    respondent: 'Sanjay Kumar',
-    instrument: 'PCL-5',
-    format: 'PDF',
-    status: 'Finalized',
-    generatedAt: '2026-04-03',
-    diagnosticCodes: ['F43.10 (ICD-10)', '309.81 (DSM-5)'],
-    riskFlag: true,
-    riskNote: 'PTSD criteria met; hyperarousal cluster elevated',
-  },
-  {
-    id: 'RPT-0072',
-    sessionId: 'SESS-0031',
-    respondent: 'Lakshmi Rao',
-    instrument: 'SCID-5',
-    format: 'PDF',
-    status: 'Approved',
-    generatedAt: '2026-04-02',
-    diagnosticCodes: ['F31.1 (ICD-10)', '296.42 (DSM-5)'],
-    riskFlag: false,
-  },
-  {
-    id: 'RPT-0071',
-    sessionId: 'SESS-0029',
-    respondent: 'Amit Desai',
-    instrument: 'DASS-21',
-    format: 'Interactive',
-    status: 'Draft',
-    generatedAt: '2026-04-01',
-    diagnosticCodes: ['F41.0 (ICD-10)'],
-    riskFlag: false,
-  },
-];
-
 const statusBadgeProps: Record<ReportStatus, { variant: 'success' | 'primary' | 'warning'; appearance: 'light' }> = {
   'Finalized': { variant: 'success', appearance: 'light' },
   'Approved': { variant: 'primary', appearance: 'light' },
@@ -168,11 +74,7 @@ export default function ClinicalReportsPage() {
     setLiveReports(generated);
   }, []);
 
-  const allReports = useMemo(() => {
-    const seen = new Set(liveReports.map((r) => r.sessionId));
-    const seedTail = mockReports.filter((r) => !seen.has(r.sessionId));
-    return [...liveReports, ...seedTail];
-  }, [liveReports]);
+  const allReports = useMemo(() => liveReports, [liveReports]);
 
   const filteredReports = allReports.filter((report) => {
     const matchesSearch =
@@ -208,7 +110,7 @@ export default function ClinicalReportsPage() {
       </div>
 
       {/* Risk Alert Banner */}
-      {mockReports.filter((r) => r.riskFlag).length > 0 && (
+      {allReports.filter((r) => r.riskFlag).length > 0 && (
         <Card className="border-red-200 dark:border-red-900/50 bg-red-50/50 dark:bg-red-950/20">
           <CardContent className="p-4">
             <div className="flex items-center gap-3">

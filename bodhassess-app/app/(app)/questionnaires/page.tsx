@@ -45,43 +45,6 @@ interface Instrument {
 // Data
 // ---------------------------------------------------------------------------
 
-const instruments: Instrument[] = [
-  // Clinical
-  { name: 'PHQ-9 — Patient Health Questionnaire', shortName: 'PHQ-9', category: 'Depression Screening', vertical: 'clinical', type: 'screening', items: 9, duration: '3-5 min', languages: ['English', 'Hindi', 'Tamil'], normStatus: 'Indian norms available', tier: 1 },
-  { name: 'PHQ-2 — Ultra-Brief Depression Screen', shortName: 'PHQ-2', category: 'Depression Screening', vertical: 'clinical', type: 'screening', items: 2, duration: '1-2 min', languages: ['English', 'Hindi'], normStatus: 'Indian norms available', tier: 1 },
-  { name: 'GAD-7 — Generalized Anxiety Disorder', shortName: 'GAD-7', category: 'Anxiety Screening', vertical: 'clinical', type: 'screening', items: 7, duration: '3-5 min', languages: ['English', 'Hindi', 'Kannada'], normStatus: 'Indian norms available', tier: 1 },
-  { name: 'DASS-21 — Depression Anxiety Stress Scales', shortName: 'DASS-21', category: 'Emotional Distress', vertical: 'clinical', type: 'screening', items: 21, duration: '5-10 min', languages: ['English', 'Hindi'], normStatus: 'Indian norms available', tier: 2 },
-  { name: 'Beck BDI-II — Beck Depression Inventory', shortName: 'BDI-II', category: 'Depression Assessment', vertical: 'clinical', type: 'screening', items: 21, duration: '5-10 min', languages: ['English', 'Hindi'], normStatus: 'Licensed / Indian norms', tier: 3 },
-  { name: 'Beck Anxiety Inventory', shortName: 'BAI', category: 'Anxiety Assessment', vertical: 'clinical', type: 'screening', items: 21, duration: '5-10 min', languages: ['English', 'Hindi'], normStatus: 'Licensed / Indian norms', tier: 3 },
-  { name: 'PCL-5 — PTSD Checklist', shortName: 'PCL-5', category: 'Trauma Screening', vertical: 'clinical', type: 'screening', items: 20, duration: '5-10 min', languages: ['English', 'Hindi'], normStatus: 'Indian norms in progress', tier: 2 },
-  { name: 'AUDIT — Alcohol Use Disorders Test', shortName: 'AUDIT', category: 'Substance Use Screening', vertical: 'clinical', type: 'screening', items: 10, duration: '2-5 min', languages: ['English', 'Hindi', 'Marathi'], normStatus: 'WHO norms', tier: 1 },
-
-  // Industrial
-  { name: 'Big Five (IPIP-NEO-120)', shortName: 'IPIP-120', category: 'Personality Profiling', vertical: 'industrial', type: 'personality', items: 120, duration: '15-20 min', languages: ['English', 'Hindi'], normStatus: 'Indian norms available', tier: 2 },
-  { name: 'HEXACO Personality Inventory', shortName: 'HEXACO', category: 'Personality Profiling', vertical: 'industrial', type: 'personality', items: 100, duration: '15-20 min', languages: ['English'], normStatus: 'Global norms', tier: 2 },
-  { name: 'Learning Agility Assessment', shortName: 'LAA', category: 'Potential Assessment', vertical: 'industrial', type: 'aptitude', items: 60, duration: '20-25 min', languages: ['English', 'Hindi'], normStatus: 'Indian norms available', tier: 3 },
-  { name: 'Cognitive Aptitude Battery', shortName: 'CAB', category: 'Cognitive Assessment', vertical: 'industrial', type: 'aptitude', items: 45, duration: '30-40 min', languages: ['English'], normStatus: 'Indian norms available', tier: 3 },
-  { name: 'Situational Judgement Tests (SJTs)', shortName: 'SJT', category: 'Behavioral Assessment', vertical: 'industrial', type: 'behavioral', items: 30, duration: '20-30 min', languages: ['English', 'Hindi'], normStatus: 'Role-specific norms', tier: 3 },
-  { name: 'AI Adaptability Index', shortName: 'AIAI', category: 'Future-Readiness', vertical: 'industrial', type: 'behavioral', items: 40, duration: '10-15 min', languages: ['English'], normStatus: 'Pilot norms (India)', tier: 4 },
-  { name: 'Digital Diet Assessment', shortName: 'DDA', category: 'Digital Wellness', vertical: 'industrial', type: 'behavioral', items: 25, duration: '5-10 min', languages: ['English', 'Hindi'], normStatus: 'Indian norms in progress', tier: 2 },
-
-  // Counselling
-  { name: 'SCAS — Spence Children\'s Anxiety Scale', shortName: 'SCAS', category: 'Child Anxiety', vertical: 'counselling', type: 'screening', items: 44, duration: '10-15 min', languages: ['English', 'Hindi'], normStatus: 'Indian norms available', tier: 2 },
-  { name: 'CDI-2 — Children\'s Depression Inventory', shortName: 'CDI-2', category: 'Child Depression', vertical: 'counselling', type: 'screening', items: 28, duration: '10-15 min', languages: ['English', 'Hindi'], normStatus: 'Licensed / Indian norms', tier: 3 },
-  { name: 'ADHD Rating Scale-5', shortName: 'ADHD-RS', category: 'Attention & Hyperactivity', vertical: 'counselling', type: 'screening', items: 18, duration: '5-10 min', languages: ['English', 'Hindi'], normStatus: 'DSM-5 based norms', tier: 2 },
-  { name: 'Developmental Milestones Tracker', shortName: 'DMT', category: 'Child Development', vertical: 'counselling', type: 'screening', items: 35, duration: '10-15 min', languages: ['English', 'Hindi', 'Tamil'], normStatus: 'Indian norms available', tier: 1 },
-  { name: 'School Adjustment Scale', shortName: 'SAS', category: 'School Readiness', vertical: 'counselling', type: 'behavioral', items: 30, duration: '10-15 min', languages: ['English', 'Hindi'], normStatus: 'Indian norms available', tier: 2 },
-  { name: 'Academic Stress Inventory', shortName: 'ASI', category: 'Academic Wellbeing', vertical: 'counselling', type: 'screening', items: 40, duration: '10-15 min', languages: ['English', 'Hindi', 'Kannada'], normStatus: 'Indian norms available', tier: 2 },
-
-  // Experimental
-  { name: 'IAT — Implicit Association Test', shortName: 'IAT', category: 'Implicit Bias', vertical: 'experimental', type: 'experimental', items: 120, duration: '7-10 min', languages: ['English'], normStatus: 'Research norms', tier: 4 },
-  { name: 'Dot Probe Task', shortName: 'DotProbe', category: 'Attentional Bias', vertical: 'experimental', type: 'experimental', items: 160, duration: '10-15 min', languages: ['English'], normStatus: 'Research norms', tier: 4 },
-  { name: 'Stroop Colour-Word Task', shortName: 'Stroop', category: 'Cognitive Inhibition', vertical: 'experimental', type: 'experimental', items: 100, duration: '5-8 min', languages: ['English', 'Hindi'], normStatus: 'Research norms', tier: 4 },
-  { name: 'Go/No-Go Task', shortName: 'GNG', category: 'Response Inhibition', vertical: 'experimental', type: 'experimental', items: 200, duration: '8-12 min', languages: ['English'], normStatus: 'Research norms', tier: 4 },
-  { name: 'N-Back Working Memory Task', shortName: 'N-Back', category: 'Working Memory', vertical: 'experimental', type: 'experimental', items: 80, duration: '10-15 min', languages: ['English'], normStatus: 'Research norms', tier: 4 },
-  { name: 'Delay Discounting Task', shortName: 'DDT', category: 'Impulsivity / Decision Making', vertical: 'experimental', type: 'experimental', items: 27, duration: '5-8 min', languages: ['English'], normStatus: 'Research norms', tier: 5 },
-];
-
 const builtInVerticals: { key: Vertical; label: string; icon: typeof Brain }[] = [
   { key: 'all', label: 'All', icon: ListChecks },
   { key: 'clinical', label: 'Clinical', icon: Stethoscope },
@@ -206,8 +169,8 @@ export default function InstrumentsPage() {
       .catch(() => setApiSource('mock'));
   }, []);
 
-  // Merge user-published (localStorage) + backend API + mock. Dedupe by name so
-  // a user questionnaire that was also synced to the backend doesn't double up.
+  // Merge user-published (localStorage) + backend API. Dedupe by name so a user
+  // questionnaire that was also synced to the backend doesn't double up.
   // Also re-read localStorage inline on every render so a newly-published
   // instrument shows up without needing a focus/storage event.
   const freshLocal: Instrument[] = typeof window === 'undefined'
@@ -238,7 +201,6 @@ export default function InstrumentsPage() {
     };
     push(freshLocal);
     push(apiInstruments);
-    push(instruments);
     return out.map((i) => applyOverride(i, overrides));
   }, [freshLocal, apiInstruments, overrides]);
 

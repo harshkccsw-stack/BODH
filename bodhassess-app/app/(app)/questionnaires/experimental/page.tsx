@@ -1,4 +1,5 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
+import { questionnairesApi } from '@/lib/api';
 import {
   Brain,
   Clock,
@@ -34,87 +35,33 @@ interface ExperimentalParadigm {
   keyMetrics: string[];
 }
 
-const paradigms: ExperimentalParadigm[] = [
-  {
-    name: 'IAT -- Implicit Association Test',
-    shortName: 'IAT',
-    category: 'Implicit Bias',
-    description: 'Measures implicit attitudes by comparing response latencies when pairing target concepts with evaluative attributes. Used widely in social cognition research.',
-    trials: 120,
-    duration: '7-10 min',
-    timingPrecision: '~16ms at 60fps',
-    scoringAlgorithm: 'D-score algorithm (Greenwald et al., 2003): Mean difference of compatible vs. incompatible blocks divided by pooled SD. Penalty for errors via built-in 600ms delay.',
-    trialDataExport: 'Per-trial: stimulus, category, response key, RT (ms), accuracy, block type, trial number',
-    keyMetrics: ['D-score', 'Mean RT', 'Error rate', 'Block effects'],
-  },
-  {
-    name: 'Dot Probe Task',
-    shortName: 'DotProbe',
-    category: 'Attentional Bias',
-    description: 'Assesses attentional bias toward threat-related or emotionally salient stimuli by measuring detection latency for probes replacing neutral vs. emotional cues.',
-    trials: 160,
-    duration: '10-15 min',
-    timingPrecision: '~16ms at 60fps',
-    scoringAlgorithm: 'Attentional Bias Score (ABS): Mean RT for congruent trials minus mean RT for incongruent trials. Positive = vigilance; negative = avoidance. Reliability-corrected via split-half.',
-    trialDataExport: 'Per-trial: cue type, probe location, congruency, RT (ms), accuracy, SOA condition',
-    keyMetrics: ['Bias score', 'Vigilance index', 'Avoidance index', 'Mean RT'],
-  },
-  {
-    name: 'Stroop Colour-Word Task',
-    shortName: 'Stroop',
-    category: 'Cognitive Inhibition',
-    description: 'Classic interference paradigm measuring executive control and inhibition. Participants name the ink colour of colour words, creating congruent/incongruent conflict.',
-    trials: 100,
-    duration: '5-8 min',
-    timingPrecision: '~16ms at 60fps',
-    scoringAlgorithm: 'Stroop Interference = Mean RT(incongruent) - Mean RT(congruent). Facilitation = Mean RT(neutral) - Mean RT(congruent). Inverse efficiency score (IES) = RT/accuracy.',
-    trialDataExport: 'Per-trial: word, ink colour, condition (C/I/N), RT (ms), accuracy, response key',
-    keyMetrics: ['Interference score', 'Facilitation score', 'IES', 'Error rate'],
-  },
-  {
-    name: 'Go/No-Go Task',
-    shortName: 'GNG',
-    category: 'Response Inhibition',
-    description: 'Measures ability to withhold a prepotent motor response. Go trials require a response; No-Go trials require inhibition. Maps to prefrontal inhibitory control.',
-    trials: 200,
-    duration: '8-12 min',
-    timingPrecision: '~16ms at 60fps',
-    scoringAlgorithm: 'Commission errors (false alarms on No-Go) index inhibitory failure. d-prime computed from hit rate and false alarm rate. Mean Go RT reflects processing speed.',
-    trialDataExport: 'Per-trial: stimulus type, trial type (Go/NoGo), RT (ms), response (hit/miss/FA/CR), ISI',
-    keyMetrics: ['d-prime', 'Commission errors', 'Omission errors', 'Mean Go RT'],
-  },
-  {
-    name: 'N-Back Working Memory Task',
-    shortName: 'N-Back',
-    category: 'Working Memory',
-    description: 'Continuous performance task where participants indicate whether the current stimulus matches the one N steps back. Tests working memory updating and maintenance.',
-    trials: 80,
-    duration: '10-15 min',
-    timingPrecision: '~16ms at 60fps',
-    scoringAlgorithm: 'Accuracy per N-level (1-back, 2-back, 3-back). d-prime per level. RT for correct responses. Working memory capacity estimated from accuracy slope across levels.',
-    trialDataExport: 'Per-trial: stimulus, N-level, match/non-match, RT (ms), response, accuracy, sequence position',
-    keyMetrics: ['d-prime (per level)', 'Accuracy slope', 'Mean RT', 'Lure false alarms'],
-  },
-  {
-    name: 'Delay Discounting Task',
-    shortName: 'DDT',
-    category: 'Impulsivity / Decision Making',
-    description: 'Measures temporal discounting rate by presenting choices between smaller-sooner and larger-later rewards. Hyperbolic discounting parameter k indexes impulsivity.',
-    trials: 27,
-    duration: '5-8 min',
-    timingPrecision: '~16ms at 60fps',
-    scoringAlgorithm: 'Hyperbolic discounting: V = A / (1 + kD), where k = discount rate. Estimated via adjusting-amount procedure or logistic regression. AUC (area under the curve) as model-free index.',
-    trialDataExport: 'Per-trial: immediate amount, delayed amount, delay period, choice, RT (ms), indifference point',
-    keyMetrics: ['k value (log)', 'AUC', 'Median RT', 'Consistency index'],
-  },
-];
-
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
 export default function ExperimentalInstrumentsPage() {
   const [search, setSearch] = useState('');
+  const [paradigms, setParadigms] = useState<ExperimentalParadigm[]>([]);
+
+  useEffect(() => {
+    questionnairesApi.list('EXPERIMENTAL')
+      .then((list) => {
+        const mapped: ExperimentalParadigm[] = list.map((q) => ({
+          name: q.name || q.shortName || 'Untitled',
+          shortName: q.shortName || (q.name ? q.name.split(' ')[0] : 'CUSTOM'),
+          category: q.category || 'Custom Paradigm',
+          description: q.description || 'User-published experimental paradigm.',
+          trials: Array.isArray(q.questions) ? q.questions.length : 0,
+          duration: q.duration ? `${q.duration} min` : '—',
+          timingPrecision: '~16ms at 60fps',
+          scoringAlgorithm: 'Custom-authored scoring — review with paradigm administrator.',
+          trialDataExport: 'Per-trial: stimulus, response, RT (ms), accuracy',
+          keyMetrics: [],
+        }));
+        setParadigms(mapped);
+      })
+      .catch(() => setParadigms([]));
+  }, []);
 
   const filtered = useMemo(() => {
     if (!search) return paradigms;
@@ -125,7 +72,7 @@ export default function ExperimentalInstrumentsPage() {
         p.shortName.toLowerCase().includes(q) ||
         p.category.toLowerCase().includes(q)
     );
-  }, [search]);
+  }, [search, paradigms]);
 
   return (
     <div className="p-5 lg:p-7.5 space-y-7">
@@ -156,10 +103,10 @@ export default function ExperimentalInstrumentsPage() {
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
         {[
-          { label: 'Paradigms Available', value: '6', icon: FlaskConical, change: 'RT-based tasks' },
+          { label: 'Paradigms Available', value: String(paradigms.length), icon: FlaskConical, change: 'RT-based tasks' },
           { label: 'Timing Precision', value: '~16ms', icon: Timer, change: 'At 60fps refresh rate' },
-          { label: 'Avg Trial Count', value: '115', icon: ListChecks, change: 'Per paradigm' },
-          { label: 'Data Points / Session', value: '~690', icon: Gauge, change: 'Trial-level granularity' },
+          { label: 'Avg Trial Count', value: paradigms.length > 0 ? String(Math.round(paradigms.reduce((s, p) => s + p.trials, 0) / paradigms.length)) : '—', icon: ListChecks, change: 'Per paradigm' },
+          { label: 'Total Trials', value: String(paradigms.reduce((s, p) => s + p.trials, 0)), icon: Gauge, change: 'Across all paradigms' },
         ].map((stat) => (
           <Card key={stat.label}>
             <CardContent className="p-5">

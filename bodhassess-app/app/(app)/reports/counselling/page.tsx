@@ -34,113 +34,6 @@ interface CounsellingReport {
   date: string;
 }
 
-const reports: CounsellingReport[] = [
-  {
-    id: 'RPT-C001',
-    student: 'Aarav Deshmukh',
-    studentId: 'STU-0101',
-    ageBand: '10-13',
-    instrument: 'SDQ (Strengths & Difficulties)',
-    informants: ['Self', 'Parent', 'Teacher'],
-    score: 'Total: 22',
-    severity: 'Abnormal',
-    status: 'Completed',
-    counsellor: 'Ms. Sunita Pillai',
-    date: '2026-04-09',
-  },
-  {
-    id: 'RPT-C002',
-    student: 'Ishita Banerjee',
-    studentId: 'STU-0102',
-    ageBand: '14-18',
-    instrument: 'PHQ-A (Adolescent)',
-    informants: ['Self'],
-    score: 'Total: 14',
-    severity: 'Moderate',
-    status: 'Completed',
-    counsellor: 'Dr. Ramesh Tiwari',
-    date: '2026-04-08',
-  },
-  {
-    id: 'RPT-C003',
-    student: 'Kabir Malhotra',
-    studentId: 'STU-0103',
-    ageBand: '6-9',
-    instrument: 'CBCL (Child Behavior Checklist)',
-    informants: ['Parent', 'Teacher'],
-    score: 'T=68',
-    severity: 'Borderline Clinical',
-    status: 'Pending Review',
-    counsellor: 'Ms. Sunita Pillai',
-    date: '2026-04-08',
-  },
-  {
-    id: 'RPT-C004',
-    student: 'Myra Choudhary',
-    studentId: 'STU-0104',
-    ageBand: '14-18',
-    instrument: 'RCADS (Revised Child Anxiety)',
-    informants: ['Self', 'Parent'],
-    score: 'T=72',
-    severity: 'Clinical',
-    status: 'Completed',
-    counsellor: 'Dr. Ramesh Tiwari',
-    date: '2026-04-07',
-  },
-  {
-    id: 'RPT-C005',
-    student: 'Reyansh Saxena',
-    studentId: 'STU-0105',
-    ageBand: '10-13',
-    instrument: 'SDQ (Strengths & Difficulties)',
-    informants: ['Self', 'Teacher'],
-    score: 'Total: 16',
-    severity: 'Borderline',
-    status: 'Draft',
-    counsellor: 'Ms. Sunita Pillai',
-    date: '2026-04-07',
-  },
-  {
-    id: 'RPT-C006',
-    student: 'Anvi Patil',
-    studentId: 'STU-0106',
-    ageBand: '6-9',
-    instrument: 'Conners 3 (ADHD)',
-    informants: ['Parent', 'Teacher'],
-    score: 'T=75',
-    severity: 'Very Elevated',
-    status: 'Completed',
-    counsellor: 'Dr. Ramesh Tiwari',
-    date: '2026-04-06',
-  },
-  {
-    id: 'RPT-C007',
-    student: 'Vivaan Nambiar',
-    studentId: 'STU-0107',
-    ageBand: '14-18',
-    instrument: 'PHQ-A (Adolescent)',
-    informants: ['Self'],
-    score: 'Total: 8',
-    severity: 'Mild',
-    status: 'Completed',
-    counsellor: 'Ms. Sunita Pillai',
-    date: '2026-04-05',
-  },
-  {
-    id: 'RPT-C008',
-    student: 'Saanvi Hegde',
-    studentId: 'STU-0108',
-    ageBand: '10-13',
-    instrument: 'RCADS (Revised Child Anxiety)',
-    informants: ['Self', 'Parent', 'Teacher'],
-    score: 'T=65',
-    severity: 'Borderline Clinical',
-    status: 'Pending Review',
-    counsellor: 'Dr. Ramesh Tiwari',
-    date: '2026-04-04',
-  },
-];
-
 const ageBands: AgeBand[] = ['6-9', '10-13', '14-18'];
 
 const statusColor = (status: ReportStatus) => {
@@ -200,11 +93,7 @@ export default function CounsellingReportsPage() {
     downloadJson(`${r.id}-${r.studentId}.json`, { ...r, session, exportedAt: new Date().toISOString() });
   };
 
-  const allReports = useMemo(() => {
-    const seen = new Set(liveReports.map((r) => r.studentId));
-    const seedTail = reports.filter((r) => !seen.has(r.studentId));
-    return [...liveReports, ...seedTail];
-  }, [liveReports]);
+  const allReports = useMemo(() => liveReports, [liveReports]);
 
   const filtered = allReports.filter((r) => {
     const matchesSearch =

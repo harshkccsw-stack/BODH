@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Search,
   Plus,
@@ -11,8 +11,9 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
+import { respondentsApi, type Respondent } from '@/lib/api';
 
-type RiskStatus = 'Low' | 'Moderate' | 'High' | 'Critical';
+type RiskStatus = 'Low' | 'Moderate' | 'High' | 'Critical' | 'Unknown';
 
 interface Client {
   id: string;
@@ -24,31 +25,48 @@ interface Client {
   riskStatus: RiskStatus;
 }
 
-const clients: Client[] = [
-  { id: 'CLT-0001', name: 'Arjun Mehta', dob: '1992-03-15', primaryLanguage: 'Hindi', lastAssessment: 'PHQ-9', activeSessions: 2, riskStatus: 'Low' },
-  { id: 'CLT-0002', name: 'Priya Sharma', dob: '1988-07-22', primaryLanguage: 'English', lastAssessment: 'GAD-7', activeSessions: 1, riskStatus: 'Moderate' },
-  { id: 'CLT-0003', name: 'Rahul Verma', dob: '1995-11-08', primaryLanguage: 'Hindi', lastAssessment: 'DASS-21', activeSessions: 3, riskStatus: 'High' },
-  { id: 'CLT-0004', name: 'Ananya Reddy', dob: '1990-01-30', primaryLanguage: 'Telugu', lastAssessment: 'Beck BDI-II', activeSessions: 1, riskStatus: 'Critical' },
-  { id: 'CLT-0005', name: 'Vikram Singh', dob: '1985-06-12', primaryLanguage: 'Hindi', lastAssessment: 'Big Five (IPIP-NEO)', activeSessions: 0, riskStatus: 'Low' },
-  { id: 'CLT-0006', name: 'Kavitha Nair', dob: '1998-09-04', primaryLanguage: 'Malayalam', lastAssessment: 'PHQ-9', activeSessions: 2, riskStatus: 'Moderate' },
-  { id: 'CLT-0007', name: 'Deepak Joshi', dob: '1993-12-18', primaryLanguage: 'Hindi', lastAssessment: 'GAD-7', activeSessions: 1, riskStatus: 'High' },
-  { id: 'CLT-0008', name: 'Shalini Gupta', dob: '1997-04-25', primaryLanguage: 'English', lastAssessment: 'DASS-21', activeSessions: 2, riskStatus: 'Low' },
-];
-
-const riskColors: Record<RiskStatus, { badge: string; variant: 'success' | 'warning' | 'destructive' | 'info' }> = {
+const riskColors: Record<RiskStatus, { badge: string; variant: 'success' | 'warning' | 'destructive' | 'info' | 'secondary' }> = {
   Low: { badge: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400', variant: 'success' },
   Moderate: { badge: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400', variant: 'warning' },
   High: { badge: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400', variant: 'warning' },
   Critical: { badge: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400', variant: 'destructive' },
+  Unknown: { badge: 'bg-slate-100 text-slate-700 dark:bg-slate-900/30 dark:text-slate-400', variant: 'secondary' },
 };
 
 const riskFilters: RiskStatus[] = ['Low', 'Moderate', 'High', 'Critical'];
+
+function respondentToClient(r: Respondent): Client {
+  return {
+    id: r.id,
+    name: r.name,
+    dob: r.dob || '—',
+    primaryLanguage: '—',
+    lastAssessment: r.last_assessment || '—',
+    activeSessions: r.sessions_count || 0,
+    riskStatus: 'Unknown',
+  };
+}
 
 export default function ClientRecordsPage() {
   const [search, setSearch] = useState('');
   const [riskFilter, setRiskFilter] = useState<RiskStatus | 'All'>('All');
   const [showAddForm, setShowAddForm] = useState(false);
-  const [newClient, setNewClient] = useState({ name: '', dob: '', primaryLanguage: 'Hindi' });
+  const [newClient, setNewClient] = useState({ name: '', email: '', dob: '', primaryLanguage: 'Hindi' });
+  const [clients, setClients] = useState<Client[]>([]);
+  const [loadError, setLoadError] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const refresh = async () => {
+    setLoadError('');
+    try {
+      const list = await respondentsApi.list();
+      setClients(list.map(respondentToClient));
+    } catch (e: any) {
+      setLoadError(e?.message || 'Failed to load clients');
+    }
+  };
+
+  useEffect(() => { refresh(); }, []);
 
   const filtered = clients.filter((c) => {
     const matchesSearch =
@@ -57,6 +75,26 @@ export default function ClientRecordsPage() {
     const matchesRisk = riskFilter === 'All' || c.riskStatus === riskFilter;
     return matchesSearch && matchesRisk;
   });
+
+  const saveClient = async () => {
+    if (!newClient.name.trim() || !newClient.email.trim()) return;
+    setSaving(true);
+    try {
+      await respondentsApi.create({
+        id: '',
+        name: newClient.name.trim(),
+        email: newClient.email.trim(),
+        dob: newClient.dob,
+      });
+      setNewClient({ name: '', email: '', dob: '', primaryLanguage: 'Hindi' });
+      setShowAddForm(false);
+      await refresh();
+    } catch (e: any) {
+      setLoadError(e?.message || 'Failed to create client');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <div className="p-5 lg:p-7.5 space-y-7">
@@ -74,6 +112,12 @@ export default function ClientRecordsPage() {
           Manage client profiles, view assessment history, and monitor risk status.
         </p>
       </div>
+
+      {loadError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-4 py-3 text-sm text-red-700 dark:text-red-400">
+          {loadError} — is the API running?
+        </div>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
@@ -160,13 +204,22 @@ export default function ClientRecordsPage() {
             <CardTitle className="text-base">Add New Client</CardTitle>
           </CardHeader>
           <CardContent className="p-5 pt-0">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
               <div>
                 <label className="text-sm font-medium text-muted-foreground mb-1.5 block">Full Name</label>
                 <Input
                   placeholder="e.g. Rohan Kapoor"
                   value={newClient.name}
                   onChange={(e) => setNewClient({ ...newClient, name: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-muted-foreground mb-1.5 block">Email</label>
+                <Input
+                  type="email"
+                  placeholder="name@example.com"
+                  value={newClient.email}
+                  onChange={(e) => setNewClient({ ...newClient, email: e.target.value })}
                 />
               </div>
               <div>
@@ -196,8 +249,8 @@ export default function ClientRecordsPage() {
               </div>
             </div>
             <div className="mt-4">
-              <Button variant="primary" size="md" onClick={() => setShowAddForm(false)}>
-                Save Client
+              <Button variant="primary" size="md" onClick={saveClient} disabled={saving || !newClient.name.trim() || !newClient.email.trim()}>
+                {saving ? 'Saving…' : 'Save Client'}
               </Button>
             </div>
           </CardContent>

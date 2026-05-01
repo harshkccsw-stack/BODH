@@ -47,21 +47,6 @@ interface Session {
   createdAt: string;
 }
 
-const seedMockSessions: Session[] = [
-  { id: 'SESS-0047', respondent: 'Arjun Patel', instrument: 'PHQ-9', vertical: 'Clinical', language: 'Hindi', status: 'Completed', score: 'T=62', createdAt: '2026-04-09' },
-  { id: 'SESS-0046', respondent: 'Priya Sharma', instrument: 'GAD-7', vertical: 'Clinical', language: 'English', status: 'Active', score: '--', createdAt: '2026-04-09' },
-  { id: 'SESS-0045', respondent: 'Rahul Verma', instrument: 'DASS-21', vertical: 'Clinical', language: 'English', status: 'Completed', score: 'T=55', createdAt: '2026-04-08' },
-  { id: 'SESS-0044', respondent: 'Ananya Reddy', instrument: 'Beck BDI-II', vertical: 'Clinical', language: 'Telugu', status: 'Pending Review', score: 'T=71', createdAt: '2026-04-08' },
-  { id: 'SESS-0043', respondent: 'Vikram Singh', instrument: 'Big Five IPIP-NEO', vertical: 'Industrial', language: 'English', status: 'Completed', score: 'Profile Ready', createdAt: '2026-04-07' },
-  { id: 'SESS-0042', respondent: 'Meera Nair', instrument: 'HEXACO', vertical: 'Industrial', language: 'Malayalam', status: 'Active', score: '--', createdAt: '2026-04-07' },
-  { id: 'SESS-0041', respondent: 'Karthik Iyer', instrument: 'SCAS', vertical: 'Counselling', language: 'Tamil', status: 'Completed', score: 'T=48', createdAt: '2026-04-06' },
-  { id: 'SESS-0040', respondent: 'Shreya Gupta', instrument: 'CDI-2', vertical: 'Counselling', language: 'Hindi', status: 'Pending Review', score: 'T=64', createdAt: '2026-04-06' },
-  { id: 'SESS-0039', respondent: 'Aditya Joshi', instrument: 'Learning Agility', vertical: 'Industrial', language: 'English', status: 'Completed', score: 'T=59', createdAt: '2026-04-05' },
-  { id: 'SESS-0038', respondent: 'Neha Kulkarni', instrument: 'AI Adaptability Index', vertical: 'Experiments', language: 'Marathi', status: 'Active', score: '--', createdAt: '2026-04-05' },
-  { id: 'SESS-0037', respondent: 'Rohan Deshmukh', instrument: 'PHQ-9', vertical: 'Clinical', language: 'English', status: 'Completed', score: 'T=44', createdAt: '2026-04-04' },
-  { id: 'SESS-0036', respondent: 'Divya Menon', instrument: 'GAD-7', vertical: 'Clinical', language: 'Kannada', status: 'Completed', score: 'T=52', createdAt: '2026-04-04' },
-];
-
 const statusBadgeProps: Record<SessionStatus, { variant: 'success' | 'primary' | 'warning'; appearance: 'light' }> = {
   'Completed': { variant: 'success', appearance: 'light' },
   'Active': { variant: 'primary', appearance: 'light' },
@@ -111,7 +96,7 @@ export default function SessionsPage() {
   useEffect(() => { refresh(); }, []);
 
   const allSessions: Session[] = useMemo(() => {
-    const live: Session[] = apiSessions.map((s) => ({
+    return apiSessions.map((s) => ({
       id: s.id,
       name: s.name,
       respondent: s.respondent,
@@ -122,9 +107,6 @@ export default function SessionsPage() {
       score: s.score || '--',
       createdAt: (s.createdAt || '').slice(0, 10),
     }));
-    const liveIds = new Set(live.map((s) => s.id));
-    const seeds = seedMockSessions.filter((s) => !liveIds.has(s.id));
-    return [...live, ...seeds];
   }, [apiSessions]);
 
   const filteredSessions = allSessions.filter((session) => {

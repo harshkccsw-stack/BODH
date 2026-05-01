@@ -11,18 +11,10 @@ const exampleQueries = [
   'Which clinicians have the highest session completion rate?',
 ];
 
-const mockResults = [
-  { name: 'Arjun Patel', instrument: 'PHQ-9', score: 14, percentile: '72nd', date: '2026-04-07' },
-  { name: 'Priya Sharma', instrument: 'PHQ-9', score: 8, percentile: '45th', date: '2026-04-06' },
-  { name: 'Rahul Verma', instrument: 'PHQ-9', score: 19, percentile: '88th', date: '2026-04-05' },
-  { name: 'Ananya Reddy', instrument: 'PHQ-9', score: 6, percentile: '32nd', date: '2026-04-04' },
-  { name: 'Vikram Singh', instrument: 'PHQ-9', score: 11, percentile: '61st', date: '2026-04-03' },
-];
-
 const stats = [
-  { label: 'Avg PHQ-9 Score', value: '11.6', icon: TrendingUp, change: '-1.2 from last month' },
-  { label: 'Respondents Queried', value: '5', icon: Users, change: 'Out of 47 active' },
-  { label: 'Score Range', value: '6–19', icon: BarChart3, change: 'Min to Max' },
+  { label: 'Avg Score', value: '—', icon: TrendingUp, change: 'Submit a query to compute' },
+  { label: 'Respondents Queried', value: '0', icon: Users, change: 'No active query' },
+  { label: 'Score Range', value: '—', icon: BarChart3, change: 'Submit a query to compute' },
 ];
 
 export default function AnalyticsPage() {
@@ -117,15 +109,11 @@ export default function AnalyticsPage() {
                 </tr>
               </thead>
               <tbody>
-                {mockResults.map((r) => (
-                  <tr key={r.name} className="border-b border-border last:border-0 hover:bg-muted/50 transition-colors">
-                    <td className="px-5 py-3 font-medium">{r.name}</td>
-                    <td className="px-5 py-3">{r.instrument}</td>
-                    <td className="px-5 py-3 font-mono text-xs">{r.score}</td>
-                    <td className="px-5 py-3">{r.percentile}</td>
-                    <td className="px-5 py-3 text-muted-foreground">{r.date}</td>
-                  </tr>
-                ))}
+                <tr>
+                  <td colSpan={5} className="px-5 py-12 text-center text-muted-foreground text-sm">
+                    Submit a query above to see results.
+                  </td>
+                </tr>
               </tbody>
             </table>
           </div>
