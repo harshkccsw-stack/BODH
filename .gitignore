@@ -11,3 +11,6 @@ nginx
 deploy.production.env
 deploy.staging.env
 *.tsbuildinfo
+db-snapshots/
+*.sql.gz
+*.dump
