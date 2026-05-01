@@ -9,12 +9,12 @@
 #   ./bodh.sh stop            # stop local dev stack
 #   ./bodh.sh logs            # tail local dev logs
 #   ./bodh.sh build [args]    # compile API + web; optionally commit/push
-#   ./bodh.sh push [args]     # deploy: git push + restart backend on droplet
+#   ./bodh.sh push [args]     # build + git push (production→master, staging→staging)
 #   ./bodh.sh -h | help       # this help
 #
 # Subcommand-specific flags:
 #   build "msg" | --no-commit | --push
-#   push  staging|production | -y | --skip-push | --skip-backend | -m "msg"
+#   push  staging|production | -y | --skip-push | -m "msg"
 
 set -euo pipefail
 
@@ -71,28 +71,21 @@ ${B}COMMANDS${N}
         ./bodh.sh build "feat: x" --push
         ./bodh.sh build --no-commit          # build only, leave git alone
 
-  ${CYAN}push${N} [staging|production] [-y] [--skip-push] [--skip-backend] [-m "msg"]
-      Deploy. Prompts for env (default ${GRN}staging${N}) when not given.
-        1. git push <branch> → origin           (DO App Platform rebuilds frontend)
-        2. rsync source → \$REMOTE_HOST:\$APP_DIR  (backend source on droplet)
-        3. ssh → docker compose build + up -d   (backend rebuild + restart)
-        4. curl \$HEALTH_URL                     (optional smoke test)
+  ${CYAN}push${N} [staging|production] [-y] [--skip-push] [-m "msg"]
+      Build + git push. Prompts for env (default ${GRN}staging${N}) when not given.
+        1. build API (Go) + web (Vite, env-specific URLs baked in)
+        2. commit any pending changes
+        3. git push   (production must be on local 'master', staging on 'staging')
       Flags:
         -y, --yes        skip confirmations (production still safe — see below)
-        --skip-push      don't touch git (backend redeploy only)
-        --skip-backend   only push to GitHub, no SSH
+        --skip-push      build + commit only, don't run git push
         -m, --message    commit message for any pending changes
       Production requires typing 'yes' even with -y? ${YEL}No${N} — -y skips it. Be careful.
 
-${B}CONFIG (deploy.<env>.env)${N}
-  Each environment has its own gitignored config file (deploy.staging.env,
-  deploy.production.env). Required keys:
-    REMOTE_HOST=root@1.2.3.4              SSH target for the droplet
-    APP_DIR=/opt/bodh                     where source lives on the droplet
-    GIT_BRANCH=master                     branch DO App Platform watches
-  Optional:
-    GIT_REMOTE=origin                     defaults to 'origin'
-    HEALTH_URL=https://api.example.com/api/v1/health
+${B}CONFIG (deploy.<env>.env, optional)${N}
+  Used to bake env-specific URLs into the web build. All keys are optional:
+    VITE_API_URL=https://api.bodh.biz/api/v1
+    VITE_BASE_PATH=/dashboard
   See ${B}deploy.example.env${N} for a template.
 
 ${B}EXAMPLES${N}
@@ -101,8 +94,7 @@ ${B}EXAMPLES${N}
   ./bodh.sh push                         # interactive deploy (defaults to staging)
   ./bodh.sh push staging -y              # deploy staging non-interactively
   ./bodh.sh push production              # type 'yes' at prompt
-  ./bodh.sh push --skip-push             # restart backend only
-  ./bodh.sh push --skip-backend          # frontend only (just git push)
+  ./bodh.sh push --skip-push             # build + commit only, no git push
 HELP
 }
 
@@ -135,18 +127,19 @@ HELP
 
 show_push_help() {
   cat <<HELP
-${B}push${N} — deploy frontend (via git) + backend (via rsync + ssh)
+${B}push${N} — build + git push (production→master, staging→staging)
 
-  ./bodh.sh push [staging|production] [-y] [--skip-push] [--skip-backend] [-m "msg"]
+  ./bodh.sh push [staging|production] [-y] [--skip-push] [-m "msg"]
 
   staging|production   target env (prompted if omitted; default: staging)
   -y, --yes            skip confirmation prompts
-  --skip-push          don't run git push (backend redeploy only)
-  --skip-backend       don't ssh/rsync to droplet (frontend git push only)
+  --skip-push          build + commit only, don't run git push
   -m, --message        auto-commit pending changes with this message
 
-  Reads deploy.<env>.env for: REMOTE_HOST, APP_DIR, GIT_BRANCH, GIT_REMOTE,
-  HEALTH_URL. See deploy.example.env for the template.
+  production must be run from local 'master' branch.
+  staging    must be run from local 'staging' branch.
+
+  Reads deploy.<env>.env (optional) for VITE_* env-specific build vars.
 HELP
 }
 
@@ -331,21 +324,20 @@ cmd_build() {
 }
 
 # ════════════════════════════════════════════════════════════════════════
-# PUSH — git push (frontend) + ssh-restart docker compose backend
+# PUSH — build + git push (production→master, staging→staging)
 # ════════════════════════════════════════════════════════════════════════
 cmd_push() {
   cd "$ROOT"
 
-  local ENV="" ASSUME_YES=0 SKIP_PUSH=0 SKIP_BACKEND=0 COMMIT_MSG=""
+  local ENV="" ASSUME_YES=0 SKIP_PUSH=0 COMMIT_MSG=""
   while [ $# -gt 0 ]; do
     case "$1" in
       production|staging) ENV="$1" ;;
       -y|--yes)           ASSUME_YES=1 ;;
       --skip-push)        SKIP_PUSH=1 ;;
-      --skip-backend)     SKIP_BACKEND=1 ;;
       -m|--message)       shift; COMMIT_MSG="${1:-}" ;;
       -m=*|--message=*)   COMMIT_MSG="${1#*=}" ;;
-      -h|--help)        show_push_help; return 0 ;;
+      -h|--help)          show_push_help; return 0 ;;
       *) die "push: unknown arg '$1'" ;;
     esac
     shift
@@ -361,24 +353,22 @@ cmd_push() {
     esac
   fi
 
-  local CONFIG="deploy.$ENV.env"
-  [ -f "$CONFIG" ] || die "$CONFIG missing — copy deploy.example.env to $CONFIG and fill it in"
-  set -a; # shellcheck disable=SC1090
-  source "$CONFIG"; set +a
+  local TARGET_BRANCH
+  case "$ENV" in
+    production) TARGET_BRANCH="master" ;;
+    staging)    TARGET_BRANCH="staging" ;;
+  esac
 
-  : "${REMOTE_HOST:?REMOTE_HOST not set in $CONFIG (e.g. root@1.2.3.4)}"
-  local APP_DIR="${APP_DIR:-/opt/bodh}"
-  local GIT_BRANCH="${GIT_BRANCH:-$(git rev-parse --abbrev-ref HEAD)}"
-  local GIT_REMOTE="${GIT_REMOTE:-origin}"
-  local HEALTH_URL="${HEALTH_URL:-}"
+  local CONFIG="deploy.$ENV.env"
+  if [ -f "$CONFIG" ]; then
+    set -a; # shellcheck disable=SC1090
+    source "$CONFIG"; set +a
+  fi
 
   echo
   printf "  ${B}Environment:${N}   $ENV\n"
-  printf "  ${B}Frontend:${N}      git push $GIT_BRANCH → $GIT_REMOTE  (DO App Platform auto-rebuilds)\n"
-  printf "  ${B}Backend:${N}       rsync source → $REMOTE_HOST:$APP_DIR  +  docker compose restart\n"
-  [ -n "$HEALTH_URL" ]      && printf "  ${B}Health URL:${N}    $HEALTH_URL\n"
-  [ "$SKIP_PUSH" -eq 1 ]    && printf "  ${YEL}skipping git push (frontend will not update)${N}\n"
-  [ "$SKIP_BACKEND" -eq 1 ] && printf "  ${YEL}skipping backend rsync/restart${N}\n"
+  printf "  ${B}Branch:${N}        $TARGET_BRANCH (git push uses upstream tracking)\n"
+  [ "$SKIP_PUSH" -eq 1 ] && printf "  ${YEL}skipping git push (build + commit only)${N}\n"
   echo
 
   if [ "$ASSUME_YES" -eq 0 ]; then
@@ -395,78 +385,45 @@ cmd_push() {
 
   local START; START=$(date +%s)
 
-  if [ "$SKIP_PUSH" -eq 0 ]; then
-    if [ -n "$(git status --porcelain)" ]; then
-      if [ -n "$COMMIT_MSG" ] || [ "$ASSUME_YES" -eq 1 ]; then
-        local msg="${COMMIT_MSG:-deploy($ENV): $(date +%Y-%m-%d\ %H:%M)}"
-        info "Committing pending changes: $msg"
-        git add -A
-        git commit -m "$msg"
-      else
-        warn "uncommitted changes:"
-        git status --short
-        printf "Commit them all now? [Y/n] "
-        read -r reply || reply=""
-        case "$(lower "${reply:-y}")" in
-          y|yes)
-            local msg="deploy($ENV): $(date +%Y-%m-%d\ %H:%M)"
-            git add -A
-            git commit -m "$msg"
-            ok "Committed: $msg"
-            ;;
-          *) die "aborted — commit/stash manually, rerun with -m \"msg\" or --skip-push" ;;
-        esac
-      fi
+  local CURRENT; CURRENT="$(git rev-parse --abbrev-ref HEAD)"
+  if [ "$CURRENT" != "$TARGET_BRANCH" ]; then
+    die "current branch is '$CURRENT' but $ENV expects '$TARGET_BRANCH' — run: git checkout $TARGET_BRANCH"
+  fi
+
+  build_api
+  build_web
+
+  if [ -n "$(git status --porcelain)" ]; then
+    if [ -n "$COMMIT_MSG" ] || [ "$ASSUME_YES" -eq 1 ]; then
+      local msg="${COMMIT_MSG:-deploy($ENV): $(date +%Y-%m-%d\ %H:%M)}"
+      info "Committing pending changes: $msg"
+      git add -A
+      git commit -m "$msg"
+    else
+      warn "uncommitted changes:"
+      git status --short
+      printf "Commit them all now? [Y/n] "
+      read -r reply || reply=""
+      case "$(lower "${reply:-y}")" in
+        y|yes)
+          local msg="deploy($ENV): $(date +%Y-%m-%d\ %H:%M)"
+          git add -A
+          git commit -m "$msg"
+          ok "Committed: $msg"
+          ;;
+        *) die "aborted — commit/stash manually, rerun with -m \"msg\" or --skip-push" ;;
+      esac
     fi
-
-    info "Pushing $GIT_BRANCH → $GIT_REMOTE (DigitalOcean App Platform will rebuild the frontend)"
-    git push "$GIT_REMOTE" "$GIT_BRANCH"
-    ok "GitHub updated"
   fi
 
-  if [ "$SKIP_BACKEND" -eq 0 ]; then
-    need rsync
-    info "Syncing backend source to $REMOTE_HOST:$APP_DIR"
-    ssh "$REMOTE_HOST" "mkdir -p \"$APP_DIR\""
-    rsync -az --delete \
-      --exclude='/bodhassess-api/uploads' \
-      --exclude='/bodhassess-api/server' \
-      --exclude='/bodhassess-api/.run-logs' \
-      --exclude='/bodhassess-api/node_modules' \
-      --exclude='.DS_Store' \
-      bodhassess-api deploy "$REMOTE_HOST:$APP_DIR/"
-    ok "Source synced"
-
-    info "Rebuilding + restarting backend on $REMOTE_HOST"
-    ssh "$REMOTE_HOST" APP_DIR="$APP_DIR" bash -s <<'REMOTE'
-set -euo pipefail
-: "${APP_DIR:?}"
-[ -d "$APP_DIR/deploy" ] || { echo "missing $APP_DIR/deploy on droplet" >&2; exit 1; }
-cd "$APP_DIR/deploy"
-echo "==> docker compose build api"
-docker compose build api
-echo "==> docker compose up -d api"
-docker compose up -d api
-echo "==> docker compose ps api"
-docker compose ps api
-REMOTE
-    ok "Backend redeployed"
-  fi
-
-  if [ -n "$HEALTH_URL" ] && [ "$SKIP_BACKEND" -eq 0 ]; then
-    info "Health check $HEALTH_URL"
-    local HEALTHY=0
-    for _ in 1 2 3 4 5 6 7 8 9 10; do
-      if curl -fsS "$HEALTH_URL" >/dev/null 2>&1; then HEALTHY=1; break; fi
-      sleep 2
-    done
-    [ "$HEALTHY" = 1 ] && ok "API healthy" || warn "API not healthy yet at $HEALTH_URL"
+  if [ "$SKIP_PUSH" -eq 0 ]; then
+    info "Pushing $TARGET_BRANCH → origin"
+    git push
+    ok "Pushed to origin"
   fi
 
   echo
   ok "Push to $ENV finished in $(( $(date +%s) - START ))s"
-  [ "$SKIP_PUSH" -eq 0 ]    && printf "  ${B}Frontend:${N}  DigitalOcean App Platform is rebuilding from GitHub now\n"
-  [ "$SKIP_BACKEND" -eq 0 ] && printf "  ${B}Backend:${N}   redeployed on $REMOTE_HOST\n"
 }
 
 # ════════════════════════════════════════════════════════════════════════
@@ -479,7 +436,7 @@ menu() {
   echo "  2) stop    stop local dev stack"
   echo "  3) logs    tail local dev logs"
   echo "  4) build   compile API + web (commit & optional push)"
-  echo "  5) push    deploy: git push + restart backend on droplet"
+  echo "  5) push    build + git push (production→master, staging→staging)"
   echo "  h) help    show full reference"
   echo "  q) quit"
   echo
