@@ -1,1 +1,0 @@
-import{r as o}from"./index-LgYHO3sy.js";function c(t){o.useEffect(()=>{const e=t.split(/\s+/).filter(Boolean);return e.forEach(s=>{document.body.classList.add(s)}),()=>{e.forEach(s=>{document.body.classList.remove(s)})}},[t])}const r={purchaseLink:"https://1.envato.market/Vm7VRE",docsLink:"",licenseLink:"",faqLink:"https://keenthemes.com/metronic"};export{r as g,c as u};

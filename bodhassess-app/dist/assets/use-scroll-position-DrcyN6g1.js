@@ -1,1 +1,0 @@
-import{r as e}from"./index-LgYHO3sy.js";function u({targetRef:s}={}){const[n,c]=e.useState(0);return e.useEffect(()=>{const o=s?.current||document,r=o===document?window:o,t=()=>{const l=o===document?window.scrollY:o.scrollTop;c(l)};return r.addEventListener("scroll",t),t(),()=>{r.removeEventListener("scroll",t)}},[s]),n}export{u};
