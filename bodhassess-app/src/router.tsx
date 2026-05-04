@@ -34,83 +34,83 @@ function lazyPage(loader: () => Promise<{ default: ComponentType }>) {
 }
 
 // ── Public pages (no auth) ─────────────────────────────────────────────────
-const HomePage           = () => lazyPage(() => import('@/app/page'));
-const LoginPage          = () => lazyPage(() => import('@/app/login/page'));
-const RegisterPage       = () => lazyPage(() => import('@/app/register/page'));
-const SelectVerticalPage = () => lazyPage(() => import('@/app/select-vertical/page'));
+const HomePage           = () => lazyPage(() => import('@/src/pages/home'));
+const LoginPage          = () => lazyPage(() => import('@/src/pages/login'));
+const RegisterPage       = () => lazyPage(() => import('@/src/pages/register'));
+const SelectVerticalPage = () => lazyPage(() => import('@/src/pages/select-vertical'));
 
 // ── Respondent portal (own auth, lives outside dashboard chrome) ──────────
-const PortalLogin       = () => lazyPage(() => import('@/app/portal/login/page'));
-const PortalAssessments = () => lazyPage(() => import('@/app/portal/assessments/page'));
-const PortalTake        = () => lazyPage(() => import('@/app/portal/take/page'));
-const PortalComplete    = () => lazyPage(() => import('@/app/portal/complete/page'));
+const PortalLogin       = () => lazyPage(() => import('@/src/pages/portal/login'));
+const PortalAssessments = () => lazyPage(() => import('@/src/pages/portal/assessments'));
+const PortalTake        = () => lazyPage(() => import('@/src/pages/portal/take'));
+const PortalComplete    = () => lazyPage(() => import('@/src/pages/portal/complete'));
 
 // ── Private pages (practitioner dashboard) ────────────────────────────────
-const Dashboard          = () => lazyPage(() => import('@/app/(app)/dashboard/page'));
-const Analytics          = () => lazyPage(() => import('@/app/(app)/analytics/page'));
-const Survey             = () => lazyPage(() => import('@/app/(app)/survey/page'));
-const Qualities          = () => lazyPage(() => import('@/app/(app)/qualities/page'));
+const Dashboard          = () => lazyPage(() => import('@/src/pages/dashboard'));
+const Analytics          = () => lazyPage(() => import('@/src/pages/analytics'));
+const Survey             = () => lazyPage(() => import('@/src/pages/survey'));
+const Qualities          = () => lazyPage(() => import('@/src/pages/qualities'));
 
-const AdminGroups        = () => lazyPage(() => import('@/app/(app)/admin/groups/page'));
-const AdminPermissions   = () => lazyPage(() => import('@/app/(app)/admin/permissions/page'));
-const AdminPractitioners = () => lazyPage(() => import('@/app/(app)/admin/practitioners/page'));
-const AdminRespondents   = () => lazyPage(() => import('@/app/(app)/admin/respondents/page'));
-const AdminRoles         = () => lazyPage(() => import('@/app/(app)/admin/roles/page'));
+const AdminGroups        = () => lazyPage(() => import('@/src/pages/admin/groups'));
+const AdminPermissions   = () => lazyPage(() => import('@/src/pages/admin/permissions'));
+const AdminPractitioners = () => lazyPage(() => import('@/src/pages/admin/practitioners'));
+const AdminRespondents   = () => lazyPage(() => import('@/src/pages/admin/respondents'));
+const AdminRoles         = () => lazyPage(() => import('@/src/pages/admin/roles'));
 
-const Assessments       = () => lazyPage(() => import('@/app/(app)/assessments/page'));
-const AssessmentsCreate = () => lazyPage(() => import('@/app/(app)/assessments/create/page'));
-const AssessmentsBatch  = () => lazyPage(() => import('@/app/(app)/assessments/batch/page'));
+const Assessments       = () => lazyPage(() => import('@/src/pages/assessments/all-assessments'));
+const AssessmentsCreate = () => lazyPage(() => import('@/src/pages/assessments/create-assessment'));
+const AssessmentsBatch  = () => lazyPage(() => import('@/src/pages/assessments/batch-upload'));
 // Special — uses its own minimal layout, not the dashboard chrome.
-const AssessmentTake    = () => lazyPage(() => import('@/app/(app)/assessments/[id]/take/page'));
+const AssessmentTake    = () => lazyPage(() => import('@/src/pages/assessments/take-assessment'));
 
-const ClinicalClients      = () => lazyPage(() => import('@/app/(app)/clinical/clients/page'));
-const ClinicalMseUpload    = () => lazyPage(() => import('@/app/(app)/clinical/mse-upload/page'));
-const ClinicalRiskAlerts   = () => lazyPage(() => import('@/app/(app)/clinical/risk-alerts/page'));
-const ClinicalTracking     = () => lazyPage(() => import('@/app/(app)/clinical/tracking/page'));
+const ClinicalClients      = () => lazyPage(() => import('@/src/pages/clinical/clients'));
+const ClinicalMseUpload    = () => lazyPage(() => import('@/src/pages/clinical/mse-upload'));
+const ClinicalRiskAlerts   = () => lazyPage(() => import('@/src/pages/clinical/risk-alerts'));
+const ClinicalTracking     = () => lazyPage(() => import('@/src/pages/clinical/tracking'));
 
-const ComplianceAudit   = () => lazyPage(() => import('@/app/(app)/compliance/audit/page'));
-const ComplianceConsent = () => lazyPage(() => import('@/app/(app)/compliance/consent/page'));
-const ComplianceErasure = () => lazyPage(() => import('@/app/(app)/compliance/erasure/page'));
-const CompliancePortal  = () => lazyPage(() => import('@/app/(app)/compliance/portal/page'));
+const ComplianceAudit   = () => lazyPage(() => import('@/src/pages/compliance/audit'));
+const ComplianceConsent = () => lazyPage(() => import('@/src/pages/compliance/consent'));
+const ComplianceErasure = () => lazyPage(() => import('@/src/pages/compliance/erasure'));
+const CompliancePortal  = () => lazyPage(() => import('@/src/pages/compliance/portal'));
 
-const CounsellingConsent        = () => lazyPage(() => import('@/app/(app)/counselling/consent/page'));
-const CounsellingDevelopmental  = () => lazyPage(() => import('@/app/(app)/counselling/developmental/page'));
-const CounsellingMultiInformant = () => lazyPage(() => import('@/app/(app)/counselling/multi-informant/page'));
-const CounsellingStudents       = () => lazyPage(() => import('@/app/(app)/counselling/students/page'));
+const CounsellingConsent        = () => lazyPage(() => import('@/src/pages/counselling/consent'));
+const CounsellingDevelopmental  = () => lazyPage(() => import('@/src/pages/counselling/developmental'));
+const CounsellingMultiInformant = () => lazyPage(() => import('@/src/pages/counselling/multi-informant'));
+const CounsellingStudents       = () => lazyPage(() => import('@/src/pages/counselling/students'));
 
-const ExperimentsBuilder   = () => lazyPage(() => import('@/app/(app)/experiments/builder/page'));
-const ExperimentsExport    = () => lazyPage(() => import('@/app/(app)/experiments/export/page'));
-const ExperimentsParadigms = () => lazyPage(() => import('@/app/(app)/experiments/paradigms/page'));
+const ExperimentsBuilder   = () => lazyPage(() => import('@/src/pages/experiments/builder'));
+const ExperimentsExport    = () => lazyPage(() => import('@/src/pages/experiments/export'));
+const ExperimentsParadigms = () => lazyPage(() => import('@/src/pages/experiments/paradigms'));
 
-const IndustrialAiAdaptability = () => lazyPage(() => import('@/app/(app)/industrial/ai-adaptability/page'));
-const IndustrialCohorts        = () => lazyPage(() => import('@/app/(app)/industrial/cohorts/page'));
-const IndustrialCompetency     = () => lazyPage(() => import('@/app/(app)/industrial/competency/page'));
-const IndustrialProctoring     = () => lazyPage(() => import('@/app/(app)/industrial/proctoring/page'));
+const IndustrialAiAdaptability = () => lazyPage(() => import('@/src/pages/industrial/ai-adaptability'));
+const IndustrialCohorts        = () => lazyPage(() => import('@/src/pages/industrial/cohorts'));
+const IndustrialCompetency     = () => lazyPage(() => import('@/src/pages/industrial/competency'));
+const IndustrialProctoring     = () => lazyPage(() => import('@/src/pages/industrial/proctoring'));
 
-const QuestionBank             = () => lazyPage(() => import('@/app/(app)/question-bank/page'));
-const QuestionBankCalibration  = () => lazyPage(() => import('@/app/(app)/question-bank/calibration/page'));
-const QuestionBankCreate       = () => lazyPage(() => import('@/app/(app)/question-bank/create/page'));
-const QuestionBankNorms        = () => lazyPage(() => import('@/app/(app)/question-bank/norms/page'));
+const QuestionBank             = () => lazyPage(() => import('@/src/pages/question-bank/item-explorer'));
+const QuestionBankCalibration  = () => lazyPage(() => import('@/src/pages/question-bank/calibration'));
+const QuestionBankCreate       = () => lazyPage(() => import('@/src/pages/question-bank/create-questionnaire'));
+const QuestionBankNorms        = () => lazyPage(() => import('@/src/pages/question-bank/norms'));
 
-const Questionnaires             = () => lazyPage(() => import('@/app/(app)/questionnaires/page'));
-const QuestionnairesClinical     = () => lazyPage(() => import('@/app/(app)/questionnaires/clinical/page'));
-const QuestionnairesCounselling  = () => lazyPage(() => import('@/app/(app)/questionnaires/counselling/page'));
-const QuestionnairesDemographics = () => lazyPage(() => import('@/app/(app)/questionnaires/demographics/page'));
-const QuestionnairesExperimental = () => lazyPage(() => import('@/app/(app)/questionnaires/experimental/page'));
-const QuestionnairesIndustrial   = () => lazyPage(() => import('@/app/(app)/questionnaires/industrial/page'));
+const Questionnaires             = () => lazyPage(() => import('@/src/pages/questionnaires/all-questionnaires'));
+const QuestionnairesClinical     = () => lazyPage(() => import('@/src/pages/questionnaires/clinical'));
+const QuestionnairesCounselling  = () => lazyPage(() => import('@/src/pages/questionnaires/counselling'));
+const QuestionnairesDemographics = () => lazyPage(() => import('@/src/pages/questionnaires/demographics'));
+const QuestionnairesExperimental = () => lazyPage(() => import('@/src/pages/questionnaires/experimental'));
+const QuestionnairesIndustrial   = () => lazyPage(() => import('@/src/pages/questionnaires/industrial'));
 
-const Reports             = () => lazyPage(() => import('@/app/(app)/reports/page'));
-const ReportsClinical     = () => lazyPage(() => import('@/app/(app)/reports/clinical/page'));
-const ReportsCounselling  = () => lazyPage(() => import('@/app/(app)/reports/counselling/page'));
-const ReportsIndustrial   = () => lazyPage(() => import('@/app/(app)/reports/industrial/page'));
+const Reports             = () => lazyPage(() => import('@/src/pages/reports/all-reports'));
+const ReportsClinical     = () => lazyPage(() => import('@/src/pages/reports/clinical'));
+const ReportsCounselling  = () => lazyPage(() => import('@/src/pages/reports/counselling'));
+const ReportsIndustrial   = () => lazyPage(() => import('@/src/pages/reports/industrial'));
 
-const SettingsIntegrations = () => lazyPage(() => import('@/app/(app)/settings/integrations/page'));
-const SettingsTenant       = () => lazyPage(() => import('@/app/(app)/settings/tenant/page'));
-const SettingsTiers        = () => lazyPage(() => import('@/app/(app)/settings/tiers/page'));
+const SettingsIntegrations = () => lazyPage(() => import('@/src/pages/settings/integrations'));
+const SettingsTenant       = () => lazyPage(() => import('@/src/pages/settings/tenant'));
+const SettingsTiers        = () => lazyPage(() => import('@/src/pages/settings/tiers'));
 
-const WhiteLabelApi      = () => lazyPage(() => import('@/app/(app)/white-label/api/page'));
-const WhiteLabelBranding = () => lazyPage(() => import('@/app/(app)/white-label/branding/page'));
-const WhiteLabelTenants  = () => lazyPage(() => import('@/app/(app)/white-label/tenants/page'));
+const WhiteLabelApi      = () => lazyPage(() => import('@/src/pages/white-label/api'));
+const WhiteLabelBranding = () => lazyPage(() => import('@/src/pages/white-label/branding'));
+const WhiteLabelTenants  = () => lazyPage(() => import('@/src/pages/white-label/tenants'));
 
 // ── Route tree ────────────────────────────────────────────────────────────
 // Top-level structure:
