@@ -2,7 +2,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Toolbar, ToolbarActions, ToolbarHeading } from "@/components/layouts/layout-7/components/toolbar";
 import { Button } from "@/components/ui/button";
 import { CalendarDays, Download } from "lucide-react";
-import Link from '@/src/lib/next-compat';
+import Link from '@/src/lib/router-helpers';
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { addDays, format } from "date-fns";

@@ -4,7 +4,7 @@ import { Toolbar, ToolbarActions, ToolbarHeading } from "@/components/layouts/la
 import { SearchDialog } from "@/components/layouts/layout-1/shared/dialogs/search/search-dialog";
 import { ChatSheet } from "@/components/layouts/layout-1/shared/topbar/chat-sheet";
 import { Download, MessageCircleMore, Search } from "lucide-react";
-import Link from '@/src/lib/next-compat';
+import Link from '@/src/lib/router-helpers';
 
 export default function Page() {
   return (

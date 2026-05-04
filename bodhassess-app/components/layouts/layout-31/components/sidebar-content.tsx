@@ -15,8 +15,8 @@ import { Avatar, AvatarFallback, AvatarImage, AvatarIndicator, AvatarStatus } fr
 import { Badge } from '@/components/ui/badge';
 import { toAbsoluteUrl } from '@/lib/helpers';
 import { Separator } from '@/components/ui/separator';
-import { usePathname } from '@/src/lib/next-compat';
-import Link from '@/src/lib/next-compat';
+import { usePathname } from '@/src/lib/router-helpers';
+import Link from '@/src/lib/router-helpers';
 
 export function SidebarContent() {
 	const { theme, setTheme } = useTheme();

@@ -1,5 +1,5 @@
 import { Stethoscope, Briefcase, GraduationCap, FlaskConical, Tag } from 'lucide-react';
-import Link from '@/src/lib/next-compat';
+import Link from '@/src/lib/router-helpers';
 import { cn } from '@/lib/utils';
 
 const verticals = [

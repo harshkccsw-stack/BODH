@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { PanelRightOpen } from "lucide-react";
 import { SidebarSecondaryHeader } from "./sidebar-secondary-header";
 import { SidebarSecondaryContent } from "./sidebar-secondary-content";
-import { usePathname } from '@/src/lib/next-compat';
+import { usePathname } from '@/src/lib/router-helpers';
 
 export function SidebarSecondaryMobile() {
   const pathname = usePathname();

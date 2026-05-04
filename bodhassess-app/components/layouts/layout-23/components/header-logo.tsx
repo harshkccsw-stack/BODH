@@ -14,8 +14,8 @@ import { Button } from '@/components/ui/button';
 import { SidebarHeader } from './sidebar-header';
 import { SidebarSearch } from './sidebar-search';
 import { SidebarMenu } from './sidebar-menu';
-import { usePathname } from '@/src/lib/next-compat';
-import Link from '@/src/lib/next-compat';
+import { usePathname } from '@/src/lib/router-helpers';
+import Link from '@/src/lib/router-helpers';
 
 export function HeaderLogo() {
   const pathname = usePathname();

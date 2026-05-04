@@ -23,8 +23,8 @@ import {
 import { useLayout } from './layout-context';
 import { cn } from '@/lib/utils';
 import type { NavItem } from '@/config/layout-15.config';
-import Link from '@/src/lib/next-compat';
-import { usePathname } from '@/src/lib/next-compat';
+import Link from '@/src/lib/router-helpers';
+import { usePathname } from '@/src/lib/router-helpers';
 
 function TasksDropdownMenu({ trigger }: { trigger: React.ReactNode }) {
   const { pinSidebarNavItem, sidebarCollapse } = useLayout();

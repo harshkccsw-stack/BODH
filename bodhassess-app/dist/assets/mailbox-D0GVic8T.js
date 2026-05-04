@@ -1,5 +1,0 @@
-<<<<<<<< HEAD:bodhassess-app/dist/assets/mailbox-BX3Nymfp.js
-import{c as e}from"./createLucideIcon-B9BAIbUa.js";const o=[["path",{d:"M22 17a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9.5C2 7 4 5 6.5 5H18c2.2 0 4 1.8 4 4v8Z",key:"1lbycx"}],["polyline",{points:"15,9 18,9 18,11",key:"1pm9c0"}],["path",{d:"M6.5 5C9 5 11 7 11 9.5V17a2 2 0 0 1-2 2",key:"15i455"}],["line",{x1:"6",x2:"7",y1:"10",y2:"10",key:"1e2scm"}]],a=e("mailbox",o);export{a as M};
-========
-import{c as e}from"./createLucideIcon-D4b-ofl9.js";const o=[["path",{d:"M22 17a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9.5C2 7 4 5 6.5 5H18c2.2 0 4 1.8 4 4v8Z",key:"1lbycx"}],["polyline",{points:"15,9 18,9 18,11",key:"1pm9c0"}],["path",{d:"M6.5 5C9 5 11 7 11 9.5V17a2 2 0 0 1-2 2",key:"15i455"}],["line",{x1:"6",x2:"7",y1:"10",y2:"10",key:"1e2scm"}]],a=e("mailbox",o);export{a as M};
->>>>>>>> 48215d42c1373b8a7afbf49ab9838bbd2f944e47:bodhassess-app/dist/assets/mailbox-D0GVic8T.js

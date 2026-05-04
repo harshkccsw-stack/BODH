@@ -9,8 +9,8 @@ import { Sheet, SheetTrigger, SheetContent, SheetHeader, SheetBody } from "@/com
 import { Menu } from "lucide-react";
 import { SidebarMenu } from './sidebar-menu';
 import { useEffect } from 'react';
-import { usePathname } from '@/src/lib/next-compat';
-import Link from '@/src/lib/next-compat';
+import { usePathname } from '@/src/lib/router-helpers';
+import Link from '@/src/lib/router-helpers';
 
 interface Project {
   logo: string;

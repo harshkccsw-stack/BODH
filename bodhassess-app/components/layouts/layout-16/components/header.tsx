@@ -14,7 +14,7 @@ import { SidebarSecondary } from './sidebar-secondary';
 import { HeaderTitle } from './header-title';
 import { SidebarPrimary } from './sidebar-primary';
 import { toAbsoluteUrl } from '@/lib/helpers';
-import Link from '@/src/lib/next-compat';
+import Link from '@/src/lib/router-helpers';
 
 export function Header() {
   const { isMobile } = useLayout();

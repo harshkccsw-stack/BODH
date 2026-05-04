@@ -1,5 +1,5 @@
 import { Suspense, useEffect, useState } from 'react';
-import { useSearchParams } from '@/src/lib/next-compat';
+import { useSearchParams } from '@/src/lib/router-helpers';
 import {
   Activity,
   AlertTriangle,

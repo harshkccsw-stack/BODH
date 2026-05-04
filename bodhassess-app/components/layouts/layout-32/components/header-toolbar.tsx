@@ -6,8 +6,8 @@ import { MENU_HEADER } from "@/config/layout-32.config";
 import { useMenu } from "@/hooks/use-menu";
 import { useLayout } from "./context";
 import { Separator } from "@/components/ui/separator";
-import { usePathname } from '@/src/lib/next-compat';
-import Link from '@/src/lib/next-compat';
+import { usePathname } from '@/src/lib/router-helpers';
+import Link from '@/src/lib/router-helpers';
 
 export function HeaderToolbar() {
   const { theme, setTheme } = useTheme();

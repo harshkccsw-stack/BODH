@@ -21,7 +21,7 @@ import {
   AccordionMenuSubContent,
   AccordionMenuSubTrigger,
 } from '@/components/ui/accordion-menu';
-import Link from '@/src/lib/next-compat';
+import Link from '@/src/lib/router-helpers';
 
 interface Item {
   title: string;

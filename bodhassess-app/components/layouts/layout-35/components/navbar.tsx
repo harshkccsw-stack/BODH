@@ -9,8 +9,8 @@ import {
 import { cn } from "@/lib/utils";
 import { useLayout } from "./context";
 import { ChevronDown, Settings, Users, Shield, CreditCard, HelpCircle, FileText } from "lucide-react";
-import { usePathname } from '@/src/lib/next-compat';
-import Link from '@/src/lib/next-compat';
+import { usePathname } from '@/src/lib/router-helpers';
+import Link from '@/src/lib/router-helpers';
 
 export function Navbar({ isVertical = false }: { isVertical?: boolean }) {
   const { isMobile } = useLayout();

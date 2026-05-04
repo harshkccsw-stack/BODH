@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import { usePractitionerAuth } from '@/lib/practitioner-auth';
 import { useTheme } from 'next-themes';
-import Link from '@/src/lib/next-compat';
+import Link from '@/src/lib/router-helpers';
 import { toAbsoluteUrl } from '@/lib/helpers';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';

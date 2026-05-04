@@ -11,8 +11,8 @@ import {
 } from '@/components/ui/sheet';
 import { SidebarPrimary } from './sidebar-primary';
 import { SidebarSecondary } from './sidebar-secondary';
-import { usePathname } from '@/src/lib/next-compat';
-import Link from '@/src/lib/next-compat';
+import { usePathname } from '@/src/lib/router-helpers';
+import Link from '@/src/lib/router-helpers';
 
 export function Header() {
   const [isSheetOpen, setIsSheetOpen] = useState(false);

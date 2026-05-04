@@ -13,7 +13,7 @@ import { SidebarContent } from './sidebar-content';
 import { Aside } from './aside';
 import { UserDropdownMenu } from './user-dropdown-menu';
 import { SidebarFooter } from './sidebar-footer';
-import Link from '@/src/lib/next-compat';
+import Link from '@/src/lib/router-helpers';
 
 export function HeaderMobile() {
   const [isSidebarSheetOpen, setIsSidebarSheetOpen] = useState(false);

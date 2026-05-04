@@ -27,8 +27,8 @@ import {
 } from '@/components/ui/sheet';
 import { SidebarMenuDashboard } from './sidebar-menu-dashboard';
 import { SidebarMenuDefault } from './sidebar-menu-default';
-import { usePathname } from '@/src/lib/next-compat';
-import Link from '@/src/lib/next-compat';
+import { usePathname } from '@/src/lib/router-helpers';
+import Link from '@/src/lib/router-helpers';
 
 
 interface HeaderLogoTeam {

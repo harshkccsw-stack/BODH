@@ -15,8 +15,8 @@ import { SidebarCommunities } from "./sidebar-communities";
 import { SidebarPrimaryMenu } from "./sidebar-primary-menu";
 import { SidebarResourcesMenu } from "./sidebar-resources-menu";
 import { SidebarSearch } from "./sidebar-search";
-import { usePathname } from '@/src/lib/next-compat';
-import Link from '@/src/lib/next-compat';
+import { usePathname } from '@/src/lib/router-helpers';
+import Link from '@/src/lib/router-helpers';
 
 export function HeaderLogo() {
   const pathname = usePathname();

@@ -1,5 +1,5 @@
 import { ReactNode } from 'react';
-import Link from '@/src/lib/next-compat';
+import Link from '@/src/lib/router-helpers';
 import { toAbsoluteUrl } from '@/lib/helpers';
 import { Button } from '@/components/ui/button';
 import {

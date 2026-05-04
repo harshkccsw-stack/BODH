@@ -7,7 +7,7 @@ import { addDays, format } from "date-fns";
 import { CalendarDays, Download } from "lucide-react";
 import { useState } from "react";
 import { DateRange } from "react-day-picker";
-import Link from '@/src/lib/next-compat';
+import Link from '@/src/lib/router-helpers';
 
 export default function Page() {
   const [date, setDate] = useState<DateRange | undefined>({

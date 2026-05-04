@@ -6,7 +6,7 @@ import { useState } from 'react';
 import { Sidebar } from './sidebar';
 import { Aside } from './aside';
 import { SidebarPanel } from './sidebar-panel';
-import Link from '@/src/lib/next-compat';
+import Link from '@/src/lib/router-helpers';
 
 export function HeaderMobile() {
 	const [isSidebarSheetOpen, setIsSidebarSheetOpen] = useState(false);  

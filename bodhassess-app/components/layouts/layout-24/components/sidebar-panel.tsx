@@ -13,7 +13,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { Button } from '@/components/ui/button';
-import Link from '@/src/lib/next-compat';
+import Link from '@/src/lib/router-helpers';
 const toolbarItems = [
   { icon: Plus, label: 'Analytics', path: '#' },
   { icon: Tangent, label: 'Goals', path: '#' },
