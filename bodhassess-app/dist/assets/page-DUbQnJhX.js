@@ -1,0 +1,1 @@
+import{j as e}from"./index-B6JbdOcG.js";import{S as r}from"./skeleton-C60zx8kO.js";function a(){return e.jsx("div",{className:"container",children:e.jsx(r,{className:"rounded-lg grow h-screen"})})}export{a as default};
