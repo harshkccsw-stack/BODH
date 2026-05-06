@@ -10,8 +10,8 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
-import { usePathname } from '@/src/lib/next-compat';
-import Link from '@/src/lib/next-compat';
+import { usePathname } from '@/src/lib/router-helpers';
+import Link from '@/src/lib/router-helpers';
 
 export interface ToolbarHeadingProps {
   title?: string | ReactNode;

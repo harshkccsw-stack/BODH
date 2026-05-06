@@ -6,6 +6,10 @@
 // PractitionerAuthProvider wraps the dashboard; on mount it exchanges the
 // token for the practitioner record + the merged url_paths from every role
 // they hold. Pages and the sidebar use canAccess() to gate visibility.
+//
+// Pure helpers (canAccess, token getters, isPublicPath, LOGIN_PATH, etc.)
+// live in ./practitioner-auth-utils so this file only exports the
+// Provider/hook — required for Vite Fast Refresh.
 
 import {
   createContext,
@@ -16,58 +20,20 @@ import {
   useMemo,
   useState,
 } from 'react';
-import { usePathname, useRouter } from '@/src/lib/next-compat';
-import { practitionersApi, type PractitionerMe } from '@/lib/api';
-import { config } from '@/lib/config';
-
-const TOKEN_KEY = config.practitionerAuthStorageKey;
-
-export const LOGIN_PATH = '/login';
-
-// Paths that are always accessible (login, public marketing, the respondent
-// portal which has its own auth, and the legacy register page). The
-// dashboard guard skips authentication checks for these.
-const PUBLIC_PREFIXES = ['/login', '/portal', '/register', '/select-vertical'];
-
-export function isPublicPath(pathname: string): boolean {
-  return PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + '/'));
-}
-
-// Match a pathname against one of the role.url_paths patterns.
-//   "/*"           → matches everything
-//   "/admin/*"     → matches "/admin", "/admin/foo", "/admin/foo/bar"
-//   "/dashboard"   → exact match only
-export function pathMatchesPattern(pathname: string, pattern: string): boolean {
-  if (!pattern) return false;
-  if (pattern === '/*' || pattern === '*') return true;
-  if (pattern.endsWith('/*')) {
-    const base = pattern.slice(0, -2);
-    return pathname === base || pathname.startsWith(base + '/');
-  }
-  return pathname === pattern;
-}
-
-export function canAccess(pathname: string, urlPaths: string[]): boolean {
-  if (isPublicPath(pathname)) return true;
-  return urlPaths.some((p) => pathMatchesPattern(pathname, p));
-}
-
-// ---- Token helpers (safe in SSR — guard window) -------------------------
-
-export function getPractitionerToken(): string | null {
-  if (typeof window === 'undefined') return null;
-  return sessionStorage.getItem(TOKEN_KEY);
-}
-
-export function setPractitionerToken(token: string) {
-  if (typeof window === 'undefined') return;
-  sessionStorage.setItem(TOKEN_KEY, token);
-}
-
-export function clearPractitionerToken() {
-  if (typeof window === 'undefined') return;
-  sessionStorage.removeItem(TOKEN_KEY);
-}
+import { usePathname, useRouter } from '@/src/lib/router-helpers';
+import { adminApi, practitionersApi, type PractitionerMe } from '@/lib/api';
+import {
+  LOGIN_PATH,
+  adminAsPractitionerMe,
+  canAccess,
+  clearAdminToken,
+  clearPractitionerToken,
+  getAdminToken,
+  getPractitionerToken,
+  isPublicPath,
+  setAdminToken,
+  setPractitionerToken,
+} from '@/lib/practitioner-auth-utils';
 
 // ---- Context ------------------------------------------------------------
 
@@ -79,6 +45,11 @@ type AuthState =
 type AuthContextValue = AuthState & {
   logout: () => Promise<void>;
   canAccess: (pathname: string) => boolean;
+  // Set state directly from a fresh login response. Used by the /login
+  // page so it can soft-navigate via react-router instead of forcing a
+  // full page reload to re-trigger auth resolution.
+  loginAsPractitioner: (token: string, me: PractitionerMe) => void;
+  loginAsAdmin: (token: string, username: string) => void;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -88,16 +59,21 @@ export function PractitionerAuthProvider({ children }: { children: ReactNode }) 
   const pathname = usePathname();
   const [state, setState] = useState<AuthState>({ status: 'loading', me: null });
 
-  // Resolve token → /me on mount and whenever the route changes between
-  // login ↔ dashboard (so we re-auth after a fresh login without a reload).
+  // Resolve token → /me on mount. Tries practitioner first, then admin —
+  // either path lands the user in the dashboard. Admin gets full url_paths
+  // access so canAccess() returns true everywhere.
   useEffect(() => {
     let cancelled = false;
-    const token = getPractitionerToken();
-    if (!token) {
+    const practitionerToken = getPractitionerToken();
+    const adminToken = getAdminToken();
+
+    if (!practitionerToken && !adminToken) {
       setState({ status: 'unauthenticated', me: null });
       return;
     }
+
     (async () => {
+<<<<<<< HEAD
       try {
         const me = await practitionersApi.me(token);
         // Defensive gate: if an admin moved the account back to Pending or
@@ -113,11 +89,31 @@ export function PractitionerAuthProvider({ children }: { children: ReactNode }) 
         if (!cancelled) setState({ status: 'authenticated', me });
       } catch {
         if (!cancelled) {
+=======
+      if (practitionerToken) {
+        try {
+          const me = await practitionersApi.me(practitionerToken);
+          if (!cancelled) setState({ status: 'authenticated', me });
+          return;
+        } catch {
+>>>>>>> origin/harsh
           clearPractitionerToken();
-          setState({ status: 'unauthenticated', me: null });
         }
       }
+      if (adminToken) {
+        try {
+          const info = await adminApi.me(adminToken);
+          if (!cancelled) {
+            setState({ status: 'authenticated', me: adminAsPractitionerMe(info.username) });
+          }
+          return;
+        } catch {
+          clearAdminToken();
+        }
+      }
+      if (!cancelled) setState({ status: 'unauthenticated', me: null });
     })();
+
     return () => { cancelled = true; };
   }, []);
 
@@ -138,21 +134,40 @@ export function PractitionerAuthProvider({ children }: { children: ReactNode }) 
   }, [state.status, pathname, router]);
 
   const logout = useCallback(async () => {
-    const token = getPractitionerToken();
+    const practitionerToken = getPractitionerToken();
+    const adminToken = getAdminToken();
     clearPractitionerToken();
+    clearAdminToken();
     setState({ status: 'unauthenticated', me: null });
-    if (token) {
-      try { await practitionersApi.logout(token); } catch { /* best effort */ }
+    if (practitionerToken) {
+      try { await practitionersApi.logout(practitionerToken); } catch { /* best effort */ }
+    }
+    if (adminToken) {
+      try { await adminApi.logout(adminToken); } catch { /* best effort */ }
     }
     router.replace(LOGIN_PATH);
   }, [router]);
 
+  const loginAsPractitioner = useCallback((token: string, me: PractitionerMe) => {
+    clearAdminToken();
+    setPractitionerToken(token);
+    setState({ status: 'authenticated', me });
+  }, []);
+
+  const loginAsAdmin = useCallback((token: string, username: string) => {
+    clearPractitionerToken();
+    setAdminToken(token);
+    setState({ status: 'authenticated', me: adminAsPractitionerMe(username) });
+  }, []);
+
   const value = useMemo<AuthContextValue>(() => ({
     ...state,
     logout,
+    loginAsPractitioner,
+    loginAsAdmin,
     canAccess: (p: string) =>
       state.status === 'authenticated' ? canAccess(p, state.me.url_paths) : isPublicPath(p),
-  }), [state, logout]);
+  }), [state, logout, loginAsPractitioner, loginAsAdmin]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

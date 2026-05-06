@@ -3,7 +3,8 @@
 import { JSX, useCallback, useMemo } from 'react';
 import { MENU_SIDEBAR } from '@/config/bodhassess.config';
 import { MenuConfig, MenuItem } from '@/config/types';
-import { usePractitionerAuth, canAccess } from '@/lib/practitioner-auth';
+import { usePractitionerAuth } from '@/lib/practitioner-auth';
+import { canAccess } from '@/lib/practitioner-auth-utils';
 import { cn } from '@/lib/utils';
 import {
   AccordionMenu,
@@ -17,8 +18,8 @@ import {
 } from '@/components/ui/accordion-menu';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { usePathname } from '@/src/lib/next-compat';
-import Link from '@/src/lib/next-compat';
+import { usePathname } from '@/src/lib/router-helpers';
+import Link from '@/src/lib/router-helpers';
 
 export function SidebarMenu() {
   const pathname = usePathname();

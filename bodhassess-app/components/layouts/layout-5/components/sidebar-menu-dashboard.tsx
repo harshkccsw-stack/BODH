@@ -22,8 +22,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { usePathname } from '@/src/lib/next-compat';
-import Link from '@/src/lib/next-compat';
+import { usePathname } from '@/src/lib/router-helpers';
+import Link from '@/src/lib/router-helpers';
 
 interface DropdownItem {
   title: string;

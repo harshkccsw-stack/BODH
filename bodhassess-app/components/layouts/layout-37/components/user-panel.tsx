@@ -17,7 +17,7 @@ import {
 import { useTheme } from 'next-themes';
 import { Avatar, AvatarFallback, AvatarImage, } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
-import Link from '@/src/lib/next-compat';
+import Link from '@/src/lib/router-helpers';
 
 type Account = {
   name: string;

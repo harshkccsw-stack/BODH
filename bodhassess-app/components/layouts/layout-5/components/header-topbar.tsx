@@ -13,7 +13,7 @@ import { SearchDialog } from '../../layout-1/shared/dialogs/search/search-dialog
 import { AppsDropdownMenu } from '../../layout-1/shared/topbar/apps-dropdown-menu';
 import { UserDropdownMenu } from '../../layout-1/shared/topbar/user-dropdown-menu';
 import { NotificationsSheet } from '../../layout-1/shared/topbar/notifications-sheet';
-import Link from '@/src/lib/next-compat';
+import Link from '@/src/lib/router-helpers';
 
 export function HeaderTopbar() {
 

@@ -17,8 +17,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
-import Link from '@/src/lib/next-compat';
-import { usePathname } from '@/src/lib/next-compat';
+import Link from '@/src/lib/router-helpers';
+import { usePathname } from '@/src/lib/router-helpers';
 
 interface Workspace {
   id: string;

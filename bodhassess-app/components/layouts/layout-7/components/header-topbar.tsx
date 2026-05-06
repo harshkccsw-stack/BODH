@@ -1,7 +1,7 @@
 import { ArrowUp, Crown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { UserDropdownMenu } from '../../layout-1/shared/topbar/user-dropdown-menu';
-import Link from '@/src/lib/next-compat';
+import Link from '@/src/lib/router-helpers';
 
 const HeaderTopbar = () => {
   return (

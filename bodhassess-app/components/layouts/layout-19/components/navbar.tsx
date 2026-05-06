@@ -6,8 +6,8 @@ import { useLayout } from "./context";
 import { ChevronDown, HelpCircle, BookOpen, MessageCircle, Video, FileText, ExternalLink } from "lucide-react";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator, DropdownMenuLabel } from "@/components/ui/dropdown-menu";
-import { usePathname } from '@/src/lib/next-compat';
-import Link from '@/src/lib/next-compat';
+import { usePathname } from '@/src/lib/router-helpers';
+import Link from '@/src/lib/router-helpers';
 
 export function Navbar() {
   const pathname = usePathname();

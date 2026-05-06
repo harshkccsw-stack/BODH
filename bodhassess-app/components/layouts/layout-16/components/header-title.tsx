@@ -1,5 +1,5 @@
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
-import Link from '@/src/lib/next-compat';
+import Link from '@/src/lib/router-helpers';
 
 export function HeaderTitle() {    
   return (

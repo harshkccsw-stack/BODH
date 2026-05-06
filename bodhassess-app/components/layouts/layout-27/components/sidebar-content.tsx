@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import Link from '@/src/lib/next-compat';
+import Link from '@/src/lib/router-helpers';
 import { cn } from '@/lib/utils';
-import { usePathname } from '@/src/lib/next-compat';
+import { usePathname } from '@/src/lib/router-helpers';
 import {
   Tooltip,
   TooltipContent,

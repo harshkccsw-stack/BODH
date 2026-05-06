@@ -1,1 +1,0 @@
-import{j as e}from"./index-BwU4HDer.js";function t(){return e.jsx("div",{className:"container-fluid h-screen p-5",children:e.jsx("div",{className:"h-full flex items-center justify-center"})})}export{t as default};

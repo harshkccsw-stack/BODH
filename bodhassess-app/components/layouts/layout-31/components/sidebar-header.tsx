@@ -1,5 +1,5 @@
 import { toAbsoluteUrl } from '@/lib/helpers';
-import Link from '@/src/lib/next-compat';
+import Link from '@/src/lib/router-helpers';
 
 export function SidebarHeader() {
   return (

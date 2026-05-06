@@ -8,7 +8,7 @@ import {
   Send,
   Trash2,
 } from 'lucide-react';
-import Link from '@/src/lib/next-compat';
+import Link from '@/src/lib/router-helpers';
 import {
   DropdownMenu,
   DropdownMenuContent,

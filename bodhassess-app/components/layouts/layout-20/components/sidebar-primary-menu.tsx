@@ -6,8 +6,8 @@ import {
   AccordionMenuItem,
 } from '@/components/ui/accordion-menu';
 import { Badge } from '@/components/ui/badge';
-import { usePathname } from '@/src/lib/next-compat';
-import Link from '@/src/lib/next-compat';
+import { usePathname } from '@/src/lib/router-helpers';
+import Link from '@/src/lib/router-helpers';
 
 export function SidebarPrimaryMenu() {
   const pathname = usePathname();

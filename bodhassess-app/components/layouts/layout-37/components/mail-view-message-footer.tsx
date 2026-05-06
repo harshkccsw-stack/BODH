@@ -4,7 +4,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Reply, ReplyAll, Forward, Mail, Download, Folder } from "lucide-react";
 import { Reply as ReplyDialog } from "./reply";
 import { useEffect, useState } from "react";
-import Link from '@/src/lib/next-compat';
+import Link from '@/src/lib/router-helpers';
 
 export function MailViewMessageFooter() {
   const [isReplyOpen, setIsReplyOpen] = useState(false);

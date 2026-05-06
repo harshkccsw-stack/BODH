@@ -2,7 +2,7 @@ import { cn } from '@/lib/utils';
 import { useLayout } from './context';
 import { SidebarHeader } from './sidebar-header';
 import { SidebarMenu } from './sidebar-menu';
-import { usePathname } from '@/src/lib/next-compat';
+import { usePathname } from '@/src/lib/router-helpers';
 
 export function Sidebar() {
   const { sidebarTheme } = useLayout();

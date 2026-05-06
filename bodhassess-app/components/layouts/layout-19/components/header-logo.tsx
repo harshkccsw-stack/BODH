@@ -13,8 +13,8 @@ import { Button } from '@/components/ui/button';
 import { SidebarMenu } from './sidebar-menu';
 import { SidebarHeader } from './sidebar-header';
 import { HeaderMenuMobile } from './header-menu-mobile';
-import { usePathname } from '@/src/lib/next-compat';
-import Link from '@/src/lib/next-compat';
+import { usePathname } from '@/src/lib/router-helpers';
+import Link from '@/src/lib/router-helpers';
 
 export function HeaderLogo() {
   const pathname = usePathname();

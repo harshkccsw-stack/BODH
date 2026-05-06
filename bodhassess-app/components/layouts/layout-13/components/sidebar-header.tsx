@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
-import Link from '@/src/lib/next-compat';
+import Link from '@/src/lib/router-helpers';
 
 interface Team {
   icon: React.ElementType;

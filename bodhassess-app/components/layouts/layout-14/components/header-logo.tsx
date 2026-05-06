@@ -14,8 +14,8 @@ import { SidebarSecondary } from './sidebar-secondary';
 import { toAbsoluteUrl } from '@/lib/helpers';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
-import Link from '@/src/lib/next-compat';
-import { usePathname } from '@/src/lib/next-compat';
+import Link from '@/src/lib/router-helpers';
+import { usePathname } from '@/src/lib/router-helpers';
 
 interface Team {
   icon: React.ElementType;

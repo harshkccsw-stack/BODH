@@ -2,7 +2,7 @@ import { PanelRight } from 'lucide-react';
 import { useLayout } from './context';
 import { Button } from '@/components/ui/button';
 import { toAbsoluteUrl } from '@/lib/helpers';
-import Link from '@/src/lib/next-compat';
+import Link from '@/src/lib/router-helpers';
 
 export function SidebarHeader() {
   const { sidebarToggle } = useLayout();

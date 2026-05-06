@@ -7,7 +7,7 @@ import {
   Timer,
   Users,
 } from 'lucide-react';
-import Link from '@/src/lib/next-compat';
+import Link from '@/src/lib/router-helpers';
 import {
   Avatar,
   AvatarFallback,

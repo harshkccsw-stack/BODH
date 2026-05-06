@@ -1,5 +1,5 @@
 import { AvatarGroup }  from '@/components/layouts/layout-1/shared/common/avatar-group';
-import Link from '@/src/lib/next-compat';
+import Link from '@/src/lib/router-helpers';
 import {
   Avatar,
   AvatarFallback,

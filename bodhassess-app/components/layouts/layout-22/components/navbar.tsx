@@ -2,8 +2,8 @@ import { useMenu } from "@/hooks/use-menu";
 import { cn } from "@/lib/utils";
 import { MENU_NAVBAR } from "@/config/layout-22.config";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
-import { usePathname } from '@/src/lib/next-compat';
-import Link from '@/src/lib/next-compat';
+import { usePathname } from '@/src/lib/router-helpers';
+import Link from '@/src/lib/router-helpers';
 
 export function Navbar() {
   const pathname = usePathname();

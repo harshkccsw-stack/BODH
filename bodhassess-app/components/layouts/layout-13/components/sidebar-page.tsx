@@ -8,7 +8,7 @@ import {
   AccordionMenuItem,
 } from '@/components/ui/accordion-menu';
 import { Button } from "@/components/ui/button";
-import Link from '@/src/lib/next-compat';
+import Link from '@/src/lib/router-helpers';
 
 export function SidebarPage() {
   const pages = [

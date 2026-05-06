@@ -6,8 +6,8 @@ import {
 } from '@/components/ui/accordion-menu';
 import { cn } from "@/lib/utils";
 import { LucideIcon, Settings, MessageSquare, Headset } from "lucide-react";
-import { usePathname } from '@/src/lib/next-compat';
-import Link from '@/src/lib/next-compat';
+import { usePathname } from '@/src/lib/router-helpers';
+import Link from '@/src/lib/router-helpers';
 
 interface MenuConfig {
   title: string;

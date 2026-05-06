@@ -4,7 +4,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { cn } from "@/lib/utils";
 import { EllipsisVertical, Hexagon, Gem, Zap, Layers2, Check } from "lucide-react";
 import { useState } from "react";
-import Link from '@/src/lib/next-compat';
+import Link from '@/src/lib/router-helpers';
 
 interface Team {
   icon: React.ElementType;

@@ -11,8 +11,8 @@ import {
   SheetTrigger,
 } from '@/components/ui/sheet';
 import { MegaMenuMobile } from './mega-menu-mobile';
-import Link from '@/src/lib/next-compat';
-import { usePathname } from '@/src/lib/next-compat';
+import Link from '@/src/lib/router-helpers';
+import { usePathname } from '@/src/lib/router-helpers';
 
 export function HeaderLogo() {
   const isMobile = useIsMobile();

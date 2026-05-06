@@ -1,32 +1,33 @@
 #!/usr/bin/env bash
-# Bring up the whole BodhAssess stack locally:
-#   1. docker-compose infra (postgres, redis, minio) from bodhassess-api/
-#   2. Go API server on :8080
-#   3. Vite dev server on :3000
+# Top-level orchestrator for BodhAssess (api + web + mysql).
 #
-# Usage:
-#   ./run.sh            # start everything (foreground, Ctrl-C stops it all)
-#   ./run.sh stop       # stop API + web + docker infra
-#   ./run.sh infra      # start docker infra only
-#   ./run.sh api        # start API only (infra must already be up)
-#   ./run.sh web        # start web only
-#   ./run.sh logs       # tail all logs
-
+#   ./run.sh dev    -> MySQL in Docker, Spring API + Vite dev server on host
+#                      with hot reload (recommended for development)
+#   ./run.sh api    -> MySQL in Docker, Spring API on host (no web)
+#   ./run.sh app    -> Vite dev server on host only (no API, no MySQL)
+#   ./run.sh prod   -> full stack in Docker: mysql + api + web (nginx)
+#   ./run.sh stop   -> stop the prod stack (volumes preserved)
+#   ./run.sh reset  -> stop and remove the MySQL volume (DESTRUCTIVE)
+#   ./run.sh logs   -> tail prod-stack logs
+#
+# Read environment from a .env file in this directory (see .env.example).
 set -euo pipefail
+cd "$(dirname "$0")"
 
-ROOT="$(cd "$(dirname "$0")" && pwd)"
-API_DIR="$ROOT/bodhassess-api"
+MODE="${1:-dev}"
+
+ROOT="$(pwd)"
+API_DIR="$ROOT/bodhassess-api-spring"
 WEB_DIR="$ROOT/bodhassess-app"
-LOG_DIR="$ROOT/.run-logs"
+LOG_DIR="$ROOT/.dev-logs"
 API_PID_FILE="$LOG_DIR/api.pid"
 WEB_PID_FILE="$LOG_DIR/web.pid"
 
-mkdir -p "$LOG_DIR"
+need() {
+  command -v "$1" >/dev/null 2>&1 || { echo "ERROR: '$1' not found in PATH" >&2; exit 1; }
+}
 
-die() { echo "error: $*" >&2; exit 1; }
-
-need() { command -v "$1" >/dev/null 2>&1 || die "$1 not found in PATH"; }
-
+<<<<<<< HEAD
 _docker_prefix() {
   # Use raw docker if the current user can reach the daemon, else sudo.
   if docker info >/dev/null 2>&1; then
@@ -42,123 +43,183 @@ compose() {
     $pfx docker compose -f "$API_DIR/docker-compose.yml" "$@"
   else
     $pfx docker-compose -f "$API_DIR/docker-compose.yml" "$@"
+=======
+# Resolve `docker compose` (v2) vs `docker-compose` (v1).
+compose() {
+  if docker compose version >/dev/null 2>&1; then
+    docker compose "$@"
+  elif command -v docker-compose >/dev/null 2>&1; then
+    docker-compose "$@"
+  else
+    echo "ERROR: neither 'docker compose' nor 'docker-compose' is available." >&2
+    exit 1
+>>>>>>> origin/harsh
   fi
 }
 
-start_infra() {
-  need docker
-  echo "==> Starting docker infra (postgres, redis, minio)"
-  compose up -d
-  echo "    waiting for postgres healthcheck..."
-  for _ in $(seq 1 30); do
-    if compose ps postgres 2>/dev/null | grep -q healthy; then
-      echo "    postgres is healthy"
-      return 0
+wait_for_mysql() {
+  echo "==> Waiting for MySQL to become healthy..."
+  local tries=0
+  until compose exec -T mysql mysqladmin ping -h localhost -u root -p"${DB_ROOT_PASSWORD:-rootpw}" --silent >/dev/null 2>&1; do
+    tries=$((tries+1))
+    if [ "$tries" -gt 60 ]; then
+      echo "ERROR: MySQL did not become healthy within 120s." >&2
+      compose logs mysql | tail -50 >&2
+      exit 1
     fi
-    sleep 1
+    sleep 2
   done
-  die "postgres did not become healthy in 30s (check: ./run.sh logs)"
+  echo "==> MySQL is healthy."
 }
 
-start_api() {
-  need go
-  [ -f "$API_DIR/go.mod" ] || die "no go.mod at $API_DIR"
-
-  # Refuse to start if :8080 is already taken (orphan from a previous run, etc.)
-  if lsof -nP -iTCP:8080 -sTCP:LISTEN >/dev/null 2>&1; then
-    echo "==> :8080 already in use — killing the listener"
-    lsof -nP -iTCP:8080 -sTCP:LISTEN -t 2>/dev/null | xargs -r kill 2>/dev/null || true
-    sleep 1
-    lsof -nP -iTCP:8080 -sTCP:LISTEN -t 2>/dev/null | xargs -r kill -9 2>/dev/null || true
-  fi
-
-  echo "==> Building API binary → $LOG_DIR/api.log"
-  ( cd "$API_DIR" && go build -o "$LOG_DIR/bodh-server" ./cmd/server ) || die "go build failed"
-
-  echo "==> Starting Go API on :8080"
-  ( cd "$API_DIR" && "$LOG_DIR/bodh-server" > "$LOG_DIR/api.log" 2>&1 ) &
-  echo $! > "$API_PID_FILE"
-  sleep 1
-  if ! kill -0 "$(cat "$API_PID_FILE")" 2>/dev/null; then
-    tail -20 "$LOG_DIR/api.log" >&2
-    die "API failed to start"
-  fi
-}
-
-start_web() {
-  need npm
-  [ -d "$WEB_DIR/node_modules" ] || ( cd "$WEB_DIR" && echo "==> npm install" && npm install --no-audit --no-fund )
-  echo "==> Starting Vite dev server on :3000 → $LOG_DIR/web.log"
-  ( cd "$WEB_DIR" && npm run dev > "$LOG_DIR/web.log" 2>&1 ) &
-  echo $! > "$WEB_PID_FILE"
-  sleep 2
-  if ! kill -0 "$(cat "$WEB_PID_FILE")" 2>/dev/null; then
-    tail -20 "$LOG_DIR/web.log" >&2
-    die "web failed to start"
-  fi
-}
-
-stop_proc() {
-  local pidfile="$1" label="$2"
-  if [ -f "$pidfile" ]; then
-    local pid; pid="$(cat "$pidfile" 2>/dev/null || true)"
-    if [ -n "${pid:-}" ] && kill -0 "$pid" 2>/dev/null; then
-      echo "==> Stopping $label (pid $pid)"
-      kill "$pid" 2>/dev/null || true
-      for _ in $(seq 1 10); do
-        kill -0 "$pid" 2>/dev/null || break
-        sleep 0.3
-      done
-      kill -9 "$pid" 2>/dev/null || true
+stop_dev_processes() {
+  for pidfile in "$API_PID_FILE" "$WEB_PID_FILE"; do
+    if [ -f "$pidfile" ]; then
+      local pid
+      pid="$(cat "$pidfile" 2>/dev/null || true)"
+      if [ -n "${pid:-}" ] && kill -0 "$pid" 2>/dev/null; then
+        kill "$pid" 2>/dev/null || true
+        # Give the process a moment, then force-kill if still alive.
+        sleep 1
+        kill -9 "$pid" 2>/dev/null || true
+      fi
+      rm -f "$pidfile"
     fi
-    rm -f "$pidfile"
-  fi
-  # Vite spawns a child — kill anything still holding the port
-  if [ "$label" = "web" ]; then
-    pkill -f "vite.*--port 3000" 2>/dev/null || true
-  fi
+  done
 }
 
-stop_all() {
-  stop_proc "$WEB_PID_FILE" web
-  stop_proc "$API_PID_FILE" api
-  echo "==> Stopping docker infra"
-  compose down
-}
+case "$MODE" in
+  dev)
+    need docker
+    need java
+    need npm
+    mkdir -p "$LOG_DIR"
 
-case "${1:-up}" in
-  up|start|"")
-    trap 'echo; stop_all; exit 0' INT TERM
-    start_infra
-    start_api
-    start_web
+    echo "==> Starting MySQL in Docker (port ${DB_PORT:-3306})"
+    compose up -d mysql
+    wait_for_mysql
+
+    if [ ! -d "$WEB_DIR/node_modules" ]; then
+      echo "==> Installing frontend dependencies"
+      (cd "$WEB_DIR" && npm install --no-audit --no-fund)
+    fi
+
+    echo "==> Starting Spring API on http://localhost:${APP_PORT:-4000} (logs: .dev-logs/api.log)"
+    (
+      cd "$API_DIR"
+      SPRING_PROFILES_ACTIVE=dev exec ./mvnw -q spring-boot:run
+    ) >"$LOG_DIR/api.log" 2>&1 &
+    echo $! >"$API_PID_FILE"
+
+    echo "==> Starting Vite dev server on http://localhost:${WEB_PORT:-3000} (logs: .dev-logs/web.log)"
+    (
+      cd "$WEB_DIR"
+      exec npm run dev
+    ) >"$LOG_DIR/web.log" 2>&1 &
+    echo $! >"$WEB_PID_FILE"
+
+    cleanup() {
+      echo
+      echo "==> Stopping dev processes..."
+      stop_dev_processes
+      echo "==> Stopping MySQL container..."
+      compose stop mysql >/dev/null 2>&1 || true
+      exit 0
+    }
+    trap cleanup INT TERM
+
     echo
-    echo "==> Stack is up"
-    echo "    web:      http://localhost:3000"
-    echo "    api:      http://localhost:8080/api/v1"
-    echo "    minio:    http://localhost:9001"
-    echo "    logs:     $LOG_DIR/{api,web}.log  (or ./run.sh logs)"
-    echo "    stop:     Ctrl-C  (or ./run.sh stop)"
+    echo "==================================================================="
+    echo "  Web:  http://localhost:${WEB_PORT:-3000}"
+    echo "  API:  http://localhost:${APP_PORT:-4000}/api/v1"
+    echo "  DB:   localhost:${DB_PORT:-3306}  (user=${DB_USERNAME:-bodh})"
+    echo "  Tailing combined logs — press Ctrl-C to stop everything."
+    echo "==================================================================="
     echo
-    wait
-    ;;
-  stop|down)
-    stop_all
-    ;;
-  infra)
-    start_infra
-    ;;
-  api)
-    start_api
-    ;;
-  web)
-    start_web
-    ;;
-  logs)
     tail -F "$LOG_DIR/api.log" "$LOG_DIR/web.log"
     ;;
+
+  api)
+    need docker
+    need java
+    echo "==> Starting MySQL in Docker (port ${DB_PORT:-3306})"
+    compose up -d mysql
+    wait_for_mysql
+
+    echo "==> Starting Spring API on http://localhost:${APP_PORT:-4000}  (Ctrl+C to stop)"
+    cleanup_api() {
+      echo
+      echo "==> Stopping MySQL container..."
+      compose stop mysql >/dev/null 2>&1 || true
+      exit 0
+    }
+    trap cleanup_api INT TERM
+
+    cd "$API_DIR"
+    SPRING_PROFILES_ACTIVE=dev exec ./mvnw spring-boot:run
+    ;;
+
+  app)
+    need npm
+    if [ ! -d "$WEB_DIR/node_modules" ]; then
+      echo "==> Installing frontend dependencies"
+      (cd "$WEB_DIR" && npm install --no-audit --no-fund)
+    fi
+    echo "==> Starting Vite dev server on http://localhost:${WEB_PORT:-3000}  (Ctrl+C to stop)"
+    echo "    NOTE: API not started — make sure something is listening on ${VITE_API_URL:-http://localhost:4000/api/v1}"
+    cd "$WEB_DIR"
+    exec npm run dev
+    ;;
+
+  prod)
+    need docker
+    echo "==> Building images and bringing up the full stack"
+    compose --profile prod build
+    compose --profile prod up -d
+    echo "==> Stack started. Tailing logs (Ctrl-C detaches; stack keeps running)..."
+    compose --profile prod logs -f
+    ;;
+
+  stop)
+    need docker
+    stop_dev_processes
+    compose --profile prod down
+    ;;
+
+  reset)
+    need docker
+    echo "==> Tearing down stack and removing MySQL volume (data will be lost)"
+    stop_dev_processes
+    compose --profile prod down -v
+    ;;
+
+  logs)
+    need docker
+    compose --profile prod logs -f
+    ;;
+
   *)
-    echo "Usage: $0 [up|stop|infra|api|web|logs]" >&2
+    cat >&2 <<USAGE
+Usage: $0 [dev|api|app|prod|stop|reset|logs]
+
+  dev    Everything for development: MySQL in Docker, Spring API + Vite on host.
+         Web: http://localhost:${WEB_PORT:-3000}   API: http://localhost:${APP_PORT:-4000}
+  api    MySQL in Docker + Spring API on host. No frontend.
+         API: http://localhost:${APP_PORT:-4000}
+  app    Vite dev server on host only. No API, no MySQL.
+         Web: http://localhost:${WEB_PORT:-3000}
+  prod   Build and run the full stack in Docker (mysql + api + nginx-served web).
+  stop   Stop the prod stack and any lingering dev processes.
+  reset  Stop and DROP the MySQL volume (DESTRUCTIVE).
+  logs   Tail prod-stack logs.
+
+Env (read from .env or shell):
+  DB_NAME, DB_USERNAME, DB_PASSWORD, DB_ROOT_PASSWORD, DB_PORT
+  APP_PORT, WEB_PORT
+  APP_AUTH_TOKEN_SECRET, APP_AUTH_TOKEN_EXPIRATION_MSEC
+  APP_CORS_ALLOWED_ORIGINS, APP_UPLOADS_BASE_URL
+  VITE_API_URL, VITE_BASE_PATH, VITE_APP_NAME
+USAGE
     exit 1
     ;;
 esac

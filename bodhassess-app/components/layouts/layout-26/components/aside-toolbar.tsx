@@ -40,7 +40,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Badge } from '@/components/ui/badge';
 import { useTheme } from "next-themes";
-import Link from '@/src/lib/next-compat';
+import Link from '@/src/lib/router-helpers';
 
 const menuItems = [
   {
