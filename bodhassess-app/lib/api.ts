@@ -388,6 +388,9 @@ export interface Assessment {
   invitationSent?: boolean;
   createdAt?: string;
   completedAt?: string;
+  // Captured pre-assessment from the demographic-fields catalogue. Free-form
+  // since the field set is configurable at runtime.
+  demographics?: Record<string, unknown>;
 }
 // Backwards-compatible alias so existing imports keep working.
 export type PortalSession = Assessment;

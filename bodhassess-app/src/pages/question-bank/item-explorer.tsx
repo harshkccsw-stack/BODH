@@ -494,7 +494,7 @@ function DropdownFilter<T extends string>({
 function DetailPanel({ item }: { item: QuestionItem }) {
   return (
     <tr>
-      <td colSpan={9} className="bg-muted/30 px-5 py-4">
+      <td colSpan={10} className="bg-muted/30 px-5 py-4">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {/* Stem & Options */}
           <div className="md:col-span-2 space-y-3">
@@ -1027,6 +1027,7 @@ export default function QuestionBankPage() {
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground w-8"></th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Item ID</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Questionnaire</th>
+                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Question</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Sub-domain</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Format</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">IRT (a / b / c)</th>
@@ -1066,6 +1067,13 @@ export default function QuestionBankPage() {
                         {/* Questionnaire */}
                         <td className="px-5 py-3 text-xs">
                           {item.instrumentName || item.subDomain.split(':')[0] || '—'}
+                        </td>
+
+                        {/* Question (stem) — truncated; full text shown when row is expanded */}
+                        <td className="px-5 py-3 text-xs max-w-md">
+                          <p className="line-clamp-2" title={item.stem}>
+                            {item.stem || '—'}
+                          </p>
                         </td>
 
                         {/* Sub-domain */}
@@ -1155,7 +1163,7 @@ export default function QuestionBankPage() {
                 })}
                 {filtered.length === 0 && (
                   <tr>
-                    <td colSpan={9} className="px-5 py-12 text-center text-muted-foreground text-sm">
+                    <td colSpan={10} className="px-5 py-12 text-center text-muted-foreground text-sm">
                       No items match the current filters.
                     </td>
                   </tr>

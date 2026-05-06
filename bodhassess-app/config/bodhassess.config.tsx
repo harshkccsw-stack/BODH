@@ -57,12 +57,7 @@ export const MENU_SIDEBAR: MenuConfig = [
   {
     title: 'Reports',
     icon: FileText,
-    children: [
-      { title: 'All Reports', path: '/reports' },
-      { title: 'Clinical Reports', path: '/reports/clinical' },
-      { title: 'Industrial Reports', path: '/reports/industrial' },
-      { title: 'Counselling Reports', path: '/reports/counselling' },
-    ],
+    path: '/reports',
   },
   { heading: 'Verticals' },
   {
