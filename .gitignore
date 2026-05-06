@@ -1,0 +1,9 @@
+bodhassess-app/node_modules
+# bodhassess-app/dist
+bodhassess-app/.env
+bodhassess-app/.env.local
+bodhassess-app/.env.development.local
+bodhassess-app/.env.test.local
+bodhassess-app/.env.production.local
+
+
