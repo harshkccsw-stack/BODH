@@ -104,7 +104,7 @@ public class AssessmentsService {
         s.setStatus(StringUtils.hasText(dto.getStatus()) ? dto.getStatus() : "Active");
         s.setScore(dto.getScore());
         s.setAnswers(dto.getAnswers() == null ? new HashMap<>() : dto.getAnswers());
-        Map<String, Double> mqts = dto.getMqtScores() == null ? new HashMap<>() : dto.getMqtScores();
+        Map<String, Object> mqts = dto.getMqtScores() == null ? new HashMap<>() : dto.getMqtScores();
         s.setMqtScores(mqts);
         s.setDemographics(dto.getDemographics() == null ? new HashMap<>() : dto.getDemographics());
         s.setGroupId(dto.getGroupId());

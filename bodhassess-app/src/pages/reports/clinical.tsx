@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { getSessions, getSessionById, sessionsToReports, downloadJson } from '@/lib/data-store';
+import { readMqtScores } from '@/lib/api';
 import { X } from 'lucide-react';
 import {
   AlertTriangle,
@@ -344,15 +345,16 @@ export default function ClinicalReportsPage() {
               )}
               {(() => {
                 const session = getSessionById(viewReport.sessionId);
-                if (!session?.mqtScores || Object.keys(session.mqtScores).length === 0) return null;
+                const rows = readMqtScores(session?.mqtScores);
+                if (rows.length === 0) return null;
                 return (
                   <div>
                     <p className="text-xs font-medium text-muted-foreground mb-2">MQT Scores</p>
                     <div className="rounded-lg border border-border overflow-hidden">
-                      {Object.entries(session.mqtScores).map(([k, v], i, arr) => (
-                        <div key={k} className={`flex justify-between px-3 py-2 text-xs ${i < arr.length - 1 ? 'border-b border-border' : ''}`}>
-                          <span>{k}</span>
-                          <span className="font-mono">{String(v)}</span>
+                      {rows.map((r, i) => (
+                        <div key={r.key} className={`flex justify-between px-3 py-2 text-xs ${i < rows.length - 1 ? 'border-b border-border' : ''}`}>
+                          <span>{r.name}</span>
+                          <span className="font-mono">{r.score}</span>
                         </div>
                       ))}
                     </div>

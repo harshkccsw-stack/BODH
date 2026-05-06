@@ -33,12 +33,30 @@ type MediaType = 'none' | 'image' | 'video' | 'youtube' | 'audio';
 interface MQT {
   id: string;
   name: string;
+  children?: MQT[];
 }
 
 interface MQ {
   id: string;
   name: string;
   mqts: MQT[];
+}
+
+// Flatten the MQT tree under each MQ into one row per MQT with a breadcrumb
+// path ("MQ > Parent > Leaf") for the option-score picker.
+function flattenMqtsForPicker(
+  mqs: MQ[],
+): Array<{ mq: MQ; mqt: MQT; path: string }> {
+  const out: Array<{ mq: MQ; mqt: MQT; path: string }> = [];
+  const walk = (mq: MQ, nodes: MQT[], parentLabels: string[]) => {
+    for (const n of nodes) {
+      const label = [mq.name, ...parentLabels, n.name].join(' > ');
+      out.push({ mq, mqt: n, path: label });
+      if (n.children?.length) walk(mq, n.children, [...parentLabels, n.name]);
+    }
+  };
+  mqs.forEach((mq) => walk(mq, mq.mqts, []));
+  return out;
 }
 
 interface OptionMqtScore {
@@ -82,6 +100,14 @@ const LANGUAGES = [
   { code: 'or', label: 'Odia' },
   { code: 'pa', label: 'Punjabi' },
 ];
+
+// Best-effort display name for a vertical when only its code is known
+// (e.g. orphan verticals recovered from questionnaires whose original name
+// was lost because the POST to /verticals silently failed).
+function humanizeVerticalCode(code: string): string {
+  const lowered = code.toLowerCase().replace(/_/g, ' ');
+  return lowered.charAt(0).toUpperCase() + lowered.slice(1);
+}
 
 // --- Upload helper ---
 async function uploadFile(file: File): Promise<{ url: string; media_type: string }> {
@@ -312,7 +338,37 @@ export default function CreateAssessmentPage() {
   const [newVerticalError, setNewVerticalError] = useState('');
 
   useEffect(() => {
-    getVerticals().then(setVerticals).catch(() => setVerticals(BUILT_IN_VERTICALS));
+    let active = true;
+    (async () => {
+      // Build the vertical list from three sources, deduped by code (uppercase):
+      //   1. /verticals API (built-ins + registered customs)
+      //   2. Published questionnaires' `vertical` field — picks up "orphan"
+      //      verticals whose POST to /verticals silently failed.
+      try {
+        const fromApi = await getVerticals();
+        const seen = new Set(fromApi.map((v) => v.code.toUpperCase()));
+        const merged: StoredVertical[] = [...fromApi];
+        try {
+          const { questionnairesApi } = await import('@/lib/api');
+          const qns = await questionnairesApi.list();
+          qns.forEach((q) => {
+            const code = String(q.vertical || '').trim().toUpperCase();
+            if (!code || seen.has(code)) return;
+            seen.add(code);
+            merged.push({
+              id: `v-orphan-${code.toLowerCase()}`,
+              code,
+              name: humanizeVerticalCode(code),
+              description: '',
+            });
+          });
+        } catch { /* questionnaires endpoint optional — skip on error */ }
+        if (active) setVerticals(merged);
+      } catch {
+        if (active) setVerticals(BUILT_IN_VERTICALS);
+      }
+    })();
+    return () => { active = false; };
   }, []);
 
   const filteredVerticals = useMemo(() => {
@@ -365,7 +421,7 @@ export default function CreateAssessmentPage() {
     () => catalog.map((m) => ({
       id: m.id,
       name: m.name,
-      mqts: m.mqts.map((t) => ({ id: t.id, name: t.name })),
+      mqts: m.mqts as MQT[], // already-recursive shape from /qualities
     })),
     [catalog],
   );
@@ -379,17 +435,15 @@ export default function CreateAssessmentPage() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  // Flat list of { mqt, mq } for iteration
-  const allMqts = useMemo(
-    () => mqs.flatMap((mq) => mq.mqts.map((mqt) => ({ mqt, mq }))),
-    [mqs],
-  );
+  // Flat row per MQT (across the whole tree) for the option-score picker.
+  // Each row carries the breadcrumb path so the dropdown can render it.
+  const allMqts = useMemo(() => flattenMqtsForPicker(mqs), [mqs]);
 
   const mqtIndex = useMemo(() => {
-    const map: Record<string, { mq: MQ; mqt: MQT }> = {};
-    mqs.forEach((mq) => mq.mqts.forEach((mqt) => { map[mqt.id] = { mq, mqt }; }));
+    const map: Record<string, { mq: MQ; mqt: MQT; path: string }> = {};
+    allMqts.forEach((row) => { map[row.mqt.id] = row; });
     return map;
-  }, [mqs]);
+  }, [allMqts]);
 
   // ---- Preview (whole questionnaire review) ----
 
@@ -912,9 +966,9 @@ export default function CreateAssessmentPage() {
                                   className="flex-1 min-w-0 rounded-md border border-border bg-background px-2 py-1 text-xs outline-none focus:border-primary"
                                 >
                                   {!entry && <option value={sc.mqt_id}>(missing MQT)</option>}
-                                  {allMqts.map(({ mqt, mq }) => (
+                                  {allMqts.map(({ mqt, path }) => (
                                     <option key={mqt.id} value={mqt.id} disabled={usedIds.has(mqt.id)}>
-                                      {mq.name}: {mqt.name}{usedIds.has(mqt.id) ? ' (already used)' : ''}
+                                      {path}{usedIds.has(mqt.id) ? ' (already used)' : ''}
                                     </option>
                                   ))}
                                 </select>
@@ -943,7 +997,7 @@ export default function CreateAssessmentPage() {
                         </div>
                       )}
                       {(() => {
-                        const unusedMqts = allMqts.filter(({ mqt }) => !opt.scores.some((s) => s.mqt_id === mqt.id));
+                        const unusedMqts = allMqts.filter((row) => !opt.scores.some((s) => s.mqt_id === row.mqt.id));
                         if (unusedMqts.length === 0) return null;
                         return (
                           <button
@@ -1120,7 +1174,7 @@ export default function CreateAssessmentPage() {
         mqs: mqs.map((m) => ({
           id: m.id,
           name: m.name,
-          mqts: m.mqts.map((t) => ({ id: t.id, name: t.name })),
+          mqts: m.mqts, // recursive — children preserved
         })),
         questions: questions.map((q) => ({
           id: q.id,
@@ -1150,7 +1204,7 @@ export default function CreateAssessmentPage() {
       try {
         const scoring_config = {
           model: 'MQ_MQT',
-          mqs: mqs.map((m) => ({ id: m.id, name: m.name, mqts: m.mqts.map((t) => ({ id: t.id, name: t.name })) })),
+          mqs: mqs.map((m) => ({ id: m.id, name: m.name, mqts: m.mqts })),
         };
         await fetch(`${API_BASE}/questionnaires-catalog`, {
           method: 'POST',
@@ -1779,7 +1833,7 @@ export default function CreateAssessmentPage() {
                                     <div className="flex flex-wrap gap-1">
                                       {opt.scores.map((s) => (
                                         <span key={s.mqt_id} className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[0.6875rem] font-mono text-muted-foreground">
-                                          {mqtIndex[s.mqt_id]?.mqt.name || s.mqt_id}: {s.score}
+                                          {mqtIndex[s.mqt_id]?.path || s.mqt_id}: {s.score}
                                         </span>
                                       ))}
                                     </div>

@@ -39,7 +39,7 @@ export interface StoredSession {
   score?: string;
   createdAt: string;
   answers?: Record<string, number>;
-  mqtScores?: Record<string, number>;
+  mqtScores?: import('./api').Assessment['mqtScores'];
   completedAt?: string;
 }
 
@@ -206,7 +206,7 @@ export interface GeneratedReport {
   diagnosticCodes: string[];
   riskFlag: boolean;
   riskNote?: string;
-  mqtScores?: Record<string, number>;
+  mqtScores?: import('./api').Assessment['mqtScores'];
 }
 
 export function sessionsToReports(

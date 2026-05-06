@@ -1,0 +1,22 @@
+✓ Connected to PostgreSQL
+
+  BodhAssess API v1.0.0
+  Environment: development
+  Listening:   http://localhost:8080
+  Health:      http://localhost:8080/api/v1/health
+
+2026/05/05 10:45:55 "OPTIONS http://localhost:8080/api/v1/practitioners/me HTTP/1.1" from [::1]:56535 - 200 0B in 0s
+2026/05/05 10:45:55 "GET http://localhost:8080/api/v1/practitioners/me HTTP/1.1" from [::1]:56535 - 200 429B in 54.2464ms
+2026/05/05 10:45:55 "GET http://localhost:8080/api/v1/practitioners/me HTTP/1.1" from [::1]:56536 - 200 429B in 1.9112ms
+2026/05/05 10:45:55 "OPTIONS http://localhost:8080/api/v1/qualities HTTP/1.1" from [::1]:56536 - 200 0B in 0s
+2026/05/05 10:45:55 "OPTIONS http://localhost:8080/api/v1/qualities HTTP/1.1" from [::1]:56535 - 200 0B in 0s
+2026/05/05 10:45:55 "GET http://localhost:8080/api/v1/qualities HTTP/1.1" from [::1]:56535 - 200 185B in 12.7113ms
+2026/05/05 10:45:55 "GET http://localhost:8080/api/v1/qualities HTTP/1.1" from [::1]:56536 - 200 185B in 1.3888ms
+2026/05/06 10:31:47 "OPTIONS http://localhost:8080/api/v1/respondents/me HTTP/1.1" from [::1]:49879 - 200 0B in 0s
+2026/05/06 10:31:47 "OPTIONS http://localhost:8080/api/v1/respondents/me HTTP/1.1" from [::1]:49880 - 200 0B in 0s
+2026/05/06 10:31:47 "GET http://localhost:8080/api/v1/respondents/me HTTP/1.1" from [::1]:49880 - 200 66B in 30.4738ms
+2026/05/06 10:31:47 "GET http://localhost:8080/api/v1/respondents/me HTTP/1.1" from [::1]:49879 - 200 66B in 1.7259ms
+2026/05/06 10:31:47 "OPTIONS http://localhost:8080/api/v1/assessments?respondentId=R-001 HTTP/1.1" from [::1]:49879 - 200 0B in 0s
+2026/05/06 10:31:47 "OPTIONS http://localhost:8080/api/v1/assessments?respondentId=R-001 HTTP/1.1" from [::1]:49879 - 200 0B in 0s
+2026/05/06 10:31:47 "GET http://localhost:8080/api/v1/assessments?respondentId=R-001 HTTP/1.1" from [::1]:49880 - 200 1895B in 10.4891ms
+2026/05/06 10:31:47 "GET http://localhost:8080/api/v1/assessments?respondentId=R-001 HTTP/1.1" from [::1]:49879 - 200 1895B in 1.3633ms

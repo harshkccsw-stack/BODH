@@ -19,7 +19,7 @@ public class AssessmentDto {
     private String status;
     private String score;
     private Map<String, Object> answers;
-    @JsonProperty("mqtScores")           private Map<String, Double> mqtScores;
+    @JsonProperty("mqtScores")           private Map<String, Object> mqtScores;
     private Map<String, Object> demographics;
     @JsonProperty("groupId")             private String groupId;
     @JsonProperty("groupName")           private String groupName;
@@ -53,8 +53,8 @@ public class AssessmentDto {
     public void setScore(String score) { this.score = score; }
     public Map<String, Object> getAnswers() { return answers; }
     public void setAnswers(Map<String, Object> answers) { this.answers = answers; }
-    public Map<String, Double> getMqtScores() { return mqtScores; }
-    public void setMqtScores(Map<String, Double> mqtScores) { this.mqtScores = mqtScores; }
+    public Map<String, Object> getMqtScores() { return mqtScores; }
+    public void setMqtScores(Map<String, Object> mqtScores) { this.mqtScores = mqtScores; }
     public Map<String, Object> getDemographics() { return demographics; }
     public void setDemographics(Map<String, Object> demographics) { this.demographics = demographics; }
     public String getGroupId() { return groupId; }

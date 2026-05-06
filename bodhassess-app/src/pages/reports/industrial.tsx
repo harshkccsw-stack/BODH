@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { getSessions, getSessionById, sessionsToReports, downloadJson } from '@/lib/data-store';
+import { readMqtScores } from '@/lib/api';
 import { X } from 'lucide-react';
 import {
   ChevronLeft,
@@ -106,14 +107,12 @@ function CompetencyBars({ competencies }: { competencies: CompetencyScore[] }) {
   );
 }
 
-function deriveRoleFitFromScores(mqt?: Record<string, number>): number {
-  if (!mqt) return 70;
-  const values = Object.values(mqt);
-  if (!values.length) return 70;
-  const avg = values.reduce((a, b) => a + b, 0) / values.length;
+function deriveRoleFitFromScores(mqt?: Parameters<typeof readMqtScores>[0]): number {
+  const rows = readMqtScores(mqt);
+  if (!rows.length) return 70;
+  const avg = rows.reduce((a, x) => a + x.score, 0) / rows.length;
   // Scale rough 0-4 Likert totals into a 0-100 fit score; clamp to sane range.
-  const scaled = Math.min(100, Math.max(35, Math.round(55 + avg * 8)));
-  return scaled;
+  return Math.min(100, Math.max(35, Math.round(55 + avg * 8)));
 }
 
 export default function IndustrialReportsPage() {
@@ -135,12 +134,10 @@ export default function IndustrialReportsPage() {
       status: r.status as ReportStatus,
       generatedAt: r.generatedAt,
       roleFitScore: deriveRoleFitFromScores(r.mqtScores),
-      competencies: r.mqtScores
-        ? Object.entries(r.mqtScores).slice(0, 5).map(([name, score]) => ({
-            name,
-            score: Math.min(100, Math.max(0, Math.round(Number(score) * 10))),
-          }))
-        : [],
+      competencies: readMqtScores(r.mqtScores).slice(0, 5).map((row) => ({
+        name: row.name,
+        score: Math.min(100, Math.max(0, Math.round(row.score * 10))),
+      })),
     }));
     setLiveReports(generated);
   }, []);

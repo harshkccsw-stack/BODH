@@ -7,8 +7,17 @@ import { portalSessionsApi, questionnairesApi, respondentsApi, demographicFields
 import { config } from '@/lib/config';
 
 type AuthUser = Respondent;
-interface MQT { id: string; name: string; }
+interface MQT { id: string; name: string; children?: MQT[]; }
 interface MQ { id: string; name: string; mqts: MQT[]; }
+
+// Walk every MQT in the tree (depth-first) so we can build a complete id→name
+// map for scoring at any depth.
+function walkMqts(nodes: MQT[] = [], visit: (n: MQT) => void): void {
+  for (const n of nodes) {
+    visit(n);
+    if (n.children?.length) walkMqts(n.children, visit);
+  }
+}
 interface OptionScore { mqt_id: string; score: number; }
 interface QOption { text: string; scores: OptionScore[]; media_url?: string; media_type?: string; }
 interface Question {
@@ -142,35 +151,47 @@ export default function PortalTakePage() {
     if (!instrument || !session) return;
     setSubmitting(true);
 
+    // Build id→name and id→0 maps over the *whole* MQT tree (any depth).
+    // Only MQTs that an option actually scored against will appear in the
+    // saved result — auto roll-ups for parent MQTs are intentionally not
+    // computed.
     const mqtName: Record<string, string> = {};
     const totals: Record<string, number> = {};
-    instrument.mqs.forEach((mq) => mq.mqts.forEach((t) => {
+    instrument.mqs.forEach((mq) => walkMqts(mq.mqts, (t) => {
       mqtName[t.id] = t.name;
       totals[t.id] = 0;
     }));
 
+    const scored = new Set<string>();
     instrument.questions.forEach((q) => {
       const ans = answers[q.id];
       if (ans === undefined) return;
-      // Free-text answers are strings — no MQT score contribution
-      if (typeof ans !== 'number') return;
+      if (typeof ans !== 'number') return; // free-text — no MQT contribution
       const opt = q.options[ans];
       if (!opt) return;
       (opt.scores || []).forEach((s) => {
         totals[s.mqt_id] = (totals[s.mqt_id] || 0) + s.score;
+        scored.add(s.mqt_id);
       });
     });
 
-    const byName: Record<string, number> = {};
-    Object.entries(totals).forEach(([id, v]) => { byName[mqtName[id] || id] = v; });
-    const summary = Object.entries(byName).map(([k, v]) => `${k}=${v}`).join(', ') || 'Submitted';
+    // Persist keyed by MQT id, carrying the resolved name so reports can
+    // render labels without needing the questionnaire's MQ tree handy.
+    const mqtScores: Record<string, { name: string; score: number }> = {};
+    scored.forEach((id) => {
+      mqtScores[id] = { name: mqtName[id] || id, score: totals[id] };
+    });
+    const summary =
+      Object.values(mqtScores)
+        .map((v) => `${v.name}=${v.score}`)
+        .join(', ') || 'Submitted';
 
     try {
       await portalSessionsApi.update(session.id, {
         status: 'Completed',
         score: summary,
         answers,
-        mqtScores: byName,
+        mqtScores,
         completedAt: new Date().toISOString(),
       });
     } catch {
@@ -182,7 +203,7 @@ export default function PortalTakePage() {
 
   if (loadError) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-6">
+      <div className="flex-1 min-h-screen w-full flex items-center justify-center p-6">
         <Card className="max-w-md w-full">
           <CardContent className="p-6 space-y-4 text-center">
             <AlertTriangle className="h-10 w-10 text-amber-500 mx-auto" />
@@ -197,7 +218,7 @@ export default function PortalTakePage() {
   }
 
   if (!session || !instrument) {
-    return <div className="min-h-screen flex items-center justify-center text-sm text-muted-foreground">Loading assessment...</div>;
+    return <div className="flex-1 min-h-screen w-full flex items-center justify-center text-sm text-muted-foreground">Loading assessment...</div>;
   }
 
   // Disclaimer gate — only shown if the questionnaire has one and the
@@ -425,7 +446,7 @@ export default function PortalTakePage() {
   const total = instrument.questions.length;
   if (total === 0) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-6">
+      <div className="flex-1 min-h-screen w-full flex items-center justify-center p-6">
         <Card className="max-w-md w-full">
           <CardContent className="p-6 space-y-4 text-center">
             <p className="text-sm">This assessment has no questions yet.</p>
@@ -446,7 +467,7 @@ export default function PortalTakePage() {
   const isLast = index === total - 1;
 
   return (
-    <div className="min-h-screen bg-muted/20">
+    <div className="flex-1 min-h-screen w-full bg-muted/20">
       <header className="border-b border-border bg-background sticky top-0 z-10">
         <div className="max-w-3xl mx-auto px-5 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">

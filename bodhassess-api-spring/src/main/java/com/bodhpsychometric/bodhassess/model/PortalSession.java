@@ -50,9 +50,12 @@ public class PortalSession {
     @Column(name = "answers", columnDefinition = "json")
     private Map<String, Object> answers = new HashMap<>();
 
+    // Per-MQT scoring result. Kept opaque so the frontend can store either
+    // legacy `{ [name]: total }` rows or the current
+    // `{ [mqt_id]: { name, score } }` shape without backend churn.
     @Type(type = "json")
     @Column(name = "mqt_scores", columnDefinition = "json")
-    private Map<String, Double> mqtScores = new HashMap<>();
+    private Map<String, Object> mqtScores = new HashMap<>();
 
     @Type(type = "json")
     @Column(name = "demographics", columnDefinition = "json")
@@ -105,8 +108,8 @@ public class PortalSession {
     public void setScore(String score) { this.score = score; }
     public Map<String, Object> getAnswers() { return answers; }
     public void setAnswers(Map<String, Object> answers) { this.answers = answers; }
-    public Map<String, Double> getMqtScores() { return mqtScores; }
-    public void setMqtScores(Map<String, Double> mqtScores) { this.mqtScores = mqtScores; }
+    public Map<String, Object> getMqtScores() { return mqtScores; }
+    public void setMqtScores(Map<String, Object> mqtScores) { this.mqtScores = mqtScores; }
     public Map<String, Object> getDemographics() { return demographics; }
     public void setDemographics(Map<String, Object> demographics) { this.demographics = demographics; }
     public String getGroupId() { return groupId; }

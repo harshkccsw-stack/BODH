@@ -40,13 +40,18 @@ public class QualitiesService {
         q.setName(dto.getName());
         q.setDescription(dto.getDescription());
         q.setMqts(dto.getMqts() == null ? java.util.Collections.emptyList() :
-                dto.getMqts().stream().map(m -> {
-                    MeasuredQuality.Mqt out = new MeasuredQuality.Mqt();
-                    out.setId(m.getId());
-                    out.setName(m.getName());
-                    return out;
-                }).collect(Collectors.toList()));
+                dto.getMqts().stream().map(this::dtoToEntity).collect(Collectors.toList()));
         return toDto(repo.save(q));
+    }
+
+    private MeasuredQuality.Mqt dtoToEntity(QualityDto.MqtDto m) {
+        MeasuredQuality.Mqt out = new MeasuredQuality.Mqt();
+        out.setId(m.getId());
+        out.setName(m.getName());
+        if (m.getChildren() != null && !m.getChildren().isEmpty()) {
+            out.setChildren(m.getChildren().stream().map(this::dtoToEntity).collect(Collectors.toList()));
+        }
+        return out;
     }
 
     public QualityDto update(String id, QualityDto dto) {
@@ -68,12 +73,17 @@ public class QualitiesService {
         d.setName(q.getName());
         d.setDescription(q.getDescription());
         d.setMqts(q.getMqts() == null ? new java.util.ArrayList<>() :
-                q.getMqts().stream().map(m -> {
-                    QualityDto.MqtDto out = new QualityDto.MqtDto();
-                    out.setId(m.getId());
-                    out.setName(m.getName());
-                    return out;
-                }).collect(Collectors.toList()));
+                q.getMqts().stream().map(this::entityToDto).collect(Collectors.toList()));
         return d;
+    }
+
+    private QualityDto.MqtDto entityToDto(MeasuredQuality.Mqt m) {
+        QualityDto.MqtDto out = new QualityDto.MqtDto();
+        out.setId(m.getId());
+        out.setName(m.getName());
+        if (m.getChildren() != null && !m.getChildren().isEmpty()) {
+            out.setChildren(m.getChildren().stream().map(this::entityToDto).collect(Collectors.toList()));
+        }
+        return out;
     }
 }

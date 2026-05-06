@@ -40,10 +40,6 @@ export const MENU_SIDEBAR: MenuConfig = [
     icon: BookOpen,
     children: [
       { title: 'All Questionnaires', path: '/questionnaires' },
-      { title: 'Clinical Questionnaires', path: '/questionnaires/clinical' },
-      { title: 'Industrial Questionnaires', path: '/questionnaires/industrial' },
-      { title: 'Counselling Questionnaires', path: '/questionnaires/counselling' },
-      { title: 'Experimental Paradigms', path: '/questionnaires/experimental' },
       { title: 'Demographic Fields', path: '/questionnaires/demographics' },
     ],
   },

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { getSessions, getSessionById, sessionsToReports, downloadJson } from '@/lib/data-store';
+import { readMqtScores } from '@/lib/api';
 import {
   Search,
   FileText,
@@ -168,7 +169,7 @@ const informantColor = (informant: Informant) => {
 
 function buildLiveCounsellingReports(): CounsellingReport[] {
   return sessionsToReports(getSessions(), { vertical: 'Counselling' }).map((r): CounsellingReport => {
-    const totals = r.mqtScores ? Object.values(r.mqtScores).reduce((a, b) => a + (Number(b) || 0), 0) : 0;
+    const totals = readMqtScores(r.mqtScores).reduce((a, x) => a + x.score, 0);
     const severity = totals >= 20 ? 'Abnormal' : totals >= 12 ? 'Borderline' : 'Normal';
     return {
       id: r.id,
@@ -421,15 +422,16 @@ export default function CounsellingReportsPage() {
               </div>
               {(() => {
                 const session = getSessionById(viewReport.studentId);
-                if (!session?.mqtScores || Object.keys(session.mqtScores).length === 0) return null;
+                const rows = readMqtScores(session?.mqtScores);
+                if (rows.length === 0) return null;
                 return (
                   <div>
                     <p className="text-xs font-medium text-muted-foreground mb-2">MQT Scores</p>
                     <div className="rounded-lg border border-border overflow-hidden">
-                      {Object.entries(session.mqtScores).map(([k, v], i, arr) => (
-                        <div key={k} className={`flex justify-between px-3 py-2 text-xs ${i < arr.length - 1 ? 'border-b border-border' : ''}`}>
-                          <span>{k}</span>
-                          <span className="font-mono">{String(v)}</span>
+                      {rows.map((r, i) => (
+                        <div key={r.key} className={`flex justify-between px-3 py-2 text-xs ${i < rows.length - 1 ? 'border-b border-border' : ''}`}>
+                          <span>{r.name}</span>
+                          <span className="font-mono">{r.score}</span>
                         </div>
                       ))}
                     </div>

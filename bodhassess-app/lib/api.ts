@@ -199,12 +199,40 @@ export const groupsApi = {
 };
 
 // ---------- Measured Qualities ----------
-export interface MQT { id: string; name: string; }
+// MQTs form a tree. `mqts` on the MQ are the top-level children of the MQ
+// root (the MQ itself is never scored against). Each MQT can have its own
+// `children` recursively. Existing flat data parses unchanged because
+// `children` is optional.
+export interface MQT {
+  id: string;
+  name: string;
+  children?: MQT[];
+}
 export interface MQ {
   id: string;
   name: string;
   description?: string;
   mqts: MQT[];
+}
+
+// Per-MQT scoring result on a completed assessment. Keyed by MQT id on the
+// session so labels survive even if the MQ tree is later renamed/restructured.
+export interface MQTScore {
+  name: string;
+  score: number;
+}
+
+// Reader for `Assessment.mqtScores` that handles both the new shape (id-keyed
+// `{name, score}`) and the legacy shape (name-keyed `number`). Returns rows
+// in iteration order.
+export function readMqtScores(
+  scores?: Record<string, MQTScore | number>,
+): Array<{ key: string; name: string; score: number }> {
+  if (!scores) return [];
+  return Object.entries(scores).map(([key, v]) => {
+    if (typeof v === 'number') return { key, name: key, score: v };
+    return { key, name: v.name || key, score: Number(v.score) || 0 };
+  });
 }
 export const qualitiesApi = {
   list: () => jsonFetch<MQ[]>('/qualities'),
@@ -267,7 +295,7 @@ export interface PublishedQuestionnaire {
   duration?: number;
   tier?: string;
   languages?: string[];
-  mqs: Array<{ id: string; name: string; mqts: Array<{ id: string; name: string }> }>;
+  mqs: Array<{ id: string; name: string; mqts: MQT[] }>;
   questions: Array<{
     id: string;
     stem: string;
@@ -349,7 +377,10 @@ export interface Assessment {
   status: string;
   score?: string;
   answers?: Record<string, number | string>;
-  mqtScores?: Record<string, number>;
+  // Keyed by MQT id, value carries the resolved name + total. Legacy rows
+  // may be `Record<string, number>` keyed by name — readers handle both
+  // shapes via `readMqtScores`.
+  mqtScores?: Record<string, MQTScore | number>;
   groupId?: string;
   groupName?: string;
   consentId?: string;

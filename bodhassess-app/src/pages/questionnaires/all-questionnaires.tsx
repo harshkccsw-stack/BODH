@@ -173,17 +173,6 @@ export default function InstrumentsPage() {
     };
   }, []);
 
-  // Filter pill list = built-ins + any user-created verticals picked up from
-  // /question-bank/create. Keys are stored lowercased to match instrument records.
-  const verticals = useMemo(() => [
-    ...builtInVerticals,
-    ...customVerticals.map((v) => ({
-      key: v.code.toLowerCase(),
-      label: v.name,
-      icon: ListChecks,
-    })),
-  ], [customVerticals]);
-
   useEffect(() => {
     getInstruments()
       .then((data) => {
@@ -241,6 +230,38 @@ export default function InstrumentsPage() {
     push(instruments);
     return out.map((i) => applyOverride(i, overrides));
   }, [freshLocal, apiInstruments, overrides]);
+
+  // Filter list = built-ins + any user-created verticals (from /verticals API)
+  // + any vertical actually used by an instrument but not registered in
+  // /verticals. The third source catches orphan verticals (e.g. typed in the
+  // create flow but the /verticals POST failed silently).
+  // Keys are stored lowercased to match instrument records.
+  const verticals = useMemo(() => {
+    const seen = new Set<string>();
+    const out: { key: string; label: string; icon: typeof Brain }[] = [];
+    builtInVerticals.forEach((v) => {
+      seen.add(v.key.toLowerCase());
+      out.push(v);
+    });
+    customVerticals.forEach((v) => {
+      const key = v.code.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      out.push({ key, label: v.name, icon: ListChecks });
+    });
+    // Orphan verticals — surfaced from instruments themselves.
+    allInstruments.forEach((i) => {
+      const raw = String(i.vertical || '').trim();
+      if (!raw) return;
+      const key = raw.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      const lowered = raw.toLowerCase().replace(/_/g, ' ');
+      const label = lowered.charAt(0).toUpperCase() + lowered.slice(1);
+      out.push({ key, label, icon: ListChecks });
+    });
+    return out;
+  }, [customVerticals, allInstruments]);
 
   const openEdit = (inst: Instrument) => {
     setEditing(inst);
@@ -319,7 +340,50 @@ export default function InstrumentsPage() {
         </Button>
       </div>
 
-      <div className="flex flex-col gap-5">
+      <div className="flex flex-col lg:flex-row gap-5">
+        {/* Vertical sidebar — built-ins + any user-created verticals */}
+        <aside className="lg:w-56 shrink-0">
+          <div className="lg:sticky lg:top-4 space-y-1">
+            <p className="text-[0.6875rem] font-medium uppercase tracking-wider text-muted-foreground px-2 mb-2">
+              Verticals
+            </p>
+            {verticals.map((v) => {
+              const Icon = v.icon;
+              const isActive = activeVertical === v.key;
+              const count =
+                v.key === 'all'
+                  ? allInstruments.length
+                  : allInstruments.filter((i) => toStr(i.vertical) === toStr(v.key)).length;
+              return (
+                <button
+                  key={v.key}
+                  type="button"
+                  onClick={() => setActiveVertical(v.key)}
+                  className={cn(
+                    'w-full flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm transition-colors',
+                    isActive
+                      ? 'bg-primary/10 text-primary font-medium'
+                      : 'text-foreground hover:bg-muted',
+                  )}
+                >
+                  <Icon className="h-4 w-4 shrink-0" />
+                  <span className="flex-1 text-left truncate">{v.label}</span>
+                  <span
+                    className={cn(
+                      'inline-flex items-center justify-center rounded-full px-1.5 text-[0.6875rem] font-medium min-w-5',
+                      isActive
+                        ? 'bg-primary/20 text-primary'
+                        : 'bg-muted text-muted-foreground',
+                    )}
+                  >
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </aside>
+
         {/* Main content */}
         <div className="flex-1 space-y-5 min-w-0">
           {/* Search & type filter bar */}

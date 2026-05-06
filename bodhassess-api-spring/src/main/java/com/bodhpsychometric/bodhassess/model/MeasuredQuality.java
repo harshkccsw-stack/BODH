@@ -40,11 +40,17 @@ public class MeasuredQuality {
     public static class Mqt {
         private String id;
         private String name;
+        // Recursive children. Optional — flat MQTs (no children field) parse
+        // unchanged. The MQ itself is the tree root and is never scored
+        // against; only Mqts at any depth are.
+        private List<Mqt> children;
 
         public String getId() { return id; }
         public void setId(String id) { this.id = id; }
         public String getName() { return name; }
         public void setName(String name) { this.name = name; }
+        public List<Mqt> getChildren() { return children; }
+        public void setChildren(List<Mqt> children) { this.children = children; }
     }
 
     public String getId() { return id; }
