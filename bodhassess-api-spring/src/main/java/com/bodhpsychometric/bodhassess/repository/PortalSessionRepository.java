@@ -17,4 +17,20 @@ public interface PortalSessionRepository extends JpaRepository<PortalSession, St
 
     @Query("SELECT s FROM PortalSession s WHERE s.respondentId = :rid ORDER BY s.createdAt DESC")
     List<PortalSession> findByRespondentId(@Param("rid") String rid);
+
+    @Query("SELECT s FROM PortalSession s "
+         + "WHERE s.instrument = :instrument "
+         + "AND ((:groupId IS NULL AND s.groupId IS NULL) OR s.groupId = :groupId) "
+         + "ORDER BY s.createdAt DESC")
+    List<PortalSession> findByInstrumentAndGroup(@Param("instrument") String instrument,
+                                                 @Param("groupId") String groupId);
+
+    @Query("SELECT new com.bodhpsychometric.bodhassess.payload.LiveAssessmentSummary("
+         + "  s.instrument, s.instrumentFullName, s.groupId, s.groupName, "
+         + "  COUNT(s), "
+         + "  SUM(CASE WHEN s.status = 'Completed' THEN 1 ELSE 0 END)) "
+         + "FROM PortalSession s "
+         + "GROUP BY s.instrument, s.instrumentFullName, s.groupId, s.groupName "
+         + "ORDER BY s.instrumentFullName, s.groupName")
+    List<com.bodhpsychometric.bodhassess.payload.LiveAssessmentSummary> findAssessmentSummaries();
 }

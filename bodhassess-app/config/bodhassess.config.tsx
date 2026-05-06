@@ -121,6 +121,11 @@ export const MENU_SIDEBAR: MenuConfig = [
   },
   { heading: 'Administration' },
   {
+    title: 'Live Tracking',
+    icon: Activity,
+    path: '/admin/live-tracking',
+  },
+  {
     title: 'Users & Roles',
     icon: Users,
     children: [

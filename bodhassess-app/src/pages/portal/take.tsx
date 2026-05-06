@@ -96,6 +96,22 @@ export default function PortalTakePage() {
     }
   }, [session]);
 
+  // Heartbeat — keep the admin Live Tracking page informed of where this
+  // respondent currently is. Best-effort; failures are swallowed so a flaky
+  // network never blocks the assessment itself.
+  useEffect(() => {
+    if (!session?.id || !instrument || submitting) return;
+    const total = instrument.questions.length;
+    const ping = () => {
+      portalSessionsApi
+        .heartbeat(session.id, { currentIndex: index, totalQuestions: total })
+        .catch(() => { /* swallow */ });
+    };
+    ping();
+    const t = setInterval(ping, 5000);
+    return () => clearInterval(t);
+  }, [session?.id, instrument, index, submitting]);
+
   useEffect(() => {
     (async () => {
       try {

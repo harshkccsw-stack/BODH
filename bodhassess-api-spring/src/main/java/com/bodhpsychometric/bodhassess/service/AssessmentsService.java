@@ -17,7 +17,11 @@ import com.bodhpsychometric.bodhassess.exception.BadRequestException;
 import com.bodhpsychometric.bodhassess.exception.ResourceNotFoundException;
 import com.bodhpsychometric.bodhassess.model.PortalSession;
 import com.bodhpsychometric.bodhassess.payload.AssessmentDto;
+import com.bodhpsychometric.bodhassess.payload.HeartbeatRequest;
 import com.bodhpsychometric.bodhassess.repository.PortalSessionRepository;
+import com.bodhpsychometric.bodhassess.security.UserPrincipal;
+
+import org.springframework.security.access.AccessDeniedException;
 
 @Service
 @Transactional
@@ -25,6 +29,9 @@ public class AssessmentsService {
 
     @Autowired
     private PortalSessionRepository repo;
+
+    @Autowired
+    private HeartbeatService heartbeats;
 
     @Transactional(readOnly = true)
     public List<AssessmentDto> list(String respondentId) {
@@ -82,8 +89,21 @@ public class AssessmentsService {
             }
             if (ts == null) ts = OffsetDateTime.now(ZoneOffset.UTC);
             s.setCompletedAt(ts);
+            heartbeats.clear(id);
         }
         return toDto(repo.save(s));
+    }
+
+    public void recordHeartbeat(String id, HeartbeatRequest body, UserPrincipal principal) {
+        PortalSession s = repo.findById(id).orElseThrow(() -> new ResourceNotFoundException("Assessment", "id", id));
+        if (principal == null || !s.getRespondentId().equals(principal.getId())) {
+            throw new AccessDeniedException("Not the owner of this assessment session");
+        }
+        if ("Completed".equalsIgnoreCase(s.getStatus())) {
+            throw new BadRequestException("Assessment already completed");
+        }
+        heartbeats.record(id, s.getRespondentId(), s.getInstrument(), s.getGroupId(),
+                body.getCurrentIndex(), body.getTotalQuestions());
     }
 
     public void delete(String id) {

@@ -9,11 +9,13 @@ public class AppProperties {
     private final Cors cors = new Cors();
     private final Uploads uploads = new Uploads();
     private final Admin admin = new Admin();
+    private final Heartbeat heartbeat = new Heartbeat();
 
     public Auth getAuth() { return auth; }
     public Cors getCors() { return cors; }
     public Uploads getUploads() { return uploads; }
     public Admin getAdmin() { return admin; }
+    public Heartbeat getHeartbeat() { return heartbeat; }
 
     public static class Auth {
         private String tokenSecret;
@@ -53,5 +55,16 @@ public class AppProperties {
 
         public String getPassword() { return password; }
         public void setPassword(String password) { this.password = password; }
+    }
+
+    public static class Heartbeat {
+        private long ttlSeconds = 30;
+        private long idleThresholdSeconds = 15;
+
+        public long getTtlSeconds() { return ttlSeconds; }
+        public void setTtlSeconds(long ttlSeconds) { this.ttlSeconds = ttlSeconds; }
+
+        public long getIdleThresholdSeconds() { return idleThresholdSeconds; }
+        public void setIdleThresholdSeconds(long idleThresholdSeconds) { this.idleThresholdSeconds = idleThresholdSeconds; }
     }
 }
