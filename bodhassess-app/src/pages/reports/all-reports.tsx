@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { assessmentsApi, readMqtScores, type Assessment } from '@/lib/api';
+import { formatDDMMYYYY, formatDDMMYYYYTime } from '@/lib/helpers';
 import { X } from 'lucide-react';
 import {
   Briefcase,
@@ -108,7 +109,7 @@ export default function ReportsPage() {
           format: 'Interactive',
           // Status starts at Draft — workflow for Approved/Finalized lives elsewhere.
           status: 'Draft',
-          generatedAt: (s.completedAt || s.createdAt || '').slice(0, 10),
+          generatedAt: formatDDMMYYYY(s.completedAt || s.createdAt),
         }));
         const byId: Record<string, Assessment> = {};
         completed.forEach((s) => { byId[s.id] = s; });
@@ -154,8 +155,8 @@ export default function ReportsPage() {
       ['Status', report.status],
       ['Generated At', report.generatedAt],
       ['Session Status', session?.status || ''],
-      ['Created At', session?.createdAt || ''],
-      ['Completed At', session?.completedAt || ''],
+      ['Created At', formatDDMMYYYYTime(session?.createdAt)],
+      ['Completed At', formatDDMMYYYYTime(session?.completedAt)],
       ['Score Summary', session?.score || ''],
     ];
     const summarySheet = XLSX.utils.aoa_to_sheet([['Field', 'Value'], ...summary]);

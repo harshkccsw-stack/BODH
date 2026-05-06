@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { API_BASE } from '@/lib/api';
 import { createRespondent, deleteRespondent, getRespondents, type StoredRespondent } from '@/lib/data-store';
+import { formatDDMMYYYY } from '@/lib/helpers';
 import { ClipboardCheck, Plus, ShieldCheck, Trash2, Upload, Users, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import BulkUploadModal from './bulk-upload-modal';
@@ -171,7 +172,7 @@ export default function RespondentsPage() {
                     <td className="px-5 py-3 font-mono text-xs">{r.id}</td>
                     <td className="px-5 py-3 font-medium">{r.name}</td>
                     <td className="px-5 py-3 font-mono text-xs">{r.email}</td>
-                    <td className="px-5 py-3 font-mono text-xs">{r.dob || '—'}</td>
+                    <td className="px-5 py-3 font-mono text-xs">{formatDDMMYYYY(r.dob) || '—'}</td>
                     <td className="px-5 py-3">{r.sessions_count || 0}</td>
                     <td className="px-5 py-3">
                       <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${consentColors[r.consent || 'Pending']}`}>
@@ -242,7 +243,7 @@ export default function RespondentsPage() {
                   <div className="rounded-lg border border-border bg-muted/40 p-3 space-y-2 font-mono text-xs">
                     <div className="flex items-center justify-between"><span className="text-muted-foreground">Portal URL</span><span>/portal/login</span></div>
                     <div className="flex items-center justify-between"><span className="text-muted-foreground">Login ID</span><span className="font-semibold">{createdCred.id}</span></div>
-                    <div className="flex items-center justify-between"><span className="text-muted-foreground">Password (DOB)</span><span className="font-semibold">{createdCred.dob}</span></div>
+                    <div className="flex items-center justify-between"><span className="text-muted-foreground">Password (DOB)</span><span className="font-semibold">{formatDDMMYYYY(createdCred.dob)}</span></div>
                   </div>
                   <div className="flex justify-end gap-2 pt-2">
                     <Button variant="outline" onClick={() => setModalOpen(false)}>Close</Button>

@@ -20,6 +20,7 @@ import {
   countByVertical,
 } from '@/lib/data-store';
 import { portalSessionsApi, getInstruments as fetchInstruments } from '@/lib/api';
+import { formatDDMMYYYY } from '@/lib/helpers';
 
 const verticalLabels: Record<string, string> = {
   clinical: 'Clinical Psychology',
@@ -95,7 +96,7 @@ function DashboardContent() {
         instrument: s.instrument,
         status: s.status,
         score: s.score || '—',
-        time: (s.createdAt || '').slice(0, 10),
+        time: formatDDMMYYYY(s.createdAt),
       }));
       setRecentLive(live);
     })();

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { portalSessionsApi, type PortalSession } from '@/lib/api';
+import { formatDDMMYYYY } from '@/lib/helpers';
 import {
   AlertTriangle,
   ChevronLeft,
@@ -120,7 +121,7 @@ export default function SessionsPage() {
       language: s.language || 'English',
       status: (s.status || 'Active') as SessionStatus,
       score: s.score || '--',
-      createdAt: (s.createdAt || '').slice(0, 10),
+      createdAt: formatDDMMYYYY(s.createdAt),
     }));
     const liveIds = new Set(live.map((s) => s.id));
     const seeds = seedMockSessions.filter((s) => !liveIds.has(s.id));

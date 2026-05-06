@@ -96,21 +96,47 @@ export function timeAgo(date: Date | string): string {
 
 export function formatDate(input: Date | string | number): string {
   const date = new Date(input);
-  return date.toLocaleDateString('en-US', {
-    month: 'long',
+  return date.toLocaleDateString('en-GB', {
     day: 'numeric',
+    month: 'long',
     year: 'numeric',
   });
 }
 
 export function formatDateTime(input: Date | string | number): string {
   const date = new Date(input);
-  return date.toLocaleString('en-US', {
-    month: 'long',
+  return date.toLocaleString('en-GB', {
     day: 'numeric',
+    month: 'long',
     year: 'numeric',
     hour: 'numeric',
     minute: 'numeric',
     hour12: true,
   });
+}
+
+// DD/MM/YYYY — numeric, locale-independent. Accepts Date, ISO string, or
+// epoch ms. Returns '' for nullish/invalid input so callers don't have to
+// guard separately.
+export function formatDDMMYYYY(input: Date | string | number | null | undefined): string {
+  if (input === null || input === undefined || input === '') return '';
+  const date = input instanceof Date ? input : new Date(input);
+  if (Number.isNaN(date.getTime())) return '';
+  const dd = String(date.getDate()).padStart(2, '0');
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
+  const yyyy = date.getFullYear();
+  return `${dd}/${mm}/${yyyy}`;
+}
+
+// DD/MM/YYYY HH:mm — same as above, with a 24-hour time appended.
+export function formatDDMMYYYYTime(input: Date | string | number | null | undefined): string {
+  if (input === null || input === undefined || input === '') return '';
+  const date = input instanceof Date ? input : new Date(input);
+  if (Number.isNaN(date.getTime())) return '';
+  const dd = String(date.getDate()).padStart(2, '0');
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
+  const yyyy = date.getFullYear();
+  const hh = String(date.getHours()).padStart(2, '0');
+  const mins = String(date.getMinutes()).padStart(2, '0');
+  return `${dd}/${mm}/${yyyy} ${hh}:${mins}`;
 }

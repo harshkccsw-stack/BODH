@@ -7,6 +7,7 @@ import {
   getRoles,
   type StoredPractitioner, type Role,
 } from '@/lib/data-store';
+import { formatDDMMYYYYTime } from '@/lib/helpers';
 
 const statusColors: Record<string, string> = {
   Active: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
@@ -60,7 +61,7 @@ export default function PractitionersPage() {
     return {
       total: practitioners.length,
       active,
-      lastLogin: practitioners[0]?.last_login || '—',
+      lastLogin: formatDDMMYYYYTime(practitioners[0]?.last_login) || '—',
     };
   }, [practitioners]);
 
@@ -246,7 +247,7 @@ export default function PractitionersPage() {
                       <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${statusColors[p.status]}`}>{p.status}</span>
                     </td>
                     <td className="px-5 py-3 text-muted-foreground">
-                      <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{p.last_login || '—'}</span>
+                      <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{formatDDMMYYYYTime(p.last_login) || '—'}</span>
                     </td>
                     <td className="px-5 py-3 text-right">
                       <div className="inline-flex gap-1">

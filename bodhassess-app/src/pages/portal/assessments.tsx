@@ -4,6 +4,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 
 import { portalSessionsApi, respondentsApi, type PortalSession, type Respondent } from '@/lib/api';
+import { formatDDMMYYYY } from '@/lib/helpers';
 import { config } from '@/lib/config';
 
 const AUTH_KEY = config.authStorageKey;
@@ -123,7 +124,7 @@ export default function PortalAssessmentsPage() {
                       <p className="font-semibold leading-snug text-[0.9375rem]">{s.instrumentFullName || s.instrument}</p>
                       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                         <span className="font-mono">{s.id}</span>
-                        <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{(s.createdAt || '').slice(0, 10)}</span>
+                        <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{formatDDMMYYYY(s.createdAt)}</span>
                         <span>· {s.language}</span>
                       </div>
                     </div>

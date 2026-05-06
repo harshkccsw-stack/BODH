@@ -4,6 +4,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 
 import { portalSessionsApi, respondentsApi, type PortalSession } from '@/lib/api';
+import { formatDDMMYYYYTime } from '@/lib/helpers';
 import { config } from '@/lib/config';
 
 const AUTH_KEY = config.authStorageKey;
@@ -78,7 +79,7 @@ export default function PortalCompletePage() {
                 {session.completedAt && (
                   <div className="flex items-center justify-between gap-3 border-t border-border/60 pt-2">
                     <span className="text-muted-foreground text-xs uppercase tracking-wider">Submitted</span>
-                    <span className="text-xs">{new Date(session.completedAt).toLocaleString()}</span>
+                    <span className="text-xs">{formatDDMMYYYYTime(session.completedAt)}</span>
                   </div>
                 )}
               </div>
