@@ -23,22 +23,6 @@ interface PreviewRow {
   message?: string;
 }
 
-const mockPreviewRows: PreviewRow[] = [
-  { email: 'arjun.patel@example.com', name: 'Arjun Patel', instrument: 'PHQ-9', language: 'Hindi' },
-  { email: 'priya.sharma@example.com', name: 'Priya Sharma', instrument: 'GAD-7', language: 'English' },
-  { email: 'rahul.verma@example.com', name: 'Rahul Verma', instrument: 'DASS-21', language: 'English' },
-  { email: 'ananya.reddy@example.com', name: 'Ananya Reddy', instrument: 'Beck BDI-II', language: 'Telugu' },
-  { email: 'vikram.singh@example.com', name: 'Vikram Singh', instrument: 'Big Five IPIP-NEO', language: 'English' },
-];
-
-const mockResultRows: PreviewRow[] = [
-  { email: 'arjun.patel@example.com', name: 'Arjun Patel', instrument: 'PHQ-9', language: 'Hindi', status: 'success', message: 'Session created, invitation sent' },
-  { email: 'priya.sharma@example.com', name: 'Priya Sharma', instrument: 'GAD-7', language: 'English', status: 'success', message: 'Session created, invitation sent' },
-  { email: 'rahul.verma@example.com', name: 'Rahul Verma', instrument: 'DASS-21', language: 'English', status: 'success', message: 'Session created, invitation sent' },
-  { email: 'ananya.reddy@example.com', name: 'Ananya Reddy', instrument: 'Beck BDI-II', language: 'Telugu', status: 'success', message: 'Session created, invitation sent' },
-  { email: 'vikram.singh@example.com', name: 'Vikram Singh', instrument: 'Big Five IPIP-NEO', language: 'English', status: 'success', message: 'Session created, invitation sent' },
-];
-
 export default function BatchUploadPage() {
   const [uploadState, setUploadState] = useState<UploadState>('idle');
   const [progress, setProgress] = useState(0);
@@ -68,7 +52,8 @@ export default function BatchUploadPage() {
     setProgress(0);
   };
 
-  const rows = uploadState === 'done' ? mockResultRows : mockPreviewRows;
+  // Real CSV parsing + API wiring is not implemented yet — rows stays empty.
+  const rows: PreviewRow[] = [];
 
   return (
     <div className="p-5 lg:p-7.5 space-y-7">

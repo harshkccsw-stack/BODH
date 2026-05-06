@@ -15,30 +15,22 @@ import { cn } from '@/lib/utils';
 
 type UploadState = 'idle' | 'uploading' | 'analyzing' | 'complete';
 
-const mockExtractedFindings = {
-  presentingComplaints: [
-    'Persistent low mood for the past 3 months',
-    'Sleep disturbance — early morning awakening',
-    'Reduced appetite and 4kg weight loss',
-    'Difficulty concentrating at work',
-  ],
-  moodAffect: {
-    mood: 'Depressed',
-    affect: 'Constricted, tearful at times',
-    congruence: 'Mood-congruent',
-  },
-  riskIndicators: [
-    { label: 'Suicidal ideation', level: 'Moderate', detail: 'Passive thoughts, no active plan' },
-    { label: 'Self-harm', level: 'Low', detail: 'No current or recent history' },
-    { label: 'Harm to others', level: 'None', detail: 'Denied' },
-  ],
+// AI extraction is not yet implemented. These start empty; once the
+// backend analysis pipeline is wired up, populate from the API response.
+interface RiskIndicator { label: string; level: string; detail: string; }
+interface BatteryItem   { instrument: string; reason: string; }
+
+const extractedFindings: {
+  presentingComplaints: string[];
+  moodAffect: { mood: string; affect: string; congruence: string };
+  riskIndicators: RiskIndicator[];
+} = {
+  presentingComplaints: [],
+  moodAffect: { mood: '—', affect: '—', congruence: '—' },
+  riskIndicators: [],
 };
 
-const mockRecommendedBattery = [
-  { instrument: 'PHQ-9', reason: 'Quantify depression severity (self-report screening)' },
-  { instrument: 'GAD-7', reason: 'Comorbid anxiety assessment' },
-  { instrument: 'Beck BDI-II', reason: 'Comprehensive depression inventory with cognitive items' },
-];
+const recommendedBattery: BatteryItem[] = [];
 
 export default function MSEUploadPage() {
   const [uploadState, setUploadState] = useState<UploadState>('idle');
@@ -195,7 +187,7 @@ export default function MSEUploadPage() {
             </CardHeader>
             <CardContent className="p-5 pt-0">
               <div className="space-y-3">
-                {mockRecommendedBattery.map((item) => (
+                {recommendedBattery.map((item) => (
                   <div
                     key={item.instrument}
                     className="flex items-center justify-between p-3 rounded-lg border border-border bg-muted/30"
@@ -225,7 +217,7 @@ export default function MSEUploadPage() {
               </CardHeader>
               <CardContent className="p-5 pt-0">
                 <ul className="space-y-2">
-                  {mockExtractedFindings.presentingComplaints.map((complaint, i) => (
+                  {extractedFindings.presentingComplaints.map((complaint, i) => (
                     <li key={i} className="flex items-start gap-2 text-sm">
                       <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-primary shrink-0" />
                       {complaint}
@@ -244,15 +236,15 @@ export default function MSEUploadPage() {
                 <div className="space-y-3">
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Mood</span>
-                    <span className="font-medium">{mockExtractedFindings.moodAffect.mood}</span>
+                    <span className="font-medium">{extractedFindings.moodAffect.mood}</span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Affect</span>
-                    <span className="font-medium">{mockExtractedFindings.moodAffect.affect}</span>
+                    <span className="font-medium">{extractedFindings.moodAffect.affect}</span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Congruence</span>
-                    <span className="font-medium">{mockExtractedFindings.moodAffect.congruence}</span>
+                    <span className="font-medium">{extractedFindings.moodAffect.congruence}</span>
                   </div>
                 </div>
               </CardContent>
@@ -278,7 +270,7 @@ export default function MSEUploadPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {mockExtractedFindings.riskIndicators.map((indicator) => (
+                    {extractedFindings.riskIndicators.map((indicator) => (
                       <tr key={indicator.label} className="border-b border-border last:border-0 hover:bg-muted/50 transition-colors">
                         <td className="px-5 py-3 font-medium">{indicator.label}</td>
                         <td className="px-5 py-3">

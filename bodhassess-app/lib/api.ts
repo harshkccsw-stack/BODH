@@ -1,16 +1,39 @@
-// Single typed client for the Go backend. Every page goes through these
-// functions — no localStorage fallback. If the API is down, pages surface
-// the error to the caller so they can render a retry/empty state.
+// Single typed client for the Spring Boot backend. Every page goes through
+// these functions — no localStorage fallback. If the API is down, pages
+// surface the error to the caller so they can render a retry/empty state.
 
 import { config } from './config';
 
 export const API_BASE = config.apiBase;
 
+// Pick the most appropriate stored token in priority order:
+//   1. Practitioner (dashboard)
+//   2. Admin       (dashboard)
+//   3. Respondent  (portal)
+// Returning null is fine — the call goes out unauthenticated and the
+// API returns 401 if the route requires auth.
+function getActiveToken(): string | null {
+  if (typeof window === 'undefined') return null;
+  return (
+    sessionStorage.getItem(config.practitionerAuthStorageKey) ||
+    sessionStorage.getItem(config.adminAuthStorageKey) ||
+    sessionStorage.getItem(config.authStorageKey) ||
+    null
+  );
+}
+
 async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...init,
-    headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) },
-  });
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...((init?.headers as Record<string, string> | undefined) || {}),
+  };
+  // Auto-attach the active session token unless the caller already set one.
+  if (!headers.Authorization) {
+    const token = getActiveToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+  }
+
+  const res = await fetch(`${API_BASE}${path}`, { ...init, headers });
   if (!res.ok) {
     const text = await res.text().catch(() => res.statusText);
     throw new Error(`[API ${res.status}] ${path}: ${text}`);
@@ -108,6 +131,26 @@ export interface PractitionerLoginResponse {
   token: string;
   practitioner: PractitionerMe;
 }
+// ---------- Admin (single env-driven account) ----------
+// Different shape from practitioners: username + password, no DOB. The
+// backend issues a JWT carrying userType=ADMIN with full url_paths access.
+export interface AdminInfo {
+  username: string;
+  role: string; // always "ADMIN"
+}
+export interface AdminLoginResponse {
+  token: string;
+  admin: AdminInfo;
+}
+export const adminApi = {
+  login: (username: string, password: string) =>
+    jsonFetch<AdminLoginResponse>('/admin/login', { method: 'POST', body: JSON.stringify({ username, password }) }),
+  me: (token: string) =>
+    jsonFetch<AdminInfo>('/admin/me', { headers: { Authorization: `Bearer ${token}` } }),
+  logout: (token: string) =>
+    jsonFetch<null>('/admin/logout', { method: 'POST', headers: { Authorization: `Bearer ${token}` } }),
+};
+
 export const practitionersApi = {
   list: () => jsonFetch<Practitioner[]>('/practitioners'),
   get: (id: string) => jsonFetch<Practitioner>(`/practitioners/${encodeURIComponent(id)}`),

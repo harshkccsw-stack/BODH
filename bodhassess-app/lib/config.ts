@@ -11,8 +11,8 @@ const read = (key: string, fallback = ''): string => {
 };
 
 export const config = {
-  /** Full URL of the Go backend including the `/api/v1` prefix. */
-  apiBase: read('VITE_API_URL', 'http://localhost:8080/api/v1'),
+  /** Full URL of the Spring Boot backend including the `/api/v1` prefix. */
+  apiBase: read('VITE_API_URL', 'http://localhost:4000/api/v1'),
 
   /** Brand name shown in page titles, headers, and toast messages. */
   appName: read('VITE_APP_NAME', 'BodhAssess'),
@@ -22,6 +22,9 @@ export const config = {
 
   /** sessionStorage key used to persist the practitioner dashboard auth token. */
   practitionerAuthStorageKey: read('VITE_PRACTITIONER_AUTH_STORAGE_KEY', 'bodhassess.practitioner.token'),
+
+  /** sessionStorage key used to persist the admin dashboard auth token. */
+  adminAuthStorageKey: read('VITE_ADMIN_AUTH_STORAGE_KEY', 'bodhassess.admin.token'),
 
   /** Optional sub-path mount, e.g. "/bodh". Empty string means served at root. */
   basePath: read('VITE_BASE_PATH', ''),

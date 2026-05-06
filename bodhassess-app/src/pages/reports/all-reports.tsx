@@ -37,16 +37,7 @@ interface Report {
   generatedAt: string;
 }
 
-const mockReports: Report[] = [
-  { id: 'RPT-0081', sessionId: 'SESS-0047', respondent: 'Arjun Patel', instrument: 'PHQ-9', vertical: 'Clinical', format: 'PDF', status: 'Finalized', generatedAt: '2026-04-09' },
-  { id: 'RPT-0080', sessionId: 'SESS-0045', respondent: 'Rahul Verma', instrument: 'DASS-21', vertical: 'Clinical', format: 'Interactive', status: 'Approved', generatedAt: '2026-04-08' },
-  { id: 'RPT-0079', sessionId: 'SESS-0044', respondent: 'Ananya Reddy', instrument: 'Beck BDI-II', vertical: 'Clinical', format: 'PDF', status: 'Draft', generatedAt: '2026-04-08' },
-  { id: 'RPT-0078', sessionId: 'SESS-0043', respondent: 'Vikram Singh', instrument: 'Big Five IPIP-NEO', vertical: 'Industrial', format: 'PDF', status: 'Finalized', generatedAt: '2026-04-07' },
-  { id: 'RPT-0077', sessionId: 'SESS-0041', respondent: 'Karthik Iyer', instrument: 'SCAS', vertical: 'Counselling', format: 'Interactive', status: 'Approved', generatedAt: '2026-04-06' },
-  { id: 'RPT-0076', sessionId: 'SESS-0039', respondent: 'Aditya Joshi', instrument: 'Learning Agility Scale', vertical: 'Industrial', format: 'PDF', status: 'Finalized', generatedAt: '2026-04-05' },
-  { id: 'RPT-0075', sessionId: 'SESS-0037', respondent: 'Rohan Deshmukh', instrument: 'PHQ-9', vertical: 'Clinical', format: 'PDF', status: 'Finalized', generatedAt: '2026-04-04' },
-  { id: 'RPT-0074', sessionId: 'SESS-0036', respondent: 'Divya Menon', instrument: 'GAD-7', vertical: 'Clinical', format: 'Interactive', status: 'Approved', generatedAt: '2026-04-04' },
-];
+// All reports come from real sessions (via sessionsToReports). No seed data.
 
 const statusBadgeProps: Record<ReportStatus, { variant: 'success' | 'primary' | 'warning'; appearance: 'light' }> = {
   'Finalized': { variant: 'success', appearance: 'light' },
@@ -82,13 +73,7 @@ export default function ReportsPage() {
     setLiveReports(generated);
   }, []);
 
-  const allReports = useMemo(() => {
-    // Live reports from actual respondent sessions show first; seed mocks follow.
-    // Dedupe by sessionId so a stored session's report doesn't appear twice.
-    const seenSessions = new Set(liveReports.map((r) => r.sessionId));
-    const seedTail = mockReports.filter((r) => !seenSessions.has(r.sessionId));
-    return [...liveReports, ...seedTail];
-  }, [liveReports]);
+  const allReports = useMemo(() => liveReports, [liveReports]);
 
   const handleDownload = (report: Report) => {
     const session = getSessionById(report.sessionId);

@@ -1,5 +1,5 @@
-// Thin wrapper over lib/api.ts. All reads/writes go to the Go backend
-// (Postgres); there is no localStorage fallback.
+// Thin wrapper over lib/api.ts. All reads/writes go to the Spring Boot
+// backend (Postgres); there is no localStorage fallback.
 
 import {
   respondentsApi, practitionersApi, groupsApi,
