@@ -1,4 +1,4 @@
-bodhassess-app/node_modules
+node_modules/
 # bodhassess-app/dist
 bodhassess-app/.env
 bodhassess-app/.env.local
