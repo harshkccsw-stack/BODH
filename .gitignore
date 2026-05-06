@@ -1,4 +1,5 @@
 node_modules/
+package-lock.json
 # bodhassess-app/dist
 bodhassess-app/.env
 bodhassess-app/.env.local
