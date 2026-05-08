@@ -1,128 +1,40 @@
 import {
-  Eye,
-  ShieldCheck,
   AlertTriangle,
   Monitor,
   Video,
-  Users,
   Clock,
-  Activity,
-  Wifi,
   CheckCircle2,
-  XCircle,
   AlertCircle,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 
-const statsData = [
-  { label: 'Active Assessments', value: '3', icon: Activity, change: 'Live now' },
-  { label: 'Avg Trust Score', value: '94%', icon: ShieldCheck, change: '+2% from last week' },
-  { label: 'Flagged Today', value: '4', icon: AlertTriangle, change: '2 under review' },
-  { label: 'BPaaS API Calls', value: '1,247', icon: Wifi, change: 'Today\'s usage' },
-];
+interface ActiveSession {
+  id: string;
+  candidate: string;
+  assessment: string;
+  trustScore: number;
+  flags: number;
+  elapsed: string;
+  faceDetection: string;
+  gazeTracking: string;
+  browserLockdown: string;
+  multiPerson: string;
+}
 
-const activeSessions = [
-  {
-    id: 'PROC-091',
-    candidate: 'Arjun Mehta',
-    assessment: 'Cognitive Ability Test',
-    trustScore: 97,
-    flags: 0,
-    elapsed: '18:42',
-    faceDetection: 'Active',
-    gazeTracking: 'Active',
-    browserLockdown: 'Active',
-    multiPerson: 'Clear',
-  },
-  {
-    id: 'PROC-092',
-    candidate: 'Sneha Kapoor',
-    assessment: 'Big Five (IPIP-NEO)',
-    trustScore: 88,
-    flags: 2,
-    elapsed: '32:15',
-    faceDetection: 'Active',
-    gazeTracking: 'Warning',
-    browserLockdown: 'Active',
-    multiPerson: 'Clear',
-  },
-  {
-    id: 'PROC-093',
-    candidate: 'Rohan Das',
-    assessment: 'AI Adaptability Index',
-    trustScore: 92,
-    flags: 1,
-    elapsed: '11:08',
-    faceDetection: 'Active',
-    gazeTracking: 'Active',
-    browserLockdown: 'Active',
-    multiPerson: 'Alert',
-  },
-];
+interface CompletedSession {
+  id: string;
+  candidate: string;
+  assessment: string;
+  trustScore: number;
+  flags: number;
+  flagTypes: string[];
+  duration: string;
+  status: string;
+}
 
-const completedSessions = [
-  {
-    id: 'PROC-088',
-    candidate: 'Kavita Reddy',
-    assessment: 'HEXACO-PI-R',
-    trustScore: 99,
-    flags: 0,
-    flagTypes: [],
-    duration: '45:12',
-    status: 'Approved',
-  },
-  {
-    id: 'PROC-087',
-    candidate: 'Deepak Sharma',
-    assessment: 'Cognitive Ability Test',
-    trustScore: 72,
-    flags: 5,
-    flagTypes: ['Gaze deviation', 'Tab switch', 'Multi-person detected'],
-    duration: '38:45',
-    status: 'Flagged',
-  },
-  {
-    id: 'PROC-086',
-    candidate: 'Anita Verma',
-    assessment: 'Emotional Intelligence Scale',
-    trustScore: 85,
-    flags: 2,
-    flagTypes: ['Gaze deviation'],
-    duration: '28:33',
-    status: 'Under Review',
-  },
-  {
-    id: 'PROC-085',
-    candidate: 'Suresh Patel',
-    assessment: 'Work Personality Index',
-    trustScore: 96,
-    flags: 1,
-    flagTypes: ['Brief face occlusion'],
-    duration: '41:07',
-    status: 'Approved',
-  },
-  {
-    id: 'PROC-084',
-    candidate: 'Meera Iyer',
-    assessment: 'Big Five (IPIP-NEO)',
-    trustScore: 91,
-    flags: 1,
-    flagTypes: ['Browser resize'],
-    duration: '35:22',
-    status: 'Approved',
-  },
-  {
-    id: 'PROC-083',
-    candidate: 'Vikram Sinha',
-    assessment: 'Leadership Potential Index',
-    trustScore: 68,
-    flags: 7,
-    flagTypes: ['Multi-person detected', 'Tab switch', 'Gaze deviation', 'Audio anomaly'],
-    duration: '52:18',
-    status: 'Flagged',
-  },
-];
+const activeSessions: ActiveSession[] = [];
+const completedSessions: CompletedSession[] = [];
 
 function TrustScoreBadge({ score }: { score: number }) {
   const color =
@@ -164,26 +76,6 @@ export default function ProctoringDashboardPage() {
         </p>
       </div>
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-        {statsData.map((stat) => (
-          <Card key={stat.label}>
-            <CardContent className="p-5">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground">{stat.label}</p>
-                  <p className="text-2xl font-semibold mt-1">{stat.value}</p>
-                  <p className="text-xs text-muted-foreground mt-1">{stat.change}</p>
-                </div>
-                <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-primary/10">
-                  <stat.icon className="h-5 w-5 text-primary" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
       {/* Live Monitoring */}
       <div>
         <h2 className="text-base font-semibold mb-4 flex items-center gap-2">
@@ -194,6 +86,13 @@ export default function ProctoringDashboardPage() {
           Live Monitoring — {activeSessions.length} Active Sessions
         </h2>
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+          {activeSessions.length === 0 && (
+            <Card className="lg:col-span-3">
+              <CardContent className="p-8 text-center text-sm text-muted-foreground">
+                No active proctoring sessions.
+              </CardContent>
+            </Card>
+          )}
           {activeSessions.map((session) => (
             <Card key={session.id} className="border-primary/10">
               <CardHeader className="pb-3">
@@ -275,6 +174,13 @@ export default function ProctoringDashboardPage() {
                 </tr>
               </thead>
               <tbody>
+                {completedSessions.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="px-5 py-8 text-center text-sm text-muted-foreground">
+                      No completed sessions yet.
+                    </td>
+                  </tr>
+                )}
                 {completedSessions.map((session) => (
                   <tr
                     key={session.id}

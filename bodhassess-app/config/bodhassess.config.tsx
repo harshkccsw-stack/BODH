@@ -48,7 +48,7 @@ export const MENU_SIDEBAR: MenuConfig = [
     icon: Brain,
     children: [
       { title: 'Item Explorer', path: '/question-bank' },
-      { title: 'Measured Qualities', path: '/qualities' },
+      { title: 'Measured Qualities', path: '/question-bank/qualities' },
       { title: 'Create Questionnaire', path: '/question-bank/create' },
       { title: 'IRT Calibration', path: '/question-bank/calibration' },
       { title: 'Norm Tables', path: '/question-bank/norms' },

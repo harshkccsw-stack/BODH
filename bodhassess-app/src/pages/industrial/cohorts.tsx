@@ -4,63 +4,33 @@ import {
   Download,
   Calendar,
   ClipboardCheck,
-  TrendingUp,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 
-const cohorts = [
-  {
-    id: 'COH-001',
-    name: 'Q1 2026 Campus Hiring — IIT Delhi',
-    candidateCount: 128,
-    instruments: ['Big Five (IPIP-NEO)', 'Cognitive Ability Test', 'AI Adaptability Index'],
-    completionRate: 78,
-    dateRange: 'Jan 15 – Mar 30, 2026',
-    status: 'Active',
-    candidates: [
-      { name: 'Arjun Mehta', email: 'arjun.mehta@iitd.ac.in', status: 'Completed', score: 82, roleFit: 91, rank: 1 },
-      { name: 'Sneha Kapoor', email: 'sneha.k@iitd.ac.in', status: 'Completed', score: 79, roleFit: 87, rank: 2 },
-      { name: 'Rahul Joshi', email: 'rahul.j@iitd.ac.in', status: 'In Progress', score: 0, roleFit: 0, rank: 0 },
-      { name: 'Priya Nair', email: 'priya.n@iitd.ac.in', status: 'Completed', score: 76, roleFit: 84, rank: 3 },
-      { name: 'Vikram Sinha', email: 'vikram.s@iitd.ac.in', status: 'Pending', score: 0, roleFit: 0, rank: 0 },
-    ],
-  },
-  {
-    id: 'COH-002',
-    name: 'Leadership Pipeline — Senior Managers',
-    candidateCount: 42,
-    instruments: ['HEXACO-PI-R', 'Emotional Intelligence Scale', 'Leadership Potential Index'],
-    completionRate: 95,
-    dateRange: 'Feb 1 – Feb 28, 2026',
-    status: 'Completed',
-    candidates: [
-      { name: 'Deepak Sharma', email: 'deepak.s@corp.in', status: 'Completed', score: 88, roleFit: 94, rank: 1 },
-      { name: 'Kavita Reddy', email: 'kavita.r@corp.in', status: 'Completed', score: 85, roleFit: 92, rank: 2 },
-      { name: 'Anil Gupta', email: 'anil.g@corp.in', status: 'Completed', score: 83, roleFit: 89, rank: 3 },
-      { name: 'Meera Iyer', email: 'meera.i@corp.in', status: 'Completed', score: 80, roleFit: 86, rank: 4 },
-      { name: 'Suresh Patel', email: 'suresh.p@corp.in', status: 'Completed', score: 78, roleFit: 83, rank: 5 },
-    ],
-  },
-  {
-    id: 'COH-003',
-    name: 'Lateral Hiring — Product Engineering',
-    candidateCount: 67,
-    instruments: ['Cognitive Ability Test', 'Work Personality Index', 'AI Adaptability Index'],
-    completionRate: 52,
-    dateRange: 'Mar 10 – Apr 30, 2026',
-    status: 'Active',
-    candidates: [
-      { name: 'Rohan Das', email: 'rohan.d@gmail.com', status: 'Completed', score: 91, roleFit: 96, rank: 1 },
-      { name: 'Anita Verma', email: 'anita.v@gmail.com', status: 'In Progress', score: 0, roleFit: 0, rank: 0 },
-      { name: 'Karthik Rao', email: 'karthik.r@gmail.com', status: 'Completed', score: 74, roleFit: 80, rank: 2 },
-      { name: 'Sonal Mishra', email: 'sonal.m@gmail.com', status: 'Pending', score: 0, roleFit: 0, rank: 0 },
-      { name: 'Amit Bose', email: 'amit.b@gmail.com', status: 'Completed', score: 70, roleFit: 77, rank: 3 },
-    ],
-  },
-];
+interface CohortCandidate {
+  name: string;
+  email: string;
+  status: string;
+  score: number;
+  roleFit: number;
+  rank: number;
+}
+
+interface Cohort {
+  id: string;
+  name: string;
+  candidateCount: number;
+  instruments: string[];
+  completionRate: number;
+  dateRange: string;
+  status: string;
+  candidates: CohortCandidate[];
+}
+
+const cohorts: Cohort[] = [];
 
 export default function CandidateCohortsPage() {
   return (
@@ -96,6 +66,17 @@ export default function CandidateCohortsPage() {
 
       {/* Cohort Cards */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        {cohorts.length === 0 && (
+          <Card className="lg:col-span-3">
+            <CardContent className="p-10 text-center">
+              <Users className="h-10 w-10 text-muted-foreground/40 mx-auto mb-3" />
+              <p className="text-sm font-medium">No cohorts yet</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Create a cohort to start tracking candidate assessments.
+              </p>
+            </CardContent>
+          </Card>
+        )}
         {cohorts.map((cohort) => (
           <Card key={cohort.id}>
             <CardHeader className="pb-3">

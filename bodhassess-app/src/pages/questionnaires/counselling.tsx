@@ -15,86 +15,21 @@ import {
 } from 'lucide-react';
 import { loadOverrides, saveOverride, applyOverrideById, type InstrumentOverride } from '@/lib/instrument-overrides';
 
-const instruments = [
-  {
-    id: 'scas',
-    name: 'Spence Children\'s Anxiety Scale (SCAS)',
-    category: 'Anxiety Screening',
-    ageRange: '6–18 years',
-    items: 45,
-    duration: '15 min',
-    languages: ['EN', 'HI', 'TA', 'TE', 'MR'],
-    tier: 'T1',
-    norms: 'Age-band Indian norms: 6–9, 10–13, 14–18. Hindi + 4 regional language versions',
-    informants: ['Self', 'Parent'],
-    description: 'Separation anxiety, social phobia, OCD, panic/agoraphobia, physical injury fears, generalised anxiety.',
-  },
-  {
-    id: 'cdi2',
-    name: 'Children\'s Depression Inventory-2 (CDI-2)',
-    category: 'Depression Screening',
-    ageRange: '7–17 years',
-    items: 28,
-    duration: '12 min',
-    languages: ['EN', 'HI'],
-    tier: 'T1',
-    norms: 'Hindi standardisation. Indian normative sample by age band and gender',
-    informants: ['Self', 'Parent'],
-    description: 'Negative mood/physical symptoms, negative self-esteem, interpersonal problems, ineffectiveness.',
-  },
-  {
-    id: 'adhd-rs5',
-    name: 'ADHD Rating Scale-5',
-    category: 'ADHD Assessment',
-    ageRange: '5–17 years',
-    items: 18,
-    duration: '10 min',
-    languages: ['EN', 'HI', 'TA'],
-    tier: 'T1',
-    norms: 'Parent and teacher forms. Indian school population norms. CBSE and state board samples',
-    informants: ['Parent', 'Teacher'],
-    description: 'Inattention and hyperactivity-impulsivity symptom domains aligned to DSM-5 criteria.',
-  },
-  {
-    id: 'dev-milestones',
-    name: 'Developmental Milestones Tracker',
-    category: 'Developmental Screening',
-    ageRange: '0–6 years',
-    items: 60,
-    duration: '20 min',
-    languages: ['EN', 'HI', 'TA', 'TE', 'MR', 'KN'],
-    tier: 'T1',
-    norms: 'Indian WHO growth standard-aligned. Covers gross motor, fine motor, language, social, cognitive',
-    informants: ['Parent'],
-    description: 'Five developmental domains mapped against age-appropriate milestones with Indian population benchmarks.',
-  },
-  {
-    id: 'school-adj',
-    name: 'School Adjustment Scale',
-    category: 'Adjustment & Wellbeing',
-    ageRange: '6–18 years',
-    items: 35,
-    duration: '12 min',
-    languages: ['EN', 'HI'],
-    tier: 'T1',
-    norms: 'Academic adjustment, peer relations, teacher relationship, family-school interface. Indian school norms',
-    informants: ['Self'],
-    description: 'Measures school adjustment across four domains for early identification of at-risk students.',
-  },
-  {
-    id: 'academic-stress',
-    name: 'Academic Stress Inventory',
-    category: 'Stress & Burnout',
-    ageRange: '10–18 years',
-    items: 40,
-    duration: '15 min',
-    languages: ['EN', 'HI', 'TA', 'TE'],
-    tier: 'T1',
-    norms: 'Academic pressure, exam anxiety, parental expectations, peer competition. Board exam season norms',
-    informants: ['Self'],
-    description: 'Measures academic stress specifically calibrated for Indian education context including board exam pressure.',
-  },
-];
+interface CounsInstrument {
+  id: string;
+  name: string;
+  category: string;
+  ageRange: string;
+  items: number;
+  duration: string;
+  languages: string[];
+  tier: string;
+  norms: string;
+  informants: string[];
+  description: string;
+}
+
+const instruments: CounsInstrument[] = [];
 
 const tierColors: Record<string, string> = {
   T1: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
@@ -106,8 +41,6 @@ const informantColors: Record<string, string> = {
   Parent: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
   Teacher: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
 };
-
-type CounsInstrument = typeof instruments[number];
 
 async function loadUserInstrumentsForVertical(vertical: string): Promise<CounsInstrument[]> {
   try {

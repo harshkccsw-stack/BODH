@@ -165,7 +165,7 @@ const routes: RouteObject[] = [
       { path: '/dashboard', element: <Dashboard /> },
       { path: '/analytics', element: <Analytics /> },
       { path: '/survey', element: <Survey /> },
-      { path: '/qualities', element: <Qualities /> },
+      { path: '/question-bank/qualities', element: <Qualities /> },
 
       { path: '/admin/groups', element: <AdminGroups /> },
       { path: '/admin/permissions', element: <AdminPermissions /> },

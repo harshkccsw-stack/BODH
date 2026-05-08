@@ -3,7 +3,6 @@ import {
   AlertTriangle,
   ArrowLeft,
   Check,
-  ChevronRight,
   ClipboardCheck,
   Eye,
   Languages,
@@ -87,16 +86,6 @@ interface RespondentRow {
   email: string;
 }
 
-const seedRespondents: RespondentRow[] = [
-  { id: 'R-001', name: 'Arjun Patel', email: 'arjun.p@gmail.com' },
-  { id: 'R-002', name: 'Priya Sharma', email: 'priya.s@outlook.com' },
-  { id: 'R-003', name: 'Rahul Verma', email: 'rahul.v@yahoo.com' },
-  { id: 'R-004', name: 'Ananya Reddy', email: 'ananya.r@gmail.com' },
-  { id: 'R-005', name: 'Vikram Singh', email: 'vikram.s@hotmail.com' },
-  { id: 'R-006', name: 'Deepa Menon', email: 'deepa.m@gmail.com' },
-];
-
-
 // Map a stored vertical (could be a built-in keyword OR an arbitrary user
 // vertical code/name) to the display string used in the dropdown.
 //   - Built-in prefixes ("clin", "indust", "coun", "exper") canonicalise to
@@ -127,7 +116,7 @@ export default function CreateSessionPage() {
   const [language, setLanguage] = useState('English');
   const [consentId, setConsentId] = useState('');
   const [proctoring, setProctoring] = useState(false);
-  const [respondents, setRespondents] = useState<RespondentRow[]>(seedRespondents);
+  const [respondents, setRespondents] = useState<RespondentRow[]>([]);
   const [instrumentList, setInstrumentList] = useState<InstrumentOption[]>(catalogInstruments);
   // Loaded from /verticals so user-created verticals show up in the
   // "Vertical" dropdown without requiring a code change.
@@ -143,7 +132,7 @@ export default function CreateSessionPage() {
     (async () => {
       try {
         const list = await respondentsApi.list();
-        if (Array.isArray(list) && list.length > 0) {
+        if (Array.isArray(list)) {
           setRespondents(list.map((r) => ({ id: r.id, name: r.name, email: r.email })));
         }
       } catch {}

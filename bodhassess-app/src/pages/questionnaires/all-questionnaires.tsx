@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
-import { getInstruments, type Instrument as ApiInstrument } from '@/lib/api';
+import { getInstruments, API_BASE, type Instrument as ApiInstrument } from '@/lib/api';
 import {
+  AlertTriangle,
   Search,
   Upload,
   Clock,
@@ -13,6 +14,7 @@ import {
   Heart,
   FlaskConical,
   Pencil,
+  Trash2,
   X,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -29,6 +31,9 @@ type Vertical = string;
 type InstrumentType = 'all' | 'screening' | 'personality' | 'aptitude' | 'behavioral' | 'experimental';
 
 interface Instrument {
+  // Catalog id (only set for instruments that came from the API). Mocks and
+  // localStorage-derived rows have no id and aren't deletable.
+  id?: string;
   name: string;
   shortName: string;
   category: string;
@@ -44,43 +49,6 @@ interface Instrument {
 // ---------------------------------------------------------------------------
 // Data
 // ---------------------------------------------------------------------------
-
-const instruments: Instrument[] = [
-  // Clinical
-  { name: 'PHQ-9 — Patient Health Questionnaire', shortName: 'PHQ-9', category: 'Depression Screening', vertical: 'clinical', type: 'screening', items: 9, duration: '3-5 min', languages: ['English', 'Hindi', 'Tamil'], normStatus: 'Indian norms available', tier: 1 },
-  { name: 'PHQ-2 — Ultra-Brief Depression Screen', shortName: 'PHQ-2', category: 'Depression Screening', vertical: 'clinical', type: 'screening', items: 2, duration: '1-2 min', languages: ['English', 'Hindi'], normStatus: 'Indian norms available', tier: 1 },
-  { name: 'GAD-7 — Generalized Anxiety Disorder', shortName: 'GAD-7', category: 'Anxiety Screening', vertical: 'clinical', type: 'screening', items: 7, duration: '3-5 min', languages: ['English', 'Hindi', 'Kannada'], normStatus: 'Indian norms available', tier: 1 },
-  { name: 'DASS-21 — Depression Anxiety Stress Scales', shortName: 'DASS-21', category: 'Emotional Distress', vertical: 'clinical', type: 'screening', items: 21, duration: '5-10 min', languages: ['English', 'Hindi'], normStatus: 'Indian norms available', tier: 2 },
-  { name: 'Beck BDI-II — Beck Depression Inventory', shortName: 'BDI-II', category: 'Depression Assessment', vertical: 'clinical', type: 'screening', items: 21, duration: '5-10 min', languages: ['English', 'Hindi'], normStatus: 'Licensed / Indian norms', tier: 3 },
-  { name: 'Beck Anxiety Inventory', shortName: 'BAI', category: 'Anxiety Assessment', vertical: 'clinical', type: 'screening', items: 21, duration: '5-10 min', languages: ['English', 'Hindi'], normStatus: 'Licensed / Indian norms', tier: 3 },
-  { name: 'PCL-5 — PTSD Checklist', shortName: 'PCL-5', category: 'Trauma Screening', vertical: 'clinical', type: 'screening', items: 20, duration: '5-10 min', languages: ['English', 'Hindi'], normStatus: 'Indian norms in progress', tier: 2 },
-  { name: 'AUDIT — Alcohol Use Disorders Test', shortName: 'AUDIT', category: 'Substance Use Screening', vertical: 'clinical', type: 'screening', items: 10, duration: '2-5 min', languages: ['English', 'Hindi', 'Marathi'], normStatus: 'WHO norms', tier: 1 },
-
-  // Industrial
-  { name: 'Big Five (IPIP-NEO-120)', shortName: 'IPIP-120', category: 'Personality Profiling', vertical: 'industrial', type: 'personality', items: 120, duration: '15-20 min', languages: ['English', 'Hindi'], normStatus: 'Indian norms available', tier: 2 },
-  { name: 'HEXACO Personality Inventory', shortName: 'HEXACO', category: 'Personality Profiling', vertical: 'industrial', type: 'personality', items: 100, duration: '15-20 min', languages: ['English'], normStatus: 'Global norms', tier: 2 },
-  { name: 'Learning Agility Assessment', shortName: 'LAA', category: 'Potential Assessment', vertical: 'industrial', type: 'aptitude', items: 60, duration: '20-25 min', languages: ['English', 'Hindi'], normStatus: 'Indian norms available', tier: 3 },
-  { name: 'Cognitive Aptitude Battery', shortName: 'CAB', category: 'Cognitive Assessment', vertical: 'industrial', type: 'aptitude', items: 45, duration: '30-40 min', languages: ['English'], normStatus: 'Indian norms available', tier: 3 },
-  { name: 'Situational Judgement Tests (SJTs)', shortName: 'SJT', category: 'Behavioral Assessment', vertical: 'industrial', type: 'behavioral', items: 30, duration: '20-30 min', languages: ['English', 'Hindi'], normStatus: 'Role-specific norms', tier: 3 },
-  { name: 'AI Adaptability Index', shortName: 'AIAI', category: 'Future-Readiness', vertical: 'industrial', type: 'behavioral', items: 40, duration: '10-15 min', languages: ['English'], normStatus: 'Pilot norms (India)', tier: 4 },
-  { name: 'Digital Diet Assessment', shortName: 'DDA', category: 'Digital Wellness', vertical: 'industrial', type: 'behavioral', items: 25, duration: '5-10 min', languages: ['English', 'Hindi'], normStatus: 'Indian norms in progress', tier: 2 },
-
-  // Counselling
-  { name: 'SCAS — Spence Children\'s Anxiety Scale', shortName: 'SCAS', category: 'Child Anxiety', vertical: 'counselling', type: 'screening', items: 44, duration: '10-15 min', languages: ['English', 'Hindi'], normStatus: 'Indian norms available', tier: 2 },
-  { name: 'CDI-2 — Children\'s Depression Inventory', shortName: 'CDI-2', category: 'Child Depression', vertical: 'counselling', type: 'screening', items: 28, duration: '10-15 min', languages: ['English', 'Hindi'], normStatus: 'Licensed / Indian norms', tier: 3 },
-  { name: 'ADHD Rating Scale-5', shortName: 'ADHD-RS', category: 'Attention & Hyperactivity', vertical: 'counselling', type: 'screening', items: 18, duration: '5-10 min', languages: ['English', 'Hindi'], normStatus: 'DSM-5 based norms', tier: 2 },
-  { name: 'Developmental Milestones Tracker', shortName: 'DMT', category: 'Child Development', vertical: 'counselling', type: 'screening', items: 35, duration: '10-15 min', languages: ['English', 'Hindi', 'Tamil'], normStatus: 'Indian norms available', tier: 1 },
-  { name: 'School Adjustment Scale', shortName: 'SAS', category: 'School Readiness', vertical: 'counselling', type: 'behavioral', items: 30, duration: '10-15 min', languages: ['English', 'Hindi'], normStatus: 'Indian norms available', tier: 2 },
-  { name: 'Academic Stress Inventory', shortName: 'ASI', category: 'Academic Wellbeing', vertical: 'counselling', type: 'screening', items: 40, duration: '10-15 min', languages: ['English', 'Hindi', 'Kannada'], normStatus: 'Indian norms available', tier: 2 },
-
-  // Experimental
-  { name: 'IAT — Implicit Association Test', shortName: 'IAT', category: 'Implicit Bias', vertical: 'experimental', type: 'experimental', items: 120, duration: '7-10 min', languages: ['English'], normStatus: 'Research norms', tier: 4 },
-  { name: 'Dot Probe Task', shortName: 'DotProbe', category: 'Attentional Bias', vertical: 'experimental', type: 'experimental', items: 160, duration: '10-15 min', languages: ['English'], normStatus: 'Research norms', tier: 4 },
-  { name: 'Stroop Colour-Word Task', shortName: 'Stroop', category: 'Cognitive Inhibition', vertical: 'experimental', type: 'experimental', items: 100, duration: '5-8 min', languages: ['English', 'Hindi'], normStatus: 'Research norms', tier: 4 },
-  { name: 'Go/No-Go Task', shortName: 'GNG', category: 'Response Inhibition', vertical: 'experimental', type: 'experimental', items: 200, duration: '8-12 min', languages: ['English'], normStatus: 'Research norms', tier: 4 },
-  { name: 'N-Back Working Memory Task', shortName: 'N-Back', category: 'Working Memory', vertical: 'experimental', type: 'experimental', items: 80, duration: '10-15 min', languages: ['English'], normStatus: 'Research norms', tier: 4 },
-  { name: 'Delay Discounting Task', shortName: 'DDT', category: 'Impulsivity / Decision Making', vertical: 'experimental', type: 'experimental', items: 27, duration: '5-8 min', languages: ['English'], normStatus: 'Research norms', tier: 5 },
-];
 
 const builtInVerticals: { key: Vertical; label: string; icon: typeof Brain }[] = [
   { key: 'all', label: 'All', icon: ListChecks },
@@ -131,6 +99,9 @@ export default function InstrumentsPage() {
     name: '', category: '', duration: '', items: 0, tier: 1,
     languages: '', normStatus: '', vertical: '',
   });
+  const [confirmDelete, setConfirmDelete] = useState<Instrument | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
   const [customVerticals, setCustomVerticals] = useState<StoredVertical[]>([]);
   const [localInstruments, setLocalInstruments] = useState<Instrument[]>([]);
 
@@ -173,29 +144,32 @@ export default function InstrumentsPage() {
     };
   }, []);
 
-  useEffect(() => {
-    getInstruments()
-      .then((data) => {
-        // Map API data to the local Instrument shape
-        const mapped: Instrument[] = data.map((i: ApiInstrument) => ({
-          name: i.name,
-          shortName: i.short_name || i.name.slice(0, 10),
-          category: i.category || 'Custom',
-          vertical: (i.vertical.toLowerCase() as Exclude<Vertical, 'all'>),
-          type: 'screening',
-          items: i.item_count,
-          duration: i.duration_minutes ? `${i.duration_minutes} min` : '—',
-          languages: i.languages.map((l) => l.toUpperCase()),
-          normStatus: i.norm_status === 'AVAILABLE' ? 'Indian norms available' : i.norm_status,
-          tier: parseInt(i.tier_required.replace('T', ''), 10) || 1,
-        }));
-        setApiInstruments(mapped);
-        setApiSource('api');
-      })
-      .catch(() => setApiSource('mock'));
-  }, []);
+  const loadApiInstruments = async () => {
+    try {
+      const data = await getInstruments();
+      const mapped: Instrument[] = data.map((i: ApiInstrument) => ({
+        id: i.id,
+        name: i.name,
+        shortName: i.short_name || i.name.slice(0, 10),
+        category: i.category || 'Custom',
+        vertical: (i.vertical.toLowerCase() as Exclude<Vertical, 'all'>),
+        type: 'screening',
+        items: i.item_count,
+        duration: i.duration_minutes ? `${i.duration_minutes} min` : '—',
+        languages: i.languages.map((l) => l.toUpperCase()),
+        normStatus: i.norm_status === 'AVAILABLE' ? 'Indian norms available' : i.norm_status,
+        tier: parseInt(i.tier_required.replace('T', ''), 10) || 1,
+      }));
+      setApiInstruments(mapped);
+      setApiSource('api');
+    } catch {
+      setApiSource('mock');
+    }
+  };
 
-  // Merge user-published (localStorage) + backend API + mock. Dedupe by name so
+  useEffect(() => { loadApiInstruments(); }, []);
+
+  // Merge user-published (localStorage) + backend API. Dedupe by name so
   // a user questionnaire that was also synced to the backend doesn't double up.
   // Also re-read localStorage inline on every render so a newly-published
   // instrument shows up without needing a focus/storage event.
@@ -227,7 +201,6 @@ export default function InstrumentsPage() {
     };
     push(freshLocal);
     push(apiInstruments);
-    push(instruments);
     return out.map((i) => applyOverride(i, overrides));
   }, [freshLocal, apiInstruments, overrides]);
 
@@ -292,6 +265,29 @@ export default function InstrumentsPage() {
     };
     setOverrides(saveOverride(key, patch));
     setEditing(null);
+  };
+
+  // Hard delete — removes the catalog row and any matching
+  // published_questionnaires entry (the backend handles the cascade).
+  const submitDelete = async () => {
+    if (!confirmDelete?.id) return;
+    setDeleting(true);
+    setDeleteError('');
+    try {
+      const res = await fetch(`${API_BASE}/questionnaires-catalog/${encodeURIComponent(confirmDelete.id)}`, {
+        method: 'DELETE',
+      });
+      if (!res.ok && res.status !== 204) {
+        const text = await res.text().catch(() => res.statusText);
+        throw new Error(`[API ${res.status}] ${text}`);
+      }
+      await loadApiInstruments();
+      setConfirmDelete(null);
+    } catch (e: any) {
+      setDeleteError(e?.message || 'Failed to delete questionnaire');
+    } finally {
+      setDeleting(false);
+    }
   };
 
   // Direct filter (no useMemo) so every keystroke re-renders cleanly.
@@ -522,6 +518,17 @@ export default function InstrumentsPage() {
                         <Pencil className="h-3.5 w-3.5" />
                         Edit
                       </Button>
+                      {inst.id && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          mode="icon"
+                          onClick={() => { setConfirmDelete(inst); setDeleteError(''); }}
+                          title="Delete questionnaire"
+                        >
+                          <Trash2 className="h-3.5 w-3.5 text-red-600" />
+                        </Button>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
@@ -638,6 +645,52 @@ export default function InstrumentsPage() {
                   <Button variant="outline" onClick={() => setEditing(null)}>Cancel</Button>
                   <Button variant="primary" onClick={saveEdit}>Save Changes</Button>
                 </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {confirmDelete && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4"
+          onClick={() => !deleting && setConfirmDelete(null)}
+        >
+          <Card className="w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
+            <CardHeader className="flex flex-row items-center justify-between pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 text-red-500" />
+                Delete questionnaire
+              </CardTitle>
+              <button
+                onClick={() => !deleting && setConfirmDelete(null)}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {deleteError && (
+                <div className="rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-3 py-2 text-xs text-red-700 dark:text-red-400 flex items-start gap-2">
+                  <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  <span>{deleteError}</span>
+                </div>
+              )}
+              <p className="text-sm">
+                Permanently delete <strong>{confirmDelete.name}</strong> from the catalog and the published questionnaire? Existing assessments that reference it will keep their stored data, but new respondents won't be able to launch it.
+              </p>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setConfirmDelete(null)} disabled={deleting}>
+                  Cancel
+                </Button>
+                <Button
+                  variant="primary"
+                  onClick={submitDelete}
+                  disabled={deleting}
+                  className="bg-red-600 hover:bg-red-700 text-white"
+                >
+                  <Trash2 className="h-3.5 w-3.5" /> {deleting ? 'Deleting…' : 'Delete'}
+                </Button>
               </div>
             </CardContent>
           </Card>

@@ -15,93 +15,25 @@ import {
 } from 'lucide-react';
 import { loadOverrides, saveOverride, applyOverrideById, type InstrumentOverride } from '@/lib/instrument-overrides';
 
-const instruments = [
-  {
-    id: 'big5',
-    name: 'Big Five Personality (IPIP-NEO-120)',
-    category: 'Personality',
-    items: 120,
-    duration: '25 min',
-    languages: ['EN', 'HI', 'TA', 'TE', 'MR', 'KN'],
-    tier: 'T1',
-    norms: 'Indian working population norms by industry sector and function',
-    description: 'Openness, Conscientiousness, Extraversion, Agreeableness, Neuroticism. Role-specific profiles for selection and development.',
-  },
-  {
-    id: 'hexaco',
-    name: 'HEXACO Personality Inventory',
-    category: 'Personality',
-    items: 100,
-    duration: '20 min',
-    languages: ['EN', 'HI'],
-    tier: 'T1',
-    norms: 'Indian professional population norms. BFSI, government, healthcare sector norms',
-    description: 'Six dimensions including Honesty-Humility — more predictive for integrity-critical roles.',
-  },
-  {
-    id: 'learning-agility',
-    name: 'Learning Agility Assessment',
-    category: 'Development',
-    items: 80,
-    duration: '18 min',
-    languages: ['EN', 'HI', 'TA', 'TE'],
-    tier: 'T2',
-    norms: 'Indian managerial population norms. HiPo identification cutoffs by level',
-    description: 'Mental agility, people agility, change agility, results agility, self-awareness. Normed for leadership selection.',
-  },
-  {
-    id: 'sjt',
-    name: 'Situational Judgment Tests (SJTs)',
-    category: 'Behavioral',
-    items: 40,
-    duration: '30 min',
-    languages: ['EN', 'HI'],
-    tier: 'T2',
-    norms: 'Industry-specific norms. Concurrent validity against job performance studies',
-    description: 'Role-specific: sales, customer service, people management, analytical roles. Behavioural tendency scoring.',
-  },
-  {
-    id: 'cab',
-    name: 'Cognitive Aptitude Battery',
-    category: 'Aptitude',
-    items: 60,
-    duration: '35 min',
-    languages: ['EN', 'HI', 'TA', 'TE', 'MR'],
-    tier: 'T1',
-    norms: 'Indian graduate and post-graduate population norms. Score bands by educational level',
-    description: 'Verbal reasoning, numerical reasoning, abstract reasoning, spatial reasoning, attention to detail.',
-  },
-  {
-    id: 'ai-adapt',
-    name: 'AI Adaptability Index',
-    category: 'AI Readiness',
-    items: 56,
-    duration: '20 min',
-    languages: ['EN', 'HI'],
-    tier: 'T3',
-    norms: 'Validation study in progress — target n=5,000. Phase 1: pilot with early adopters',
-    description: '7 dimensions: AI Trust Calibration, Cognitive Flexibility, Collaboration Orientation, AI Anxiety, Prompt Thinking, Critical Evaluation, Ethical AI Orientation.',
-  },
-  {
-    id: 'digital-diet',
-    name: 'Digital Diet Assessment',
-    category: 'Wellbeing',
-    items: 45,
-    duration: '15 min',
-    languages: ['EN', 'HI'],
-    tier: 'T2',
-    norms: 'Initial norms from pilot organisations. CBT-based intervention trigger built in',
-    description: '5 dimensions: Screen Time Volume, Problematic Use Patterns, Cognitive Impact, Social Displacement, Physical Impact.',
-  },
-];
+interface IndInstrument {
+  id: string;
+  name: string;
+  category: string;
+  items: number;
+  duration: string;
+  languages: string[];
+  tier: string;
+  norms: string;
+  description: string;
+}
+
+const instruments: IndInstrument[] = [];
 
 const tierColors: Record<string, string> = {
   T1: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
   T2: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
   T3: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
 };
-
-type IndInstrument = typeof instruments[number];
 
 async function loadUserInstrumentsForVertical(vertical: string): Promise<IndInstrument[]> {
   try {

@@ -24,16 +24,7 @@ interface Client {
   riskStatus: RiskStatus;
 }
 
-const clients: Client[] = [
-  { id: 'CLT-0001', name: 'Arjun Mehta', dob: '1992-03-15', primaryLanguage: 'Hindi', lastAssessment: 'PHQ-9', activeSessions: 2, riskStatus: 'Low' },
-  { id: 'CLT-0002', name: 'Priya Sharma', dob: '1988-07-22', primaryLanguage: 'English', lastAssessment: 'GAD-7', activeSessions: 1, riskStatus: 'Moderate' },
-  { id: 'CLT-0003', name: 'Rahul Verma', dob: '1995-11-08', primaryLanguage: 'Hindi', lastAssessment: 'DASS-21', activeSessions: 3, riskStatus: 'High' },
-  { id: 'CLT-0004', name: 'Ananya Reddy', dob: '1990-01-30', primaryLanguage: 'Telugu', lastAssessment: 'Beck BDI-II', activeSessions: 1, riskStatus: 'Critical' },
-  { id: 'CLT-0005', name: 'Vikram Singh', dob: '1985-06-12', primaryLanguage: 'Hindi', lastAssessment: 'Big Five (IPIP-NEO)', activeSessions: 0, riskStatus: 'Low' },
-  { id: 'CLT-0006', name: 'Kavitha Nair', dob: '1998-09-04', primaryLanguage: 'Malayalam', lastAssessment: 'PHQ-9', activeSessions: 2, riskStatus: 'Moderate' },
-  { id: 'CLT-0007', name: 'Deepak Joshi', dob: '1993-12-18', primaryLanguage: 'Hindi', lastAssessment: 'GAD-7', activeSessions: 1, riskStatus: 'High' },
-  { id: 'CLT-0008', name: 'Shalini Gupta', dob: '1997-04-25', primaryLanguage: 'English', lastAssessment: 'DASS-21', activeSessions: 2, riskStatus: 'Low' },
-];
+const clients: Client[] = [];
 
 const riskColors: Record<RiskStatus, { badge: string; variant: 'success' | 'warning' | 'destructive' | 'info' }> = {
   Low: { badge: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400', variant: 'success' },

@@ -1,9 +1,7 @@
 import { useState } from 'react';
 import {
-  Activity,
   BarChart3,
   CheckCircle2,
-  Clock,
   FlaskConical,
   Loader2,
   Play,
@@ -39,25 +37,8 @@ interface ItemParam {
   iccDescription: string;
 }
 
-const calibrationJobs: CalibrationJob[] = [
-  { id: 'CAL-0051', instrument: 'PHQ-9', itemsCount: 9, sampleN: 16450, status: 'Completed', startTime: '2026-04-08 14:32', duration: '4m 12s', rmsea: 0.028 },
-  { id: 'CAL-0050', instrument: 'GAD-7', itemsCount: 7, sampleN: 12800, status: 'Completed', startTime: '2026-04-08 11:05', duration: '3m 47s', rmsea: 0.031 },
-  { id: 'CAL-0049', instrument: 'DASS-21', itemsCount: 21, sampleN: 9200, status: 'Running', startTime: '2026-04-09 09:15', duration: '—', rmsea: null },
-  { id: 'CAL-0048', instrument: 'Big Five (IPIP-NEO-120)', itemsCount: 120, sampleN: 8400, status: 'Completed', startTime: '2026-04-07 22:00', duration: '18m 34s', rmsea: 0.042 },
-  { id: 'CAL-0047', instrument: 'PCL-5', itemsCount: 20, sampleN: 3100, status: 'Failed', startTime: '2026-04-07 16:45', duration: '2m 08s', rmsea: null },
-];
-
-const itemParams: ItemParam[] = [
-  { itemId: 'PHQ9-01', label: 'Little interest or pleasure', a: 1.62, b: -0.81, c: 0.00, iccDescription: 'Steep curve, easy item — discriminates well at lower theta' },
-  { itemId: 'PHQ9-02', label: 'Feeling down, depressed', a: 1.89, b: -0.45, c: 0.00, iccDescription: 'High discrimination, moderate difficulty' },
-  { itemId: 'PHQ9-03', label: 'Trouble falling asleep', a: 1.21, b: 0.12, c: 0.00, iccDescription: 'Moderate discrimination, average difficulty' },
-  { itemId: 'PHQ9-04', label: 'Feeling tired or little energy', a: 1.45, b: -0.33, c: 0.00, iccDescription: 'Good discrimination, slightly easy' },
-  { itemId: 'PHQ9-05', label: 'Poor appetite or overeating', a: 1.08, b: 0.44, c: 0.00, iccDescription: 'Moderate slope, slightly harder item' },
-  { itemId: 'PHQ9-06', label: 'Feeling bad about yourself', a: 1.73, b: 0.22, c: 0.00, iccDescription: 'High discrimination near average difficulty' },
-  { itemId: 'PHQ9-07', label: 'Trouble concentrating', a: 1.34, b: 0.58, c: 0.00, iccDescription: 'Good discrimination, moderately difficult' },
-  { itemId: 'PHQ9-08', label: 'Moving or speaking slowly', a: 0.92, b: 1.15, c: 0.00, iccDescription: 'Lower discrimination, harder item — less informative at low theta' },
-  { itemId: 'PHQ9-09', label: 'Thoughts of self-harm', a: 1.45, b: 1.42, c: 0.00, iccDescription: 'Good discrimination at high theta — critical severity marker' },
-];
+const calibrationJobs: CalibrationJob[] = [];
+const itemParams: ItemParam[] = [];
 
 const instruments = [
   'PHQ-9', 'GAD-7', 'DASS-21', 'Big Five (IPIP-NEO-120)', 'PCL-5',
@@ -92,31 +73,6 @@ export default function CalibrationPage() {
         <p className="text-sm text-muted-foreground mt-1">
           Run and monitor Item Response Theory calibration jobs across instruments.
         </p>
-      </div>
-
-      {/* Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-        {[
-          { label: 'Total Jobs Run', value: '51', icon: Activity, change: '+3 this week' },
-          { label: 'Questionnaires Calibrated', value: '14', icon: FlaskConical, change: '9 fully validated' },
-          { label: 'Avg RMSEA', value: '0.034', icon: TrendingUp, change: 'Good model fit' },
-          { label: 'Last Calibration', value: '2h ago', icon: Clock, change: 'DASS-21 running' },
-        ].map((stat) => (
-          <Card key={stat.label}>
-            <CardContent className="p-5">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground">{stat.label}</p>
-                  <p className="text-2xl font-semibold mt-1">{stat.value}</p>
-                  <p className="text-xs text-muted-foreground mt-1">{stat.change}</p>
-                </div>
-                <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-primary/10">
-                  <stat.icon className="h-5 w-5 text-primary" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
       </div>
 
       {/* 3PL Model Overview */}

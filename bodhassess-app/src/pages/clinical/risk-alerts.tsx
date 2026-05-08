@@ -6,7 +6,6 @@ import {
   ExternalLink,
   XCircle,
   Clock,
-  Activity,
   Shield,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -31,115 +30,8 @@ interface RiskAlert {
   status: AlertAction;
 }
 
-const activeAlerts: RiskAlert[] = [
-  {
-    id: 'ALR-001',
-    client: 'Ananya Reddy',
-    clientId: 'CLT-0004',
-    instrument: 'PHQ-9',
-    item: 'Item 9',
-    response: '"More than half the days" (Score: 2)',
-    description: 'Suicidal ideation flagged — "Thoughts that you would be better off dead, or of hurting yourself"',
-    level: 'critical',
-    timestamp: '2026-04-09 09:15',
-    practitioner: 'Dr. Meena Iyer',
-    status: 'active',
-  },
-  {
-    id: 'ALR-002',
-    client: 'Rahul Verma',
-    clientId: 'CLT-0003',
-    instrument: 'DASS-21',
-    item: 'Depression Subscale',
-    response: 'Total: 32 (Extremely Severe)',
-    description: 'DASS-21 Depression subscale — Extremely Severe range exceeded',
-    level: 'critical',
-    timestamp: '2026-04-09 08:42',
-    practitioner: 'Dr. Sanjay Kulkarni',
-    status: 'active',
-  },
-  {
-    id: 'ALR-003',
-    client: 'Deepak Joshi',
-    clientId: 'CLT-0007',
-    instrument: 'GAD-7',
-    item: 'Total Score',
-    response: 'Total: 19 (Severe Anxiety)',
-    description: 'GAD-7 total score in Severe range — immediate clinical review recommended',
-    level: 'high',
-    timestamp: '2026-04-09 07:30',
-    practitioner: 'Dr. Meena Iyer',
-    status: 'active',
-  },
-];
-
-const alertHistory: RiskAlert[] = [
-  {
-    id: 'ALR-004',
-    client: 'Priya Sharma',
-    clientId: 'CLT-0002',
-    instrument: 'PHQ-9',
-    item: 'Item 9',
-    response: '"Several days" (Score: 1)',
-    description: 'Suicidal ideation flagged — low frequency but flagged per protocol',
-    level: 'high',
-    timestamp: '2026-04-08 14:20',
-    practitioner: 'Dr. Sanjay Kulkarni',
-    status: 'acknowledged',
-  },
-  {
-    id: 'ALR-005',
-    client: 'Kavitha Nair',
-    clientId: 'CLT-0006',
-    instrument: 'Beck BDI-II',
-    item: 'Item 9 (Suicidal Thoughts)',
-    response: '"I have thoughts of killing myself but would not carry them out" (Score: 1)',
-    description: 'BDI-II suicidality item endorsed',
-    level: 'critical',
-    timestamp: '2026-04-07 11:05',
-    practitioner: 'Dr. Meena Iyer',
-    status: 'referred',
-  },
-  {
-    id: 'ALR-006',
-    client: 'Vikram Singh',
-    clientId: 'CLT-0005',
-    instrument: 'DASS-21',
-    item: 'Stress Subscale',
-    response: 'Total: 28 (Severe)',
-    description: 'DASS-21 Stress subscale in Severe range',
-    level: 'high',
-    timestamp: '2026-04-06 16:30',
-    practitioner: 'Dr. Sanjay Kulkarni',
-    status: 'dismissed',
-  },
-  {
-    id: 'ALR-007',
-    client: 'Arjun Mehta',
-    clientId: 'CLT-0001',
-    instrument: 'PHQ-9',
-    item: 'Item 9',
-    response: '"Nearly every day" (Score: 3)',
-    description: 'PHQ-9 Item 9 — high-frequency suicidal ideation',
-    level: 'critical',
-    timestamp: '2026-04-05 09:45',
-    practitioner: 'Dr. Meena Iyer',
-    status: 'referred',
-  },
-  {
-    id: 'ALR-008',
-    client: 'Shalini Gupta',
-    clientId: 'CLT-0008',
-    instrument: 'GAD-7',
-    item: 'Total Score',
-    response: 'Total: 16 (Severe)',
-    description: 'GAD-7 Severe anxiety range',
-    level: 'high',
-    timestamp: '2026-04-04 13:15',
-    practitioner: 'Dr. Sanjay Kulkarni',
-    status: 'acknowledged',
-  },
-];
+const activeAlerts: RiskAlert[] = [];
+const alertHistory: RiskAlert[] = [];
 
 const statusBadge = (status: AlertAction) => {
   switch (status) {
@@ -181,7 +73,7 @@ export default function RiskAlertsPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Active Alerts</p>
-                <p className="text-2xl font-semibold mt-1">3</p>
+                <p className="text-2xl font-semibold mt-1">{alerts.length}</p>
                 <p className="text-xs text-muted-foreground mt-1">Requires immediate attention</p>
               </div>
               <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-red-100 dark:bg-red-900/30">
@@ -195,7 +87,7 @@ export default function RiskAlertsPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Acknowledged Today</p>
-                <p className="text-2xl font-semibold mt-1">5</p>
+                <p className="text-2xl font-semibold mt-1">{alertHistory.filter((a) => a.status === 'acknowledged').length}</p>
                 <p className="text-xs text-muted-foreground mt-1">Reviewed by practitioner</p>
               </div>
               <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-yellow-100 dark:bg-yellow-900/30">
@@ -209,7 +101,7 @@ export default function RiskAlertsPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Resolved This Week</p>
-                <p className="text-2xl font-semibold mt-1">12</p>
+                <p className="text-2xl font-semibold mt-1">{alertHistory.filter((a) => a.status === 'referred' || a.status === 'dismissed').length}</p>
                 <p className="text-xs text-muted-foreground mt-1">Referred or dismissed</p>
               </div>
               <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-green-100 dark:bg-green-900/30">
@@ -224,6 +116,13 @@ export default function RiskAlertsPage() {
       <div>
         <h2 className="text-base font-semibold mb-4">Active Alerts</h2>
         <div className="space-y-4">
+          {alerts.length === 0 && (
+            <Card>
+              <CardContent className="p-8 text-center text-sm text-muted-foreground">
+                No active alerts.
+              </CardContent>
+            </Card>
+          )}
           {alerts.map((alert) => (
             <Card
               key={alert.id}
@@ -351,6 +250,13 @@ export default function RiskAlertsPage() {
                     </tr>
                   );
                 })}
+                {alertHistory.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="px-5 py-8 text-center text-sm text-muted-foreground">
+                      No alert history yet.
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>

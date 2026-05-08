@@ -8,71 +8,22 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 
-const frameworks = [
-  {
-    id: 'FW-001',
-    role: 'Software Engineer L4',
-    competencies: [
-      { name: 'Analytical Thinking', weight: 25 },
-      { name: 'Problem Solving', weight: 20 },
-      { name: 'Communication', weight: 15 },
-      { name: 'Collaboration', weight: 15 },
-      { name: 'Learning Agility', weight: 15 },
-      { name: 'AI Readiness', weight: 10 },
-    ],
-    instruments: ['Cognitive Ability Test', 'Big Five (IPIP-NEO)', 'AI Adaptability Index'],
-    mappings: [
-      { competency: 'Analytical Thinking', instrument: 'Cognitive Ability Test', subscale: 'Logical Reasoning', weight: 25 },
-      { competency: 'Problem Solving', instrument: 'Cognitive Ability Test', subscale: 'Pattern Recognition', weight: 20 },
-      { competency: 'Communication', instrument: 'Big Five (IPIP-NEO)', subscale: 'Extraversion + Agreeableness', weight: 15 },
-      { competency: 'Collaboration', instrument: 'Big Five (IPIP-NEO)', subscale: 'Agreeableness + Openness', weight: 15 },
-      { competency: 'Learning Agility', instrument: 'Big Five (IPIP-NEO)', subscale: 'Openness to Experience', weight: 15 },
-      { competency: 'AI Readiness', instrument: 'AI Adaptability Index', subscale: 'Composite Score', weight: 10 },
-    ],
-  },
-  {
-    id: 'FW-002',
-    role: 'Sales Manager',
-    competencies: [
-      { name: 'Persuasion', weight: 25 },
-      { name: 'Emotional Intelligence', weight: 20 },
-      { name: 'Resilience', weight: 20 },
-      { name: 'Strategic Thinking', weight: 15 },
-      { name: 'Communication', weight: 10 },
-      { name: 'Drive', weight: 10 },
-    ],
-    instruments: ['HEXACO-PI-R', 'Emotional Intelligence Scale', 'Work Personality Index'],
-    mappings: [
-      { competency: 'Persuasion', instrument: 'HEXACO-PI-R', subscale: 'Extraversion', weight: 25 },
-      { competency: 'Emotional Intelligence', instrument: 'Emotional Intelligence Scale', subscale: 'Composite EQ', weight: 20 },
-      { competency: 'Resilience', instrument: 'Work Personality Index', subscale: 'Stress Tolerance', weight: 20 },
-      { competency: 'Strategic Thinking', instrument: 'HEXACO-PI-R', subscale: 'Openness to Experience', weight: 15 },
-      { competency: 'Communication', instrument: 'HEXACO-PI-R', subscale: 'Agreeableness', weight: 10 },
-      { competency: 'Drive', instrument: 'Work Personality Index', subscale: 'Achievement Motivation', weight: 10 },
-    ],
-  },
-  {
-    id: 'FW-003',
-    role: 'People Leader',
-    competencies: [
-      { name: 'Leadership', weight: 25 },
-      { name: 'Empathy', weight: 20 },
-      { name: 'Decision Making', weight: 20 },
-      { name: 'Conflict Resolution', weight: 15 },
-      { name: 'Coaching', weight: 10 },
-      { name: 'Vision Setting', weight: 10 },
-    ],
-    instruments: ['Leadership Potential Index', 'Emotional Intelligence Scale', 'Big Five (IPIP-NEO)'],
-    mappings: [
-      { competency: 'Leadership', instrument: 'Leadership Potential Index', subscale: 'Leadership Drive', weight: 25 },
-      { competency: 'Empathy', instrument: 'Emotional Intelligence Scale', subscale: 'Empathy Subscale', weight: 20 },
-      { competency: 'Decision Making', instrument: 'Big Five (IPIP-NEO)', subscale: 'Conscientiousness', weight: 20 },
-      { competency: 'Conflict Resolution', instrument: 'Emotional Intelligence Scale', subscale: 'Social Skills', weight: 15 },
-      { competency: 'Coaching', instrument: 'Leadership Potential Index', subscale: 'Developmental Orientation', weight: 10 },
-      { competency: 'Vision Setting', instrument: 'Big Five (IPIP-NEO)', subscale: 'Openness to Experience', weight: 10 },
-    ],
-  },
-];
+interface CompetencyMapping {
+  competency: string;
+  instrument: string;
+  subscale: string;
+  weight: number;
+}
+
+interface Framework {
+  id: string;
+  role: string;
+  competencies: { name: string; weight: number }[];
+  instruments: string[];
+  mappings: CompetencyMapping[];
+}
+
+const frameworks: Framework[] = [];
 
 export default function CompetencyFrameworksPage() {
   return (
@@ -102,6 +53,17 @@ export default function CompetencyFrameworksPage() {
 
       {/* Framework Cards */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        {frameworks.length === 0 && (
+          <Card className="lg:col-span-3">
+            <CardContent className="p-10 text-center">
+              <Layers className="h-10 w-10 text-muted-foreground/40 mx-auto mb-3" />
+              <p className="text-sm font-medium">No competency frameworks defined</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Create a framework to map role competencies to validated instruments.
+              </p>
+            </CardContent>
+          </Card>
+        )}
         {frameworks.map((fw) => (
           <Card key={fw.id}>
             <CardHeader className="pb-3">

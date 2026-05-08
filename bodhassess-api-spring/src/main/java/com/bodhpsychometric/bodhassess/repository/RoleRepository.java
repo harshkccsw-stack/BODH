@@ -14,6 +14,6 @@ public interface RoleRepository extends JpaRepository<Role, String> {
     @Query("SELECT r FROM Role r ORDER BY r.name ASC")
     List<Role> findAllOrderByName();
 
-    @Query(value = "SELECT url_paths FROM roles WHERE name = ANY(CAST(:names AS text[]))", nativeQuery = true)
+    @Query(value = "SELECT url_paths FROM roles WHERE name IN (:names)", nativeQuery = true)
     List<String> findUrlPathsJsonByRoleNames(java.util.Collection<String> names);
 }

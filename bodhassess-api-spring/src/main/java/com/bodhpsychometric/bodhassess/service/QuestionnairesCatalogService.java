@@ -70,6 +70,33 @@ public class QuestionnairesCatalogService {
         return new InstrumentDtos.InstrumentListResponse(data, data.size());
     }
 
+    // Hard delete — removes the instrument row plus its child items and any
+    // published_questionnaires row whose name matches. Idempotent: missing
+    // ids return silently so callers can re-issue safely.
+    @Transactional
+    public void delete(String id) {
+        if (!StringUtils.hasText(id)) return;
+        // Find the row's name first so we can also drop any matching
+        // published_questionnaires entry (the dual-write pair from the
+        // create-questionnaire flow).
+        @SuppressWarnings("unchecked")
+        List<Object> names = em.createNativeQuery(
+            "SELECT name FROM instruments WHERE id = ?1")
+            .setParameter(1, id)
+            .getResultList();
+        em.createNativeQuery("DELETE FROM items WHERE instrument_id = ?1")
+            .setParameter(1, id)
+            .executeUpdate();
+        em.createNativeQuery("DELETE FROM instruments WHERE id = ?1")
+            .setParameter(1, id)
+            .executeUpdate();
+        if (!names.isEmpty() && names.get(0) != null) {
+            em.createNativeQuery("DELETE FROM published_questionnaires WHERE LOWER(name) = LOWER(?1)")
+                .setParameter(1, names.get(0).toString())
+                .executeUpdate();
+        }
+    }
+
     @Transactional(readOnly = true)
     public Map<String, Object> get(String id) {
         @SuppressWarnings("unchecked")
