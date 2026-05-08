@@ -405,9 +405,49 @@ export const assessmentsApi = {
   bulk: (assessments: Assessment[]) => jsonFetch<{ created: number }>('/assessments/bulk', { method: 'POST', body: JSON.stringify({ assessments }) }),
   update: (id: string, s: Partial<Assessment>) => jsonFetch<Assessment>(`/assessments/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(s) }),
   delete: (id: string) => jsonFetch<null>(`/assessments/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  heartbeat: (id: string, body: { currentIndex: number; totalQuestions: number }) =>
+    jsonFetch<void>(`/assessments/${encodeURIComponent(id)}/heartbeat`, { method: 'POST', body: JSON.stringify(body) }),
 };
 // Backwards-compatible alias.
 export const portalSessionsApi = assessmentsApi;
+
+// ---------- Admin live tracking ----------
+export interface LiveAssessmentSummary {
+  instrument: string;
+  instrumentFullName?: string;
+  groupId?: string | null;
+  groupName?: string | null;
+  totalSessions: number;
+  completed: number;
+  activeNow: number;
+  notStarted: number;
+}
+
+export type LiveStatus = 'not_started' | 'live' | 'idle' | 'completed';
+
+export interface LiveSessionRow {
+  sessionId: string;
+  respondentId: string;
+  respondentName: string;
+  respondentEmail?: string;
+  sessionStatus: string;
+  liveStatus: LiveStatus;
+  currentIndex?: number;
+  totalQuestions?: number;
+  percentComplete?: number;
+  lastSeen?: string;
+  startedAt?: string;
+  completedAt?: string;
+}
+
+export const liveTrackingApi = {
+  listAssessments: () => jsonFetch<LiveAssessmentSummary[]>('/admin/live-tracking/assessments'),
+  listSessions: (instrument: string, groupId?: string | null) => {
+    const params = new URLSearchParams({ instrument });
+    if (groupId) params.set('groupId', groupId);
+    return jsonFetch<LiveSessionRow[]>(`/admin/live-tracking/assessments/sessions?${params.toString()}`);
+  },
+};
 
 // ---------- Verticals ----------
 export interface Vertical {

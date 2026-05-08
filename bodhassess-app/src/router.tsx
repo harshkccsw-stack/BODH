@@ -56,6 +56,7 @@ const AdminPermissions   = () => lazyPage(() => import('@/src/pages/admin/permis
 const AdminPractitioners = () => lazyPage(() => import('@/src/pages/admin/practitioners'));
 const AdminRespondents   = () => lazyPage(() => import('@/src/pages/admin/respondents'));
 const AdminRoles         = () => lazyPage(() => import('@/src/pages/admin/roles'));
+const AdminLiveTracking  = () => lazyPage(() => import('@/src/pages/admin/live-tracking'));
 
 const Assessments       = () => lazyPage(() => import('@/src/pages/assessments/all-assessments'));
 const AssessmentsCreate = () => lazyPage(() => import('@/src/pages/assessments/create-assessment'));
@@ -171,6 +172,7 @@ const routes: RouteObject[] = [
       { path: '/admin/practitioners', element: <AdminPractitioners /> },
       { path: '/admin/respondents', element: <AdminRespondents /> },
       { path: '/admin/roles', element: <AdminRoles /> },
+      { path: '/admin/live-tracking', element: <AdminLiveTracking /> },
 
       { path: '/assessments', element: <Assessments /> },
       { path: '/assessments/create', element: <AssessmentsCreate /> },

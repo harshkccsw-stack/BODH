@@ -16,6 +16,9 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.bodhpsychometric.bodhassess.payload.AssessmentDto;
+import com.bodhpsychometric.bodhassess.payload.HeartbeatRequest;
+import com.bodhpsychometric.bodhassess.security.CurrentUser;
+import com.bodhpsychometric.bodhassess.security.UserPrincipal;
 import com.bodhpsychometric.bodhassess.service.AssessmentsService;
 
 @RestController
@@ -52,6 +55,13 @@ public class AssessmentsController {
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(@PathVariable String id) {
         service.delete(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/{id}/heartbeat")
+    public ResponseEntity<Void> heartbeat(@PathVariable String id, @RequestBody HeartbeatRequest body,
+                                          @CurrentUser UserPrincipal principal) {
+        service.recordHeartbeat(id, body, principal);
         return ResponseEntity.noContent().build();
     }
 }

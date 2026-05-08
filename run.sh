@@ -81,6 +81,9 @@ case "$MODE" in
     compose up -d mysql
     wait_for_mysql
 
+    echo "==> Starting Redis in Docker (port ${REDIS_PORT:-6390})"
+    compose up -d redis
+
     if [ ! -d "$WEB_DIR/node_modules" ]; then
       echo "==> Installing frontend dependencies"
       (cd "$WEB_DIR" && npm install --no-audit --no-fund)
@@ -104,17 +107,18 @@ case "$MODE" in
       echo
       echo "==> Stopping dev processes..."
       stop_dev_processes
-      echo "==> Stopping MySQL container..."
-      compose stop mysql >/dev/null 2>&1 || true
+      echo "==> Stopping MySQL and Redis containers..."
+      compose stop mysql redis >/dev/null 2>&1 || true
       exit 0
     }
     trap cleanup INT TERM
 
     echo
     echo "==================================================================="
-    echo "  Web:  http://localhost:${WEB_PORT:-3000}"
-    echo "  API:  http://localhost:${APP_PORT:-4000}/api/v1"
-    echo "  DB:   localhost:${DB_PORT:-3306}  (user=${DB_USERNAME:-bodh})"
+    echo "  Web:    http://localhost:${WEB_PORT:-3000}"
+    echo "  API:    http://localhost:${APP_PORT:-4000}/api/v1"
+    echo "  DB:     localhost:${DB_PORT:-3306}    (user=${DB_USERNAME:-bodh})"
+    echo "  Redis:  localhost:${REDIS_PORT:-6390}"
     echo "  Tailing combined logs — press Ctrl-C to stop everything."
     echo "==================================================================="
     echo
@@ -128,11 +132,14 @@ case "$MODE" in
     compose up -d mysql
     wait_for_mysql
 
+    echo "==> Starting Redis in Docker (port ${REDIS_PORT:-6390})"
+    compose up -d redis
+
     echo "==> Starting Spring API on http://localhost:${APP_PORT:-4000}  (Ctrl+C to stop)"
     cleanup_api() {
       echo
-      echo "==> Stopping MySQL container..."
-      compose stop mysql >/dev/null 2>&1 || true
+      echo "==> Stopping MySQL and Redis containers..."
+      compose stop mysql redis >/dev/null 2>&1 || true
       exit 0
     }
     trap cleanup_api INT TERM
@@ -197,6 +204,7 @@ Usage: $0 [dev|api|app|prod|stop|reset|logs]
 
 Env (read from .env or shell):
   DB_NAME, DB_USERNAME, DB_PASSWORD, DB_ROOT_PASSWORD, DB_PORT
+  REDIS_HOST, REDIS_PORT
   APP_PORT, WEB_PORT
   APP_AUTH_TOKEN_SECRET, APP_AUTH_TOKEN_EXPIRATION_MSEC
   APP_CORS_ALLOWED_ORIGINS, APP_UPLOADS_BASE_URL
