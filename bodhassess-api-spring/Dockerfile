@@ -15,7 +15,7 @@ FROM eclipse-temurin:11-jre AS runtime
 WORKDIR /app
 
 # Non-root user for runtime
-RUN groupadd --system bodh && useradd --system --gid bodh --uid 1000 bodh
+RUN groupadd --system bodh && useradd --system --gid bodh bodh
 
 COPY --from=build /workspace/target/*.jar app.jar
 RUN mkdir -p /app/uploads && chown -R bodh:bodh /app

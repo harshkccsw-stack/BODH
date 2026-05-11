@@ -8,3 +8,4 @@ bodhassess-app/.env.test.local
 bodhassess-app/.env.production.local
 
 
+bodhassess-api-spring/target
