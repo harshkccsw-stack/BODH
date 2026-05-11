@@ -249,7 +249,7 @@ export default function LongitudinalTrackingPage() {
                   <thead>
                     <tr className="border-b border-border">
                       <th className="px-5 py-3 text-left font-medium text-muted-foreground">Date</th>
-                      <th className="px-5 py-3 text-left font-medium text-muted-foreground">Instrument</th>
+                      <th className="px-5 py-3 text-left font-medium text-muted-foreground">Questionnaire</th>
                       <th className="px-5 py-3 text-left font-medium text-muted-foreground">Raw Score</th>
                       <th className="px-5 py-3 text-left font-medium text-muted-foreground">T-Score</th>
                       <th className="px-5 py-3 text-left font-medium text-muted-foreground">Percentile</th>

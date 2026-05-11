@@ -11,6 +11,8 @@ import java.util.stream.Collectors;
 import javax.persistence.EntityManager;
 import javax.persistence.PersistenceContext;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -32,6 +34,8 @@ import com.bodhpsychometric.bodhassess.security.UserPrincipal;
 @Service
 @Transactional
 public class RespondentsService {
+
+    private static final Logger log = LoggerFactory.getLogger(RespondentsService.class);
 
     private static final int MAX_BULK = 1000;
     private static final String BULK_LOCK_KEY = "bodhassess_respondents_id_gen";
@@ -238,7 +242,9 @@ public class RespondentsService {
                 em.createNativeQuery("SELECT RELEASE_LOCK(?1)")
                         .setParameter(1, BULK_LOCK_KEY)
                         .getSingleResult();
-            } catch (Exception ignored) { }
+            } catch (Exception e) {
+                log.warn("RELEASE_LOCK({}) failed during bulk respondent op: {}", BULK_LOCK_KEY, e.getMessage());
+            }
         }
         return resp;
     }

@@ -43,8 +43,7 @@ public class AssessmentsController {
 
     @PostMapping("/bulk")
     public ResponseEntity<AssessmentDto.BulkAssessmentResponse> bulkCreate(@RequestBody AssessmentDto.BulkAssessmentRequest req) {
-        int created = service.bulkCreate(req.getAssessments());
-        return new ResponseEntity<>(new AssessmentDto.BulkAssessmentResponse(created), HttpStatus.CREATED);
+        return new ResponseEntity<>(service.bulkCreate(req.getAssessments()), HttpStatus.CREATED);
     }
 
     @PutMapping("/{id}")

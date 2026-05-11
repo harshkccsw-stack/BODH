@@ -39,7 +39,7 @@ function normalizeVertical(v: unknown): string {
 export default function GroupsPage() {
   const [groups, setGroups] = useState<Group[]>([]);
   const [respondents, setRespondents] = useState<StoredRespondent[]>([]);
-  const [instruments, setInstruments] = useState<PublishedQuestionnaire[]>([]);
+  const [instruments, setQuestionnaires] = useState<PublishedQuestionnaire[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -57,8 +57,8 @@ export default function GroupsPage() {
   const [memberPicked, setMemberPicked] = useState<Set<string>>(new Set());
 
   const [assignTargetId, setAssignTargetId] = useState<string | null>(null);
-  const [instrumentSearch, setInstrumentSearch] = useState('');
-  const [instrumentPicked, setInstrumentPicked] = useState<Set<string>>(new Set());
+  const [questionnaireSearch, setQuestionnaireSearch] = useState('');
+  const [questionnairePicked, setQuestionnairePicked] = useState<Set<string>>(new Set());
   const [assignFeedback, setAssignFeedback] = useState('');
 
   const [confirmDelete, setConfirmDelete] = useState<Group | null>(null);
@@ -70,7 +70,7 @@ export default function GroupsPage() {
       const [g, r, i] = await Promise.all([getGroups(), getRespondents(), questionnairesApi.list()]);
       setGroups(g);
       setRespondents(r);
-      setInstruments(i);
+      setQuestionnaires(i);
     } catch (e: any) {
       setLoadError(e?.message || 'Failed to load data');
     } finally {
@@ -185,13 +185,13 @@ export default function GroupsPage() {
 
   // ---- Assign instruments ----
   const openAssign = (groupId: string) => {
-    setInstrumentSearch('');
-    setInstrumentPicked(new Set());
+    setQuestionnaireSearch('');
+    setQuestionnairePicked(new Set());
     setAssignFeedback('');
     setAssignTargetId(groupId);
   };
-  const toggleInstrumentPick = (name: string) =>
-    setInstrumentPicked((prev) => {
+  const toggleQuestionnairePick = (name: string) =>
+    setQuestionnairePicked((prev) => {
       const next = new Set(prev);
       if (next.has(name)) next.delete(name); else next.add(name);
       return next;
@@ -200,7 +200,7 @@ export default function GroupsPage() {
     if (!assignTargetId) return;
     const group = groups.find((g) => g.id === assignTargetId);
     if (!group) return;
-    if (instrumentPicked.size === 0) { setAssignFeedback('Pick at least one instrument'); return; }
+    if (questionnairePicked.size === 0) { setAssignFeedback('Pick at least one instrument'); return; }
     const memberIds = getAllMembersRecursive(assignTargetId, groups);
     if (memberIds.length === 0) { setAssignFeedback('This group has no members yet'); return; }
 
@@ -209,7 +209,7 @@ export default function GroupsPage() {
       memberIds.forEach((mid) => {
         const r = respondentById[mid];
         if (!r) return;
-        instrumentPicked.forEach((name) => {
+        questionnairePicked.forEach((name) => {
           const inst = instruments.find((i) => i.name === name);
           const sid = `SESS-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
           newSessions.push({
@@ -230,11 +230,15 @@ export default function GroupsPage() {
       });
       const res = await portalSessionsApi.bulk(newSessions);
       const createdCount = res?.created ?? newSessions.length;
+      const errs = res?.errors || [];
       await updateGroup(assignTargetId, {
         ...group,
-        assignedInstruments: Array.from(new Set([...(group.assignedInstruments || []), ...instrumentPicked])),
+        assignedInstruments: Array.from(new Set([...(group.assignedInstruments || []), ...questionnairePicked])),
       });
-      setAssignFeedback(`Created ${createdCount} session${createdCount !== 1 ? 's' : ''} across ${memberIds.length} respondent${memberIds.length !== 1 ? 's' : ''}.`);
+      const failedNote = errs.length > 0
+        ? ` — ${errs.length} skipped (${errs[0].reason}${errs.length > 1 ? '; …' : ''})`
+        : '';
+      setAssignFeedback(`Created ${createdCount} session${createdCount !== 1 ? 's' : ''} across ${memberIds.length} respondent${memberIds.length !== 1 ? 's' : ''}.${failedNote}`);
       await refresh();
     } catch (e: any) {
       setAssignFeedback(`Failed: ${e?.message || 'unknown error'}`);
@@ -331,7 +335,7 @@ export default function GroupsPage() {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
         <Card><CardContent className="p-5"><p className="text-sm text-muted-foreground">Groups</p><p className="text-2xl font-semibold mt-1">{groups.length}</p></CardContent></Card>
         <Card><CardContent className="p-5"><p className="text-sm text-muted-foreground">Respondents assigned</p><p className="text-2xl font-semibold mt-1">{totalMembers}</p></CardContent></Card>
-        <Card><CardContent className="p-5"><p className="text-sm text-muted-foreground">Available instruments</p><p className="text-2xl font-semibold mt-1">{instruments.length}</p></CardContent></Card>
+        <Card><CardContent className="p-5"><p className="text-sm text-muted-foreground">Available questionnaires</p><p className="text-2xl font-semibold mt-1">{instruments.length}</p></CardContent></Card>
       </div>
 
       <div className="relative max-w-md">
@@ -467,7 +471,7 @@ export default function GroupsPage() {
       {assignTargetId && (() => {
         const g = groups.find((x) => x.id === assignTargetId);
         const targetMemberIds = getAllMembersRecursive(assignTargetId, groups);
-        const q = instrumentSearch.trim().toLowerCase();
+        const q = questionnaireSearch.trim().toLowerCase();
         const instList = instruments.filter((i) => {
           if (!q) return true;
           return (i.name || '').toLowerCase().includes(q) || (i.shortName || '').toLowerCase().includes(q) || (i.vertical || '').toLowerCase().includes(q);
@@ -498,23 +502,23 @@ export default function GroupsPage() {
                 )}
                 <div className="relative shrink-0">
                   <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <input autoFocus type="text" value={instrumentSearch} onChange={(e) => setInstrumentSearch(e.currentTarget.value)}
-                    placeholder="Search instruments..."
+                  <input autoFocus type="text" value={questionnaireSearch} onChange={(e) => setQuestionnaireSearch(e.currentTarget.value)}
+                    placeholder="Search questionnaires..."
                     className="w-full h-9 rounded-lg border border-border bg-background pl-9 pr-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" />
                 </div>
                 <div className="flex-1 min-h-0 overflow-y-auto rounded-lg border border-border">
                   {instList.length === 0 ? (
                     <p className="p-6 text-center text-sm text-muted-foreground">
-                      {instruments.length === 0 ? 'No instruments published yet. Use Question Bank → Create Questionnaire first.' : 'No matches.'}
+                      {instruments.length === 0 ? 'No questionnaires published yet. Use Question Bank → Create Questionnaire first.' : 'No matches.'}
                     </p>
                   ) : (
                     <ul className="divide-y divide-border">
                       {instList.map((i) => {
-                        const picked = instrumentPicked.has(i.name);
+                        const picked = questionnairePicked.has(i.name);
                         return (
                           <li key={i.id || i.name}>
                             <label className={cn('flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-muted/50', picked && 'bg-primary/5')}>
-                              <input type="checkbox" checked={picked} onChange={() => toggleInstrumentPick(i.name)} className="rounded" />
+                              <input type="checkbox" checked={picked} onChange={() => toggleQuestionnairePick(i.name)} className="rounded" />
                               <div className="flex-1 min-w-0">
                                 <p className="text-sm font-medium truncate">{i.name}</p>
                                 <p className="text-xs text-muted-foreground truncate">
@@ -530,11 +534,11 @@ export default function GroupsPage() {
                 </div>
                 <div className="flex items-center justify-between shrink-0 pt-1">
                   <p className="text-xs text-muted-foreground">
-                    {instrumentPicked.size} questionnaire{instrumentPicked.size !== 1 ? 's' : ''} selected — {instrumentPicked.size * targetMemberIds.length} assessment{instrumentPicked.size * targetMemberIds.length !== 1 ? 's' : ''} will be created
+                    {questionnairePicked.size} questionnaire{questionnairePicked.size !== 1 ? 's' : ''} selected — {questionnairePicked.size * targetMemberIds.length} assessment{questionnairePicked.size * targetMemberIds.length !== 1 ? 's' : ''} will be created
                   </p>
                   <div className="flex gap-2">
                     <Button variant="outline" onClick={() => setAssignTargetId(null)}>Close</Button>
-                    <Button variant="primary" onClick={submitAssign} disabled={instrumentPicked.size === 0 || targetMemberIds.length === 0}>
+                    <Button variant="primary" onClick={submitAssign} disabled={questionnairePicked.size === 0 || targetMemberIds.length === 0}>
                       <ClipboardCheck className="h-3.5 w-3.5" /> Create Assessments
                     </Button>
                   </div>

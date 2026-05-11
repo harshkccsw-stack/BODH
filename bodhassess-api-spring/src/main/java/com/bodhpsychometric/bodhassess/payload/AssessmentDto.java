@@ -80,9 +80,35 @@ public class AssessmentDto {
 
     public static class BulkAssessmentResponse {
         private int created;
+        // Per-row failures so callers can surface what was skipped instead of
+        // silently counting successes. Additive on the wire — older clients
+        // that only read `created` keep working.
+        private List<BulkAssessmentError> errors = new java.util.ArrayList<>();
         public BulkAssessmentResponse() {}
         public BulkAssessmentResponse(int created) { this.created = created; }
+        public BulkAssessmentResponse(int created, List<BulkAssessmentError> errors) {
+            this.created = created;
+            this.errors = errors == null ? new java.util.ArrayList<>() : errors;
+        }
         public int getCreated() { return created; }
         public void setCreated(int created) { this.created = created; }
+        public List<BulkAssessmentError> getErrors() { return errors; }
+        public void setErrors(List<BulkAssessmentError> errors) { this.errors = errors; }
+    }
+
+    public static class BulkAssessmentError {
+        private int row;
+        private String id;
+        private String reason;
+        public BulkAssessmentError() {}
+        public BulkAssessmentError(int row, String id, String reason) {
+            this.row = row; this.id = id; this.reason = reason;
+        }
+        public int getRow() { return row; }
+        public void setRow(int row) { this.row = row; }
+        public String getId() { return id; }
+        public void setId(String id) { this.id = id; }
+        public String getReason() { return reason; }
+        public void setReason(String reason) { this.reason = reason; }
     }
 }

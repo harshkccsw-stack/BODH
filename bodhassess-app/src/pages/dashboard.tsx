@@ -17,7 +17,7 @@ import {
   getPractitioners,
   countByVertical,
 } from '@/lib/data-store';
-import { portalSessionsApi, getInstruments as fetchInstruments } from '@/lib/api';
+import { portalSessionsApi, getQuestionnairesCatalog as fetchQuestionnaires } from '@/lib/api';
 import { formatDDMMYYYY } from '@/lib/helpers';
 
 const verticalLabels: Record<string, string> = {
@@ -53,7 +53,7 @@ function DashboardContent() {
   const [health, setHealth] = useState<HealthStatus | null>(null);
   const [respondentCount, setRespondentCount] = useState(0);
   const [practitionerCount, setPractitionerCount] = useState(0);
-  const [instrumentCount, setInstrumentCount] = useState(0);
+  const [questionnaireCount, setQuestionnaireCount] = useState(0);
   const [sessionsForVertical, setSessionsForVertical] = useState<Array<{ status: string; score?: string }>>([]);
   const [recentLive, setRecentLive] = useState<RecentSession[]>([]);
 
@@ -63,10 +63,10 @@ function DashboardContent() {
 
   useEffect(() => {
     (async () => {
-      const [allRespondents, allPractitioners, allInstruments, allSessions] = await Promise.all([
+      const [allRespondents, allPractitioners, allQuestionnaires, allSessions] = await Promise.all([
         getRespondents(),
         getPractitioners(),
-        fetchInstruments().catch(() => []),
+        fetchQuestionnaires().catch(() => []),
         portalSessionsApi.list().catch(() => []),
       ]);
 
@@ -78,9 +78,9 @@ function DashboardContent() {
       if (vertical === 'whitelabel') {
         setRespondentCount(allRespondents.length);
         setPractitionerCount(allPractitioners.length);
-        setInstrumentCount(allInstruments.length);
+        setQuestionnaireCount(allQuestionnaires.length);
       } else {
-        setInstrumentCount(countByVertical(allInstruments as any, vertical));
+        setQuestionnaireCount(countByVertical(allQuestionnaires as any, vertical));
         setRespondentCount(allRespondents.length);
         setPractitionerCount(
           allPractitioners.filter((p) =>
@@ -109,7 +109,7 @@ function DashboardContent() {
     { label: 'Active Assessments', value: String(activeCount), icon: Activity, change: `${sessionsForVertical.length} total in this vertical` },
     { label: 'Completed Today', value: String(completedCount), icon: ClipboardCheck, change: `${completedCount} submitted` },
     { label: `${terms.respondent} Registered`, value: String(respondentCount), icon: Users, change: `${practitionerCount} ${terms.practitioner.toLowerCase()}` },
-    { label: 'Questionnaires Available', value: String(instrumentCount || 0), icon: Library, change: pendingReviewCount > 0 ? `${pendingReviewCount} pending review` : 'Includes library + custom' },
+    { label: 'Questionnaires Available', value: String(questionnaireCount || 0), icon: Library, change: pendingReviewCount > 0 ? `${pendingReviewCount} pending review` : 'Includes library + custom' },
   ];
 
   const recentSessions = recentLive;
@@ -124,7 +124,7 @@ function DashboardContent() {
             <strong>API Connected</strong> — {health.service} {health.version}
           </span>
           <span className="text-xs text-green-600 dark:text-green-500 flex items-center gap-1 ml-auto">
-            <Database className="h-3 w-3" /> PostgreSQL {health.database ? 'healthy' : 'down'}
+            <Database className="h-3 w-3" /> MySQL {health.database ? 'healthy' : 'down'}
             <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse ml-1" />
           </span>
         </div>

@@ -61,13 +61,13 @@ const severityColors: Record<string, string> = {
 // ---------------------------------------------------------------------------
 
 export default function NormsPage() {
-  const [selectedInstrument, setSelectedInstrument] = useState('PHQ-9');
+  const [selectedQuestionnaire, setSelectedQuestionnaire] = useState('PHQ-9');
   const [selectedPopulation, setSelectedPopulation] = useState('Indian Adult');
   const [selectedAge, setSelectedAge] = useState('All');
   const [selectedGender, setSelectedGender] = useState('All');
   const [selectedEducation, setSelectedEducation] = useState('All');
 
-  const activeTable = normTables.find((t) => t.instrument === selectedInstrument);
+  const activeTable = normTables.find((t) => t.instrument === selectedQuestionnaire);
 
   return (
     <div className="p-5 lg:p-7.5 space-y-7">
@@ -97,10 +97,10 @@ export default function NormsPage() {
         <CardContent>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
             <div className="space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground">Instrument</label>
+              <label className="text-xs font-medium text-muted-foreground">Questionnaire</label>
               <select
-                value={selectedInstrument}
-                onChange={(e) => setSelectedInstrument(e.target.value)}
+                value={selectedQuestionnaire}
+                onChange={(e) => setSelectedQuestionnaire(e.target.value)}
                 className="w-full h-8.5 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:border-ring focus:ring-[3px] focus:ring-ring/30 transition-shadow"
               >
                 {normTables.map((t) => (

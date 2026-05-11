@@ -9,6 +9,8 @@ import java.util.UUID;
 import javax.persistence.EntityManager;
 import javax.persistence.PersistenceContext;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -17,12 +19,14 @@ import org.springframework.util.StringUtils;
 import com.bodhpsychometric.bodhassess.exception.BadRequestException;
 import com.bodhpsychometric.bodhassess.exception.ResourceNotFoundException;
 import com.bodhpsychometric.bodhassess.exception.ServiceException;
-import com.bodhpsychometric.bodhassess.payload.InstrumentDtos;
+import com.bodhpsychometric.bodhassess.payload.QuestionnaireCatalogDtos;
 import com.bodhpsychometric.bodhassess.payload.ItemDtos;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 @Service
 public class ItemsService {
+
+    private static final Logger log = LoggerFactory.getLogger(ItemsService.class);
 
     @PersistenceContext
     private EntityManager em;
@@ -31,7 +35,7 @@ public class ItemsService {
     private ObjectMapper objectMapper;
 
     @Transactional
-    public InstrumentDtos.CreateInstrumentResponse createInstrument(InstrumentDtos.CreateInstrumentRequest req) {
+    public QuestionnaireCatalogDtos.CreateQuestionnaireCatalogResponse createQuestionnaireCatalog(QuestionnaireCatalogDtos.CreateQuestionnaireCatalogRequest req) {
         if (!StringUtils.hasText(req.getName()) || !StringUtils.hasText(req.getVertical())) {
             throw new BadRequestException("name and vertical are required");
         }
@@ -70,12 +74,12 @@ public class ItemsService {
             .setParameter(14, scoringJson)
             .executeUpdate();
 
-        return new InstrumentDtos.CreateInstrumentResponse(id, req.getName(), req.getVertical(),
-                "Instrument created. Add questions to build your assessment.");
+        return new QuestionnaireCatalogDtos.CreateQuestionnaireCatalogResponse(id, req.getName(), req.getVertical(),
+                "Questionnaire created. Add questions to build your assessment.");
     }
 
     @Transactional(readOnly = true)
-    public ItemDtos.ItemListResponse listByInstrument(String instrumentId) {
+    public ItemDtos.ItemListResponse listByQuestionnaireCatalog(String instrumentId) {
         @SuppressWarnings("unchecked")
         List<Object[]> rows = em.createNativeQuery(
             "SELECT id, sub_domain, item_format, stem, options, irt_a, irt_b, irt_c," +
@@ -142,7 +146,9 @@ public class ItemsService {
             try {
                 insertItem(UUID.randomUUID().toString(), instrumentId, vertical, item, format, langs, seq);
                 created++;
-            } catch (Exception ignored) { }
+            } catch (Exception e) {
+                log.warn("bulkCreateItems instrument={} row {} failed: {}", instrumentId, idx, e.getMessage());
+            }
         }
         em.createNativeQuery(
             "UPDATE instruments SET item_count = (SELECT COUNT(*) FROM items WHERE instrument_id = ?1)," +
@@ -158,7 +164,7 @@ public class ItemsService {
             "SELECT vertical FROM instruments WHERE id = ?1")
             .setParameter(1, instrumentId)
             .getResultList();
-        if (rows.isEmpty()) throw new ResourceNotFoundException("Instrument", "id", instrumentId);
+        if (rows.isEmpty()) throw new ResourceNotFoundException("Questionnaire", "id", instrumentId);
         return (String) rows.get(0);
     }
 

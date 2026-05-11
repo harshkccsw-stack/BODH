@@ -16,7 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import com.bodhpsychometric.bodhassess.exception.ResourceNotFoundException;
-import com.bodhpsychometric.bodhassess.payload.InstrumentDtos;
+import com.bodhpsychometric.bodhassess.payload.QuestionnaireCatalogDtos;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -30,7 +30,7 @@ public class QuestionnairesCatalogService {
     private ObjectMapper objectMapper;
 
     @Transactional(readOnly = true)
-    public InstrumentDtos.InstrumentListResponse list(String vertical) {
+    public QuestionnaireCatalogDtos.QuestionnaireCatalogListResponse list(String vertical) {
         StringBuilder sql = new StringBuilder(
             "SELECT id, name, short_name, vertical, category, item_count, duration_minutes," +
             " languages, tier_required, is_adaptive, is_fixed_sequence, norm_status, age_range," +
@@ -47,9 +47,9 @@ public class QuestionnairesCatalogService {
         }
         @SuppressWarnings("unchecked")
         List<Object[]> rows = q.getResultList();
-        List<InstrumentDtos.InstrumentRow> data = new ArrayList<>();
+        List<QuestionnaireCatalogDtos.QuestionnaireCatalogRow> data = new ArrayList<>();
         for (Object[] r : rows) {
-            InstrumentDtos.InstrumentRow row = new InstrumentDtos.InstrumentRow();
+            QuestionnaireCatalogDtos.QuestionnaireCatalogRow row = new QuestionnaireCatalogDtos.QuestionnaireCatalogRow();
             row.setId((String) r[0]);
             row.setName((String) r[1]);
             row.setShortName((String) r[2]);
@@ -67,7 +67,7 @@ public class QuestionnairesCatalogService {
             row.setCreatedAt(formatDate(r[14]));
             data.add(row);
         }
-        return new InstrumentDtos.InstrumentListResponse(data, data.size());
+        return new QuestionnaireCatalogDtos.QuestionnaireCatalogListResponse(data, data.size());
     }
 
     // Hard delete — removes the instrument row plus its child items and any
@@ -106,7 +106,7 @@ public class QuestionnairesCatalogService {
             " FROM instruments WHERE id = ?1")
             .setParameter(1, id)
             .getResultList();
-        if (rows.isEmpty()) throw new ResourceNotFoundException("Instrument", "id", id);
+        if (rows.isEmpty()) throw new ResourceNotFoundException("Questionnaire", "id", id);
         Object[] r = rows.get(0);
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("id", id);

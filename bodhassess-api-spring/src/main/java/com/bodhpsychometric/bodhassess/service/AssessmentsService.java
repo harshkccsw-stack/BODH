@@ -3,11 +3,14 @@ package com.bodhpsychometric.bodhassess.service;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,6 +29,8 @@ import org.springframework.security.access.AccessDeniedException;
 @Service
 @Transactional
 public class AssessmentsService {
+
+    private static final Logger log = LoggerFactory.getLogger(AssessmentsService.class);
 
     @Autowired
     private PortalSessionRepository repo;
@@ -58,18 +63,37 @@ public class AssessmentsService {
         return toDto(repo.save(s));
     }
 
-    public int bulkCreate(List<AssessmentDto> items) {
+    public AssessmentDto.BulkAssessmentResponse bulkCreate(List<AssessmentDto> items) {
         int created = 0;
-        for (AssessmentDto dto : items) {
+        List<AssessmentDto.BulkAssessmentError> errors = new ArrayList<>();
+        if (items == null) return new AssessmentDto.BulkAssessmentResponse(0, errors);
+        for (int i = 0; i < items.size(); i++) {
+            AssessmentDto dto = items.get(i);
+            if (dto == null) {
+                errors.add(new AssessmentDto.BulkAssessmentError(i, null, "row is null"));
+                continue;
+            }
             if (!StringUtils.hasText(dto.getId()) || !StringUtils.hasText(dto.getRespondentId())
-                    || !StringUtils.hasText(dto.getInstrument())) continue;
-            if (repo.existsById(dto.getId())) continue;
+                    || !StringUtils.hasText(dto.getInstrument())) {
+                errors.add(new AssessmentDto.BulkAssessmentError(i, dto.getId(),
+                        "id, respondentId, instrument required"));
+                continue;
+            }
+            if (repo.existsById(dto.getId())) {
+                errors.add(new AssessmentDto.BulkAssessmentError(i, dto.getId(),
+                        "session already exists"));
+                continue;
+            }
             try {
                 repo.save(fromDto(dto));
                 created++;
-            } catch (Exception ignored) { }
+            } catch (Exception e) {
+                log.warn("bulkCreate row {} (id={}) failed: {}", i, dto.getId(), e.getMessage());
+                errors.add(new AssessmentDto.BulkAssessmentError(i, dto.getId(),
+                        e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()));
+            }
         }
-        return created;
+        return new AssessmentDto.BulkAssessmentResponse(created, errors);
     }
 
     public AssessmentDto update(String id, AssessmentDto dto) {
@@ -85,7 +109,11 @@ public class AssessmentsService {
         if ("Completed".equalsIgnoreCase(dto.getStatus())) {
             OffsetDateTime ts = null;
             if (StringUtils.hasText(dto.getCompletedAt())) {
-                try { ts = OffsetDateTime.parse(dto.getCompletedAt()); } catch (Exception ignored) { }
+                try {
+                    ts = OffsetDateTime.parse(dto.getCompletedAt());
+                } catch (Exception e) {
+                    log.warn("update session {} got malformed completedAt '{}': {}", id, dto.getCompletedAt(), e.getMessage());
+                }
             }
             if (ts == null) ts = OffsetDateTime.now(ZoneOffset.UTC);
             s.setCompletedAt(ts);

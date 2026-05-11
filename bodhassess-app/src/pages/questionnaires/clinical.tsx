@@ -16,13 +16,13 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
-import { loadOverrides, saveOverride, applyOverride, type InstrumentOverride } from '@/lib/instrument-overrides';
+import { loadOverrides, saveOverride, applyOverride, type QuestionnaireOverride } from '@/lib/instrument-overrides';
 
 // ---------------------------------------------------------------------------
 // Data
 // ---------------------------------------------------------------------------
 
-interface ClinicalInstrument {
+interface ClinicalQuestionnaire {
   name: string;
   shortName: string;
   category: string;
@@ -34,9 +34,9 @@ interface ClinicalInstrument {
   tier: number;
 }
 
-const instruments: ClinicalInstrument[] = [];
+const instruments: ClinicalQuestionnaire[] = [];
 
-const normsStatusStyles: Record<ClinicalInstrument['indianNormsStatus'], { variant: 'success' | 'warning' | 'info'; label: string }> = {
+const normsStatusStyles: Record<ClinicalQuestionnaire['indianNormsStatus'], { variant: 'success' | 'warning' | 'info'; label: string }> = {
   'Available':   { variant: 'success', label: 'Indian Norms Available' },
   'In Progress': { variant: 'warning', label: 'Indian Norms In Progress' },
   'Licensed':    { variant: 'info', label: 'Licensed / Indian Norms' },
@@ -52,11 +52,11 @@ const tierColors: Record<number, string> = {
 // Component
 // ---------------------------------------------------------------------------
 
-async function loadUserInstrumentsForVertical(vertical: string): Promise<ClinicalInstrument[]> {
+async function loadUserQuestionnairesForVertical(vertical: string): Promise<ClinicalQuestionnaire[]> {
   try {
     const { questionnairesApi } = await import('@/lib/api');
     const list = await questionnairesApi.list(vertical);
-    return list.map((i): ClinicalInstrument => ({
+    return list.map((i): ClinicalQuestionnaire => ({
       name: i.name || i.shortName || 'Untitled',
       shortName: i.shortName || (i.name ? String(i.name).split(' ')[0] : 'CUSTOM'),
       category: i.category || 'Custom Assessment',
@@ -72,11 +72,11 @@ async function loadUserInstrumentsForVertical(vertical: string): Promise<Clinica
   }
 }
 
-export default function ClinicalInstrumentsPage() {
+export default function ClinicalQuestionnairesPage() {
   const [search, setSearch] = useState('');
-  const [overrides, setOverrides] = useState<Record<string, InstrumentOverride>>({});
-  const [userInstruments, setUserInstruments] = useState<ClinicalInstrument[]>([]);
-  const [editing, setEditing] = useState<ClinicalInstrument | null>(null);
+  const [overrides, setOverrides] = useState<Record<string, QuestionnaireOverride>>({});
+  const [userQuestionnaires, setUserQuestionnaires] = useState<ClinicalQuestionnaire[]>([]);
+  const [editing, setEditing] = useState<ClinicalQuestionnaire | null>(null);
   const [editForm, setEditForm] = useState({
     name: '', category: '', items: 0, duration: '',
     languages: '', severityCutoffs: '', tier: 1,
@@ -84,26 +84,26 @@ export default function ClinicalInstrumentsPage() {
 
   useEffect(() => {
     setOverrides(loadOverrides());
-    loadUserInstrumentsForVertical('CLINICAL').then(setUserInstruments).catch(() => setUserInstruments([]));
+    loadUserQuestionnairesForVertical('CLINICAL').then(setUserQuestionnaires).catch(() => setUserQuestionnaires([]));
   }, []);
 
-  const mergedInstruments = useMemo(() => {
+  const mergedQuestionnaires = useMemo(() => {
     const seenShort = new Set(instruments.map((i) => i.shortName.toLowerCase()));
-    const uniqueUser = userInstruments.filter((u) => !seenShort.has(u.shortName.toLowerCase()));
-    return [...uniqueUser, ...instruments].map((i) => applyOverride(i as any, overrides) as ClinicalInstrument);
-  }, [overrides, userInstruments]);
+    const uniqueUser = userQuestionnaires.filter((u) => !seenShort.has(u.shortName.toLowerCase()));
+    return [...uniqueUser, ...instruments].map((i) => applyOverride(i as any, overrides) as ClinicalQuestionnaire);
+  }, [overrides, userQuestionnaires]);
 
   const toStr = (v: unknown): string => (v == null ? '' : String(v)).toLowerCase();
   const query = search.trim().toLowerCase();
   const filtered = !query
-    ? mergedInstruments
-    : mergedInstruments.filter((inst) => {
+    ? mergedQuestionnaires
+    : mergedQuestionnaires.filter((inst) => {
         const hay = [inst?.name, inst?.shortName, inst?.category, inst?.severityCutoffs]
           .map(toStr).join(' ');
         return hay.includes(query);
       });
 
-  const openEdit = (inst: ClinicalInstrument) => {
+  const openEdit = (inst: ClinicalQuestionnaire) => {
     setEditing(inst);
     setEditForm({
       name: inst.name,
@@ -118,7 +118,7 @@ export default function ClinicalInstrumentsPage() {
 
   const saveEdit = () => {
     if (!editing) return;
-    const patch: InstrumentOverride & { severityCutoffs?: string } = {
+    const patch: QuestionnaireOverride & { severityCutoffs?: string } = {
       name: editForm.name.trim() || editing.name,
       category: editForm.category.trim(),
       items: Number(editForm.items) || 0,
@@ -212,7 +212,7 @@ export default function ClinicalInstrumentsPage() {
         Showing {filtered.length} clinical questionnaire{filtered.length !== 1 ? 's' : ''}
       </p>
 
-      {/* Instrument Grid */}
+      {/* Questionnaire Grid */}
       {filtered.length === 0 ? (
         <Card>
           <CardContent className="p-10 text-center">
@@ -286,7 +286,7 @@ export default function ClinicalInstrumentsPage() {
                       variant="primary"
                       size="sm"
                       className="flex-1"
-                      onClick={() => window.location.href = `/assessments/create?instrument=${encodeURIComponent(inst.shortName || inst.name)}`}
+                      onClick={() => window.location.href = `/assessments/create?questionnaire=${encodeURIComponent(inst.shortName || inst.name)}`}
                     >
                       <Play className="h-3.5 w-3.5" />
                       Allot Assessment

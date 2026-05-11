@@ -40,7 +40,7 @@ const paradigms: ExperimentalParadigm[] = [];
 // Component
 // ---------------------------------------------------------------------------
 
-export default function ExperimentalInstrumentsPage() {
+export default function ExperimentalQuestionnairesPage() {
   const [search, setSearch] = useState('');
 
   const filtered = useMemo(() => {

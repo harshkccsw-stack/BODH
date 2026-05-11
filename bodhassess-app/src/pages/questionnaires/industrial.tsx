@@ -13,9 +13,9 @@ import {
   Pencil,
   X,
 } from 'lucide-react';
-import { loadOverrides, saveOverride, applyOverrideById, type InstrumentOverride } from '@/lib/instrument-overrides';
+import { loadOverrides, saveOverride, applyOverrideById, type QuestionnaireOverride } from '@/lib/instrument-overrides';
 
-interface IndInstrument {
+interface IndQuestionnaire {
   id: string;
   name: string;
   category: string;
@@ -27,7 +27,7 @@ interface IndInstrument {
   description: string;
 }
 
-const instruments: IndInstrument[] = [];
+const instruments: IndQuestionnaire[] = [];
 
 const tierColors: Record<string, string> = {
   T1: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
@@ -35,11 +35,11 @@ const tierColors: Record<string, string> = {
   T3: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
 };
 
-async function loadUserInstrumentsForVertical(vertical: string): Promise<IndInstrument[]> {
+async function loadUserQuestionnairesForVertical(vertical: string): Promise<IndQuestionnaire[]> {
   try {
     const { questionnairesApi } = await import('@/lib/api');
     const list = await questionnairesApi.list(vertical);
-    return list.map((i): IndInstrument => ({
+    return list.map((i): IndQuestionnaire => ({
       id: i.id || `custom-${(i.name || 'x').toLowerCase().replace(/\s+/g, '-')}`,
       name: i.name || i.shortName || 'Untitled',
       category: i.category || 'Custom Assessment',
@@ -55,11 +55,11 @@ async function loadUserInstrumentsForVertical(vertical: string): Promise<IndInst
   }
 }
 
-export default function IndustrialInstrumentsPage() {
+export default function IndustrialQuestionnairesPage() {
   const [search, setSearch] = useState('');
-  const [overrides, setOverrides] = useState<Record<string, InstrumentOverride>>({});
-  const [userInstruments, setUserInstruments] = useState<IndInstrument[]>([]);
-  const [editing, setEditing] = useState<IndInstrument | null>(null);
+  const [overrides, setOverrides] = useState<Record<string, QuestionnaireOverride>>({});
+  const [userQuestionnaires, setUserQuestionnaires] = useState<IndQuestionnaire[]>([]);
+  const [editing, setEditing] = useState<IndQuestionnaire | null>(null);
   const [editForm, setEditForm] = useState({
     name: '', category: '', items: 0, duration: '',
     languages: '', tier: 'T1', norms: '', description: '',
@@ -67,26 +67,26 @@ export default function IndustrialInstrumentsPage() {
 
   useEffect(() => {
     setOverrides(loadOverrides());
-    loadUserInstrumentsForVertical('INDUSTRIAL').then(setUserInstruments).catch(() => setUserInstruments([]));
+    loadUserQuestionnairesForVertical('INDUSTRIAL').then(setUserQuestionnaires).catch(() => setUserQuestionnaires([]));
   }, []);
 
-  const mergedInstruments = useMemo(() => {
+  const mergedQuestionnaires = useMemo(() => {
     const seenIds = new Set(instruments.map((i) => i.id));
-    const uniqueUser = userInstruments.filter((u) => !seenIds.has(u.id));
+    const uniqueUser = userQuestionnaires.filter((u) => !seenIds.has(u.id));
     return [...uniqueUser, ...instruments].map((i) => applyOverrideById(i, overrides));
-  }, [overrides, userInstruments]);
+  }, [overrides, userQuestionnaires]);
 
   const toStr = (v: unknown): string => (v == null ? '' : String(v)).toLowerCase();
   const query = search.trim().toLowerCase();
   const filtered = !query
-    ? mergedInstruments
-    : mergedInstruments.filter((i) => {
+    ? mergedQuestionnaires
+    : mergedQuestionnaires.filter((i) => {
         const hay = [i?.name, i?.category, i?.description, i?.norms]
           .map(toStr).join(' ');
         return hay.includes(query);
       });
 
-  const openEdit = (inst: IndInstrument) => {
+  const openEdit = (inst: IndQuestionnaire) => {
     setEditing(inst);
     setEditForm({
       name: inst.name,
@@ -197,7 +197,7 @@ export default function IndustrialInstrumentsPage() {
               </div>
 
               <div className="flex gap-2">
-                <Button variant="primary" size="sm" className="flex-1" onClick={() => window.location.href = `/assessments/create?instrument=${encodeURIComponent(inst.name)}`}>Allot Assessment</Button>
+                <Button variant="primary" size="sm" className="flex-1" onClick={() => window.location.href = `/assessments/create?questionnaire=${encodeURIComponent(inst.name)}`}>Allot Assessment</Button>
                 <Button variant="outline" size="sm" onClick={() => openEdit(inst)}><Pencil className="h-3.5 w-3.5" />Edit</Button>
               </div>
             </CardContent>

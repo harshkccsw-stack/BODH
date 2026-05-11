@@ -23,7 +23,7 @@ import com.vladmihalcea.hibernate.type.json.JsonStringType;
     @TypeDef(name = "json", typeClass = JsonStringType.class),
     @TypeDef(name = "json-node", typeClass = JsonNodeStringType.class)
 })
-public class Instrument {
+public class QuestionnaireCatalog {
 
     @Id
     @Column(columnDefinition = "char(36)")

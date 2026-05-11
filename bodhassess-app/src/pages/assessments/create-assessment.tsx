@@ -33,7 +33,7 @@ import {
 type Vertical = string;
 const BUILTIN_VERTICALS: Vertical[] = ['Clinical', 'Industrial', 'Counselling', 'Experiments'];
 
-interface InstrumentOption {
+interface QuestionnaireOption {
   name: string;
   vertical: Vertical;
   items: number;
@@ -43,7 +43,7 @@ interface InstrumentOption {
 // Catalog covers every instrument shown across the Library pages
 // (Clinical, Industrial, Counselling) plus Experiments — merged with
 // user-published assessments from localStorage on mount.
-const catalogInstruments: InstrumentOption[] = [
+const catalogQuestionnaires: QuestionnaireOption[] = [
   // Clinical
   { name: 'PHQ-9 (Patient Health Questionnaire)', vertical: 'Clinical', items: 9, duration: '5 min' },
   { name: 'PHQ-2 (Ultra-Brief Depression Screen)', vertical: 'Clinical', items: 2, duration: '2 min' },
@@ -106,7 +106,7 @@ function normalizeVertical(v: unknown): Vertical {
 export default function CreateSessionPage() {
   const [assessmentName, setAssessmentName] = useState<string>('');
   const [vertical, setVertical] = useState<string>('all');
-  const [selectedInstrument, setSelectedInstrument] = useState<string>('');
+  const [selectedQuestionnaire, setSelectedQuestionnaire] = useState<string>('');
   const [respondentSearch, setRespondentSearch] = useState('');
   const [selectedRespondent, setSelectedRespondent] = useState<string>('');
   const [assignMode, setAssignMode] = useState<'respondent' | 'group'>('respondent');
@@ -117,7 +117,7 @@ export default function CreateSessionPage() {
   const [consentId, setConsentId] = useState('');
   const [proctoring, setProctoring] = useState(false);
   const [respondents, setRespondents] = useState<RespondentRow[]>([]);
-  const [instrumentList, setInstrumentList] = useState<InstrumentOption[]>(catalogInstruments);
+  const [questionnaireList, setQuestionnaireList] = useState<QuestionnaireOption[]>(catalogQuestionnaires);
   // Loaded from /verticals so user-created verticals show up in the
   // "Vertical" dropdown without requiring a code change.
   const [verticalCatalog, setVerticalCatalog] = useState<Array<{ code: string; name: string }>>([]);
@@ -125,6 +125,13 @@ export default function CreateSessionPage() {
   const [created, setCreated] = useState<{ id: string } | null>(null);
   const [saving, setSaving] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
+  // Collects which catalog fetches failed so we can surface a single banner
+  // rather than leaving dropdowns silently empty.
+  const [loadFailures, setLoadFailures] = useState<string[]>([]);
+  const noteFailure = (what: string, err: unknown) => {
+    console.error(`[create-assessment] failed to load ${what}:`, err);
+    setLoadFailures((prev) => (prev.includes(what) ? prev : [...prev, what]));
+  };
 
   // Load respondents + instrument catalog from localStorage and backend,
   // then pre-select instrument from ?instrument= query param.
@@ -135,25 +142,25 @@ export default function CreateSessionPage() {
         if (Array.isArray(list)) {
           setRespondents(list.map((r) => ({ id: r.id, name: r.name, email: r.email })));
         }
-      } catch {}
+      } catch (e) { noteFailure('respondents', e); }
     })();
 
     (async () => {
       try {
         const list = await verticalsApi.list();
         if (Array.isArray(list)) setVerticalCatalog(list);
-      } catch {}
+      } catch (e) { noteFailure('verticals', e); }
     })();
 
     (async () => {
       try {
         const list = await groupsApi.list();
         if (Array.isArray(list)) setGroups(list);
-      } catch {}
+      } catch (e) { noteFailure('groups', e); }
     })();
 
     // Merge catalog with published questionnaires from the database
-    let merged: InstrumentOption[] = [...catalogInstruments];
+    let merged: QuestionnaireOption[] = [...catalogQuestionnaires];
     (async () => {
       try {
         const list = await questionnairesApi.list();
@@ -164,7 +171,7 @@ export default function CreateSessionPage() {
           const duration = i.duration ? `${i.duration} min` : '—';
           merged.push({ name, vertical: normalizeVertical(i.vertical), items, duration });
         });
-      } catch {}
+      } catch (e) { noteFailure('published questionnaires', e); }
       const seen = new Set<string>();
       merged = merged.filter((i) => {
         const key = i.name.toLowerCase();
@@ -172,20 +179,24 @@ export default function CreateSessionPage() {
         seen.add(key);
         return true;
       });
-      setInstrumentList(merged);
+      setQuestionnaireList(merged);
     })();
 
     // Optional: also surface built-in /instruments endpoint rows (if any exist there)
     (async () => {
       try {
         const res = await fetch(`${API_BASE}/questionnaires-catalog`);
-        if (!res.ok) return;
+        if (!res.ok) {
+          // 404/5xx here is non-fatal — the catalog mirror is optional.
+          console.warn(`[create-assessment] /questionnaires-catalog returned ${res.status}`);
+          return;
+        }
         const data = await res.json();
         const list: any[] = Array.isArray(data) ? data : (data.instruments || []);
         if (list.length === 0) return;
-        setInstrumentList((prev) => {
+        setQuestionnaireList((prev) => {
           const existing = new Set(prev.map((i) => i.name.toLowerCase()));
-          const add: InstrumentOption[] = [];
+          const add: QuestionnaireOption[] = [];
           list.forEach((i) => {
             const name: string = i.name || i.short_name;
             if (!name || existing.has(name.toLowerCase())) return;
@@ -198,22 +209,27 @@ export default function CreateSessionPage() {
           });
           return add.length ? [...prev, ...add] : prev;
         });
-      } catch {}
+      } catch (e) {
+        // Catalog mirror failure shouldn't block the page; just log it.
+        console.warn('[create-assessment] catalog mirror fetch failed:', e);
+      }
     })();
 
-    // Pre-select instrument from ?instrument= query param, matched against the merged list
+    // Pre-select questionnaire from ?questionnaire= query param (with
+    // ?instrument= as a back-compat alias for old bookmarks), matched
+    // against the merged list.
     try {
       const params = new URLSearchParams(window.location.search);
-      const qInst = params.get('instrument');
+      const qInst = params.get('questionnaire') || params.get('instrument');
       if (qInst) {
         const match = merged.find(
           (i) => i.name === qInst || i.name.toLowerCase().startsWith(qInst.toLowerCase()),
         );
         if (match) {
-          setSelectedInstrument(match.name);
+          setSelectedQuestionnaire(match.name);
           setVertical(match.vertical);
         } else {
-          setSelectedInstrument(qInst);
+          setSelectedQuestionnaire(qInst);
         }
       }
     } catch {}
@@ -228,11 +244,11 @@ export default function CreateSessionPage() {
       const norm = normalizeVertical(v.name || v.code);
       if (norm) seen.add(norm);
     });
-    instrumentList.forEach((i) => seen.add(i.vertical));
+    questionnaireList.forEach((i) => seen.add(i.vertical));
     return Array.from(seen);
-  }, [verticalCatalog, instrumentList]);
+  }, [verticalCatalog, questionnaireList]);
 
-  const filteredInstruments = instrumentList.filter(
+  const filteredQuestionnaires = questionnaireList.filter(
     (i) => vertical === 'all' || i.vertical === vertical
   );
 
@@ -243,7 +259,7 @@ export default function CreateSessionPage() {
       r.email.toLowerCase().includes(respondentSearch.toLowerCase())
   );
 
-  const selectedInstrumentData = instrumentList.find((i) => i.name === selectedInstrument);
+  const selectedQuestionnaireData = questionnaireList.find((i) => i.name === selectedQuestionnaire);
   const selectedRespondentData = respondents.find((r) => r.id === selectedRespondent);
   const selectedGroupData = groups.find((g) => g.id === selectedGroup);
   const filteredGroups = groups.filter(
@@ -253,61 +269,22 @@ export default function CreateSessionPage() {
       (g.description || '').toLowerCase().includes(groupSearch.toLowerCase())
   );
 
-  // Ensure a playable questionnaire exists in Postgres for the chosen catalog
-  // name. If nobody has published it via Create Questionnaire yet, seed a
-  // demo Likert-5 questionnaire so Launch works end-to-end.
-  const ensureInstrumentAvailable = async (name: string, vert: string) => {
+  // Verify a real questionnaire is published under this name. If not, fail
+  // the allotment loudly instead of fabricating demo content — that was the
+  // source of "my questions changed" bugs.
+  const ensureQuestionnaireAvailable = async (name: string): Promise<boolean> => {
     try {
-      const existing = await questionnairesApi.getByName(name).catch(() => null);
-      if (existing && existing.id) return;
-    } catch {}
-
-    const mqtId = 'mqt-' + Math.random().toString(36).slice(2, 10);
-    const mqId = 'mq-' + Math.random().toString(36).slice(2, 10);
-    const likert = ['Strongly disagree', 'Disagree', 'Neutral', 'Agree', 'Strongly agree'];
-    const stems = [
-      `I have felt this statement applies to me over the past two weeks.`,
-      `I find it easy to respond calmly under pressure.`,
-      `I can concentrate on tasks without getting distracted.`,
-      `I feel confident about the way I make decisions.`,
-      `I generally feel positive about my day-to-day life.`,
-    ];
-    const questions = stems.map((stem, qi) => ({
-      id: `q-${qi + 1}-${Math.random().toString(36).slice(2, 7)}`,
-      stem: `(${name}) ${stem}`,
-      format: 'LIKERT',
-      media_url: '',
-      media_type: 'none',
-      clinical_risk_flag: false,
-      risk_flag_rule: '',
-      options: likert.map((text, oi) => ({
-        text,
-        scores: [{ mqt_id: mqtId, score: oi }],
-      })),
-    }));
-
-    try {
-      await questionnairesApi.upsert({
-        id: 'demo-' + Math.random().toString(36).slice(2, 10),
-        name,
-        shortName: name.split(' ')[0],
-        vertical: vert.toUpperCase(),
-        category: '',
-        description: 'Demo assessment generated for flow testing. Replace via Question Bank → Create Questionnaire.',
-        duration: 5,
-        tier: 'T1',
-        languages: ['en'],
-        mqs: [{ id: mqId, name: 'General', mqts: [{ id: mqtId, name: name }] }],
-        questions: questions as any,
-        isDemo: true,
-      });
-    } catch {}
+      const existing = await questionnairesApi.getByName(name);
+      return !!(existing && existing.id);
+    } catch {
+      return false;
+    }
   };
 
   const handleCreate = async (opts: { sendInvite?: boolean; copyLink?: boolean } = {}) => {
     const { sendInvite = false, copyLink = false } = opts;
     setError('');
-    if (!selectedInstrument) {
+    if (!selectedQuestionnaire) {
       setError('Please select a questionnaire.');
       return;
     }
@@ -324,9 +301,14 @@ export default function CreateSessionPage() {
     }
     setSaving(true);
     try {
-      const fullName = selectedInstrumentData?.name || selectedInstrument;
-      const vert = selectedInstrumentData?.vertical || 'Clinical';
-      await ensureInstrumentAvailable(fullName, vert);
+      const fullName = selectedQuestionnaireData?.name || selectedQuestionnaire;
+      const vert = selectedQuestionnaireData?.vertical || 'Clinical';
+      const isAvailable = await ensureQuestionnaireAvailable(fullName);
+      if (!isAvailable) {
+        setError(`"${fullName}" isn't published yet. Open Question Bank → Create Questionnaire to publish it before allotting.`);
+        setSaving(false);
+        return;
+      }
 
       if (assignMode === 'group' && selectedGroupData) {
         // One session per member via bulk endpoint
@@ -357,7 +339,14 @@ export default function CreateSessionPage() {
         }
         const res = await portalSessionsApi.bulk(sessions);
         if (!res) throw new Error('Failed to create sessions via API');
-        setCreated({ id: `${sessions.length} sessions for "${selectedGroupData.name}"` });
+        const errs = res.errors || [];
+        if (res.created === 0 && errs.length > 0) {
+          throw new Error(`No sessions created. First failure: ${errs[0].reason}`);
+        }
+        const failedNote = errs.length > 0
+          ? ` (${errs.length} row${errs.length === 1 ? '' : 's'} skipped: ${errs[0].reason}${errs.length > 1 ? '; …' : ''})`
+          : '';
+        setCreated({ id: `${res.created} sessions for "${selectedGroupData.name}"${failedNote}` });
         if (copyLink) {
           try {
             const loginUrl = `${window.location.origin}/portal/login`;
@@ -434,10 +423,16 @@ export default function CreateSessionPage() {
         </p>
       </div>
 
+      {loadFailures.length > 0 && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30 px-4 py-3 text-sm text-amber-800 dark:text-amber-300">
+          Some catalog data couldn't load: {loadFailures.join(', ')}. Dropdowns may be incomplete — check that the API is reachable.
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         {/* Form */}
         <div className="lg:col-span-2 space-y-5">
-          {/* Vertical & Instrument */}
+          {/* Vertical & Questionnaire */}
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-base flex items-center gap-2">
@@ -478,7 +473,7 @@ export default function CreateSessionPage() {
 
               <div>
                 <label className="text-sm font-medium mb-1.5 block">Questionnaire</label>
-                <Select value={selectedInstrument} onValueChange={setSelectedInstrument}>
+                <Select value={selectedQuestionnaire} onValueChange={setSelectedQuestionnaire}>
                   <SelectTrigger className="w-full" size="md">
                     <SelectValue placeholder="Choose a questionnaire" />
                   </SelectTrigger>
@@ -486,7 +481,7 @@ export default function CreateSessionPage() {
                     {vertical === 'all' ? (
                       <>
                         {verticalOptions.map((v) => {
-                          const group = filteredInstruments.filter((i) => i.vertical === v);
+                          const group = filteredQuestionnaires.filter((i) => i.vertical === v);
                           if (group.length === 0) return null;
                           return (
                             <div key={v}>
@@ -503,7 +498,7 @@ export default function CreateSessionPage() {
                         })}
                       </>
                     ) : (
-                      filteredInstruments.map((inst) => (
+                      filteredQuestionnaires.map((inst) => (
                         <SelectItem key={inst.name} value={inst.name}>
                           {inst.name}
                         </SelectItem>
@@ -513,16 +508,16 @@ export default function CreateSessionPage() {
                 </Select>
               </div>
 
-              {selectedInstrumentData && (
+              {selectedQuestionnaireData && (
                 <div className="flex items-center gap-3 text-sm text-muted-foreground bg-muted/50 rounded-lg p-3">
                   <Badge size="sm" shape="circle" variant="info" appearance="light">
-                    {selectedInstrumentData.items} items
+                    {selectedQuestionnaireData.items} items
                   </Badge>
                   <Badge size="sm" shape="circle" variant="secondary" appearance="light">
-                    ~{selectedInstrumentData.duration}
+                    ~{selectedQuestionnaireData.duration}
                   </Badge>
                   <Badge size="sm" shape="circle" variant="primary" appearance="outline">
-                    {selectedInstrumentData.vertical}
+                    {selectedQuestionnaireData.vertical}
                   </Badge>
                 </div>
               )}
@@ -737,25 +732,25 @@ export default function CreateSessionPage() {
                 <div className="flex items-center justify-between py-2 border-b border-border">
                   <span className="text-muted-foreground">Questionnaire</span>
                   <span className="font-medium text-right max-w-[60%] truncate">
-                    {selectedInstrumentData?.name || '--'}
+                    {selectedQuestionnaireData?.name || '--'}
                   </span>
                 </div>
                 <div className="flex items-center justify-between py-2 border-b border-border">
                   <span className="text-muted-foreground">Vertical</span>
                   <span className="font-medium">
-                    {selectedInstrumentData?.vertical || '--'}
+                    {selectedQuestionnaireData?.vertical || '--'}
                   </span>
                 </div>
                 <div className="flex items-center justify-between py-2 border-b border-border">
                   <span className="text-muted-foreground">Items</span>
                   <span className="font-medium">
-                    {selectedInstrumentData?.items || '--'}
+                    {selectedQuestionnaireData?.items || '--'}
                   </span>
                 </div>
                 <div className="flex items-center justify-between py-2 border-b border-border">
                   <span className="text-muted-foreground">Duration</span>
                   <span className="font-medium">
-                    {selectedInstrumentData ? `~${selectedInstrumentData.duration}` : '--'}
+                    {selectedQuestionnaireData ? `~${selectedQuestionnaireData.duration}` : '--'}
                   </span>
                 </div>
                 <div className="flex items-center justify-between py-2 border-b border-border">

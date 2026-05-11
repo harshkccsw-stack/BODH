@@ -213,7 +213,7 @@ export default function RiskAlertsPage() {
                 <tr className="border-b border-border">
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Alert ID</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Client</th>
-                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Instrument</th>
+                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Questionnaire</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Description</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Level</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Timestamp</th>

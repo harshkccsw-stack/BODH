@@ -56,7 +56,7 @@ const statusStyles: Record<CalibrationJob['status'], { variant: 'success' | 'pri
 // ---------------------------------------------------------------------------
 
 export default function CalibrationPage() {
-  const [selectedInstrument, setSelectedInstrument] = useState('PHQ-9');
+  const [selectedQuestionnaire, setSelectedQuestionnaire] = useState('PHQ-9');
 
   return (
     <div className="p-5 lg:p-7.5 space-y-7">
@@ -121,10 +121,10 @@ export default function CalibrationPage() {
         <CardContent>
           <div className="flex flex-col sm:flex-row items-start sm:items-end gap-4">
             <div className="space-y-1.5 flex-1 max-w-xs">
-              <label className="text-xs font-medium text-muted-foreground">Select Instrument</label>
+              <label className="text-xs font-medium text-muted-foreground">Select Questionnaire</label>
               <select
-                value={selectedInstrument}
-                onChange={(e) => setSelectedInstrument(e.target.value)}
+                value={selectedQuestionnaire}
+                onChange={(e) => setSelectedQuestionnaire(e.target.value)}
                 className="w-full h-8.5 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:border-ring focus:ring-[3px] focus:ring-ring/30 transition-shadow"
               >
                 {instruments.map((inst) => (
@@ -157,7 +157,7 @@ export default function CalibrationPage() {
               <thead>
                 <tr className="border-b border-border">
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Job ID</th>
-                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Instrument</th>
+                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Questionnaire</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Items</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Sample N</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Status</th>

@@ -273,7 +273,7 @@ export default function CounsellingReportsPage() {
         <div className="relative flex-1 min-w-[200px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Search by student, report ID, or instrument..."
+            placeholder="Search by student, report ID, or questionnaire..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-9"
@@ -312,7 +312,7 @@ export default function CounsellingReportsPage() {
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Report ID</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Student</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Age Band</th>
-                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Instrument</th>
+                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Questionnaire</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Informants</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Score</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Severity</th>
@@ -413,7 +413,7 @@ export default function CounsellingReportsPage() {
                 <div className="flex justify-between"><span className="text-muted-foreground">Student</span><span className="font-medium">{viewReport.student}</span></div>
                 <div className="flex justify-between"><span className="text-muted-foreground">Student ID</span><span className="font-mono text-xs">{viewReport.studentId}</span></div>
                 <div className="flex justify-between"><span className="text-muted-foreground">Age Band</span><span>{viewReport.ageBand}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Instrument</span><span className="text-right max-w-[60%]">{viewReport.instrument}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Questionnaire</span><span className="text-right max-w-[60%]">{viewReport.instrument}</span></div>
                 <div className="flex justify-between"><span className="text-muted-foreground">Informants</span><span>{viewReport.informants.join(', ')}</span></div>
                 <div className="flex justify-between"><span className="text-muted-foreground">Score</span><span className="font-mono">{viewReport.score}</span></div>
                 <div className="flex justify-between"><span className="text-muted-foreground">Severity</span><span className="font-medium">{viewReport.severity}</span></div>

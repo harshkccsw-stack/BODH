@@ -7,6 +7,8 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.stream.Collectors;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,6 +30,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 @Service
 @Transactional
 public class PractitionersService {
+
+    private static final Logger log = LoggerFactory.getLogger(PractitionersService.class);
 
     @Autowired
     private PractitionerRepository repo;
@@ -130,7 +134,9 @@ public class PractitionersService {
             try {
                 List<String> arr = objectMapper.readValue(raw, new com.fasterxml.jackson.core.type.TypeReference<List<String>>() {});
                 seen.addAll(arr);
-            } catch (Exception ignored) { }
+            } catch (Exception e) {
+                log.warn("urlPathsForRoles: malformed url_paths JSON {}: {}", raw, e.getMessage());
+            }
         }
         return new ArrayList<>(seen);
     }

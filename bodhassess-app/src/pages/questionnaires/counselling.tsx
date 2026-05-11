@@ -13,9 +13,9 @@ import {
   Pencil,
   X,
 } from 'lucide-react';
-import { loadOverrides, saveOverride, applyOverrideById, type InstrumentOverride } from '@/lib/instrument-overrides';
+import { loadOverrides, saveOverride, applyOverrideById, type QuestionnaireOverride } from '@/lib/instrument-overrides';
 
-interface CounsInstrument {
+interface CounsQuestionnaire {
   id: string;
   name: string;
   category: string;
@@ -29,7 +29,7 @@ interface CounsInstrument {
   description: string;
 }
 
-const instruments: CounsInstrument[] = [];
+const instruments: CounsQuestionnaire[] = [];
 
 const tierColors: Record<string, string> = {
   T1: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
@@ -42,11 +42,11 @@ const informantColors: Record<string, string> = {
   Teacher: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
 };
 
-async function loadUserInstrumentsForVertical(vertical: string): Promise<CounsInstrument[]> {
+async function loadUserQuestionnairesForVertical(vertical: string): Promise<CounsQuestionnaire[]> {
   try {
     const { questionnairesApi } = await import('@/lib/api');
     const list = await questionnairesApi.list(vertical);
-    return list.map((i): CounsInstrument => ({
+    return list.map((i): CounsQuestionnaire => ({
       id: i.id || `custom-${(i.name || 'x').toLowerCase().replace(/\s+/g, '-')}`,
       name: i.name || i.shortName || 'Untitled',
       category: i.category || 'Custom Assessment',
@@ -64,11 +64,11 @@ async function loadUserInstrumentsForVertical(vertical: string): Promise<CounsIn
   }
 }
 
-export default function CounsellingInstrumentsPage() {
+export default function CounsellingQuestionnairesPage() {
   const [search, setSearch] = useState('');
-  const [overrides, setOverrides] = useState<Record<string, InstrumentOverride>>({});
-  const [userInstruments, setUserInstruments] = useState<CounsInstrument[]>([]);
-  const [editing, setEditing] = useState<CounsInstrument | null>(null);
+  const [overrides, setOverrides] = useState<Record<string, QuestionnaireOverride>>({});
+  const [userQuestionnaires, setUserQuestionnaires] = useState<CounsQuestionnaire[]>([]);
+  const [editing, setEditing] = useState<CounsQuestionnaire | null>(null);
   const [editForm, setEditForm] = useState({
     name: '', category: '', ageRange: '', items: 0, duration: '',
     languages: '', tier: 'T1', norms: '', description: '',
@@ -76,26 +76,26 @@ export default function CounsellingInstrumentsPage() {
 
   useEffect(() => {
     setOverrides(loadOverrides());
-    loadUserInstrumentsForVertical('COUNSELLING').then(setUserInstruments).catch(() => setUserInstruments([]));
+    loadUserQuestionnairesForVertical('COUNSELLING').then(setUserQuestionnaires).catch(() => setUserQuestionnaires([]));
   }, []);
 
-  const mergedInstruments = useMemo(() => {
+  const mergedQuestionnaires = useMemo(() => {
     const seenIds = new Set(instruments.map((i) => i.id));
-    const uniqueUser = userInstruments.filter((u) => !seenIds.has(u.id));
+    const uniqueUser = userQuestionnaires.filter((u) => !seenIds.has(u.id));
     return [...uniqueUser, ...instruments].map((i) => applyOverrideById(i, overrides));
-  }, [overrides, userInstruments]);
+  }, [overrides, userQuestionnaires]);
 
   const toStr = (v: unknown): string => (v == null ? '' : String(v)).toLowerCase();
   const query = search.trim().toLowerCase();
   const filtered = !query
-    ? mergedInstruments
-    : mergedInstruments.filter((i) => {
+    ? mergedQuestionnaires
+    : mergedQuestionnaires.filter((i) => {
         const hay = [i?.name, i?.category, i?.description, i?.ageRange, i?.norms]
           .map(toStr).join(' ');
         return hay.includes(query);
       });
 
-  const openEdit = (inst: CounsInstrument) => {
+  const openEdit = (inst: CounsQuestionnaire) => {
     setEditing(inst);
     setEditForm({
       name: inst.name,
@@ -220,7 +220,7 @@ export default function CounsellingInstrumentsPage() {
               </div>
 
               <div className="flex gap-2">
-                <Button variant="primary" size="sm" className="flex-1" onClick={() => window.location.href = `/assessments/create?instrument=${encodeURIComponent(inst.name)}`}>Allot Assessment</Button>
+                <Button variant="primary" size="sm" className="flex-1" onClick={() => window.location.href = `/assessments/create?questionnaire=${encodeURIComponent(inst.name)}`}>Allot Assessment</Button>
                 <Button variant="outline" size="sm" onClick={() => openEdit(inst)}><Pencil className="h-3.5 w-3.5" />Edit</Button>
               </div>
             </CardContent>

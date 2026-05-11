@@ -183,9 +183,9 @@ export default function ClinicalReportsPage() {
                 </SelectContent>
               </Select>
 
-              <Input type="date" variant="md" className="w-40" defaultValue="2026-04-01" />
+              <Input type="date" variant="md" className="w-40" />
               <span className="text-muted-foreground text-sm">to</span>
-              <Input type="date" variant="md" className="w-40" defaultValue="2026-04-09" />
+              <Input type="date" variant="md" className="w-40" />
             </div>
           </div>
         </CardContent>
@@ -323,7 +323,7 @@ export default function ClinicalReportsPage() {
               <div className="rounded-lg border border-border bg-muted/40 p-3 space-y-2">
                 <div className="flex justify-between"><span className="text-muted-foreground">Session</span><span className="font-mono text-xs">{viewReport.sessionId}</span></div>
                 <div className="flex justify-between"><span className="text-muted-foreground">Respondent</span><span className="font-medium">{viewReport.respondent}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Instrument</span><span className="text-right max-w-[60%]">{viewReport.instrument}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Questionnaire</span><span className="text-right max-w-[60%]">{viewReport.instrument}</span></div>
                 <div className="flex justify-between"><span className="text-muted-foreground">Status</span><span>{viewReport.status}</span></div>
                 <div className="flex justify-between"><span className="text-muted-foreground">Generated</span><span>{viewReport.generatedAt}</span></div>
               </div>

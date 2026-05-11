@@ -20,7 +20,7 @@ C:\Users\Administrator\BODH\bodhassess-api-spring\src\main\java\com\bodhpsychome
 C:\Users\Administrator\BODH\bodhassess-api-spring\src\main\java\com\bodhpsychometric\bodhassess\controller\PractitionersController.java
 C:\Users\Administrator\BODH\bodhassess-api-spring\src\main\java\com\bodhpsychometric\bodhassess\payload\AssessmentDto.java
 C:\Users\Administrator\BODH\bodhassess-api-spring\src\main\java\com\bodhpsychometric\bodhassess\controller\SessionsController.java
-C:\Users\Administrator\BODH\bodhassess-api-spring\src\main\java\com\bodhpsychometric\bodhassess\payload\InstrumentDtos.java
+C:\Users\Administrator\BODH\bodhassess-api-spring\src\main\java\com\bodhpsychometric\bodhassess\repository\QuestionnaireCatalogRepository.java
 C:\Users\Administrator\BODH\bodhassess-api-spring\src\main\java\com\bodhpsychometric\bodhassess\service\AssessmentsService.java
 C:\Users\Administrator\BODH\bodhassess-api-spring\src\main\java\com\bodhpsychometric\bodhassess\exception\DuplicateResourceException.java
 C:\Users\Administrator\BODH\bodhassess-api-spring\src\main\java\com\bodhpsychometric\bodhassess\service\PractitionersService.java
@@ -41,7 +41,6 @@ C:\Users\Administrator\BODH\bodhassess-api-spring\src\main\java\com\bodhpsychome
 C:\Users\Administrator\BODH\bodhassess-api-spring\src\main\java\com\bodhpsychometric\bodhassess\exception\ApiErrorResponse.java
 C:\Users\Administrator\BODH\bodhassess-api-spring\src\main\java\com\bodhpsychometric\bodhassess\config\SecurityConfig.java
 C:\Users\Administrator\BODH\bodhassess-api-spring\src\main\java\com\bodhpsychometric\bodhassess\controller\AdminController.java
-C:\Users\Administrator\BODH\bodhassess-api-spring\src\main\java\com\bodhpsychometric\bodhassess\model\Instrument.java
 C:\Users\Administrator\BODH\bodhassess-api-spring\src\main\java\com\bodhpsychometric\bodhassess\model\Role.java
 C:\Users\Administrator\BODH\bodhassess-api-spring\src\main\java\com\bodhpsychometric\bodhassess\model\Session.java
 C:\Users\Administrator\BODH\bodhassess-api-spring\src\main\java\com\bodhpsychometric\bodhassess\exception\ServiceException.java
@@ -53,11 +52,12 @@ C:\Users\Administrator\BODH\bodhassess-api-spring\src\main\java\com\bodhpsychome
 C:\Users\Administrator\BODH\bodhassess-api-spring\src\main\java\com\bodhpsychometric\bodhassess\service\QuestionnairesCatalogService.java
 C:\Users\Administrator\BODH\bodhassess-api-spring\src\main\java\com\bodhpsychometric\bodhassess\config\WebMvcConfig.java
 C:\Users\Administrator\BODH\bodhassess-api-spring\src\main\java\com\bodhpsychometric\bodhassess\payload\BulkRespondentDtos.java
-C:\Users\Administrator\BODH\bodhassess-api-spring\src\main\java\com\bodhpsychometric\bodhassess\repository\InstrumentRepository.java
 C:\Users\Administrator\BODH\bodhassess-api-spring\src\main\java\com\bodhpsychometric\bodhassess\controller\DemographicFieldsController.java
 C:\Users\Administrator\BODH\bodhassess-api-spring\src\main\java\com\bodhpsychometric\bodhassess\service\DemographicFieldsService.java
 C:\Users\Administrator\BODH\bodhassess-api-spring\src\main\java\com\bodhpsychometric\bodhassess\payload\AdminLoginRequest.java
 C:\Users\Administrator\BODH\bodhassess-api-spring\src\main\java\com\bodhpsychometric\bodhassess\controller\QuestionnairesCatalogController.java
+C:\Users\Administrator\BODH\bodhassess-api-spring\src\main\java\com\bodhpsychometric\bodhassess\model\QuestionnaireCatalog.java
+C:\Users\Administrator\BODH\bodhassess-api-spring\src\main\java\com\bodhpsychometric\bodhassess\payload\QuestionnaireCatalogDtos.java
 C:\Users\Administrator\BODH\bodhassess-api-spring\src\main\java\com\bodhpsychometric\bodhassess\model\DemographicField.java
 C:\Users\Administrator\BODH\bodhassess-api-spring\src\main\java\com\bodhpsychometric\bodhassess\security\RestAuthenticationEntryPoint.java
 C:\Users\Administrator\BODH\bodhassess-api-spring\src\main\java\com\bodhpsychometric\bodhassess\exception\UnauthorizedAccessException.java

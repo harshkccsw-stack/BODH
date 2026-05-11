@@ -3,8 +3,8 @@
 // Bulk-upload modal for respondents. Accepts CSV and XLSX; parses in the
 // browser with SheetJS; shows a preview with per-row validation; on confirm
 // posts to POST /respondents/bulk which re-validates and inserts everything
-// inside a single transaction with a Postgres advisory lock (so no two
-// uploads can collide on R-NNN id generation).
+// inside a single transaction with a MySQL named lock (GET_LOCK/RELEASE_LOCK,
+// so no two uploads can collide on R-NNN id generation).
 //
 // Trust boundary: client validation is purely for preview UX. The server
 // re-runs every check and is the authority.

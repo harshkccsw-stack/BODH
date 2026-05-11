@@ -322,8 +322,8 @@ export const questionnairesApi = {
   delete: (id: string) => jsonFetch<null>(`/questionnaires/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 };
 
-// ---------- Instruments (backend-shape) ----------
-export interface Instrument {
+// ---------- Questionnaires (backend-shape) ----------
+export interface Questionnaire {
   id: string;
   name: string;
   short_name: string | null;
@@ -340,9 +340,9 @@ export interface Instrument {
   is_published: boolean;
   created_at: string;
 }
-export async function getInstruments(vertical?: string): Promise<Instrument[]> {
+export async function getQuestionnairesCatalog(vertical?: string): Promise<Questionnaire[]> {
   const qs = vertical ? `?vertical=${encodeURIComponent(vertical)}` : '';
-  const list = await jsonFetch<Instrument[] | { data?: Instrument[] }>(`/questionnaires-catalog${qs}`);
+  const list = await jsonFetch<Questionnaire[] | { data?: Questionnaire[] }>(`/questionnaires-catalog${qs}`);
   // The older Go handler returns a plain array; tolerate either shape.
   return Array.isArray(list) ? list : (list?.data || []);
 }
@@ -395,6 +395,19 @@ export interface Assessment {
 // Backwards-compatible alias so existing imports keep working.
 export type PortalSession = Assessment;
 
+// Bulk-create response shape from /assessments/bulk. The `errors` array
+// lists per-row failures (validation, duplicate id, DB errors) so callers
+// can surface them instead of treating any non-error response as success.
+export interface BulkAssessmentError {
+  row: number;
+  id?: string;
+  reason: string;
+}
+export interface BulkAssessmentResult {
+  created: number;
+  errors?: BulkAssessmentError[];
+}
+
 export const assessmentsApi = {
   list: (respondentId?: string) => {
     const qs = respondentId ? `?respondentId=${encodeURIComponent(respondentId)}` : '';
@@ -402,7 +415,7 @@ export const assessmentsApi = {
   },
   get: (id: string) => jsonFetch<Assessment>(`/assessments/${encodeURIComponent(id)}`),
   create: (s: Assessment) => jsonFetch<Assessment>('/assessments', { method: 'POST', body: JSON.stringify(s) }),
-  bulk: (assessments: Assessment[]) => jsonFetch<{ created: number }>('/assessments/bulk', { method: 'POST', body: JSON.stringify({ assessments }) }),
+  bulk: (assessments: Assessment[]) => jsonFetch<BulkAssessmentResult>('/assessments/bulk', { method: 'POST', body: JSON.stringify({ assessments }) }),
   update: (id: string, s: Partial<Assessment>) => jsonFetch<Assessment>(`/assessments/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(s) }),
   delete: (id: string) => jsonFetch<null>(`/assessments/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   heartbeat: (id: string, body: { currentIndex: number; totalQuestions: number }) =>

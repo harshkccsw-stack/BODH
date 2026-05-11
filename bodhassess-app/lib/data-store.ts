@@ -43,7 +43,7 @@ export interface StoredSession {
   completedAt?: string;
 }
 
-export interface StoredInstrument {
+export interface StoredQuestionnaire {
   id: string;
   name: string;
   shortName?: string;
@@ -188,7 +188,7 @@ export function getSessions(): StoredSession[] {
   return [];
 }
 
-export function getInstruments(): StoredInstrument[] {
+export function getQuestionnaires(): StoredQuestionnaire[] {
   // Mirrors above — preserved for callers that still read questionnaires
   // from local storage until that path is migrated.
   return [];

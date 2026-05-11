@@ -23,7 +23,7 @@ import {
   X,
   Youtube,
 } from 'lucide-react';
-import { getMQs, getInstruments, getVerticals, BUILT_IN_VERTICALS, type MQ as StoredMQ, type StoredInstrument, type Vertical as StoredVertical } from '@/lib/data-store';
+import { getMQs, getQuestionnaires, getVerticals, BUILT_IN_VERTICALS, type MQ as StoredMQ, type StoredQuestionnaire, type Vertical as StoredVertical } from '@/lib/data-store';
 import { demographicFieldsApi, API_BASE, type DemographicField } from '@/lib/api';
 
 // --- Types ---
@@ -223,7 +223,7 @@ function MediaPicker({
 export default function CreateAssessmentPage() {
   const [step, setStep] = useState<1 | 2 | 3>(1);
 
-  // Instrument
+  // Questionnaire
   const [instName, setInstName] = useState('');
   const [instShortName, setInstShortName] = useState('');
   const [instVertical, setInstVertical] = useState('CLINICAL');
@@ -265,9 +265,18 @@ export default function CreateAssessmentPage() {
         if (!editKey) return;
         const { questionnairesApi } = await import('@/lib/api');
         let match;
-        try { match = await questionnairesApi.getByName(editKey); } catch {}
+        try {
+          match = await questionnairesApi.getByName(editKey);
+        } catch (e) {
+          // 404 is expected when `editKey` is an id, not a name — fall through.
+          console.debug('[create-questionnaire] getByName failed, will try get:', e);
+        }
         if (!match) {
-          try { match = await questionnairesApi.get(editKey); } catch {}
+          try {
+            match = await questionnairesApi.get(editKey);
+          } catch (e) {
+            console.debug('[create-questionnaire] get failed too:', e);
+          }
         }
         if (!match) {
           setError(`Could not find "${editKey}" in the Questionnaire Library.`);
@@ -278,14 +287,14 @@ export default function CreateAssessmentPage() {
         setInstVertical(String(match.vertical || 'CLINICAL').toUpperCase());
         setInstCategory(match.category || '');
         setInstDescription(match.description || '');
-        setInstDisclaimer((match as any).disclaimer || '');
-        if (Array.isArray((match as any).demographicFieldKeys)) {
-          setDemoFieldKeys((match as any).demographicFieldKeys as string[]);
+        setInstDisclaimer(match.disclaimer || '');
+        if (Array.isArray(match.demographicFieldKeys)) {
+          setDemoFieldKeys(match.demographicFieldKeys);
         }
         setInstDuration(typeof match.duration === 'number' ? match.duration : 10);
         setInstTier(typeof match.tier === 'string' && match.tier ? match.tier : 'T1');
         if (Array.isArray(match.languages)) setInstLanguages(match.languages);
-        setInstrumentId(match.id || crypto.randomUUID());
+        setQuestionnaireId(match.id || crypto.randomUUID());
         if (Array.isArray(match.questions)) {
           const loaded = match.questions.map((q: any) => ({
             id: q.id || crypto.randomUUID(),
@@ -325,7 +334,9 @@ export default function CreateAssessmentPage() {
         setEditMode(true);
         setStep(2);
         setSuccess(`Editing "${match.name}" — changes will replace the existing questionnaire on publish.`);
-      } catch {}
+      } catch (e: any) {
+        setError(`Failed to load questionnaire for editing: ${e?.message || 'unknown error'}`);
+      }
     })();
   }, []);
 
@@ -402,19 +413,30 @@ export default function CreateAssessmentPage() {
       name,
       description: newVerticalForm.description.trim(),
     };
-    const next = [...verticals, vertical];
-    setVerticals(next);
-    setInstVertical(code);
-    setNewVerticalOpen(false);
-    setVerticalOpen(false);
-    setVerticalSearch('');
+    // Persist first so we know it survived a refresh. If the POST fails the
+    // user stays in the dialog with a visible error rather than thinking it
+    // was saved (and ending up with an orphan vertical on a published
+    // questionnaire — the "B" bug from earlier).
     try {
-      await fetch(`${API_BASE}/verticals`, {
+      const res = await fetch(`${API_BASE}/verticals`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(vertical),
       });
-    } catch {}
+      if (!res.ok && res.status !== 204) {
+        const text = await res.text().catch(() => res.statusText);
+        setNewVerticalError(`Couldn't save vertical (${res.status}): ${text}`);
+        return;
+      }
+    } catch (e: any) {
+      setNewVerticalError(`Couldn't save vertical: ${e?.message || 'network error'}`);
+      return;
+    }
+    setVerticals([...verticals, vertical]);
+    setInstVertical(code);
+    setNewVerticalOpen(false);
+    setVerticalOpen(false);
+    setVerticalSearch('');
   };
 
   const mqs: MQ[] = useMemo(
@@ -428,7 +450,7 @@ export default function CreateAssessmentPage() {
 
   // Questions
   const [questions, setQuestions] = useState<Question[]>([]);
-  const [instrumentId, setInstrumentId] = useState<string | null>(null);
+  const [instrumentId, setQuestionnaireId] = useState<string | null>(null);
 
   // Status
   const [saving, setSaving] = useState(false);
@@ -461,16 +483,16 @@ export default function CreateAssessmentPage() {
 
   const [importOpen, setImportOpen] = useState(false);
   const [importStage, setImportStage] = useState<'instrument' | 'questions'>('instrument');
-  const [importInstrumentSearch, setImportInstrumentSearch] = useState('');
+  const [importQuestionnaireSearch, setImportQuestionnaireSearch] = useState('');
   const [importQuestionSearch, setImportQuestionSearch] = useState('');
-  const [importSource, setImportSource] = useState<StoredInstrument | null>(null);
+  const [importSource, setImportSource] = useState<StoredQuestionnaire | null>(null);
   const [importPicked, setImportPicked] = useState<Set<string>>(new Set());
-  const [importLibrary, setImportLibrary] = useState<StoredInstrument[]>([]);
+  const [importLibrary, setImportLibrary] = useState<StoredQuestionnaire[]>([]);
 
   const openImport = async () => {
     setImportSource(null);
     setImportPicked(new Set());
-    setImportInstrumentSearch('');
+    setImportQuestionnaireSearch('');
     setImportQuestionSearch('');
     setImportStage('instrument');
     setImportOpen(true);
@@ -483,8 +505,8 @@ export default function CreateAssessmentPage() {
     }
   };
 
-  const filteredImportInstruments = useMemo(() => {
-    const q = importInstrumentSearch.trim().toLowerCase();
+  const filteredImportQuestionnaires = useMemo(() => {
+    const q = importQuestionnaireSearch.trim().toLowerCase();
     if (!q) return importLibrary;
     return importLibrary.filter(
       (i) =>
@@ -492,7 +514,7 @@ export default function CreateAssessmentPage() {
         (i.shortName || '').toLowerCase().includes(q) ||
         (i.vertical || '').toLowerCase().includes(q),
     );
-  }, [importLibrary, importInstrumentSearch]);
+  }, [importLibrary, importQuestionnaireSearch]);
 
   const filteredImportQuestions = useMemo(() => {
     if (!importSource?.questions) return [];
@@ -675,7 +697,7 @@ export default function CreateAssessmentPage() {
             name: pair.mq,
             mqts: [{ id: newMqtId, name: pair.mqt }],
           };
-          await qualitiesApi.create(newMq as any);
+          await qualitiesApi.create(newMq);
           catalogCopy = [...catalogCopy, newMq];
           resolved.set(key, newMqtId);
           continue;
@@ -685,7 +707,7 @@ export default function CreateAssessmentPage() {
           const newMqtId = `mqt-${Math.random().toString(36).slice(2, 10)}`;
           mqt = { id: newMqtId, name: pair.mqt };
           const updated: StoredMQ = { ...mq, mqts: [...mq.mqts, mqt] };
-          await qualitiesApi.update(mq.id, { mqts: updated.mqts } as any);
+          await qualitiesApi.update(mq.id, { mqts: updated.mqts });
           catalogCopy = catalogCopy.map((m) => (m.id === mq!.id ? updated : m));
         }
         resolved.set(key, mqt.id);
@@ -1113,21 +1135,24 @@ export default function CreateAssessmentPage() {
 
   // ---- Create/Save ----
 
-  const handleCreateInstrument = async () => {
+  const handleCreateQuestionnaire = async () => {
     if (!instName || !instVertical) {
       setError('Name and vertical are required');
       return;
     }
     // Refresh the catalog so Step 2's MQT scoring picks up any new MQs.
+    // Non-fatal — the existing in-memory catalog is fine if this fails.
     try {
       const freshCatalog = await getMQs();
       if (freshCatalog.length !== catalog.length) setCatalog(freshCatalog);
-    } catch {}
+    } catch (e) {
+      console.warn('[create-questionnaire] catalog refresh failed:', e);
+    }
     // No DB write here — the instrument is only persisted when the user
     // clicks Publish in Step 2. This avoids leaving orphan rows behind if
     // the user abandons the flow halfway.
     setError('');
-    if (!instrumentId) setInstrumentId(crypto.randomUUID());
+    if (!instrumentId) setQuestionnaireId(crypto.randomUUID());
     setStep(2);
     setSuccess('');
   };
@@ -1198,15 +1223,17 @@ export default function CreateAssessmentPage() {
         demographicFieldKeys: demoFieldKeys,
       });
 
-      // Also register the instrument in the /instruments catalog so it
-      // shows up in the Instrument Library. Best-effort — if this fails we
-      // keep the published_questionnaires write.
+      // Also register the instrument in the /instruments catalog so it shows
+      // up in the Questionnaire Library. Failure here is non-fatal (the
+      // published questionnaire write above already succeeded), but we surface
+      // a warning so the user knows to retry if the library is missing it.
+      let catalogWarning = '';
       try {
         const scoring_config = {
           model: 'MQ_MQT',
           mqs: mqs.map((m) => ({ id: m.id, name: m.name, mqts: m.mqts })),
         };
-        await fetch(`${API_BASE}/questionnaires-catalog`, {
+        const res = await fetch(`${API_BASE}/questionnaires-catalog`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1224,12 +1251,20 @@ export default function CreateAssessmentPage() {
             scoring_config,
           }),
         });
-      } catch {}
+        if (!res.ok && res.status !== 204) {
+          const text = await res.text().catch(() => res.statusText);
+          catalogWarning = `but catalog registration failed (${res.status}: ${text}). It may not show in the Questionnaire Library — try republishing.`;
+        }
+      } catch (e: any) {
+        catalogWarning = `but catalog registration failed (${e?.message || 'network error'}). It may not show in the Questionnaire Library — try republishing.`;
+      }
 
-      setInstrumentId(qid);
+      setQuestionnaireId(qid);
       setStep(3);
       setSuccess(
-        `"${instName}" published with ${questions.length} question${questions.length !== 1 ? 's' : ''}. Saved to Postgres and ready for respondents.`,
+        catalogWarning
+          ? `"${instName}" published with ${questions.length} question${questions.length !== 1 ? 's' : ''}, ${catalogWarning}`
+          : `"${instName}" published with ${questions.length} question${questions.length !== 1 ? 's' : ''}. Saved and ready for respondents.`,
       );
     } catch (e: any) {
       setError(`Failed to publish: ${e?.message || 'API error'}. Is the backend running?`);
@@ -1530,7 +1565,7 @@ export default function CreateAssessmentPage() {
 
 
           <div className="flex justify-end">
-            <Button variant="primary" onClick={handleCreateInstrument} disabled={saving}>
+            <Button variant="primary" onClick={handleCreateQuestionnaire} disabled={saving}>
               Continue to Questions
               <ChevronRight className="h-4 w-4" />
             </Button>
@@ -1905,8 +1940,8 @@ export default function CreateAssessmentPage() {
                   <input
                     autoFocus
                     type="text"
-                    value={importInstrumentSearch}
-                    onChange={(e) => setImportInstrumentSearch(e.target.value)}
+                    value={importQuestionnaireSearch}
+                    onChange={(e) => setImportQuestionnaireSearch(e.target.value)}
                     placeholder="Search questionnaires by name, short name, or vertical..."
                     className="w-full h-9 rounded-lg border border-border bg-background pl-9 pr-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
                   />
@@ -1925,7 +1960,7 @@ export default function CreateAssessmentPage() {
               {/* Scrollable list */}
               <div className="flex-1 min-h-0 overflow-y-auto rounded-lg border border-border">
                 {importStage === 'instrument' ? (
-                  filteredImportInstruments.length === 0 ? (
+                  filteredImportQuestionnaires.length === 0 ? (
                     <div className="p-8 text-center text-sm text-muted-foreground">
                       {importLibrary.length === 0
                         ? 'No published questionnaires yet. Create one first, then you can copy from it later.'
@@ -1933,7 +1968,7 @@ export default function CreateAssessmentPage() {
                     </div>
                   ) : (
                     <ul className="divide-y divide-border">
-                      {filteredImportInstruments.map((inst) => {
+                      {filteredImportQuestionnaires.map((inst) => {
                         const qCount = Array.isArray(inst.questions) ? inst.questions.length : 0;
                         return (
                           <li key={inst.id}>
@@ -2009,7 +2044,7 @@ export default function CreateAssessmentPage() {
               <div className="flex items-center justify-between gap-3 shrink-0 pt-1">
                 <p className="text-xs text-muted-foreground">
                   {importStage === 'instrument'
-                    ? `${filteredImportInstruments.length} questionnaire${filteredImportInstruments.length !== 1 ? 's' : ''} found`
+                    ? `${filteredImportQuestionnaires.length} questionnaire${filteredImportQuestionnaires.length !== 1 ? 's' : ''} found`
                     : `${importPicked.size} selected · ${filteredImportQuestions.length} shown`}
                 </p>
                 <div className="flex gap-2">

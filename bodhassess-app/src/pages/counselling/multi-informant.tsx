@@ -138,7 +138,7 @@ export default function MultiInformantPage() {
               <thead>
                 <tr className="border-b border-border">
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Student Name</th>
-                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Instrument</th>
+                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Questionnaire</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Self-Report</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Parent Report</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Teacher Report</th>

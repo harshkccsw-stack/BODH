@@ -28,7 +28,7 @@ interface Question {
   media_type: string;
   options: QOption[];
 }
-interface StoredInstrument {
+interface StoredQuestionnaire {
   id: string;
   name: string;
   shortName?: string;
@@ -63,7 +63,7 @@ function Media({ url, type }: { url?: string; type?: string }) {
 export default function PortalTakePage() {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [session, setSession] = useState<StoredSession | null>(null);
-  const [instrument, setInstrument] = useState<StoredInstrument | null>(null);
+  const [instrument, setQuestionnaire] = useState<StoredQuestionnaire | null>(null);
   const [index, setIndex] = useState(0);
   // Number for selected-option indexes (MCQ/Likert/etc), string for FREE_TEXT answers
   const [answers, setAnswers] = useState<Record<string, number | string>>({});
@@ -91,7 +91,7 @@ export default function PortalTakePage() {
     }
   }, [user]);
   useEffect(() => {
-    if (session && (session as any).demographics && Object.keys((session as any).demographics).length > 0) {
+    if (session?.demographics && Object.keys(session.demographics).length > 0) {
       setDemographicsSubmitted(true);
     }
   }, [session]);
@@ -144,7 +144,7 @@ export default function PortalTakePage() {
 
       const target = (s.instrumentFullName || s.instrument || '').trim();
       const shortTarget = (s.instrument || '').trim();
-      let inst: StoredInstrument | null = null;
+      let inst: StoredQuestionnaire | null = null;
       for (const candidate of [target, shortTarget]) {
         if (!candidate) continue;
         try {
@@ -156,7 +156,7 @@ export default function PortalTakePage() {
         setLoadError(`The assessment "${target}" isn't available in the database. Ask your administrator to publish it via Question Bank → Create Questionnaire.`);
         return;
       }
-        setInstrument(inst);
+        setQuestionnaire(inst);
       } catch (e) {
         setLoadError('Failed to load the assessment.');
       }
@@ -321,7 +321,7 @@ export default function PortalTakePage() {
         const v = (demographics[f.fieldKey] || '').trim();
         if (v) clean[f.fieldKey] = v;
       });
-      await portalSessionsApi.update(session.id, { demographics: clean } as any);
+      await portalSessionsApi.update(session.id, { demographics: clean });
       setDemographicsSubmitted(true);
     } catch (e: any) {
       setDemographicsError(`Failed to save: ${e?.message || 'unknown error'}`);
@@ -382,7 +382,7 @@ export default function PortalTakePage() {
 
               {activeDemoFields.length === 0 ? (
                 <div className="rounded-lg border border-dashed border-border bg-muted/30 px-3 py-6 text-center text-sm text-muted-foreground">
-                  No demographic fields configured. Ask your administrator to add some in the Instrument Library.
+                  No demographic fields configured. Ask your administrator to add some in the Questionnaire Library.
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

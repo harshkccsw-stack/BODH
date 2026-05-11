@@ -14,7 +14,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.bodhpsychometric.bodhassess.payload.InstrumentDtos;
+import com.bodhpsychometric.bodhassess.payload.QuestionnaireCatalogDtos;
 import com.bodhpsychometric.bodhassess.payload.ItemDtos;
 import com.bodhpsychometric.bodhassess.service.ItemsService;
 import com.bodhpsychometric.bodhassess.service.QuestionnairesCatalogService;
@@ -30,7 +30,7 @@ public class QuestionnairesCatalogController {
     private ItemsService itemsService;
 
     @GetMapping
-    public InstrumentDtos.InstrumentListResponse list(@RequestParam(value = "vertical", required = false) String vertical) {
+    public QuestionnaireCatalogDtos.QuestionnaireCatalogListResponse list(@RequestParam(value = "vertical", required = false) String vertical) {
         return catalogService.list(vertical);
     }
 
@@ -46,14 +46,14 @@ public class QuestionnairesCatalogController {
     }
 
     @PostMapping
-    public ResponseEntity<InstrumentDtos.CreateInstrumentResponse> createInstrument(
-            @RequestBody InstrumentDtos.CreateInstrumentRequest req) {
-        return new ResponseEntity<>(itemsService.createInstrument(req), HttpStatus.CREATED);
+    public ResponseEntity<QuestionnaireCatalogDtos.CreateQuestionnaireCatalogResponse> createQuestionnaireCatalog(
+            @RequestBody QuestionnaireCatalogDtos.CreateQuestionnaireCatalogRequest req) {
+        return new ResponseEntity<>(itemsService.createQuestionnaireCatalog(req), HttpStatus.CREATED);
     }
 
     @GetMapping("/{instrumentId}/items")
     public ItemDtos.ItemListResponse listItems(@PathVariable String instrumentId) {
-        return itemsService.listByInstrument(instrumentId);
+        return itemsService.listByQuestionnaireCatalog(instrumentId);
     }
 
     @PostMapping("/{instrumentId}/items")

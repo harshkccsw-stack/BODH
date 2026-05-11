@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { getInstruments, API_BASE, type Instrument as ApiInstrument } from '@/lib/api';
+import { getQuestionnairesCatalog, API_BASE, type Questionnaire as ApiQuestionnaire } from '@/lib/api';
 import {
   AlertTriangle,
   Search,
@@ -20,17 +20,17 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { loadOverrides, saveOverride, applyOverride, type InstrumentOverride } from '@/lib/instrument-overrides';
-import { getVerticals, BUILT_IN_VERTICALS, getInstruments as getLocalInstruments, type Vertical as StoredVertical } from '@/lib/data-store';
+import { loadOverrides, saveOverride, applyOverride, type QuestionnaireOverride } from '@/lib/instrument-overrides';
+import { getVerticals, BUILT_IN_VERTICALS, getQuestionnaires as getLocalQuestionnaires, type Vertical as StoredVertical } from '@/lib/data-store';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
 type Vertical = string;
-type InstrumentType = 'all' | 'screening' | 'personality' | 'aptitude' | 'behavioral' | 'experimental';
+type QuestionnaireType = 'all' | 'screening' | 'personality' | 'aptitude' | 'behavioral' | 'experimental';
 
-interface Instrument {
+interface Questionnaire {
   // Catalog id (only set for instruments that came from the API). Mocks and
   // localStorage-derived rows have no id and aren't deletable.
   id?: string;
@@ -38,7 +38,7 @@ interface Instrument {
   shortName: string;
   category: string;
   vertical: Exclude<Vertical, 'all'>;
-  type: Exclude<InstrumentType, 'all'>;
+  type: Exclude<QuestionnaireType, 'all'>;
   items: number;
   duration: string;
   languages: string[];
@@ -58,7 +58,7 @@ const builtInVerticals: { key: Vertical; label: string; icon: typeof Brain }[] =
   { key: 'experimental', label: 'Experimental', icon: FlaskConical },
 ];
 
-const instrumentTypes: { key: InstrumentType; label: string }[] = [
+const instrumentTypes: { key: QuestionnaireType; label: string }[] = [
   { key: 'all', label: 'All Types' },
   { key: 'screening', label: 'Screening' },
   { key: 'personality', label: 'Personality' },
@@ -87,23 +87,23 @@ const tierColors: Record<number, string> = {
 // Component
 // ---------------------------------------------------------------------------
 
-export default function InstrumentsPage() {
+export default function QuestionnairesPage() {
   const [activeVertical, setActiveVertical] = useState<Vertical>('all');
-  const [activeType, setActiveType] = useState<InstrumentType>('all');
+  const [activeType, setActiveType] = useState<QuestionnaireType>('all');
   const [search, setSearch] = useState('');
-  const [apiInstruments, setApiInstruments] = useState<Instrument[]>([]);
+  const [apiQuestionnaires, setApiQuestionnaires] = useState<Questionnaire[]>([]);
   const [apiSource, setApiSource] = useState<'api' | 'mock'>('mock');
-  const [overrides, setOverrides] = useState<Record<string, InstrumentOverride>>({});
-  const [editing, setEditing] = useState<Instrument | null>(null);
+  const [overrides, setOverrides] = useState<Record<string, QuestionnaireOverride>>({});
+  const [editing, setEditing] = useState<Questionnaire | null>(null);
   const [editForm, setEditForm] = useState({
     name: '', category: '', duration: '', items: 0, tier: 1,
     languages: '', normStatus: '', vertical: '',
   });
-  const [confirmDelete, setConfirmDelete] = useState<Instrument | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<Questionnaire | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
   const [customVerticals, setCustomVerticals] = useState<StoredVertical[]>([]);
-  const [localInstruments, setLocalInstruments] = useState<Instrument[]>([]);
+  const [localQuestionnaires, setLocalQuestionnaires] = useState<Questionnaire[]>([]);
 
   useEffect(() => { setOverrides(loadOverrides()); }, []);
 
@@ -113,8 +113,8 @@ export default function InstrumentsPage() {
       const builtInCodes = new Set(BUILT_IN_VERTICALS.map((v) => v.code));
       setCustomVerticals(all.filter((v) => !builtInCodes.has(v.code)));
 
-      const stored = getLocalInstruments();
-      const mapped: Instrument[] = stored.map((s): Instrument => ({
+      const stored = getLocalQuestionnaires();
+      const mapped: Questionnaire[] = stored.map((s): Questionnaire => ({
         name: s.name || s.shortName || 'Untitled',
         shortName: s.shortName || (s.name ? s.name.split(' ')[0] : 'CUSTOM'),
         category: s.category || 'Custom',
@@ -126,7 +126,7 @@ export default function InstrumentsPage() {
         normStatus: 'User-published',
         tier: typeof s.tier === 'string' ? parseInt(String(s.tier).replace('T', ''), 10) || 1 : (s.tier || 1),
       }));
-      setLocalInstruments(mapped);
+      setLocalQuestionnaires(mapped);
     };
     reload();
 
@@ -144,10 +144,10 @@ export default function InstrumentsPage() {
     };
   }, []);
 
-  const loadApiInstruments = async () => {
+  const loadApiQuestionnaires = async () => {
     try {
-      const data = await getInstruments();
-      const mapped: Instrument[] = data.map((i: ApiInstrument) => ({
+      const data = await getQuestionnairesCatalog();
+      const mapped: Questionnaire[] = data.map((i: ApiQuestionnaire) => ({
         id: i.id,
         name: i.name,
         shortName: i.short_name || i.name.slice(0, 10),
@@ -160,22 +160,22 @@ export default function InstrumentsPage() {
         normStatus: i.norm_status === 'AVAILABLE' ? 'Indian norms available' : i.norm_status,
         tier: parseInt(i.tier_required.replace('T', ''), 10) || 1,
       }));
-      setApiInstruments(mapped);
+      setApiQuestionnaires(mapped);
       setApiSource('api');
     } catch {
       setApiSource('mock');
     }
   };
 
-  useEffect(() => { loadApiInstruments(); }, []);
+  useEffect(() => { loadApiQuestionnaires(); }, []);
 
   // Merge user-published (localStorage) + backend API. Dedupe by name so
   // a user questionnaire that was also synced to the backend doesn't double up.
   // Also re-read localStorage inline on every render so a newly-published
   // instrument shows up without needing a focus/storage event.
-  const freshLocal: Instrument[] = typeof window === 'undefined'
-    ? localInstruments
-    : getLocalInstruments().map((s): Instrument => ({
+  const freshLocal: Questionnaire[] = typeof window === 'undefined'
+    ? localQuestionnaires
+    : getLocalQuestionnaires().map((s): Questionnaire => ({
         name: s.name || s.shortName || 'Untitled',
         shortName: s.shortName || (s.name ? s.name.split(' ')[0] : 'CUSTOM'),
         category: s.category || 'Custom',
@@ -188,10 +188,10 @@ export default function InstrumentsPage() {
         tier: typeof s.tier === 'string' ? parseInt(String(s.tier).replace('T', ''), 10) || 1 : (s.tier || 1),
       }));
 
-  const allInstruments = useMemo(() => {
+  const allQuestionnaires = useMemo(() => {
     const seen = new Set<string>();
-    const out: Instrument[] = [];
-    const push = (arr: Instrument[]) => {
+    const out: Questionnaire[] = [];
+    const push = (arr: Questionnaire[]) => {
       arr.forEach((i) => {
         const key = (i.name || '').toLowerCase();
         if (seen.has(key)) return;
@@ -200,9 +200,9 @@ export default function InstrumentsPage() {
       });
     };
     push(freshLocal);
-    push(apiInstruments);
+    push(apiQuestionnaires);
     return out.map((i) => applyOverride(i, overrides));
-  }, [freshLocal, apiInstruments, overrides]);
+  }, [freshLocal, apiQuestionnaires, overrides]);
 
   // Filter list = built-ins + any user-created verticals (from /verticals API)
   // + any vertical actually used by an instrument but not registered in
@@ -223,7 +223,7 @@ export default function InstrumentsPage() {
       out.push({ key, label: v.name, icon: ListChecks });
     });
     // Orphan verticals — surfaced from instruments themselves.
-    allInstruments.forEach((i) => {
+    allQuestionnaires.forEach((i) => {
       const raw = String(i.vertical || '').trim();
       if (!raw) return;
       const key = raw.toLowerCase();
@@ -234,9 +234,9 @@ export default function InstrumentsPage() {
       out.push({ key, label, icon: ListChecks });
     });
     return out;
-  }, [customVerticals, allInstruments]);
+  }, [customVerticals, allQuestionnaires]);
 
-  const openEdit = (inst: Instrument) => {
+  const openEdit = (inst: Questionnaire) => {
     setEditing(inst);
     setEditForm({
       name: inst.name,
@@ -253,7 +253,7 @@ export default function InstrumentsPage() {
   const saveEdit = () => {
     if (!editing) return;
     const key = editing.shortName || editing.name;
-    const patch: InstrumentOverride = {
+    const patch: QuestionnaireOverride = {
       name: editForm.name.trim() || editing.name,
       category: editForm.category.trim(),
       duration: editForm.duration.trim(),
@@ -281,7 +281,7 @@ export default function InstrumentsPage() {
         const text = await res.text().catch(() => res.statusText);
         throw new Error(`[API ${res.status}] ${text}`);
       }
-      await loadApiInstruments();
+      await loadApiQuestionnaires();
       setConfirmDelete(null);
     } catch (e: any) {
       setDeleteError(e?.message || 'Failed to delete questionnaire');
@@ -295,7 +295,7 @@ export default function InstrumentsPage() {
   const query = search.trim().toLowerCase();
   const activeV = toStr(activeVertical);
   const activeT = toStr(activeType);
-  const filtered = allInstruments.filter((inst) => {
+  const filtered = allQuestionnaires.filter((inst) => {
     if (!inst) return false;
     if (activeV !== 'all' && toStr(inst.vertical) !== activeV) return false;
     if (activeT !== 'all' && toStr(inst.type) !== activeT) return false;
@@ -325,7 +325,7 @@ export default function InstrumentsPage() {
             Browse, search, and launch standardised assessments across all verticals.
             {apiSource === 'api' && (
               <span className="ml-2 inline-flex items-center gap-1 text-xs text-green-600">
-                <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" /> Live API — {apiInstruments.length} custom questionnaires
+                <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" /> Live API — {apiQuestionnaires.length} custom questionnaires
               </span>
             )}
           </p>
@@ -348,8 +348,8 @@ export default function InstrumentsPage() {
               const isActive = activeVertical === v.key;
               const count =
                 v.key === 'all'
-                  ? allInstruments.length
-                  : allInstruments.filter((i) => toStr(i.vertical) === toStr(v.key)).length;
+                  ? allQuestionnaires.length
+                  : allQuestionnaires.filter((i) => toStr(i.vertical) === toStr(v.key)).length;
               return (
                 <button
                   key={v.key}
@@ -430,11 +430,11 @@ export default function InstrumentsPage() {
 
           {/* Results count */}
           <p className="text-xs text-muted-foreground">
-            Showing {filtered.length} of {allInstruments.length} questionnaire{allInstruments.length !== 1 ? 's' : ''}
+            Showing {filtered.length} of {allQuestionnaires.length} questionnaire{allQuestionnaires.length !== 1 ? 's' : ''}
             {search && <span className="ml-1">for "<span className="font-medium text-foreground">{search}</span>"</span>}
           </p>
 
-          {/* Instrument grid */}
+          {/* Questionnaire grid */}
           {filtered.length === 0 ? (
             <Card>
               <CardContent className="p-10 text-center">
@@ -476,7 +476,7 @@ export default function InstrumentsPage() {
                       </span>
                     </div>
 
-                    {/* Instrument name */}
+                    {/* Questionnaire name */}
                     <div>
                       <h3 className="text-sm font-semibold leading-snug">{inst.name}</h3>
                     </div>
@@ -508,7 +508,7 @@ export default function InstrumentsPage() {
                         size="sm"
                         className="flex-1"
                         onClick={() => {
-                          window.location.href = `/assessments/create?instrument=${encodeURIComponent(inst.shortName)}`;
+                          window.location.href = `/assessments/create?questionnaire=${encodeURIComponent(inst.shortName)}`;
                         }}
                       >
                         <Play className="h-3.5 w-3.5" />

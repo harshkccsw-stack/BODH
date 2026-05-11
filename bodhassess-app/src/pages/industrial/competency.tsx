@@ -41,7 +41,7 @@ export default function CompetencyFrameworksPage() {
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Competency Frameworks</h1>
             <p className="text-sm text-muted-foreground mt-1">
-              Define role-based competency models and map them to validated psychometric instruments.
+              Define role-based competency models and map them to validated psychometric questionnaires.
             </p>
           </div>
           <Button variant="primary" size="sm">
@@ -59,7 +59,7 @@ export default function CompetencyFrameworksPage() {
               <Layers className="h-10 w-10 text-muted-foreground/40 mx-auto mb-3" />
               <p className="text-sm font-medium">No competency frameworks defined</p>
               <p className="text-xs text-muted-foreground mt-1">
-                Create a framework to map role competencies to validated instruments.
+                Create a framework to map role competencies to validated questionnaires.
               </p>
             </CardContent>
           </Card>
@@ -92,11 +92,11 @@ export default function CompetencyFrameworksPage() {
                 </div>
               </div>
 
-              {/* Instruments linked */}
+              {/* Questionnaires linked */}
               <div>
                 <p className="text-xs text-muted-foreground mb-2 flex items-center gap-1">
                   <Link2 className="h-3 w-3" />
-                  Instruments Linked
+                  Questionnaires Linked
                 </p>
                 <div className="flex flex-wrap gap-1.5">
                   {fw.instruments.map((inst) => (
@@ -140,7 +140,7 @@ export default function CompetencyFrameworksPage() {
             <div className="flex items-center justify-between">
               <CardTitle className="text-base flex items-center gap-2">
                 <Layers className="h-4 w-4 text-primary" />
-                {fw.role} — Competency-to-Instrument Mapping
+                {fw.role} — Competency-to-Questionnaire Mapping
               </CardTitle>
               <span className="text-xs text-muted-foreground">{fw.id}</span>
             </div>
@@ -151,7 +151,7 @@ export default function CompetencyFrameworksPage() {
                 <thead>
                   <tr className="border-b border-border">
                     <th className="px-5 py-3 text-left font-medium text-muted-foreground">Competency</th>
-                    <th className="px-5 py-3 text-left font-medium text-muted-foreground">Instrument</th>
+                    <th className="px-5 py-3 text-left font-medium text-muted-foreground">Questionnaire</th>
                     <th className="px-5 py-3 text-left font-medium text-muted-foreground">Subscale / Factor</th>
                     <th className="px-5 py-3 text-left font-medium text-muted-foreground">Weight</th>
                   </tr>

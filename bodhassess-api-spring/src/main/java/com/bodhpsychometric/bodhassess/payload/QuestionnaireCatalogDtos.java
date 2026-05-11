@@ -6,9 +6,9 @@ import java.util.List;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.JsonNode;
 
-public class InstrumentDtos {
+public class QuestionnaireCatalogDtos {
 
-    public static class CreateInstrumentRequest {
+    public static class CreateQuestionnaireCatalogRequest {
         private String name;
         @JsonProperty("short_name")             private String shortName;
         private String vertical;
@@ -51,14 +51,14 @@ public class InstrumentDtos {
         public void setScoringConfig(JsonNode scoringConfig) { this.scoringConfig = scoringConfig; }
     }
 
-    public static class CreateInstrumentResponse {
+    public static class CreateQuestionnaireCatalogResponse {
         private String id;
         private String name;
         private String vertical;
         private String message;
 
-        public CreateInstrumentResponse() {}
-        public CreateInstrumentResponse(String id, String name, String vertical, String message) {
+        public CreateQuestionnaireCatalogResponse() {}
+        public CreateQuestionnaireCatalogResponse(String id, String name, String vertical, String message) {
             this.id = id; this.name = name; this.vertical = vertical; this.message = message;
         }
         public String getId() { return id; }
@@ -71,7 +71,7 @@ public class InstrumentDtos {
         public void setMessage(String message) { this.message = message; }
     }
 
-    public static class InstrumentRow {
+    public static class QuestionnaireCatalogRow {
         private String id;
         private String name;
         @JsonProperty("short_name")        private String shortName;
@@ -120,16 +120,16 @@ public class InstrumentDtos {
         public void setCreatedAt(String createdAt) { this.createdAt = createdAt; }
     }
 
-    public static class InstrumentListResponse {
-        private List<InstrumentRow> data;
+    public static class QuestionnaireCatalogListResponse {
+        private List<QuestionnaireCatalogRow> data;
         private int total;
 
-        public InstrumentListResponse() {}
-        public InstrumentListResponse(List<InstrumentRow> data, int total) {
+        public QuestionnaireCatalogListResponse() {}
+        public QuestionnaireCatalogListResponse(List<QuestionnaireCatalogRow> data, int total) {
             this.data = data; this.total = total;
         }
-        public List<InstrumentRow> getData() { return data; }
-        public void setData(List<InstrumentRow> data) { this.data = data; }
+        public List<QuestionnaireCatalogRow> getData() { return data; }
+        public void setData(List<QuestionnaireCatalogRow> data) { this.data = data; }
         public int getTotal() { return total; }
         public void setTotal(int total) { this.total = total; }
     }
