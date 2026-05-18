@@ -2,11 +2,9 @@
 > bodhassess-app@0.1.0 dev
 > vite
 
-Port 3000 is in use, trying another one...
-Port 3001 is in use, trying another one...
 
-  [32m[1mVITE[22m v7.3.2[39m  [2mready in [0m[1m818[22m[2m[0m ms[22m
+  VITE v7.3.3  ready in 210 ms
 
-  [32m➜[39m  [1mLocal[22m:   [36mhttp://localhost:[1m3002[22m/dashboard[39m
-  [32m➜[39m  [1mNetwork[22m: [36mhttp://172.20.224.1:[1m3002[22m/dashboard[39m
-  [32m➜[39m  [1mNetwork[22m: [36mhttp://192.168.11.95:[1m3002[22m/dashboard[39m
+  ➜  Local:   http://localhost:3000/dashboard
+  ➜  Network: http://192.168.14.108:3000/dashboard
+  ➜  Network: http://192.168.64.1:3000/dashboard
