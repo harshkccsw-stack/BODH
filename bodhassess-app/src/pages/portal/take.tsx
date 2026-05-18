@@ -481,11 +481,27 @@ export default function PortalTakePage() {
     ? typeof selected === 'string' && selected.trim().length > 0
     : selected !== undefined;
   const isLast = index === total - 1;
+  const showIndex = !!session.showQuestionIndex;
+
+  // Build a quick lookup of which questions have answers — drives the green
+  // "attempted" colour in the sidebar.
+  const isQuestionAnswered = (qi: number): boolean => {
+    const qq = instrument.questions[qi];
+    if (!qq) return false;
+    const a = answers[qq.id];
+    if (a === undefined) return false;
+    if (typeof a === 'string') return a.trim().length > 0;
+    return true;
+  };
+  const answeredCount = instrument.questions.reduce((n, _, i) => n + (isQuestionAnswered(i) ? 1 : 0), 0);
 
   return (
     <div className="flex-1 min-h-screen w-full bg-muted/20">
       <header className="border-b border-border bg-background sticky top-0 z-10">
-        <div className="max-w-3xl mx-auto px-5 py-4 flex items-center justify-between">
+        <div className={cn(
+          'mx-auto px-5 py-4 flex items-center justify-between',
+          showIndex ? 'max-w-6xl' : 'max-w-3xl',
+        )}>
           <div className="flex items-center gap-3">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
               <Brain className="h-4 w-4" />
@@ -504,7 +520,59 @@ export default function PortalTakePage() {
         </div>
       </header>
 
-      <main className="max-w-3xl mx-auto px-5 py-8">
+      <div className={cn(
+        'mx-auto px-5 py-8',
+        showIndex ? 'max-w-6xl grid grid-cols-1 lg:grid-cols-[14rem_minmax(0,1fr)] gap-6' : 'max-w-3xl',
+      )}>
+        {showIndex && (
+          <aside className="lg:sticky lg:top-20 lg:self-start">
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Questions</p>
+                  <span className="text-[0.6875rem] text-muted-foreground">{answeredCount}/{total}</span>
+                </div>
+                <div className="grid grid-cols-5 gap-1.5">
+                  {instrument.questions.map((qq, qi) => {
+                    const isCurrent = qi === index;
+                    const isAnswered = isQuestionAnswered(qi);
+                    return (
+                      <button
+                        key={qq.id}
+                        type="button"
+                        onClick={() => setIndex(qi)}
+                        title={`Question ${qi + 1}${isAnswered ? ' — answered' : ''}`}
+                        className={cn(
+                          'h-8 w-full rounded-md text-xs font-medium border transition-colors',
+                          isCurrent
+                            ? 'border-primary bg-primary text-primary-foreground'
+                            : isAnswered
+                              ? 'border-green-500/40 bg-green-500/10 text-green-700 dark:text-green-400 hover:bg-green-500/20'
+                              : 'border-border bg-background text-muted-foreground hover:border-primary/40',
+                        )}
+                      >
+                        {qi + 1}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="mt-3 pt-3 border-t border-border space-y-1.5 text-[0.6875rem] text-muted-foreground">
+                  <div className="flex items-center gap-1.5">
+                    <span className="inline-block h-3 w-3 rounded-sm bg-primary" /> Current
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="inline-block h-3 w-3 rounded-sm bg-green-500/20 border border-green-500/40" /> Answered
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="inline-block h-3 w-3 rounded-sm border border-border bg-background" /> Not answered
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </aside>
+        )}
+
+        <main>
         <Card>
           <CardContent className="p-6 space-y-5">
             {q.stem && <p className="text-base font-medium leading-relaxed">{q.stem}</p>}
@@ -574,7 +642,8 @@ export default function PortalTakePage() {
             </Button>
           )}
         </div>
-      </main>
+        </main>
+      </div>
     </div>
   );
 }

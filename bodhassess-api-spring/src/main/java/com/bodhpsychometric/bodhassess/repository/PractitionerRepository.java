@@ -17,6 +17,12 @@ public interface PractitionerRepository extends JpaRepository<Practitioner, Stri
     @Query("SELECT p FROM Practitioner p ORDER BY p.createdAt DESC")
     List<Practitioner> findAllOrderByCreatedAt();
 
-    @Query("SELECT p FROM Practitioner p WHERE LOWER(p.id) = LOWER(:id) AND p.dob = :dob AND p.status = 'Active'")
-    Optional<Practitioner> findActiveByIdAndDob(@Param("id") String id, @Param("dob") LocalDate dob);
+    @Query("SELECT p FROM Practitioner p WHERE LOWER(p.email) = LOWER(:email) AND p.dob = :dob AND p.status = 'Active'")
+    Optional<Practitioner> findActiveByEmailAndDob(@Param("email") String email, @Param("dob") LocalDate dob);
+
+    // Phone match is digits-only — the stored phone may carry separators (+,
+    // space, dash, parens), so we filter candidates by DOB+status in SQL and
+    // do the final digit comparison in Java.
+    @Query("SELECT p FROM Practitioner p WHERE p.dob = :dob AND p.status = 'Active' AND p.phone IS NOT NULL")
+    List<Practitioner> findActiveByDobWithPhone(@Param("dob") LocalDate dob);
 }

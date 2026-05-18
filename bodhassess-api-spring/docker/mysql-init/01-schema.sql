@@ -214,6 +214,7 @@ CREATE TABLE IF NOT EXISTS practitioners (
     id         VARCHAR(64)  PRIMARY KEY,
     name       VARCHAR(255) NOT NULL,
     email      VARCHAR(255) NOT NULL UNIQUE,
+    phone      VARCHAR(32),
     roles      JSON         NOT NULL,
     verticals  JSON         NOT NULL,
     status     VARCHAR(32)  NOT NULL DEFAULT 'Active',
@@ -222,6 +223,20 @@ CREATE TABLE IF NOT EXISTS practitioners (
     created_at TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
+
+-- For existing databases: add the phone column if it doesn't already exist.
+-- The CREATE TABLE above only runs on a fresh DB, so we use an INFORMATION_SCHEMA
+-- check + dynamic SQL to make this idempotent on upgrades.
+SET @col_exists := (
+    SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'practitioners' AND COLUMN_NAME = 'phone'
+);
+SET @stmt := IF(@col_exists = 0,
+    'ALTER TABLE practitioners ADD COLUMN phone VARCHAR(32) AFTER email',
+    'SELECT 1');
+PREPARE s FROM @stmt;
+EXECUTE s;
+DEALLOCATE PREPARE s;
 
 -- ============================================================
 -- RESPONDENT GROUPS
@@ -263,12 +278,27 @@ CREATE TABLE IF NOT EXISTS portal_sessions (
     consent_id           VARCHAR(64),
     proctoring           TINYINT(1)   NOT NULL DEFAULT 0,
     invitation_sent      TINYINT(1)   NOT NULL DEFAULT 0,
+    show_question_index  TINYINT(1)   NOT NULL DEFAULT 0,
     created_at           TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at           TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     completed_at         TIMESTAMP    NULL,
     INDEX idx_portal_sessions_respondent (respondent_id),
     INDEX idx_portal_sessions_status (status)
 );
+
+-- Idempotent upgrade: add show_question_index to existing portal_sessions DBs.
+SET @col_exists := (
+    SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'portal_sessions'
+      AND COLUMN_NAME = 'show_question_index'
+);
+SET @stmt := IF(@col_exists = 0,
+    'ALTER TABLE portal_sessions ADD COLUMN show_question_index TINYINT(1) NOT NULL DEFAULT 0 AFTER invitation_sent',
+    'SELECT 1');
+PREPARE s FROM @stmt;
+EXECUTE s;
+DEALLOCATE PREPARE s;
 
 -- ============================================================
 -- PUBLISHED QUESTIONNAIRES
@@ -293,6 +323,21 @@ CREATE TABLE IF NOT EXISTS published_questionnaires (
     INDEX idx_pq_name (name),
     INDEX idx_pq_short_name (short_name)
 );
+
+-- If any older DB has the legacy published_questionnaires.show_question_index
+-- column (the toggle has since moved to portal_sessions), drop it. Idempotent.
+SET @col_exists := (
+    SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'published_questionnaires'
+      AND COLUMN_NAME = 'show_question_index'
+);
+SET @stmt := IF(@col_exists = 1,
+    'ALTER TABLE published_questionnaires DROP COLUMN show_question_index',
+    'SELECT 1');
+PREPARE s FROM @stmt;
+EXECUTE s;
+DEALLOCATE PREPARE s;
 
 -- ============================================================
 -- ITEM DISPLAY STATE

@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { respondentsApi } from '@/lib/api';
 import { config } from '@/lib/config';
+import { autoFormatDdmmyyyy, ddmmyyyyToIso, formatDDMMYYYY } from '@/lib/helpers';
 
 const AUTH_KEY = config.authStorageKey;
 
@@ -29,7 +30,7 @@ export default function PortalRegisterPage() {
   const [orgWebsite, setOrgWebsite] = useState('');
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [created, setCreated] = useState<{ id: string; autoSignedIn: boolean } | null>(null);
+  const [created, setCreated] = useState<{ id: string; email: string; dobDisplay: string; autoSignedIn: boolean } | null>(null);
   const [copied, setCopied] = useState(false);
 
   const submit = async (e?: React.FormEvent) => {
@@ -57,8 +58,9 @@ export default function PortalRegisterPage() {
       setError('Please enter a valid phone number (at least 7 digits).');
       return;
     }
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmedDob)) {
-      setError('Please enter a valid date of birth.');
+    const isoDob = ddmmyyyyToIso(trimmedDob);
+    if (!isoDob) {
+      setError('Please enter your date of birth as DD/MM/YYYY.');
       return;
     }
     if (accountType === 'organization') {
@@ -80,7 +82,7 @@ export default function PortalRegisterPage() {
         name: trimmedName,
         email: trimmedEmail,
         phone: trimmedPhone,
-        dob: trimmedDob,
+        dob: isoDob,
         consent: 'Granted',
         accountType,
         orgName: accountType === 'organization' ? trimmedOrg : undefined,
@@ -88,16 +90,17 @@ export default function PortalRegisterPage() {
       });
 
       // Try to auto-sign-in so the respondent lands straight on their dashboard.
+      // Use the email as the identifier — that's what the new login flow expects.
       let autoSignedIn = false;
       try {
-        const loginRes = await respondentsApi.login(id, trimmedDob);
+        const loginRes = await respondentsApi.login(trimmedEmail, isoDob);
         sessionStorage.setItem(AUTH_KEY, loginRes.token);
         autoSignedIn = true;
       } catch {
         // Auto-login failed — not fatal. The user can still sign in manually.
       }
 
-      setCreated({ id, autoSignedIn });
+      setCreated({ id, email: trimmedEmail, dobDisplay: formatDDMMYYYY(isoDob), autoSignedIn });
     } catch (e: any) {
       const msg = String(e?.message || '');
       if (msg.includes('409') || msg.toLowerCase().includes('duplicate')) {
@@ -113,7 +116,7 @@ export default function PortalRegisterPage() {
   const copyId = async () => {
     if (!created) return;
     try {
-      await navigator.clipboard.writeText(created.id);
+      await navigator.clipboard.writeText(created.email);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {}
@@ -142,16 +145,22 @@ export default function PortalRegisterPage() {
             </CardHeader>
             <CardContent className="space-y-4">
               <p className="text-sm text-muted-foreground">
-                Save your Login ID — you will need it along with your date of birth to sign in next time.
+                Sign in next time with your email (or phone) and date of birth.
               </p>
-              <div className="rounded-xl border border-border bg-muted/40 p-4 space-y-2">
-                <p className="text-[0.6875rem] font-medium uppercase tracking-wider text-muted-foreground">Login ID</p>
+              <div className="rounded-xl border border-border bg-muted/40 p-4 space-y-3 text-sm">
                 <div className="flex items-center justify-between gap-2">
-                  <p className="font-mono text-lg font-semibold">{created.id}</p>
+                  <div className="min-w-0">
+                    <p className="text-[0.6875rem] font-medium uppercase tracking-wider text-muted-foreground">Email (Login)</p>
+                    <p className="font-mono text-sm font-semibold truncate">{created.email}</p>
+                  </div>
                   <Button variant="outline" size="sm" onClick={copyId}>
                     <Copy className="h-3.5 w-3.5" />
                     {copied ? 'Copied' : 'Copy'}
                   </Button>
+                </div>
+                <div className="border-t border-border/60 pt-2">
+                  <p className="text-[0.6875rem] font-medium uppercase tracking-wider text-muted-foreground">Password (DOB)</p>
+                  <p className="font-mono text-sm font-semibold">{created.dobDisplay}</p>
                 </div>
               </div>
               {created.autoSignedIn ? (
@@ -260,13 +269,15 @@ export default function PortalRegisterPage() {
                 <div className="space-y-1.5">
                   <label className="text-sm font-medium">Date of Birth *</label>
                   <input
-                    type="date"
+                    inputMode="numeric"
                     value={dob}
-                    onChange={(e) => setDob(e.target.value)}
+                    onChange={(e) => setDob(autoFormatDdmmyyyy(e.target.value))}
+                    placeholder="DD/MM/YYYY"
+                    maxLength={10}
                     className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
                   />
                   <p className="text-[0.6875rem] text-muted-foreground">
-                    Your date of birth doubles as your sign-in password. Keep it safe.
+                    Your date of birth (DD/MM/YYYY) doubles as your sign-in password. Keep it safe.
                   </p>
                 </div>
                 <Button type="submit" variant="primary" size="md" className="w-full" disabled={submitting}>

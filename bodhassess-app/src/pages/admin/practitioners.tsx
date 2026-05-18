@@ -7,7 +7,7 @@ import {
   getRoles,
   type StoredPractitioner, type Role,
 } from '@/lib/data-store';
-import { formatDDMMYYYYTime } from '@/lib/helpers';
+import { autoFormatDdmmyyyy, ddmmyyyyToIso, formatDDMMYYYYTime, isoToDdmmyyyy } from '@/lib/helpers';
 
 const statusColors: Record<string, string> = {
   Active: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
@@ -19,13 +19,14 @@ const VERTICALS = ['Clinical', 'Industrial', 'Counselling', 'Experiments', 'Whit
 type FormState = {
   name: string;
   email: string;
+  phone: string;
   dob: string;
   roles: string[];
   verticals: string[];
   status: 'Active' | 'Inactive';
 };
 
-const emptyForm: FormState = { name: '', email: '', dob: '', roles: [], verticals: [], status: 'Active' };
+const emptyForm: FormState = { name: '', email: '', phone: '', dob: '', roles: [], verticals: [], status: 'Active' };
 
 export default function PractitionersPage() {
   const [practitioners, setPractitioners] = useState<StoredPractitioner[]>([]);
@@ -77,7 +78,8 @@ export default function PractitionersPage() {
     setForm({
       name: p.name,
       email: p.email,
-      dob: p.dob || '',
+      phone: p.phone || '',
+      dob: isoToDdmmyyyy(p.dob),
       roles: p.roles || [],
       verticals: p.verticals || [],
       status: (p.status as 'Active' | 'Inactive') || 'Active',
@@ -97,10 +99,16 @@ export default function PractitionersPage() {
   const submit = async () => {
     const name = form.name.trim();
     const email = form.email.trim();
-    const dob = form.dob.trim();
+    const phone = form.phone.trim();
+    const dobInput = form.dob.trim();
     if (!name || !email) { setError('Name and email are required'); return; }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setError('Enter a valid email address'); return; }
-    if (dob && !/^\d{4}-\d{2}-\d{2}$/.test(dob)) { setError('Enter date of birth as YYYY-MM-DD'); return; }
+    let isoDob: string | undefined = undefined;
+    if (dobInput) {
+      const parsed = ddmmyyyyToIso(dobInput);
+      if (!parsed) { setError('Enter date of birth as DD/MM/YYYY'); return; }
+      isoDob = parsed;
+    }
     if (form.roles.length === 0) { setError('Assign at least one role'); return; }
     if (form.verticals.length === 0) { setError('Assign at least one vertical'); return; }
 
@@ -108,7 +116,8 @@ export default function PractitionersPage() {
     if (editing) {
       const updated = await updatePractitioner(editing.id, {
         name, email,
-        dob: dob || undefined,
+        phone: phone || undefined,
+        dob: isoDob,
         roles: form.roles,
         verticals: form.verticals,
         status: form.status,
@@ -125,7 +134,8 @@ export default function PractitionersPage() {
       const today = new Date().toISOString().slice(0, 16).replace('T', ' ');
       const created = await createPractitioner({
         id, name, email,
-        dob: dob || undefined,
+        phone: phone || undefined,
+        dob: isoDob,
         roles: form.roles,
         verticals: form.verticals,
         status: form.status,
@@ -289,11 +299,24 @@ export default function PractitionersPage() {
               <div className="space-y-1.5">
                 <label className="text-sm font-medium">Email *</label>
                 <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="practitioner@example.com" className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" />
+                <p className="text-[0.6875rem] text-muted-foreground">Either email or phone can be used to sign in.</p>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Phone</label>
+                <input type="tel" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="+91 98765 43210" className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <label className="text-sm font-medium">Date of Birth</label>
-                  <input type="date" value={form.dob} onChange={(e) => setForm({ ...form, dob: e.target.value })} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" />
+                  <input
+                    inputMode="numeric"
+                    value={form.dob}
+                    onChange={(e) => setForm({ ...form, dob: autoFormatDdmmyyyy(e.target.value) })}
+                    placeholder="DD/MM/YYYY"
+                    maxLength={10}
+                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                  />
+                  <p className="text-[0.6875rem] text-muted-foreground">Used as login password.</p>
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-sm font-medium">Status</label>

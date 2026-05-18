@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { API_BASE } from '@/lib/api';
 import { createRespondent, deleteRespondent, getRespondents, type StoredRespondent } from '@/lib/data-store';
-import { formatDDMMYYYY } from '@/lib/helpers';
+import { autoFormatDdmmyyyy, ddmmyyyyToIso, formatDDMMYYYY } from '@/lib/helpers';
 import { ClipboardCheck, Plus, ShieldCheck, Trash2, Upload, Users, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import BulkUploadModal from './bulk-upload-modal';
@@ -22,7 +22,7 @@ export default function RespondentsPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
-  const [form, setForm] = useState({ name: '', email: '', dob: '', consent: 'Granted' as Consent });
+  const [form, setForm] = useState({ name: '', email: '', phone: '', dob: '', consent: 'Granted' as Consent });
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [createdCred, setCreatedCred] = useState<{ id: string; dob: string } | null>(null);
@@ -61,7 +61,7 @@ export default function RespondentsPage() {
   }, [respondents]);
 
   const openModal = () => {
-    setForm({ name: '', email: '', dob: '', consent: 'Granted' });
+    setForm({ name: '', email: '', phone: '', dob: '', consent: 'Granted' });
     setError('');
     setCreatedCred(null);
     setModalOpen(true);
@@ -70,10 +70,12 @@ export default function RespondentsPage() {
   const submit = async () => {
     const name = form.name.trim();
     const email = form.email.trim();
-    const dob = form.dob.trim();
-    if (!name || !email || !dob) { setError('Name, email and date of birth are required'); return; }
+    const phone = form.phone.trim();
+    const dobInput = form.dob.trim();
+    if (!name || !email || !dobInput) { setError('Name, email and date of birth are required'); return; }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setError('Enter a valid email address'); return; }
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(dob)) { setError('Date of birth must be in YYYY-MM-DD format'); return; }
+    const isoDob = ddmmyyyyToIso(dobInput);
+    if (!isoDob) { setError('Date of birth must be in DD/MM/YYYY format'); return; }
     if (respondents.some((r) => r.email.toLowerCase() === email.toLowerCase())) {
       setError('A respondent with this email already exists');
       return;
@@ -82,11 +84,18 @@ export default function RespondentsPage() {
     const nextNum = (nums.length ? Math.max(...nums) : 0) + 1;
     const id = `R-${String(nextNum).padStart(3, '0')}`;
     setSaving(true);
-    const created = await createRespondent({ id, name, email, dob, consent: form.consent, sessions_count: 0, last_assessment: '—' });
+    const created = await createRespondent({
+      id, name, email,
+      phone: phone || undefined,
+      dob: isoDob,
+      consent: form.consent,
+      sessions_count: 0,
+      last_assessment: '—',
+    });
     setSaving(false);
     if (!created) { setError('Failed to save — check that the API is running'); return; }
     await refresh();
-    setCreatedCred({ id, dob });
+    setCreatedCred({ id, dob: isoDob });
   };
 
   const confirmDeletion = async () => {
@@ -242,8 +251,12 @@ export default function RespondentsPage() {
                   </div>
                   <div className="rounded-lg border border-border bg-muted/40 p-3 space-y-2 font-mono text-xs">
                     <div className="flex items-center justify-between"><span className="text-muted-foreground">Portal URL</span><span>/portal/login</span></div>
-                    <div className="flex items-center justify-between"><span className="text-muted-foreground">Login ID</span><span className="font-semibold">{createdCred.id}</span></div>
+                    <div className="flex items-center justify-between"><span className="text-muted-foreground">Email (login)</span><span className="font-semibold truncate ml-2">{form.email.trim()}</span></div>
+                    {form.phone.trim() && (
+                      <div className="flex items-center justify-between"><span className="text-muted-foreground">Phone (also accepted)</span><span className="font-semibold">{form.phone.trim()}</span></div>
+                    )}
                     <div className="flex items-center justify-between"><span className="text-muted-foreground">Password (DOB)</span><span className="font-semibold">{formatDDMMYYYY(createdCred.dob)}</span></div>
+                    <div className="flex items-center justify-between"><span className="text-muted-foreground">Reference ID</span><span className="font-semibold">{createdCred.id}</span></div>
                   </div>
                   <div className="flex justify-end gap-2 pt-2">
                     <Button variant="outline" onClick={() => setModalOpen(false)}>Close</Button>
@@ -264,9 +277,21 @@ export default function RespondentsPage() {
                     <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="respondent@example.com" className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" />
                   </div>
                   <div className="space-y-1.5">
+                    <label className="text-sm font-medium">Phone</label>
+                    <input type="tel" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="+91 98765 43210" className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" />
+                    <p className="text-[0.6875rem] text-muted-foreground">Either email or phone can be used to sign in.</p>
+                  </div>
+                  <div className="space-y-1.5">
                     <label className="text-sm font-medium">Date of Birth *</label>
-                    <input type="date" value={form.dob} onChange={(e) => setForm({ ...form, dob: e.target.value })} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" />
-                    <p className="text-[0.6875rem] text-muted-foreground">Used as the respondent's login password on the portal.</p>
+                    <input
+                      inputMode="numeric"
+                      value={form.dob}
+                      onChange={(e) => setForm({ ...form, dob: autoFormatDdmmyyyy(e.target.value) })}
+                      placeholder="DD/MM/YYYY"
+                      maxLength={10}
+                      className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                    />
+                    <p className="text-[0.6875rem] text-muted-foreground">Format DD/MM/YYYY. Used as the respondent's login password on the portal.</p>
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-sm font-medium">Consent Status</label>

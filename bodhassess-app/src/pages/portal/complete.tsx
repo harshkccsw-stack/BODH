@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { CheckCircle2, ClipboardList, LogOut } from 'lucide-react';
+import { CheckCircle2, ClipboardList } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 
@@ -34,13 +34,6 @@ export default function PortalCompletePage() {
       } catch {}
     })();
   }, []);
-
-  const logout = async () => {
-    const token = sessionStorage.getItem(AUTH_KEY);
-    if (token) { try { await respondentsApi.logout(token); } catch {} }
-    sessionStorage.removeItem(AUTH_KEY);
-    window.location.href = '/portal/login';
-  };
 
   return (
     <div className="flex-1 min-h-screen w-full flex items-center justify-center px-4 py-10 bg-linear-to-br from-primary/10 via-background to-green-100/40 dark:to-green-950/20">
@@ -85,14 +78,10 @@ export default function PortalCompletePage() {
               </div>
             )}
 
-            <div className="flex flex-col sm:flex-row justify-center gap-2 pt-2">
-              <Button variant="outline" size="md" className="sm:flex-1" onClick={() => window.location.href = '/portal/assessments'}>
+            <div className="flex justify-center pt-2">
+              <Button variant="primary" size="md" className="w-full sm:w-auto sm:min-w-[14rem]" onClick={() => window.location.href = '/portal/assessments'}>
                 <ClipboardList className="h-4 w-4" />
                 My Assessments
-              </Button>
-              <Button variant="primary" size="md" className="sm:flex-1" onClick={logout}>
-                <LogOut className="h-4 w-4" />
-                Sign out
               </Button>
             </div>
           </CardContent>

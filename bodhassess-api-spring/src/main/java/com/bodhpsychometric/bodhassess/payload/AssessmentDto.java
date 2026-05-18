@@ -26,6 +26,7 @@ public class AssessmentDto {
     @JsonProperty("consentId")           private String consentId;
     private boolean proctoring;
     @JsonProperty("invitationSent")      private boolean invitationSent;
+    @JsonProperty("showQuestionIndex")   private boolean showQuestionIndex;
     @JsonProperty("createdAt")           private String createdAt;
     @JsonProperty("completedAt")         private String completedAt;
 
@@ -67,6 +68,8 @@ public class AssessmentDto {
     public void setProctoring(boolean proctoring) { this.proctoring = proctoring; }
     public boolean isInvitationSent() { return invitationSent; }
     public void setInvitationSent(boolean invitationSent) { this.invitationSent = invitationSent; }
+    public boolean isShowQuestionIndex() { return showQuestionIndex; }
+    public void setShowQuestionIndex(boolean showQuestionIndex) { this.showQuestionIndex = showQuestionIndex; }
     public String getCreatedAt() { return createdAt; }
     public void setCreatedAt(String createdAt) { this.createdAt = createdAt; }
     public String getCompletedAt() { return completedAt; }

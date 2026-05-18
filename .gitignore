@@ -7,4 +7,5 @@ bodhassess-app/.env.development.local
 bodhassess-app/.env.test.local
 bodhassess-app/.env.production.local
 
+target/
 

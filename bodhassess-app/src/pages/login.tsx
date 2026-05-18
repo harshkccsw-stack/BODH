@@ -8,6 +8,7 @@ import { adminApi, practitionersApi } from '@/lib/api';
 import { usePractitionerAuth } from '@/lib/practitioner-auth';
 import { getAdminToken, getPractitionerToken } from '@/lib/practitioner-auth-utils';
 import { useRouter } from '@/src/lib/router-helpers';
+import { autoFormatDdmmyyyy, ddmmyyyyToIso } from '@/lib/helpers';
 
 type Mode = 'practitioner' | 'admin';
 
@@ -18,7 +19,7 @@ export default function LoginPage() {
   const [mode, setMode] = useState<Mode>('practitioner');
 
   // Practitioner fields
-  const [loginId, setLoginId] = useState('');
+  const [identifier, setIdentifier] = useState('');
   const [dob, setDob] = useState('');
 
   // Admin fields
@@ -72,14 +73,19 @@ export default function LoginPage() {
     setLoading(true);
     try {
       if (mode === 'practitioner') {
-        const id = loginId.trim().toUpperCase();
-        const pwd = dob.trim();
-        if (!id || !pwd) {
-          setError('Enter your Practitioner ID and Date of Birth.');
+        const id = identifier.trim();
+        if (!id || !dob) {
+          setError('Enter your email or phone, and date of birth.');
           setLoading(false);
           return;
         }
-        const res = await practitionersApi.login(id, pwd);
+        const isoDob = ddmmyyyyToIso(dob);
+        if (!isoDob) {
+          setError('Date of birth must be in DD/MM/YYYY format.');
+          setLoading(false);
+          return;
+        }
+        const res = await practitionersApi.login(id, isoDob);
         loginAsPractitioner(res.token, res.practitioner);
       } else {
         const u = username.trim();
@@ -99,7 +105,7 @@ export default function LoginPage() {
       if (msg.includes('401')) {
         setError(mode === 'admin'
           ? 'Invalid admin username or password.'
-          : 'Invalid Practitioner ID or Date of Birth.');
+          : 'Invalid email/phone or date of birth.');
       } else {
         setError('Login failed — the API may be unreachable.');
       }
@@ -172,11 +178,11 @@ export default function LoginPage() {
               {mode === 'practitioner' ? (
                 <>
                   <div className="space-y-1.5">
-                    <label className="text-sm font-medium">Practitioner ID</label>
+                    <label className="text-sm font-medium">Email or Phone</label>
                     <input
-                      value={loginId}
-                      onChange={(e) => setLoginId(e.target.value)}
-                      placeholder="e.g., P-001"
+                      value={identifier}
+                      onChange={(e) => setIdentifier(e.target.value)}
+                      placeholder="you@example.com or +91 98765 43210"
                       autoComplete="username"
                       className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
                     />
@@ -184,10 +190,12 @@ export default function LoginPage() {
                   <div className="space-y-1.5">
                     <label className="text-sm font-medium">Date of Birth (password)</label>
                     <input
-                      type="date"
+                      inputMode="numeric"
                       value={dob}
-                      onChange={(e) => setDob(e.target.value)}
+                      onChange={(e) => setDob(autoFormatDdmmyyyy(e.target.value))}
+                      placeholder="DD/MM/YYYY"
                       autoComplete="current-password"
+                      maxLength={10}
                       className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
                     />
                   </div>
@@ -227,7 +235,7 @@ export default function LoginPage() {
 
         <p className="text-center text-xs text-muted-foreground">
           {mode === 'practitioner'
-            ? 'Your Practitioner ID and password (date of birth) were set up by your administrator.'
+            ? 'Use the email or phone your administrator recorded. Your date of birth is your password.'
             : 'Admin credentials are configured server-side via environment variables.'}
         </p>
       </div>

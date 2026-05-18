@@ -160,6 +160,7 @@ public class AssessmentsService {
         s.setConsentId(dto.getConsentId());
         s.setProctoring(dto.isProctoring());
         s.setInvitationSent(dto.isInvitationSent());
+        s.setShowQuestionIndex(dto.isShowQuestionIndex());
         return s;
     }
 
@@ -184,6 +185,7 @@ public class AssessmentsService {
         d.setConsentId(s.getConsentId());
         d.setProctoring(s.isProctoring());
         d.setInvitationSent(s.isInvitationSent());
+        d.setShowQuestionIndex(s.isShowQuestionIndex());
         if (s.getCreatedAt() != null) d.setCreatedAt(s.getCreatedAt().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME));
         if (s.getCompletedAt() != null) d.setCompletedAt(s.getCompletedAt().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME));
         return d;
