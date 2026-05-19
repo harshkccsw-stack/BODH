@@ -304,6 +304,7 @@ export interface PublishedQuestionnaire {
     media_url: string;
     media_type: string;
     options: Array<{ text: string; scores: Array<{ mqt_id: string; score: number }>; media_url?: string; media_type?: string }>;
+    question_scores?: Array<{ mqt_id: string; score: number }>;
     clinical_risk_flag: boolean;
     risk_flag_rule: string;
   }>;
@@ -393,6 +394,10 @@ export interface Assessment {
   showQuestionIndex?: boolean;
   createdAt?: string;
   completedAt?: string;
+  // Set on the server the first time the respondent submits a non-empty
+  // answer. Drives the time-to-start metric and the 24h/48h overdue buckets
+  // on the respondents dashboard.
+  startedAt?: string;
   // Captured pre-assessment from the demographic-fields catalogue. Free-form
   // since the field set is configurable at runtime.
   demographics?: Record<string, unknown>;

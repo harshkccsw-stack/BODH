@@ -40,40 +40,12 @@ interface QuestionnaireOption {
   duration: string;
 }
 
-// Catalog covers every instrument shown across the Library pages
-// (Clinical, Industrial, Counselling) plus Experiments — merged with
-// user-published assessments from localStorage on mount.
-const catalogQuestionnaires: QuestionnaireOption[] = [
-  // Clinical
-  { name: 'PHQ-9 (Patient Health Questionnaire)', vertical: 'Clinical', items: 9, duration: '5 min' },
-  { name: 'PHQ-2 (Ultra-Brief Depression Screen)', vertical: 'Clinical', items: 2, duration: '2 min' },
-  { name: 'GAD-7 (Generalized Anxiety Disorder)', vertical: 'Clinical', items: 7, duration: '4 min' },
-  { name: 'DASS-21 (Depression Anxiety Stress)', vertical: 'Clinical', items: 21, duration: '10 min' },
-  { name: 'Beck BDI-II (Beck Depression Inventory)', vertical: 'Clinical', items: 21, duration: '10 min' },
-  { name: 'Beck Anxiety Inventory (BAI)', vertical: 'Clinical', items: 21, duration: '10 min' },
-  { name: 'PCL-5 (PTSD Checklist)', vertical: 'Clinical', items: 20, duration: '10 min' },
-  { name: 'AUDIT (Alcohol Use Disorders Test)', vertical: 'Clinical', items: 10, duration: '5 min' },
-  { name: 'SCID-5 (Structured Clinical Interview)', vertical: 'Clinical', items: 45, duration: '30 min' },
-  // Industrial
-  { name: 'Big Five Personality (IPIP-NEO-120)', vertical: 'Industrial', items: 120, duration: '25 min' },
-  { name: 'HEXACO Personality Inventory', vertical: 'Industrial', items: 100, duration: '20 min' },
-  { name: 'Learning Agility Assessment', vertical: 'Industrial', items: 80, duration: '18 min' },
-  { name: 'Situational Judgment Tests (SJTs)', vertical: 'Industrial', items: 40, duration: '30 min' },
-  { name: 'Cognitive Aptitude Battery (CAB)', vertical: 'Industrial', items: 60, duration: '35 min' },
-  { name: 'AI Adaptability Index', vertical: 'Industrial', items: 56, duration: '20 min' },
-  { name: 'Digital Diet Assessment', vertical: 'Industrial', items: 45, duration: '15 min' },
-  // Counselling & Child
-  { name: "Spence Children's Anxiety Scale (SCAS)", vertical: 'Counselling', items: 45, duration: '15 min' },
-  { name: "Children's Depression Inventory-2 (CDI-2)", vertical: 'Counselling', items: 28, duration: '12 min' },
-  { name: 'ADHD Rating Scale-5', vertical: 'Counselling', items: 18, duration: '10 min' },
-  { name: 'Developmental Milestones Tracker', vertical: 'Counselling', items: 60, duration: '20 min' },
-  { name: 'School Adjustment Scale', vertical: 'Counselling', items: 35, duration: '12 min' },
-  { name: 'Academic Stress Inventory', vertical: 'Counselling', items: 40, duration: '15 min' },
-  { name: 'SDQ (Strengths & Difficulties)', vertical: 'Counselling', items: 25, duration: '10 min' },
-  { name: 'Career Interest Inventory (CII)', vertical: 'Counselling', items: 60, duration: '20 min' },
-  // Experiments
-  { name: 'Digital Literacy Assessment', vertical: 'Experiments', items: 24, duration: '12 min' },
-];
+// Dropdown options come exclusively from the database — published
+// questionnaires via questionnairesApi.list() and the optional
+// /questionnaires-catalog mirror. The hardcoded PHQ/GAD/etc. seed list was
+// removed so the dropdown only shows real items the user has authored or
+// imported.
+const catalogQuestionnaires: QuestionnaireOption[] = [];
 
 const languages = [
   'English', 'Hindi', 'Bengali', 'Telugu', 'Marathi',
@@ -90,9 +62,15 @@ interface RespondentRow {
 // vertical code/name) to the display string used in the dropdown.
 //   - Built-in prefixes ("clin", "indust", "coun", "exper") canonicalise to
 //     their pretty names so existing data still groups correctly.
-//   - Anything else is returned untouched (case preserved) so a user vertical
-//     named "Education" stays "Education".
-function normalizeVertical(v: unknown): Vertical {
+//   - For user verticals: look up the code (e.g. "MANISH") in the /verticals
+//     catalog and return its friendly name ("Manish"). Without this lookup
+//     the dropdown shows BOTH the name (from /verticals) and the code (from
+//     questionnaires' stored `vertical` field) as separate options.
+//   - If nothing matches, fall back to the raw string.
+function normalizeVertical(
+  v: unknown,
+  catalog: Array<{ code: string; name: string }> = [],
+): Vertical {
   const raw = String(v || '').trim();
   if (!raw) return 'Clinical';
   const lower = raw.toLowerCase();
@@ -100,6 +78,10 @@ function normalizeVertical(v: unknown): Vertical {
   if (lower.startsWith('indust')) return 'Industrial';
   if (lower.startsWith('coun')) return 'Counselling';
   if (lower.startsWith('exper')) return 'Experiments';
+  const match = catalog.find(
+    (c) => c.code?.toLowerCase() === lower || c.name?.toLowerCase() === lower,
+  );
+  if (match) return match.name || match.code;
   return raw;
 }
 
@@ -160,7 +142,10 @@ export default function CreateSessionPage() {
       } catch (e) { noteFailure('groups', e); }
     })();
 
-    // Merge catalog with published questionnaires from the database
+    // Merge catalog with published questionnaires from the database.
+    // We deliberately store the RAW vertical here — the catalog (/verticals)
+    // loads async, so resolving code → name happens later in the
+    // verticalOptions / filteredQuestionnaires memos below.
     let merged: QuestionnaireOption[] = [...catalogQuestionnaires];
     (async () => {
       try {
@@ -170,7 +155,7 @@ export default function CreateSessionPage() {
           if (!name) return;
           const items = Array.isArray(i.questions) ? i.questions.length : 0;
           const duration = i.duration ? `${i.duration} min` : '—';
-          merged.push({ name, vertical: normalizeVertical(i.vertical), items, duration });
+          merged.push({ name, vertical: String(i.vertical || ''), items, duration });
         });
       } catch (e) { noteFailure('published questionnaires', e); }
       const seen = new Set<string>();
@@ -203,7 +188,7 @@ export default function CreateSessionPage() {
             if (!name || existing.has(name.toLowerCase())) return;
             add.push({
               name,
-              vertical: normalizeVertical(i.vertical),
+              vertical: String(i.vertical || ''),
               items: i.item_count ?? i.items ?? 0,
               duration: i.duration_minutes ? `${i.duration_minutes} min` : '—',
             });
@@ -238,20 +223,25 @@ export default function CreateSessionPage() {
 
   // Vertical dropdown options: built-ins + any vertical seen in the API
   // catalog or in the actual instruments we loaded (covers verticals just
-  // created but not yet propagated to the catalog).
+  // created but not yet propagated to the catalog). Every questionnaire's
+  // raw vertical is run through the catalog so a code like "MANISH" and a
+  // name like "Manish" don't both end up as separate options.
   const verticalOptions = useMemo<Vertical[]>(() => {
     const seen = new Set<string>(BUILTIN_VERTICALS);
     verticalCatalog.forEach((v) => {
-      const norm = normalizeVertical(v.name || v.code);
+      const norm = normalizeVertical(v.name || v.code, verticalCatalog);
       if (norm) seen.add(norm);
     });
-    questionnaireList.forEach((i) => seen.add(i.vertical));
+    questionnaireList.forEach((i) => seen.add(normalizeVertical(i.vertical, verticalCatalog)));
     return Array.from(seen);
   }, [verticalCatalog, questionnaireList]);
 
-  const filteredQuestionnaires = questionnaireList.filter(
-    (i) => vertical === 'all' || i.vertical === vertical
-  );
+  // Same resolution at filter time — a questionnaire stored under the code
+  // "MANISH" still matches the user's choice of "Manish" in the dropdown.
+  const filteredQuestionnaires = questionnaireList.filter((i) => {
+    if (vertical === 'all') return true;
+    return normalizeVertical(i.vertical, verticalCatalog) === vertical;
+  });
 
   const filteredRespondents = respondents.filter(
     (r) =>
@@ -314,7 +304,9 @@ export default function CreateSessionPage() {
     setSaving(true);
     try {
       const fullName = selectedQuestionnaireData?.name || selectedQuestionnaire;
-      const vert = selectedQuestionnaireData?.vertical || 'Clinical';
+      const vert = selectedQuestionnaireData
+        ? normalizeVertical(selectedQuestionnaireData.vertical, verticalCatalog)
+        : 'Clinical';
       const isAvailable = await ensureQuestionnaireAvailable(fullName);
       if (!isAvailable) {
         setError(`"${fullName}" isn't published yet. Open Question Bank → Create Questionnaire to publish it before allotting.`);
@@ -567,7 +559,7 @@ export default function CreateSessionPage() {
                     ~{selectedQuestionnaireData.duration}
                   </Badge>
                   <Badge size="sm" shape="circle" variant="primary" appearance="outline">
-                    {selectedQuestionnaireData.vertical}
+                    {normalizeVertical(selectedQuestionnaireData.vertical, verticalCatalog)}
                   </Badge>
                 </div>
               )}
@@ -856,7 +848,7 @@ export default function CreateSessionPage() {
                 <div className="flex items-center justify-between py-2 border-b border-border">
                   <span className="text-muted-foreground">Vertical</span>
                   <span className="font-medium">
-                    {selectedQuestionnaireData?.vertical || '--'}
+                    {selectedQuestionnaireData ? normalizeVertical(selectedQuestionnaireData.vertical, verticalCatalog) : '--'}
                   </span>
                 </div>
                 <div className="flex items-center justify-between py-2 border-b border-border">

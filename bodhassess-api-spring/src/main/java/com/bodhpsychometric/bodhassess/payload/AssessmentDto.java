@@ -29,6 +29,7 @@ public class AssessmentDto {
     @JsonProperty("showQuestionIndex")   private boolean showQuestionIndex;
     @JsonProperty("createdAt")           private String createdAt;
     @JsonProperty("completedAt")         private String completedAt;
+    @JsonProperty("startedAt")           private String startedAt;
 
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
@@ -74,6 +75,8 @@ public class AssessmentDto {
     public void setCreatedAt(String createdAt) { this.createdAt = createdAt; }
     public String getCompletedAt() { return completedAt; }
     public void setCompletedAt(String completedAt) { this.completedAt = completedAt; }
+    public String getStartedAt() { return startedAt; }
+    public void setStartedAt(String startedAt) { this.startedAt = startedAt; }
 
     public static class BulkAssessmentRequest {
         private List<AssessmentDto> assessments;

@@ -90,6 +90,11 @@ public class PortalSession {
     @Column(name = "completed_at")
     private OffsetDateTime completedAt;
 
+    // Set when the respondent submits their first answer. Used for the
+    // 24h/48h "not started" notifications and the time-to-start metric.
+    @Column(name = "started_at")
+    private OffsetDateTime startedAt;
+
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
     public String getName() { return name; }
@@ -134,4 +139,6 @@ public class PortalSession {
     public OffsetDateTime getUpdatedAt() { return updatedAt; }
     public OffsetDateTime getCompletedAt() { return completedAt; }
     public void setCompletedAt(OffsetDateTime completedAt) { this.completedAt = completedAt; }
+    public OffsetDateTime getStartedAt() { return startedAt; }
+    public void setStartedAt(OffsetDateTime startedAt) { this.startedAt = startedAt; }
 }

@@ -27,6 +27,9 @@ interface Question {
   media_url: string;
   media_type: string;
   options: QOption[];
+  // Question-level scores added to the total whenever the question is
+  // answered, regardless of which option (or free-text response) was given.
+  question_scores?: OptionScore[];
 }
 interface StoredQuestionnaire {
   id: string;
@@ -112,6 +115,20 @@ export default function PortalTakePage() {
     return () => clearInterval(t);
   }, [session?.id, instrument, index, submitting]);
 
+  // Fire a single partial-save the moment the respondent records their
+  // first non-empty answer. The backend stamps started_at on that write,
+  // which feeds the 24h/48h overdue buckets on the respondents dashboard.
+  const [startedPinged, setStartedPinged] = useState(false);
+  useEffect(() => {
+    if (startedPinged || !session?.id || submitting) return;
+    const hasAny = Object.values(answers).some((v) =>
+      typeof v === 'string' ? v.trim() !== '' : v !== undefined && v !== null,
+    );
+    if (!hasAny) return;
+    setStartedPinged(true);
+    portalSessionsApi.update(session.id, { answers }).catch(() => { /* best-effort */ });
+  }, [answers, session?.id, submitting, startedPinged]);
+
   useEffect(() => {
     (async () => {
       try {
@@ -182,7 +199,15 @@ export default function PortalTakePage() {
     instrument.questions.forEach((q) => {
       const ans = answers[q.id];
       if (ans === undefined) return;
-      if (typeof ans !== 'number') return; // free-text — no MQT contribution
+      // Treat empty free-text as unanswered so we don't credit question-level
+      // scores for blank responses.
+      if (typeof ans === 'string' && ans.trim() === '') return;
+      // Question-level scores apply on any non-empty answer.
+      (q.question_scores || []).forEach((s) => {
+        totals[s.mqt_id] = (totals[s.mqt_id] || 0) + s.score;
+        scored.add(s.mqt_id);
+      });
+      if (typeof ans !== 'number') return; // free-text — no per-option contribution
       const opt = q.options[ans];
       if (!opt) return;
       (opt.scores || []).forEach((s) => {

@@ -282,6 +282,7 @@ CREATE TABLE IF NOT EXISTS portal_sessions (
     created_at           TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at           TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     completed_at         TIMESTAMP    NULL,
+    started_at           TIMESTAMP    NULL,
     INDEX idx_portal_sessions_respondent (respondent_id),
     INDEX idx_portal_sessions_status (status)
 );
@@ -295,6 +296,21 @@ SET @col_exists := (
 );
 SET @stmt := IF(@col_exists = 0,
     'ALTER TABLE portal_sessions ADD COLUMN show_question_index TINYINT(1) NOT NULL DEFAULT 0 AFTER invitation_sent',
+    'SELECT 1');
+PREPARE s FROM @stmt;
+EXECUTE s;
+DEALLOCATE PREPARE s;
+
+-- Idempotent upgrade: started_at captures when the respondent submits their
+-- first answer. Drives "time to start" and the 24h/48h overdue notifications.
+SET @col_exists := (
+    SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'portal_sessions'
+      AND COLUMN_NAME = 'started_at'
+);
+SET @stmt := IF(@col_exists = 0,
+    'ALTER TABLE portal_sessions ADD COLUMN started_at TIMESTAMP NULL AFTER completed_at',
     'SELECT 1');
 PREPARE s FROM @stmt;
 EXECUTE s;
