@@ -4,11 +4,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { respondentsApi } from '@/lib/api';
 import { config } from '@/lib/config';
+import { autoFormatDdmmyyyy, ddmmyyyyToIso } from '@/lib/helpers';
 
 const AUTH_KEY = config.authStorageKey;
 
 export default function PortalLoginPage() {
-  const [loginId, setLoginId] = useState('');
+  const [identifier, setIdentifier] = useState('');
   const [dob, setDob] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -16,22 +17,24 @@ export default function PortalLoginPage() {
   const submit = async (e?: React.FormEvent) => {
     e?.preventDefault();
     setError('');
-    const id = loginId.trim().toUpperCase();
-    const password = dob.trim();
-    if (!id || !password) {
-      setError('Enter your Login ID and Date of Birth.');
+    const id = identifier.trim();
+    if (!id || !dob) {
+      setError('Enter your email or phone, and date of birth.');
+      return;
+    }
+    const isoDob = ddmmyyyyToIso(dob);
+    if (!isoDob) {
+      setError('Date of birth must be in DD/MM/YYYY format.');
       return;
     }
     setLoading(true);
     try {
-      const res = await respondentsApi.login(id, password);
-      // Only the opaque token lives client-side; respondent data is fetched
-      // from /respondents/me on every portal page.
+      const res = await respondentsApi.login(id, isoDob);
       sessionStorage.setItem(AUTH_KEY, res.token);
       window.location.href = '/portal/assessments';
     } catch (e: any) {
       const msg = String(e?.message || '');
-      if (msg.includes('401')) setError('Invalid Login ID or Date of Birth.');
+      if (msg.includes('401')) setError('Invalid email/phone or date of birth.');
       else setError('Login failed — the API may be unreachable.');
       setLoading(false);
     }
@@ -61,20 +64,24 @@ export default function PortalLoginPage() {
                 </div>
               )}
               <div className="space-y-1.5">
-                <label className="text-sm font-medium">Login ID</label>
+                <label className="text-sm font-medium">Email or Phone</label>
                 <input
-                  value={loginId}
-                  onChange={(e) => setLoginId(e.target.value)}
-                  placeholder="e.g., R-007"
+                  value={identifier}
+                  onChange={(e) => setIdentifier(e.target.value)}
+                  placeholder="you@example.com or +91 98765 43210"
+                  autoComplete="username"
                   className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
                 />
               </div>
               <div className="space-y-1.5">
                 <label className="text-sm font-medium">Date of Birth (password)</label>
                 <input
-                  type="date"
+                  inputMode="numeric"
                   value={dob}
-                  onChange={(e) => setDob(e.target.value)}
+                  onChange={(e) => setDob(autoFormatDdmmyyyy(e.target.value))}
+                  placeholder="DD/MM/YYYY"
+                  autoComplete="current-password"
+                  maxLength={10}
                   className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
                 />
               </div>
@@ -87,7 +94,7 @@ export default function PortalLoginPage() {
         </Card>
 
         <p className="text-center text-xs text-muted-foreground">
-          Your Login ID and password (date of birth) were shared by your assessment administrator.
+          Use the email or phone you registered with. Your date of birth is your password.
         </p>
       </div>
     </div>

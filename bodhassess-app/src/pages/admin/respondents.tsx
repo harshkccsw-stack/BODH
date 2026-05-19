@@ -2,12 +2,42 @@
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { API_BASE } from '@/lib/api';
+import { API_BASE, assessmentsApi, type Assessment } from '@/lib/api';
 import { createRespondent, deleteRespondent, getRespondents, type StoredRespondent } from '@/lib/data-store';
-import { formatDDMMYYYY } from '@/lib/helpers';
-import { ClipboardCheck, Plus, ShieldCheck, Trash2, Upload, Users, X } from 'lucide-react';
+import { autoFormatDdmmyyyy, ddmmyyyyToIso, formatDDMMYYYY } from '@/lib/helpers';
+import { Bell, ClipboardCheck, Plus, ShieldCheck, Trash2, Upload, Users, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import BulkUploadModal from './bulk-upload-modal';
+
+// Buckets for "assigned but not completed" assessments — drives the
+// notification bell and the filter chips on this page.
+type OverdueBucket = '24-48h' | '48h+';
+const HOUR_MS = 60 * 60 * 1000;
+
+function bucketForAssignment(a: Assessment, now: number): OverdueBucket | null {
+  if (!a.createdAt) return null;
+  if ((a.status || '').toLowerCase() === 'completed') return null;
+  const assignedAt = new Date(a.createdAt).getTime();
+  if (!Number.isFinite(assignedAt)) return null;
+  const ageH = (now - assignedAt) / HOUR_MS;
+  if (ageH >= 48) return '48h+';
+  if (ageH >= 24) return '24-48h';
+  return null;
+}
+
+// Compact human duration: "12m", "3h 20m", "2d 4h".
+function formatDuration(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return '—';
+  const mins = Math.floor(ms / 60000);
+  if (mins < 1) return '<1m';
+  if (mins < 60) return `${mins}m`;
+  const hours = Math.floor(mins / 60);
+  const rmins = mins % 60;
+  if (hours < 24) return rmins ? `${hours}h ${rmins}m` : `${hours}h`;
+  const days = Math.floor(hours / 24);
+  const rhours = hours % 24;
+  return rhours ? `${days}d ${rhours}h` : `${days}d`;
+}
 
 type Consent = 'Granted' | 'Withdrawn' | 'Pending';
 
@@ -19,10 +49,13 @@ const consentColors: Record<string, string> = {
 
 export default function RespondentsPage() {
   const [respondents, setRespondents] = useState<StoredRespondent[]>([]);
+  const [assessments, setAssessments] = useState<Assessment[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
+  const [overdueFilter, setOverdueFilter] = useState<OverdueBucket | null>(null);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
-  const [form, setForm] = useState({ name: '', email: '', dob: '', consent: 'Granted' as Consent });
+  const [form, setForm] = useState({ name: '', email: '', phone: '', dob: '', consent: 'Granted' as Consent });
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [createdCred, setCreatedCred] = useState<{ id: string; dob: string } | null>(null);
@@ -38,8 +71,12 @@ export default function RespondentsPage() {
     setLoading(true);
     setLoadError('');
     try {
-      const list = await getRespondents();
+      const [list, asmts] = await Promise.all([
+        getRespondents(),
+        assessmentsApi.list().catch(() => [] as Assessment[]),
+      ]);
       setRespondents(list);
+      setAssessments(asmts);
     } catch (e: any) {
       setLoadError(e?.message || 'Failed to load respondents');
     } finally {
@@ -48,6 +85,50 @@ export default function RespondentsPage() {
   };
 
   useEffect(() => { refresh(); }, []);
+
+  // Per-respondent worst overdue bucket (48h+ wins over 24-48h). A respondent
+  // appears in the bucket of their most-stale assignment; once any of their
+  // assignments tips past 48h they're treated as 48h+.
+  const overdueByRespondent = useMemo(() => {
+    const now = Date.now();
+    const map = new Map<string, OverdueBucket>();
+    for (const a of assessments) {
+      if (!a.respondentId) continue;
+      const b = bucketForAssignment(a, now);
+      if (!b) continue;
+      const prev = map.get(a.respondentId);
+      if (prev === '48h+' || b === '48h+') map.set(a.respondentId, '48h+');
+      else map.set(a.respondentId, b);
+    }
+    return map;
+  }, [assessments]);
+
+  const overdueCounts = useMemo(() => {
+    let a = 0, b = 0;
+    overdueByRespondent.forEach((v) => { if (v === '24-48h') a++; else b++; });
+    return { '24-48h': a, '48h+': b, total: a + b };
+  }, [overdueByRespondent]);
+
+  // For each respondent, find the most recently assigned assessment so we can
+  // surface its time-to-start (started_at - created_at) on the table. If the
+  // latest is unstarted, show how long they've been waiting instead.
+  const latestByRespondent = useMemo(() => {
+    const map = new Map<string, Assessment>();
+    for (const a of assessments) {
+      if (!a.respondentId || !a.createdAt) continue;
+      const prev = map.get(a.respondentId);
+      if (!prev || new Date(a.createdAt).getTime() > new Date(prev.createdAt!).getTime()) {
+        map.set(a.respondentId, a);
+      }
+    }
+    return map;
+  }, [assessments]);
+
+  // Apply the active filter chip to the table rows.
+  const visibleRespondents = useMemo(() => {
+    if (!overdueFilter) return respondents;
+    return respondents.filter((r) => overdueByRespondent.get(r.id) === overdueFilter);
+  }, [respondents, overdueByRespondent, overdueFilter]);
 
   const stats = useMemo(() => {
     const granted = respondents.filter((r) => r.consent === 'Granted').length;
@@ -61,7 +142,7 @@ export default function RespondentsPage() {
   }, [respondents]);
 
   const openModal = () => {
-    setForm({ name: '', email: '', dob: '', consent: 'Granted' });
+    setForm({ name: '', email: '', phone: '', dob: '', consent: 'Granted' });
     setError('');
     setCreatedCred(null);
     setModalOpen(true);
@@ -70,10 +151,12 @@ export default function RespondentsPage() {
   const submit = async () => {
     const name = form.name.trim();
     const email = form.email.trim();
-    const dob = form.dob.trim();
-    if (!name || !email || !dob) { setError('Name, email and date of birth are required'); return; }
+    const phone = form.phone.trim();
+    const dobInput = form.dob.trim();
+    if (!name || !email || !dobInput) { setError('Name, email and date of birth are required'); return; }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setError('Enter a valid email address'); return; }
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(dob)) { setError('Date of birth must be in YYYY-MM-DD format'); return; }
+    const isoDob = ddmmyyyyToIso(dobInput);
+    if (!isoDob) { setError('Date of birth must be in DD/MM/YYYY format'); return; }
     if (respondents.some((r) => r.email.toLowerCase() === email.toLowerCase())) {
       setError('A respondent with this email already exists');
       return;
@@ -82,11 +165,18 @@ export default function RespondentsPage() {
     const nextNum = (nums.length ? Math.max(...nums) : 0) + 1;
     const id = `R-${String(nextNum).padStart(3, '0')}`;
     setSaving(true);
-    const created = await createRespondent({ id, name, email, dob, consent: form.consent, sessions_count: 0, last_assessment: '—' });
+    const created = await createRespondent({
+      id, name, email,
+      phone: phone || undefined,
+      dob: isoDob,
+      consent: form.consent,
+      sessions_count: 0,
+      last_assessment: '—',
+    });
     setSaving(false);
     if (!created) { setError('Failed to save — check that the API is running'); return; }
     await refresh();
-    setCreatedCred({ id, dob });
+    setCreatedCred({ id, dob: isoDob });
   };
 
   const confirmDeletion = async () => {
@@ -109,6 +199,60 @@ export default function RespondentsPage() {
             <p className="text-sm text-muted-foreground mt-1">View and manage assessment respondents.</p>
           </div>
           <div className="flex items-center gap-2">
+            <div className="relative">
+              <Button
+                variant="outline"
+                onClick={() => setNotificationsOpen((v) => !v)}
+                title="Overdue assignment notifications"
+              >
+                <Bell className="h-4 w-4" />
+                Notifications
+                {overdueCounts.total > 0 && (
+                  <span className="ml-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[0.6875rem] font-semibold text-white">
+                    {overdueCounts.total}
+                  </span>
+                )}
+              </Button>
+              {notificationsOpen && (
+                <div
+                  className="absolute right-0 z-40 mt-2 w-80 rounded-lg border border-border bg-background shadow-lg"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+                    <p className="text-sm font-medium">Overdue assignments</p>
+                    <button
+                      onClick={() => setNotificationsOpen(false)}
+                      className="text-muted-foreground hover:text-foreground"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                  <div className="px-4 py-3 space-y-2">
+                    <button
+                      onClick={() => { setOverdueFilter('24-48h'); setNotificationsOpen(false); }}
+                      className="w-full flex items-center justify-between rounded-md border border-border px-3 py-2 text-sm hover:bg-muted/50"
+                    >
+                      <span>Not completed in 24&ndash;48h</span>
+                      <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-yellow-500 px-1.5 text-[0.6875rem] font-semibold text-white">
+                        {overdueCounts['24-48h']}
+                      </span>
+                    </button>
+                    <button
+                      onClick={() => { setOverdueFilter('48h+'); setNotificationsOpen(false); }}
+                      className="w-full flex items-center justify-between rounded-md border border-border px-3 py-2 text-sm hover:bg-muted/50"
+                    >
+                      <span>Not completed in 48h+</span>
+                      <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[0.6875rem] font-semibold text-white">
+                        {overdueCounts['48h+']}
+                      </span>
+                    </button>
+                    <p className="text-[0.6875rem] text-muted-foreground pt-1">
+                      Click a bucket to filter the table. Auto-reminders coming later.
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
             <Button variant="outline" onClick={() => setBulkOpen(true)}>
               <Upload className="h-4 w-4" />
               Bulk Upload
@@ -147,7 +291,19 @@ export default function RespondentsPage() {
       </div>
 
       <Card>
-        <CardHeader className="pb-3"><CardTitle className="text-base">All Respondents</CardTitle></CardHeader>
+        <CardHeader className="pb-3 flex flex-row items-center justify-between gap-3">
+          <CardTitle className="text-base">All Respondents</CardTitle>
+          {overdueFilter && (
+            <button
+              onClick={() => setOverdueFilter(null)}
+              className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary hover:bg-primary/20"
+              title="Clear filter"
+            >
+              Filter: overdue {overdueFilter}
+              <X className="h-3 w-3" />
+            </button>
+          )}
+        </CardHeader>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -159,15 +315,30 @@ export default function RespondentsPage() {
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">DOB (password)</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Sessions</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Consent</th>
+                  <th className="px-5 py-3 text-left font-medium text-muted-foreground" title="Time between assignment and first answer on the most recently assigned assessment">Time to start</th>
+                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Overdue</th>
                   <th className="px-5 py-3 text-right font-medium text-muted-foreground">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {loading && respondents.length === 0 ? (
-                  <tr><td colSpan={7} className="px-5 py-10 text-center text-sm text-muted-foreground">Loading from database…</td></tr>
-                ) : respondents.length === 0 ? (
-                  <tr><td colSpan={7} className="px-5 py-10 text-center text-sm text-muted-foreground">No respondents yet. Click "Add Respondent" to create one.</td></tr>
-                ) : respondents.map((r) => (
+                  <tr><td colSpan={9} className="px-5 py-10 text-center text-sm text-muted-foreground">Loading from database…</td></tr>
+                ) : visibleRespondents.length === 0 ? (
+                  <tr><td colSpan={9} className="px-5 py-10 text-center text-sm text-muted-foreground">
+                    {overdueFilter
+                      ? `No respondents are overdue ${overdueFilter}.`
+                      : 'No respondents yet. Click "Add Respondent" to create one.'}
+                  </td></tr>
+                ) : visibleRespondents.map((r) => {
+                  const ov = overdueByRespondent.get(r.id);
+                  const latest = latestByRespondent.get(r.id);
+                  const assignedMs = latest?.createdAt ? new Date(latest.createdAt).getTime() : null;
+                  const startedMs = latest?.startedAt ? new Date(latest.startedAt).getTime() : null;
+                  const timeToStart =
+                    assignedMs && startedMs ? formatDuration(startedMs - assignedMs) : null;
+                  const waitingFor =
+                    assignedMs && !startedMs ? formatDuration(Date.now() - assignedMs) : null;
+                  return (
                   <tr key={r.id} className="border-b border-border last:border-0 hover:bg-muted/50 transition-colors">
                     <td className="px-5 py-3 font-mono text-xs">{r.id}</td>
                     <td className="px-5 py-3 font-medium">{r.name}</td>
@@ -179,6 +350,24 @@ export default function RespondentsPage() {
                         {r.consent || 'Pending'}
                       </span>
                     </td>
+                    <td className="px-5 py-3 text-xs">
+                      {timeToStart ? (
+                        <span className="text-foreground" title="Time between assignment and first answer">{timeToStart}</span>
+                      ) : waitingFor ? (
+                        <span className="text-muted-foreground italic" title="Assigned but not yet started">not started &middot; waiting {waitingFor}</span>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </td>
+                    <td className="px-5 py-3">
+                      {ov === '48h+' ? (
+                        <span className="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700 dark:bg-red-900/30 dark:text-red-400">48h+</span>
+                      ) : ov === '24-48h' ? (
+                        <span className="inline-flex items-center rounded-full bg-yellow-100 px-2 py-0.5 text-xs font-medium text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400">24&ndash;48h</span>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </td>
                     <td className="px-5 py-3 text-right">
                       <button
                         onClick={() => setConfirmDelete(r)}
@@ -189,7 +378,8 @@ export default function RespondentsPage() {
                       </button>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -242,8 +432,12 @@ export default function RespondentsPage() {
                   </div>
                   <div className="rounded-lg border border-border bg-muted/40 p-3 space-y-2 font-mono text-xs">
                     <div className="flex items-center justify-between"><span className="text-muted-foreground">Portal URL</span><span>/portal/login</span></div>
-                    <div className="flex items-center justify-between"><span className="text-muted-foreground">Login ID</span><span className="font-semibold">{createdCred.id}</span></div>
+                    <div className="flex items-center justify-between"><span className="text-muted-foreground">Email (login)</span><span className="font-semibold truncate ml-2">{form.email.trim()}</span></div>
+                    {form.phone.trim() && (
+                      <div className="flex items-center justify-between"><span className="text-muted-foreground">Phone (also accepted)</span><span className="font-semibold">{form.phone.trim()}</span></div>
+                    )}
                     <div className="flex items-center justify-between"><span className="text-muted-foreground">Password (DOB)</span><span className="font-semibold">{formatDDMMYYYY(createdCred.dob)}</span></div>
+                    <div className="flex items-center justify-between"><span className="text-muted-foreground">Reference ID</span><span className="font-semibold">{createdCred.id}</span></div>
                   </div>
                   <div className="flex justify-end gap-2 pt-2">
                     <Button variant="outline" onClick={() => setModalOpen(false)}>Close</Button>
@@ -264,9 +458,21 @@ export default function RespondentsPage() {
                     <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="respondent@example.com" className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" />
                   </div>
                   <div className="space-y-1.5">
+                    <label className="text-sm font-medium">Phone</label>
+                    <input type="tel" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="+91 98765 43210" className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" />
+                    <p className="text-[0.6875rem] text-muted-foreground">Either email or phone can be used to sign in.</p>
+                  </div>
+                  <div className="space-y-1.5">
                     <label className="text-sm font-medium">Date of Birth *</label>
-                    <input type="date" value={form.dob} onChange={(e) => setForm({ ...form, dob: e.target.value })} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" />
-                    <p className="text-[0.6875rem] text-muted-foreground">Used as the respondent's login password on the portal.</p>
+                    <input
+                      inputMode="numeric"
+                      value={form.dob}
+                      onChange={(e) => setForm({ ...form, dob: autoFormatDdmmyyyy(e.target.value) })}
+                      placeholder="DD/MM/YYYY"
+                      maxLength={10}
+                      className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                    />
+                    <p className="text-[0.6875rem] text-muted-foreground">Format DD/MM/YYYY. Used as the respondent's login password on the portal.</p>
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-sm font-medium">Consent Status</label>

@@ -106,7 +106,7 @@ export const respondentsApi = {
       method: 'POST',
       body: JSON.stringify({ respondents: rows }),
     }),
-  login: (id: string, dob: string) => jsonFetch<LoginResponse>('/respondents/login', { method: 'POST', body: JSON.stringify({ id, dob }) }),
+  login: (identifier: string, dob: string) => jsonFetch<LoginResponse>('/respondents/login', { method: 'POST', body: JSON.stringify({ identifier, dob }) }),
   me: (token: string) => jsonFetch<Respondent>('/respondents/me', { headers: { Authorization: `Bearer ${token}` } }),
   logout: (token: string) => jsonFetch<null>('/respondents/logout', { method: 'POST', headers: { Authorization: `Bearer ${token}` } }),
 };
@@ -116,6 +116,7 @@ export interface Practitioner {
   id: string;
   name: string;
   email: string;
+  phone?: string;
   roles: string[];
   verticals: string[];
   status: 'Active' | 'Inactive' | string;
@@ -157,8 +158,8 @@ export const practitionersApi = {
   create: (p: Practitioner) => jsonFetch<Practitioner>('/practitioners', { method: 'POST', body: JSON.stringify(p) }),
   update: (id: string, p: Partial<Practitioner>) => jsonFetch<Practitioner>(`/practitioners/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(p) }),
   delete: (id: string) => jsonFetch<null>(`/practitioners/${encodeURIComponent(id)}`, { method: 'DELETE' }),
-  login: (id: string, dob: string) =>
-    jsonFetch<PractitionerLoginResponse>('/practitioners/login', { method: 'POST', body: JSON.stringify({ id, dob }) }),
+  login: (identifier: string, dob: string) =>
+    jsonFetch<PractitionerLoginResponse>('/practitioners/login', { method: 'POST', body: JSON.stringify({ identifier, dob }) }),
   me: (token: string) =>
     jsonFetch<PractitionerMe>('/practitioners/me', { headers: { Authorization: `Bearer ${token}` } }),
   logout: (token: string) =>
@@ -303,6 +304,7 @@ export interface PublishedQuestionnaire {
     media_url: string;
     media_type: string;
     options: Array<{ text: string; scores: Array<{ mqt_id: string; score: number }>; media_url?: string; media_type?: string }>;
+    question_scores?: Array<{ mqt_id: string; score: number }>;
     clinical_risk_flag: boolean;
     risk_flag_rule: string;
   }>;
@@ -386,8 +388,16 @@ export interface Assessment {
   consentId?: string;
   proctoring?: boolean;
   invitationSent?: boolean;
+  // Per-allotment override: when true the respondent sees a numbered
+  // side-panel during the take-assessment flow with attempted questions
+  // highlighted. Off by default.
+  showQuestionIndex?: boolean;
   createdAt?: string;
   completedAt?: string;
+  // Set on the server the first time the respondent submits a non-empty
+  // answer. Drives the time-to-start metric and the 24h/48h overdue buckets
+  // on the respondents dashboard.
+  startedAt?: string;
   // Captured pre-assessment from the demographic-fields catalogue. Free-form
   // since the field set is configurable at runtime.
   demographics?: Record<string, unknown>;

@@ -56,6 +56,15 @@ export default function PortalAssessmentsPage() {
   const active = sessions.filter((s) => s.status !== 'Completed');
   const completed = sessions.filter((s) => s.status === 'Completed');
 
+  // A session has been "started" iff the respondent has filled at least one
+  // answer or demographic field. Status === 'Active' alone isn't enough —
+  // every newly-allotted session starts in 'Active'.
+  const hasStarted = (s: PortalSession): boolean => {
+    const answerCount = s.answers ? Object.keys(s.answers).length : 0;
+    const demoCount = s.demographics ? Object.keys(s.demographics).length : 0;
+    return answerCount + demoCount > 0;
+  };
+
   return (
     <div className="flex-1 min-h-screen w-full bg-linear-to-b from-muted/30 via-background to-background">
       <header className="sticky top-0 z-20 border-b border-border/70 bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -109,37 +118,46 @@ export default function PortalAssessmentsPage() {
               <span className="text-xs text-muted-foreground">{active.length} to complete</span>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {active.map((s) => (
-                <Card key={s.id} className="group overflow-hidden hover:shadow-md transition-shadow border-border/70">
-                  <CardContent className="p-5 space-y-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                        <ClipboardCheck className="h-5 w-5" />
+              {active.map((s) => {
+                const started = hasStarted(s);
+                return (
+                  <Card key={s.id} className="group overflow-hidden hover:shadow-md transition-shadow border-border/70">
+                    <CardContent className="p-5 space-y-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                          <ClipboardCheck className="h-5 w-5" />
+                        </div>
+                        {started ? (
+                          <span className="inline-flex items-center rounded-full bg-primary/10 text-primary px-2 py-0.5 text-[0.6875rem] font-medium">
+                            Pending
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center rounded-full bg-muted text-muted-foreground px-2 py-0.5 text-[0.6875rem] font-medium">
+                            Not started
+                          </span>
+                        )}
                       </div>
-                      <span className="inline-flex items-center rounded-full bg-primary/10 text-primary px-2 py-0.5 text-[0.6875rem] font-medium">
-                        Pending
-                      </span>
-                    </div>
-                    <div className="space-y-1.5">
-                      <p className="font-semibold leading-snug text-[0.9375rem]">{s.instrumentFullName || s.instrument}</p>
-                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                        <span className="font-mono">{s.id}</span>
-                        <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{formatDDMMYYYY(s.createdAt)}</span>
-                        <span>· {s.language}</span>
+                      <div className="space-y-1.5">
+                        <p className="font-semibold leading-snug text-[0.9375rem]">{s.instrumentFullName || s.instrument}</p>
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                          <span className="font-mono">{s.id}</span>
+                          <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{formatDDMMYYYY(s.createdAt)}</span>
+                          <span>· {s.language}</span>
+                        </div>
                       </div>
-                    </div>
-                    <Button
-                      variant="primary"
-                      size="md"
-                      className="w-full"
-                      onClick={() => { window.location.href = `/portal/take?id=${encodeURIComponent(s.id)}`; }}
-                    >
-                      <Play className="h-4 w-4" />
-                      Launch Assessment
-                    </Button>
-                  </CardContent>
-                </Card>
-              ))}
+                      <Button
+                        variant="primary"
+                        size="md"
+                        className="w-full"
+                        onClick={() => { window.location.href = `/portal/take?id=${encodeURIComponent(s.id)}`; }}
+                      >
+                        <Play className="h-4 w-4" />
+                        {started ? 'Resume Assessment' : 'Launch Assessment'}
+                      </Button>
+                    </CardContent>
+                  </Card>
+                );
+              })}
             </div>
           </section>
         )}

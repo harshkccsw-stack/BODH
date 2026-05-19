@@ -16,6 +16,12 @@ public interface RespondentRepository extends JpaRepository<Respondent, String> 
     @Query("SELECT r FROM Respondent r ORDER BY r.createdAt DESC")
     List<Respondent> findAllOrderByCreatedAt();
 
-    @Query("SELECT r FROM Respondent r WHERE LOWER(r.id) = LOWER(:id) AND r.dob = :dob")
-    Optional<Respondent> findByIdAndDob(@Param("id") String id, @Param("dob") String dob);
+    @Query("SELECT r FROM Respondent r WHERE LOWER(r.email) = LOWER(:email) AND r.dob = :dob")
+    Optional<Respondent> findByEmailAndDob(@Param("email") String email, @Param("dob") String dob);
+
+    // Phone match is digits-only — the stored phone may carry separators (+,
+    // space, dash, parens). We pull all rows with this DOB+phone and let the
+    // service do the digit-normalised comparison.
+    @Query("SELECT r FROM Respondent r WHERE r.dob = :dob AND r.phone IS NOT NULL")
+    List<Respondent> findByDobWithPhone(@Param("dob") String dob);
 }

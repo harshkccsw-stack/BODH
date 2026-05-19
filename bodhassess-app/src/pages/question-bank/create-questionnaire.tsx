@@ -24,7 +24,7 @@ import {
   Youtube,
 } from 'lucide-react';
 import { getMQs, getQuestionnaires, getVerticals, BUILT_IN_VERTICALS, type MQ as StoredMQ, type StoredQuestionnaire, type Vertical as StoredVertical } from '@/lib/data-store';
-import { demographicFieldsApi, API_BASE, type DemographicField } from '@/lib/api';
+import { demographicFieldsApi, verticalsApi, API_BASE, type DemographicField } from '@/lib/api';
 
 // --- Types ---
 
@@ -44,13 +44,23 @@ interface MQ {
 
 // Flatten the MQT tree under each MQ into one row per MQT with a breadcrumb
 // path ("MQ > Parent > Leaf") for the option-score picker.
+// When an MQ has a single trait with the same name (the "MQ-level scoring"
+// shape produced by bulk imports that only specify MQ), the path collapses
+// to just the MQ name so the user sees and operates at the MQ level.
 function flattenMqtsForPicker(
   mqs: MQ[],
 ): Array<{ mq: MQ; mqt: MQT; path: string }> {
   const out: Array<{ mq: MQ; mqt: MQT; path: string }> = [];
   const walk = (mq: MQ, nodes: MQT[], parentLabels: string[]) => {
     for (const n of nodes) {
-      const label = [mq.name, ...parentLabels, n.name].join(' > ');
+      const isMqLevel =
+        parentLabels.length === 0 &&
+        mq.mqts.length === 1 &&
+        n.name.toLowerCase() === mq.name.toLowerCase() &&
+        !n.children?.length;
+      const label = isMqLevel
+        ? mq.name
+        : [mq.name, ...parentLabels, n.name].join(' > ');
       out.push({ mq, mqt: n, path: label });
       if (n.children?.length) walk(mq, n.children, [...parentLabels, n.name]);
     }
@@ -78,6 +88,10 @@ interface Question {
   media_url: string;
   media_type: MediaType;
   options: QuestionOption[];
+  // Question-level scores, applied on any answer regardless of which option
+  // (or free-text response) was given. Stored at the same shape as option
+  // scores so the picker UI and resolver can be reused.
+  question_scores: OptionMqtScore[];
   clinical_risk_flag: boolean;
   risk_flag_rule: string;
   sectionId?: string;
@@ -310,6 +324,9 @@ export default function CreateAssessmentPage() {
                   media_type: o.media_type,
                 }))
               : [],
+            question_scores: Array.isArray(q.question_scores)
+              ? q.question_scores.map((s: any) => ({ mqt_id: s.mqt_id, score: Number(s.score) || 0 }))
+              : [],
             clinical_risk_flag: !!q.clinical_risk_flag,
             risk_flag_rule: String(q.risk_flag_rule || ''),
             sectionId: q.sectionId || undefined,
@@ -418,16 +435,7 @@ export default function CreateAssessmentPage() {
     // was saved (and ending up with an orphan vertical on a published
     // questionnaire — the "B" bug from earlier).
     try {
-      const res = await fetch(`${API_BASE}/verticals`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(vertical),
-      });
-      if (!res.ok && res.status !== 204) {
-        const text = await res.text().catch(() => res.statusText);
-        setNewVerticalError(`Couldn't save vertical (${res.status}): ${text}`);
-        return;
-      }
+      await verticalsApi.create(vertical);
     } catch (e: any) {
       setNewVerticalError(`Couldn't save vertical: ${e?.message || 'network error'}`);
       return;
@@ -549,6 +557,9 @@ export default function CreateAssessmentPage() {
             media_type: o.media_type,
           }))
         : [],
+      question_scores: Array.isArray(q.question_scores)
+        ? q.question_scores.map((s: any) => ({ mqt_id: s.mqt_id, score: Number(s.score) || 0 }))
+        : [],
       clinical_risk_flag: !!q.clinical_risk_flag,
       risk_flag_rule: String(q.risk_flag_rule || ''),
     }));
@@ -576,6 +587,9 @@ export default function CreateAssessmentPage() {
     risk_flag: boolean;
     risk_rule: string;
     options: ParsedOption[];
+    // Question-level (mq, mqt, score) — applied to the MQT total whenever
+    // the question is answered, regardless of which option was picked.
+    question_score: ParsedOption | null;
     errors: string[];
   }
 
@@ -602,16 +616,56 @@ export default function CreateAssessmentPage() {
       const wb = XLSX.read(buf, { type: 'array' });
       const firstSheet = wb.Sheets[wb.SheetNames[0]];
       if (!firstSheet) throw new Error('The file has no sheets.');
-      const raw: Record<string, any>[] = XLSX.utils.sheet_to_json(firstSheet, { defval: '', raw: false });
-      if (raw.length === 0) throw new Error('No rows found in the first sheet.');
 
-      const rows = raw.map((row) => {
-        const norm: Record<string, any> = {};
-        Object.entries(row).forEach(([k, v]) => {
-          norm[String(k).trim().toLowerCase()] = typeof v === 'string' ? v.trim() : v;
-        });
-        return norm;
-      });
+      // Read as array-of-arrays so we can find the real header row ourselves.
+      // sheet_to_json's default (row 1 = headers) breaks on XLSX files that
+      // have a title row, merged cells, or empty leading cells — those make
+      // every "stem" lookup return undefined and we report a sea of "stem is
+      // empty" errors. CSVs from the same data usually don't hit this because
+      // they have no merged cells and the header is row 1.
+      const aoa: any[][] = XLSX.utils.sheet_to_json(firstSheet, {
+        header: 1,
+        defval: '',
+        raw: false,
+        blankrows: false,
+      }) as any[][];
+      if (aoa.length === 0) throw new Error('No rows found in the first sheet.');
+
+      const normalizeKey = (k: any) =>
+        String(k ?? '')
+          .replace(/^﻿/, '') // BOM
+          .replace(/ /g, ' ') // non-breaking space → space
+          .replace(/\s+/g, ' ')
+          .trim()
+          .toLowerCase();
+
+      // Find the first row that looks like a header — must contain "stem"
+      // (or "question"/"text" as common synonyms).
+      const headerRowIdx = aoa.findIndex((row) =>
+        Array.isArray(row) && row.some((cell) => {
+          const k = normalizeKey(cell);
+          return k === 'stem' || k === 'question' || k === 'text';
+        }),
+      );
+      if (headerRowIdx === -1) {
+        throw new Error('Could not find a header row. The sheet must include a column named "stem" (or "question"/"text").');
+      }
+      const headers: string[] = (aoa[headerRowIdx] || []).map(normalizeKey);
+
+      const rows = aoa
+        .slice(headerRowIdx + 1)
+        .map((arr) => {
+          const norm: Record<string, any> = {};
+          headers.forEach((h, i) => {
+            if (!h) return; // skip empty header cells
+            const v = arr?.[i];
+            norm[h] = typeof v === 'string' ? v.trim() : v;
+          });
+          return norm;
+        })
+        // Skip fully-blank rows — Excel often pads the bottom of a sheet with
+        // empty rows, and we don't want to flag each one as "stem is empty".
+        .filter((row) => Object.values(row).some((v) => v !== '' && v !== undefined && v !== null));
 
       const parsed: ParsedRow[] = rows.map((row) => {
         const errors: string[] = [];
@@ -627,20 +681,38 @@ export default function CreateAssessmentPage() {
         for (let n = 1; n <= 8; n++) {
           const text = String(row[`option${n}`] ?? '').trim();
           const mq = String(row[`option${n}_mq`] ?? '').trim();
-          const mqt = String(row[`option${n}_mqt`] ?? '').trim();
+          // If only MQ is given, default MQT to the same name — we auto-create
+          // a single trait under that quality during import.
+          const mqt = String(row[`option${n}_mqt`] ?? '').trim() || mq;
           const scoreRaw = row[`option${n}_score`];
           const scoreStr = scoreRaw === '' || scoreRaw === undefined || scoreRaw === null ? '' : String(scoreRaw).trim();
           const score = scoreStr === '' ? null : Number(scoreStr);
           if (!text) continue;
-          if ((mq && !mqt) || (!mq && mqt)) {
-            errors.push(`option${n}: provide both MQ and MQT (or neither)`);
+          if (!mq && mqt) {
+            errors.push(`option${n}: MQT given without MQ`);
           }
           options.push({ text, mq, mqt, score: Number.isFinite(score as number) ? (score as number) : null });
         }
         if (format !== 'FREE_TEXT' && options.length < 2) {
           errors.push(`format ${format} needs at least 2 options`);
         }
-        return { stem, format, section, risk_flag, risk_rule, options, errors };
+        // Optional question-level score (applied on any answer).
+        const qMq = String(row.question_mq ?? '').trim();
+        const qMqt = String(row.question_mqt ?? '').trim() || qMq;
+        const qScoreRaw = row.question_score;
+        const qScoreStr = qScoreRaw === '' || qScoreRaw === undefined || qScoreRaw === null ? '' : String(qScoreRaw).trim();
+        const qScoreNum = qScoreStr === '' ? null : Number(qScoreStr);
+        let question_score: ParsedOption | null = null;
+        if (qMq || qScoreStr !== '') {
+          if (!qMq && qMqt) {
+            errors.push('question_score: MQT given without MQ');
+          } else if (qMq && qScoreStr === '') {
+            errors.push('question_score: MQ given without score');
+          } else if (qMq && qScoreNum !== null && Number.isFinite(qScoreNum)) {
+            question_score = { text: '', mq: qMq, mqt: qMqt, score: qScoreNum };
+          }
+        }
+        return { stem, format, section, risk_flag, risk_rule, options, question_score, errors };
       });
 
       setBulkRows(parsed);
@@ -655,9 +727,18 @@ export default function CreateAssessmentPage() {
   // Collect every distinct (MQ name, MQT name) pair from valid rows.
   const bulkPendingPairs = useMemo(() => {
     const pairs = new Map<string, { mq: string; mqt: string; isNew: boolean }>();
+    const addPair = (mq: string, mqt: string) => {
+      if (!mq || !mqt) return;
+      const key = `${mq.toLowerCase()}|${mqt.toLowerCase()}`;
+      if (pairs.has(key)) return;
+      const existingMq = mqs.find((m) => m.name.toLowerCase() === mq.toLowerCase());
+      const existingMqt = existingMq?.mqts.find((t) => t.name.toLowerCase() === mqt.toLowerCase());
+      pairs.set(key, { mq, mqt, isNew: !existingMqt });
+    };
     bulkRows
       .filter((r) => r.errors.length === 0)
       .forEach((r) => {
+        if (r.question_score) addPair(r.question_score.mq, r.question_score.mqt);
         r.options.forEach((o) => {
           if (!o.mq || !o.mqt) return;
           const key = `${o.mq.toLowerCase()}|${o.mqt.toLowerCase()}`;
@@ -756,6 +837,16 @@ export default function CreateAssessmentPage() {
             }
             return { text: o.text, scores };
           }),
+          question_scores: (() => {
+            const out: Array<{ mqt_id: string; score: number }> = [];
+            const qs = r.question_score;
+            if (qs && qs.mq && qs.mqt && qs.score !== null) {
+              const key = `${qs.mq.toLowerCase()}|${qs.mqt.toLowerCase()}`;
+              const mqtId = resolved.get(key);
+              if (mqtId) out.push({ mqt_id: mqtId, score: qs.score });
+            }
+            return out;
+          })(),
           clinical_risk_flag: r.risk_flag,
           risk_flag_rule: r.risk_rule,
           sectionId,
@@ -776,6 +867,7 @@ export default function CreateAssessmentPage() {
   const downloadBulkTemplate = () => {
     const header = [
       'stem', 'format', 'section', 'risk_flag', 'risk_rule',
+      'question_mq', 'question_mqt', 'question_score',
       'option1', 'option1_mq', 'option1_mqt', 'option1_score',
       'option2', 'option2_mq', 'option2_mqt', 'option2_score',
       'option3', 'option3_mq', 'option3_mqt', 'option3_score',
@@ -783,11 +875,13 @@ export default function CreateAssessmentPage() {
     ];
     const sample = [
       ['How often do you feel overwhelmed by work?', 'LIKERT', 'Stress', 'false', '',
+        '', '', '',
         'Never',      'Wellbeing', 'Stress Level', '0',
         'Sometimes',  'Wellbeing', 'Stress Level', '1',
         'Often',      'Wellbeing', 'Stress Level', '2',
         'Always',     'Wellbeing', 'Stress Level', '3'],
       ['I find it easy to focus for long periods.', 'LIKERT', 'Focus', 'false', '',
+        'Cognitive', '', '1',
         'Strongly disagree', 'Cognitive', 'Attention', '0',
         'Disagree',          'Cognitive', 'Attention', '1',
         'Agree',             'Cognitive', 'Attention', '2',
@@ -825,6 +919,7 @@ export default function CreateAssessmentPage() {
           { text: '', scores: [] },
           { text: '', scores: [] },
         ],
+        question_scores: [],
         clinical_risk_flag: false,
         risk_flag_rule: '',
         sectionId,
@@ -858,10 +953,8 @@ export default function CreateAssessmentPage() {
 
   // renderQuestionCard is reused by both the flat list and the per-section groups.
   const renderQuestionCard = (q: Question, idx: number) => {
-    const dupes = duplicateMqtsForQuestion(q);
-    const dupKey = (mqtId: string, score: number) => dupes.some((d) => d.mqtId === mqtId && d.score === score);
     return (
-      <Card key={q.id} className={cn(dupes.length > 0 && 'border-red-300')}>
+      <Card key={q.id}>
         <CardContent className="p-5 space-y-4">
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-center gap-3">
@@ -919,26 +1012,76 @@ export default function CreateAssessmentPage() {
             />
           )}
 
-          {dupes.length > 0 && (
-            <div className="flex items-start gap-2 rounded-lg border border-red-300 bg-red-50 dark:bg-red-950/30 px-3 py-2 text-xs text-red-700 dark:text-red-400">
-              <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-              <span>
-                Two or more options share the same score for:{' '}
-                {dupes.map((d, i) => (
-                  <span key={`${d.mqtId}-${d.score}`}>
-                    <strong>{mqtIndex[d.mqtId]?.mqt.name}</strong> = {d.score}
-                    {i < dupes.length - 1 ? ', ' : ''}
-                  </span>
-                ))}
-                . Scores must be unique per MQT within a question.
-              </span>
+          {allMqts.length > 0 && (
+            <div className="rounded-md border border-border bg-muted/30 px-3 py-2 space-y-2">
+              <p className="text-[0.6875rem] font-medium text-muted-foreground">
+                Question-level scores &mdash; added to these MQs whenever the question is answered, regardless of which option is chosen.
+              </p>
+              {q.question_scores.length === 0 ? (
+                <p className="text-[0.6875rem] text-muted-foreground italic">None &mdash; click "+ Add MQ score" below to attach one.</p>
+              ) : (
+                <div className="space-y-1.5">
+                  {q.question_scores.map((sc) => {
+                    const entry = mqtIndex[sc.mqt_id];
+                    const usedIds = new Set(q.question_scores.map((s) => s.mqt_id).filter((id) => id !== sc.mqt_id));
+                    return (
+                      <div key={sc.mqt_id} className="flex items-center gap-2">
+                        <select
+                          value={sc.mqt_id}
+                          onChange={(e) => {
+                            const newId = e.target.value;
+                            if (newId !== sc.mqt_id) replaceQuestionMqt(q.id, sc.mqt_id, newId);
+                          }}
+                          className="flex-1 min-w-0 rounded-md border border-border bg-background px-2 py-1 text-xs outline-none focus:border-primary"
+                        >
+                          {!entry && <option value={sc.mqt_id}>(missing MQT)</option>}
+                          {allMqts.map(({ mqt, path }) => (
+                            <option key={mqt.id} value={mqt.id} disabled={usedIds.has(mqt.id)}>
+                              {path}{usedIds.has(mqt.id) ? ' (already used)' : ''}
+                            </option>
+                          ))}
+                        </select>
+                        <input
+                          type="number"
+                          step="1"
+                          value={sc.score}
+                          onChange={(e) => setQuestionMqtScore(q.id, sc.mqt_id, Number(e.target.value))}
+                          className="w-16 shrink-0 rounded-md border border-border bg-background px-2 py-1 text-xs text-center outline-none focus:border-primary"
+                          title="Score added on any answer"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => toggleQuestionMqt(q.id, sc.mqt_id)}
+                          className="shrink-0 text-muted-foreground hover:text-red-500"
+                          title="Remove this MQ score"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              {(() => {
+                const unused = allMqts.filter((row) => !q.question_scores.some((s) => s.mqt_id === row.mqt.id));
+                if (unused.length === 0) return null;
+                return (
+                  <button
+                    type="button"
+                    onClick={() => toggleQuestionMqt(q.id, unused[0].mqt.id)}
+                    className="text-[0.6875rem] text-primary hover:underline inline-flex items-center gap-1"
+                  >
+                    <Plus className="h-3 w-3" /> Add MQ score
+                  </button>
+                );
+              })()}
             </div>
           )}
 
           {['MCQ', 'RATING_SCALE', 'LIKERT', 'SJT', 'IMAGE_CHOICE'].includes(q.format) && (
             <div className="space-y-3">
               <p className="text-xs font-medium text-muted-foreground">
-                Answer Options &mdash; check MQTs this option maps to and assign a score. No two options may share a score for the same MQT.
+                Answer Options &mdash; check MQTs this option maps to and assign a score. Any option may carry any score for any MQT.
               </p>
               {q.options.map((opt, oi) => (
                 <div key={oi} className="rounded-lg border border-border p-3 space-y-3">
@@ -967,7 +1110,6 @@ export default function CreateAssessmentPage() {
                           {opt.scores.map((sc) => {
                             const entry = mqtIndex[sc.mqt_id];
                             const usedIds = new Set(opt.scores.map((s) => s.mqt_id).filter((id) => id !== sc.mqt_id));
-                            const isDup = dupKey(sc.mqt_id, sc.score);
                             return (
                               <div key={sc.mqt_id} className="flex items-center gap-2">
                                 <select
@@ -999,10 +1141,7 @@ export default function CreateAssessmentPage() {
                                   step="1"
                                   value={sc.score}
                                   onChange={(e) => setOptionMqtScore(q.id, oi, sc.mqt_id, Number(e.target.value))}
-                                  className={cn(
-                                    'w-16 shrink-0 rounded-md border bg-background px-2 py-1 text-xs text-center outline-none focus:border-primary',
-                                    isDup ? 'border-red-400 text-red-600' : 'border-border',
-                                  )}
+                                  className="w-16 shrink-0 rounded-md border border-border bg-background px-2 py-1 text-xs text-center outline-none focus:border-primary"
                                   title="Score for this MQT"
                                 />
                                 <button
@@ -1098,6 +1237,40 @@ export default function CreateAssessmentPage() {
     );
   };
 
+  // Question-level scores: applied on any answer, independent of options.
+  const toggleQuestionMqt = (qId: string, mqtId: string) => {
+    setQuestions(
+      questions.map((q) => {
+        if (q.id !== qId) return q;
+        const existing = q.question_scores.find((s) => s.mqt_id === mqtId);
+        if (existing) {
+          return { ...q, question_scores: q.question_scores.filter((s) => s.mqt_id !== mqtId) };
+        }
+        return { ...q, question_scores: [...q.question_scores, { mqt_id: mqtId, score: 0 }] };
+      }),
+    );
+  };
+
+  const setQuestionMqtScore = (qId: string, mqtId: string, score: number) => {
+    setQuestions(
+      questions.map((q) =>
+        q.id === qId
+          ? { ...q, question_scores: q.question_scores.map((s) => (s.mqt_id === mqtId ? { ...s, score } : s)) }
+          : q,
+      ),
+    );
+  };
+
+  const replaceQuestionMqt = (qId: string, oldMqtId: string, newMqtId: string) => {
+    setQuestions(
+      questions.map((q) =>
+        q.id === qId
+          ? { ...q, question_scores: q.question_scores.map((s) => (s.mqt_id === oldMqtId ? { ...s, mqt_id: newMqtId } : s)) }
+          : q,
+      ),
+    );
+  };
+
   const addOption = (qId: string) => {
     setQuestions(questions.map((q) => (q.id === qId ? { ...q, options: [...q.options, { text: '', scores: [] }] } : q)));
   };
@@ -1107,31 +1280,6 @@ export default function CreateAssessmentPage() {
   };
 
   const removeQuestion = (id: string) => setQuestions(questions.filter((q) => q.id !== id));
-
-  // ---- Validation: per-MQT, no two options share the same score within a question ----
-
-  const duplicateMqtsForQuestion = (q: Question): { mqtId: string; score: number }[] => {
-    const dupes: { mqtId: string; score: number }[] = [];
-    const byMqt: Record<string, number[]> = {};
-    q.options.forEach((opt) => {
-      opt.scores.forEach((s) => {
-        byMqt[s.mqt_id] = byMqt[s.mqt_id] || [];
-        byMqt[s.mqt_id].push(s.score);
-      });
-    });
-    Object.entries(byMqt).forEach(([mqtId, scores]) => {
-      const seen = new Set<number>();
-      for (const sc of scores) {
-        if (seen.has(sc)) {
-          if (!dupes.find((d) => d.mqtId === mqtId && d.score === sc)) {
-            dupes.push({ mqtId, score: sc });
-          }
-        }
-        seen.add(sc);
-      }
-    });
-    return dupes;
-  };
 
   // ---- Create/Save ----
 
@@ -1166,17 +1314,6 @@ export default function CreateAssessmentPage() {
     if (empty) {
       setError('Every question needs either text or media');
       return;
-    }
-
-    // Uniqueness check: no two options may share the same score for the same MQT.
-    for (let i = 0; i < questions.length; i++) {
-      const q = questions[i];
-      const dupes = duplicateMqtsForQuestion(q);
-      if (dupes.length > 0) {
-        const d = dupes[0];
-        setError(`Question ${i + 1}: options share score ${d.score} for MQT "${mqtIndex[d.mqtId]?.mqt.name}". Scores must be unique per MQT.`);
-        return;
-      }
     }
 
     setSaving(true);
@@ -1215,6 +1352,7 @@ export default function CreateAssessmentPage() {
               media_url: o.media_url,
               media_type: o.media_type,
             })),
+          question_scores: q.question_scores.map((s) => ({ mqt_id: s.mqt_id, score: Number(s.score) || 0 })),
           clinical_risk_flag: q.clinical_risk_flag,
           risk_flag_rule: q.risk_flag_rule,
           ...(useSections && q.sectionId ? { sectionId: q.sectionId, sectionTitle: q.sectionTitle || '' } : {}),

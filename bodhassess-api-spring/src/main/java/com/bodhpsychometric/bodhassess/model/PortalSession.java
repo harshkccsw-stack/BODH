@@ -75,6 +75,12 @@ public class PortalSession {
     @Column(name = "invitation_sent")
     private boolean invitationSent;
 
+    // Per-allotment override: when true the respondent sees a numbered side
+    // panel during the assessment with attempted questions highlighted in
+    // green. Off by default so existing sessions don't change behaviour.
+    @Column(name = "show_question_index", nullable = false)
+    private boolean showQuestionIndex = false;
+
     @Column(name = "created_at", insertable = false, updatable = false)
     private OffsetDateTime createdAt;
 
@@ -83,6 +89,11 @@ public class PortalSession {
 
     @Column(name = "completed_at")
     private OffsetDateTime completedAt;
+
+    // Set when the respondent submits their first answer. Used for the
+    // 24h/48h "not started" notifications and the time-to-start metric.
+    @Column(name = "started_at")
+    private OffsetDateTime startedAt;
 
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
@@ -122,8 +133,12 @@ public class PortalSession {
     public void setProctoring(boolean proctoring) { this.proctoring = proctoring; }
     public boolean isInvitationSent() { return invitationSent; }
     public void setInvitationSent(boolean invitationSent) { this.invitationSent = invitationSent; }
+    public boolean isShowQuestionIndex() { return showQuestionIndex; }
+    public void setShowQuestionIndex(boolean showQuestionIndex) { this.showQuestionIndex = showQuestionIndex; }
     public OffsetDateTime getCreatedAt() { return createdAt; }
     public OffsetDateTime getUpdatedAt() { return updatedAt; }
     public OffsetDateTime getCompletedAt() { return completedAt; }
     public void setCompletedAt(OffsetDateTime completedAt) { this.completedAt = completedAt; }
+    public OffsetDateTime getStartedAt() { return startedAt; }
+    public void setStartedAt(OffsetDateTime startedAt) { this.startedAt = startedAt; }
 }
