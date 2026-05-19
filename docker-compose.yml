@@ -69,7 +69,7 @@ services:
       APP_ADMIN_USERNAME: ${APP_ADMIN_USERNAME:-admin}
       APP_ADMIN_PASSWORD: ${APP_ADMIN_PASSWORD:-admin123}
     ports:
-      - "${APP_PORT:-4000}:4000"
+      - "127.0.0.1:${APP_PORT:-4000}:4000"
     volumes:
       - app-uploads:/app/uploads
     networks:
