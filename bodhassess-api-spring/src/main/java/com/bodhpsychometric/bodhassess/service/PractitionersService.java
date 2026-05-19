@@ -63,6 +63,7 @@ public class PractitionersService {
         p.setId(dto.getId());
         p.setName(dto.getName().trim());
         p.setEmail(dto.getEmail().trim());
+        p.setPhone(StringUtils.hasText(dto.getPhone()) ? dto.getPhone().trim() : null);
         List<String> roles = (dto.getRoles() == null || dto.getRoles().isEmpty())
                 ? new ArrayList<>(Arrays.asList("Practitioner"))
                 : new ArrayList<>(dto.getRoles());
@@ -78,6 +79,7 @@ public class PractitionersService {
         Practitioner p = repo.findById(id).orElseThrow(() -> new ResourceNotFoundException("Practitioner", "id", id));
         if (StringUtils.hasText(dto.getName())) p.setName(dto.getName());
         if (StringUtils.hasText(dto.getEmail())) p.setEmail(dto.getEmail());
+        if (dto.getPhone() != null) p.setPhone(dto.getPhone().trim().isEmpty() ? null : dto.getPhone().trim());
         if (dto.getRoles() != null) p.setRoles(new ArrayList<>(dto.getRoles()));
         if (dto.getVerticals() != null) p.setVerticals(new ArrayList<>(dto.getVerticals()));
         if (StringUtils.hasText(dto.getStatus())) p.setStatus(dto.getStatus());
@@ -91,15 +93,27 @@ public class PractitionersService {
     }
 
     public PractitionerLoginResponse login(LoginRequest req) {
-        if (!StringUtils.hasText(req.getId()) || !StringUtils.hasText(req.getDob())) {
-            throw new BadRequestException("id and dob required");
+        String identifier = req.resolveIdentifier();
+        if (identifier.isEmpty() || !StringUtils.hasText(req.getDob())) {
+            throw new BadRequestException("identifier (email or phone) and dob required");
         }
         LocalDate dob;
         try { dob = LocalDate.parse(req.getDob()); }
         catch (Exception e) { throw new BadRequestException("dob must be YYYY-MM-DD"); }
 
-        Practitioner p = repo.findActiveByIdAndDob(req.getId().trim(), dob)
-                .orElseThrow(() -> new UnauthorizedAccessException("invalid credentials"));
+        Practitioner p = null;
+        if (identifier.contains("@")) {
+            p = repo.findActiveByEmailAndDob(identifier, dob).orElse(null);
+        } else {
+            String phoneDigits = identifier.replaceAll("\\D", "");
+            if (!phoneDigits.isEmpty()) {
+                for (Practitioner cand : repo.findActiveByDobWithPhone(dob)) {
+                    String candDigits = cand.getPhone() == null ? "" : cand.getPhone().replaceAll("\\D", "");
+                    if (!candDigits.isEmpty() && candDigits.equals(phoneDigits)) { p = cand; break; }
+                }
+            }
+        }
+        if (p == null) throw new UnauthorizedAccessException("invalid credentials");
 
         List<String> urlPaths = urlPathsForRoles(p.getRoles());
 
@@ -146,6 +160,7 @@ public class PractitionersService {
         d.setId(p.getId());
         d.setName(p.getName());
         d.setEmail(p.getEmail());
+        d.setPhone(p.getPhone());
         d.setRoles(p.getRoles() == null ? new ArrayList<>() : new ArrayList<>(p.getRoles()));
         d.setVerticals(p.getVerticals() == null ? new ArrayList<>() : new ArrayList<>(p.getVerticals()));
         d.setStatus(p.getStatus());
@@ -158,6 +173,7 @@ public class PractitionersService {
         target.setId(src.getId());
         target.setName(src.getName());
         target.setEmail(src.getEmail());
+        target.setPhone(src.getPhone());
         target.setRoles(src.getRoles());
         target.setVerticals(src.getVerticals());
         target.setStatus(src.getStatus());

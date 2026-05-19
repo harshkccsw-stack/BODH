@@ -102,7 +102,15 @@ public class AssessmentsService {
         if (StringUtils.hasText(dto.getLanguage())) s.setLanguage(dto.getLanguage());
         if (StringUtils.hasText(dto.getStatus())) s.setStatus(dto.getStatus());
         s.setScore(dto.getScore());
-        if (dto.getAnswers() != null) s.setAnswers(dto.getAnswers());
+        if (dto.getAnswers() != null) {
+            // Stamp started_at on the first save that carries at least one
+            // non-empty answer. Drives the 24h/48h overdue notifications and
+            // the time-to-start metric on the respondents dashboard.
+            if (s.getStartedAt() == null && hasAnyAnswer(dto.getAnswers())) {
+                s.setStartedAt(OffsetDateTime.now(ZoneOffset.UTC));
+            }
+            s.setAnswers(dto.getAnswers());
+        }
         if (dto.getMqtScores() != null) s.setMqtScores(dto.getMqtScores());
         if (dto.getDemographics() != null) s.setDemographics(dto.getDemographics());
 
@@ -160,6 +168,7 @@ public class AssessmentsService {
         s.setConsentId(dto.getConsentId());
         s.setProctoring(dto.isProctoring());
         s.setInvitationSent(dto.isInvitationSent());
+        s.setShowQuestionIndex(dto.isShowQuestionIndex());
         return s;
     }
 
@@ -184,8 +193,23 @@ public class AssessmentsService {
         d.setConsentId(s.getConsentId());
         d.setProctoring(s.isProctoring());
         d.setInvitationSent(s.isInvitationSent());
+        d.setShowQuestionIndex(s.isShowQuestionIndex());
         if (s.getCreatedAt() != null) d.setCreatedAt(s.getCreatedAt().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME));
         if (s.getCompletedAt() != null) d.setCompletedAt(s.getCompletedAt().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME));
+        if (s.getStartedAt() != null) d.setStartedAt(s.getStartedAt().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME));
         return d;
+    }
+
+    private boolean hasAnyAnswer(Map<String, Object> answers) {
+        if (answers == null || answers.isEmpty()) return false;
+        for (Object v : answers.values()) {
+            if (v == null) continue;
+            if (v instanceof String) {
+                if (!((String) v).trim().isEmpty()) return true;
+            } else {
+                return true;
+            }
+        }
+        return false;
     }
 }

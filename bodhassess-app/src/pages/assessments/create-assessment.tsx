@@ -40,40 +40,12 @@ interface QuestionnaireOption {
   duration: string;
 }
 
-// Catalog covers every instrument shown across the Library pages
-// (Clinical, Industrial, Counselling) plus Experiments — merged with
-// user-published assessments from localStorage on mount.
-const catalogQuestionnaires: QuestionnaireOption[] = [
-  // Clinical
-  { name: 'PHQ-9 (Patient Health Questionnaire)', vertical: 'Clinical', items: 9, duration: '5 min' },
-  { name: 'PHQ-2 (Ultra-Brief Depression Screen)', vertical: 'Clinical', items: 2, duration: '2 min' },
-  { name: 'GAD-7 (Generalized Anxiety Disorder)', vertical: 'Clinical', items: 7, duration: '4 min' },
-  { name: 'DASS-21 (Depression Anxiety Stress)', vertical: 'Clinical', items: 21, duration: '10 min' },
-  { name: 'Beck BDI-II (Beck Depression Inventory)', vertical: 'Clinical', items: 21, duration: '10 min' },
-  { name: 'Beck Anxiety Inventory (BAI)', vertical: 'Clinical', items: 21, duration: '10 min' },
-  { name: 'PCL-5 (PTSD Checklist)', vertical: 'Clinical', items: 20, duration: '10 min' },
-  { name: 'AUDIT (Alcohol Use Disorders Test)', vertical: 'Clinical', items: 10, duration: '5 min' },
-  { name: 'SCID-5 (Structured Clinical Interview)', vertical: 'Clinical', items: 45, duration: '30 min' },
-  // Industrial
-  { name: 'Big Five Personality (IPIP-NEO-120)', vertical: 'Industrial', items: 120, duration: '25 min' },
-  { name: 'HEXACO Personality Inventory', vertical: 'Industrial', items: 100, duration: '20 min' },
-  { name: 'Learning Agility Assessment', vertical: 'Industrial', items: 80, duration: '18 min' },
-  { name: 'Situational Judgment Tests (SJTs)', vertical: 'Industrial', items: 40, duration: '30 min' },
-  { name: 'Cognitive Aptitude Battery (CAB)', vertical: 'Industrial', items: 60, duration: '35 min' },
-  { name: 'AI Adaptability Index', vertical: 'Industrial', items: 56, duration: '20 min' },
-  { name: 'Digital Diet Assessment', vertical: 'Industrial', items: 45, duration: '15 min' },
-  // Counselling & Child
-  { name: "Spence Children's Anxiety Scale (SCAS)", vertical: 'Counselling', items: 45, duration: '15 min' },
-  { name: "Children's Depression Inventory-2 (CDI-2)", vertical: 'Counselling', items: 28, duration: '12 min' },
-  { name: 'ADHD Rating Scale-5', vertical: 'Counselling', items: 18, duration: '10 min' },
-  { name: 'Developmental Milestones Tracker', vertical: 'Counselling', items: 60, duration: '20 min' },
-  { name: 'School Adjustment Scale', vertical: 'Counselling', items: 35, duration: '12 min' },
-  { name: 'Academic Stress Inventory', vertical: 'Counselling', items: 40, duration: '15 min' },
-  { name: 'SDQ (Strengths & Difficulties)', vertical: 'Counselling', items: 25, duration: '10 min' },
-  { name: 'Career Interest Inventory (CII)', vertical: 'Counselling', items: 60, duration: '20 min' },
-  // Experiments
-  { name: 'Digital Literacy Assessment', vertical: 'Experiments', items: 24, duration: '12 min' },
-];
+// Dropdown options come exclusively from the database — published
+// questionnaires via questionnairesApi.list() and the optional
+// /questionnaires-catalog mirror. The hardcoded PHQ/GAD/etc. seed list was
+// removed so the dropdown only shows real items the user has authored or
+// imported.
+const catalogQuestionnaires: QuestionnaireOption[] = [];
 
 const languages = [
   'English', 'Hindi', 'Bengali', 'Telugu', 'Marathi',
@@ -90,9 +62,15 @@ interface RespondentRow {
 // vertical code/name) to the display string used in the dropdown.
 //   - Built-in prefixes ("clin", "indust", "coun", "exper") canonicalise to
 //     their pretty names so existing data still groups correctly.
-//   - Anything else is returned untouched (case preserved) so a user vertical
-//     named "Education" stays "Education".
-function normalizeVertical(v: unknown): Vertical {
+//   - For user verticals: look up the code (e.g. "MANISH") in the /verticals
+//     catalog and return its friendly name ("Manish"). Without this lookup
+//     the dropdown shows BOTH the name (from /verticals) and the code (from
+//     questionnaires' stored `vertical` field) as separate options.
+//   - If nothing matches, fall back to the raw string.
+function normalizeVertical(
+  v: unknown,
+  catalog: Array<{ code: string; name: string }> = [],
+): Vertical {
   const raw = String(v || '').trim();
   if (!raw) return 'Clinical';
   const lower = raw.toLowerCase();
@@ -100,6 +78,10 @@ function normalizeVertical(v: unknown): Vertical {
   if (lower.startsWith('indust')) return 'Industrial';
   if (lower.startsWith('coun')) return 'Counselling';
   if (lower.startsWith('exper')) return 'Experiments';
+  const match = catalog.find(
+    (c) => c.code?.toLowerCase() === lower || c.name?.toLowerCase() === lower,
+  );
+  if (match) return match.name || match.code;
   return raw;
 }
 
@@ -108,7 +90,7 @@ export default function CreateSessionPage() {
   const [vertical, setVertical] = useState<string>('all');
   const [selectedQuestionnaire, setSelectedQuestionnaire] = useState<string>('');
   const [respondentSearch, setRespondentSearch] = useState('');
-  const [selectedRespondent, setSelectedRespondent] = useState<string>('');
+  const [selectedRespondents, setSelectedRespondents] = useState<string[]>([]);
   const [assignMode, setAssignMode] = useState<'respondent' | 'group'>('respondent');
   const [groups, setGroups] = useState<Group[]>([]);
   const [selectedGroup, setSelectedGroup] = useState<string>('');
@@ -116,6 +98,7 @@ export default function CreateSessionPage() {
   const [language, setLanguage] = useState('English');
   const [consentId, setConsentId] = useState('');
   const [proctoring, setProctoring] = useState(false);
+  const [showQuestionIndex, setShowQuestionIndex] = useState(false);
   const [respondents, setRespondents] = useState<RespondentRow[]>([]);
   const [questionnaireList, setQuestionnaireList] = useState<QuestionnaireOption[]>(catalogQuestionnaires);
   // Loaded from /verticals so user-created verticals show up in the
@@ -159,7 +142,10 @@ export default function CreateSessionPage() {
       } catch (e) { noteFailure('groups', e); }
     })();
 
-    // Merge catalog with published questionnaires from the database
+    // Merge catalog with published questionnaires from the database.
+    // We deliberately store the RAW vertical here — the catalog (/verticals)
+    // loads async, so resolving code → name happens later in the
+    // verticalOptions / filteredQuestionnaires memos below.
     let merged: QuestionnaireOption[] = [...catalogQuestionnaires];
     (async () => {
       try {
@@ -169,7 +155,7 @@ export default function CreateSessionPage() {
           if (!name) return;
           const items = Array.isArray(i.questions) ? i.questions.length : 0;
           const duration = i.duration ? `${i.duration} min` : '—';
-          merged.push({ name, vertical: normalizeVertical(i.vertical), items, duration });
+          merged.push({ name, vertical: String(i.vertical || ''), items, duration });
         });
       } catch (e) { noteFailure('published questionnaires', e); }
       const seen = new Set<string>();
@@ -202,7 +188,7 @@ export default function CreateSessionPage() {
             if (!name || existing.has(name.toLowerCase())) return;
             add.push({
               name,
-              vertical: normalizeVertical(i.vertical),
+              vertical: String(i.vertical || ''),
               items: i.item_count ?? i.items ?? 0,
               duration: i.duration_minutes ? `${i.duration_minutes} min` : '—',
             });
@@ -237,20 +223,25 @@ export default function CreateSessionPage() {
 
   // Vertical dropdown options: built-ins + any vertical seen in the API
   // catalog or in the actual instruments we loaded (covers verticals just
-  // created but not yet propagated to the catalog).
+  // created but not yet propagated to the catalog). Every questionnaire's
+  // raw vertical is run through the catalog so a code like "MANISH" and a
+  // name like "Manish" don't both end up as separate options.
   const verticalOptions = useMemo<Vertical[]>(() => {
     const seen = new Set<string>(BUILTIN_VERTICALS);
     verticalCatalog.forEach((v) => {
-      const norm = normalizeVertical(v.name || v.code);
+      const norm = normalizeVertical(v.name || v.code, verticalCatalog);
       if (norm) seen.add(norm);
     });
-    questionnaireList.forEach((i) => seen.add(i.vertical));
+    questionnaireList.forEach((i) => seen.add(normalizeVertical(i.vertical, verticalCatalog)));
     return Array.from(seen);
   }, [verticalCatalog, questionnaireList]);
 
-  const filteredQuestionnaires = questionnaireList.filter(
-    (i) => vertical === 'all' || i.vertical === vertical
-  );
+  // Same resolution at filter time — a questionnaire stored under the code
+  // "MANISH" still matches the user's choice of "Manish" in the dropdown.
+  const filteredQuestionnaires = questionnaireList.filter((i) => {
+    if (vertical === 'all') return true;
+    return normalizeVertical(i.vertical, verticalCatalog) === vertical;
+  });
 
   const filteredRespondents = respondents.filter(
     (r) =>
@@ -260,8 +251,19 @@ export default function CreateSessionPage() {
   );
 
   const selectedQuestionnaireData = questionnaireList.find((i) => i.name === selectedQuestionnaire);
-  const selectedRespondentData = respondents.find((r) => r.id === selectedRespondent);
+  const selectedRespondentsData = respondents.filter((r) => selectedRespondents.includes(r.id));
   const selectedGroupData = groups.find((g) => g.id === selectedGroup);
+  const toggleRespondent = (id: string) =>
+    setSelectedRespondents((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  const allFilteredSelected = filteredRespondents.length > 0 && filteredRespondents.every((r) => selectedRespondents.includes(r.id));
+  const toggleAllFiltered = () => {
+    if (allFilteredSelected) {
+      const filteredIds = new Set(filteredRespondents.map((r) => r.id));
+      setSelectedRespondents((prev) => prev.filter((id) => !filteredIds.has(id)));
+    } else {
+      setSelectedRespondents((prev) => Array.from(new Set([...prev, ...filteredRespondents.map((r) => r.id)])));
+    }
+  };
   const filteredGroups = groups.filter(
     (g) =>
       groupSearch === '' ||
@@ -288,8 +290,8 @@ export default function CreateSessionPage() {
       setError('Please select a questionnaire.');
       return;
     }
-    if (assignMode === 'respondent' && !selectedRespondent) {
-      setError('Please select a respondent.');
+    if (assignMode === 'respondent' && selectedRespondents.length === 0) {
+      setError('Please select at least one respondent.');
       return;
     }
     if (assignMode === 'group') {
@@ -302,7 +304,9 @@ export default function CreateSessionPage() {
     setSaving(true);
     try {
       const fullName = selectedQuestionnaireData?.name || selectedQuestionnaire;
-      const vert = selectedQuestionnaireData?.vertical || 'Clinical';
+      const vert = selectedQuestionnaireData
+        ? normalizeVertical(selectedQuestionnaireData.vertical, verticalCatalog)
+        : 'Clinical';
       const isAvailable = await ensureQuestionnaireAvailable(fullName);
       if (!isAvailable) {
         setError(`"${fullName}" isn't published yet. Open Question Bank → Create Questionnaire to publish it before allotting.`);
@@ -329,6 +333,7 @@ export default function CreateSessionPage() {
             score: '--',
             consentId,
             proctoring,
+            showQuestionIndex,
             groupId: selectedGroupData.id,
             groupName: selectedGroupData.name,
             invitationSent: sendInvite,
@@ -360,26 +365,63 @@ export default function CreateSessionPage() {
         return;
       }
 
-      const id = `SESS-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
-      const entry = {
-        id,
-        name: assessmentName.trim(),
-        respondentId: selectedRespondentData?.id || '',
-        respondent: selectedRespondentData?.name || '',
-        respondentEmail: selectedRespondentData?.email || '',
-        instrument: fullName.split(' (')[0],
-        instrumentFullName: fullName,
-        vertical: vert,
-        language,
-        status: 'Active',
-        score: '--',
-        consentId,
-        proctoring,
-        invitationSent: sendInvite,
-      };
-      const res = await portalSessionsApi.create(entry);
-      if (!res) throw new Error('Failed to create session via API');
-      setCreated({ id });
+      // One session per selected respondent. Use the bulk endpoint when more
+      // than one is selected, and fall back to the single-create endpoint for
+      // a single pick so the existing single-respondent behaviour stays the
+      // same (and we still report a session id the user can reference).
+      if (selectedRespondentsData.length === 1) {
+        const r = selectedRespondentsData[0];
+        const id = `SESS-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+        const entry = {
+          id,
+          name: assessmentName.trim(),
+          respondentId: r.id,
+          respondent: r.name,
+          respondentEmail: r.email,
+          instrument: fullName.split(' (')[0],
+          instrumentFullName: fullName,
+          vertical: vert,
+          language,
+          status: 'Active',
+          score: '--',
+          consentId,
+          proctoring,
+          showQuestionIndex,
+          invitationSent: sendInvite,
+        };
+        const res = await portalSessionsApi.create(entry);
+        if (!res) throw new Error('Failed to create session via API');
+        setCreated({ id });
+      } else {
+        const sessions = selectedRespondentsData.map((r) => ({
+          id: `SESS-${Math.random().toString(36).slice(2, 8).toUpperCase()}`,
+          name: assessmentName.trim(),
+          respondentId: r.id,
+          respondent: r.name,
+          respondentEmail: r.email,
+          instrument: fullName.split(' (')[0],
+          instrumentFullName: fullName,
+          vertical: vert,
+          language,
+          status: 'Active',
+          score: '--',
+          consentId,
+          proctoring,
+          showQuestionIndex,
+          invitationSent: sendInvite,
+        }));
+        const res = await portalSessionsApi.bulk(sessions);
+        if (!res) throw new Error('Failed to create sessions via API');
+        const errs = res.errors || [];
+        if (res.created === 0 && errs.length > 0) {
+          throw new Error(`No sessions created. First failure: ${errs[0].reason}`);
+        }
+        const failedNote = errs.length > 0
+          ? ` (${errs.length} row${errs.length === 1 ? '' : 's'} skipped: ${errs[0].reason}${errs.length > 1 ? '; …' : ''})`
+          : '';
+        setCreated({ id: `${res.created} sessions for ${selectedRespondentsData.length} respondent${selectedRespondentsData.length === 1 ? '' : 's'}${failedNote}` });
+      }
+
       if (copyLink) {
         try {
           const loginUrl = `${window.location.origin}/portal/login`;
@@ -517,7 +559,7 @@ export default function CreateSessionPage() {
                     ~{selectedQuestionnaireData.duration}
                   </Badge>
                   <Badge size="sm" shape="circle" variant="primary" appearance="outline">
-                    {selectedQuestionnaireData.vertical}
+                    {normalizeVertical(selectedQuestionnaireData.vertical, verticalCatalog)}
                   </Badge>
                 </div>
               )}
@@ -567,27 +609,72 @@ export default function CreateSessionPage() {
                     />
                   </InputWrapper>
 
+                  <div className="flex items-center justify-between gap-3 text-xs">
+                    <span className="text-muted-foreground">
+                      {selectedRespondents.length === 0
+                        ? 'None selected'
+                        : `${selectedRespondents.length} selected`}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      {filteredRespondents.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={toggleAllFiltered}
+                          className="font-medium text-primary hover:underline"
+                        >
+                          {allFilteredSelected ? 'Deselect all' : 'Select all'}
+                          {respondentSearch ? ' (filtered)' : ''}
+                        </button>
+                      )}
+                      {selectedRespondents.length > 0 && (
+                        <>
+                          <span className="text-muted-foreground">·</span>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedRespondents([])}
+                            className="font-medium text-primary hover:underline"
+                          >
+                            Clear
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
                   <div className="border border-border rounded-lg overflow-hidden max-h-80 overflow-y-auto">
-                    {filteredRespondents.map((r) => (
-                      <button
-                        key={r.id}
-                        type="button"
-                        onClick={() => setSelectedRespondent(r.id)}
-                        className={`w-full flex items-center justify-between px-4 py-3 text-sm text-left border-b border-border last:border-0 transition-colors ${
-                          selectedRespondent === r.id
-                            ? 'bg-primary/5 text-primary'
-                            : 'hover:bg-muted/50'
-                        }`}
-                      >
-                        <div>
-                          <p className="font-medium">{r.name}</p>
-                          <p className="text-xs text-muted-foreground">{r.email}</p>
-                        </div>
-                        {selectedRespondent === r.id && (
-                          <Badge size="sm" shape="circle" variant="success" appearance="light">Selected</Badge>
-                        )}
-                      </button>
-                    ))}
+                    {filteredRespondents.map((r) => {
+                      const isSelected = selectedRespondents.includes(r.id);
+                      return (
+                        <button
+                          key={r.id}
+                          type="button"
+                          onClick={() => toggleRespondent(r.id)}
+                          aria-pressed={isSelected}
+                          className={`w-full flex items-center justify-between gap-3 px-4 py-3 text-sm text-left border-b border-border last:border-0 transition-colors ${
+                            isSelected
+                              ? 'bg-primary/5 text-primary'
+                              : 'hover:bg-muted/50'
+                          }`}
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <span
+                              className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
+                                isSelected ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-background'
+                              }`}
+                            >
+                              {isSelected && <Check className="h-3 w-3" />}
+                            </span>
+                            <div className="min-w-0">
+                              <p className="font-medium truncate">{r.name}</p>
+                              <p className="text-xs text-muted-foreground truncate">{r.email}</p>
+                            </div>
+                          </div>
+                          {isSelected && (
+                            <Badge size="sm" shape="circle" variant="success" appearance="light">Selected</Badge>
+                          )}
+                        </button>
+                      );
+                    })}
                     {filteredRespondents.length === 0 && (
                       <div className="px-4 py-8 text-center text-sm text-muted-foreground">
                         No respondents found.
@@ -708,6 +795,29 @@ export default function CreateSessionPage() {
                   />
                 </button>
               </div>
+
+              <div className="flex items-center justify-between rounded-lg border border-border p-4">
+                <div className="min-w-0 pr-3">
+                  <p className="text-sm font-medium">Show Question Index to Respondent</p>
+                  <p className="text-xs text-muted-foreground">
+                    Displays a numbered side panel during the assessment. Attempted questions turn green; respondents can click a number to jump to that question.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowQuestionIndex(!showQuestionIndex)}
+                  aria-pressed={showQuestionIndex}
+                  className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
+                    showQuestionIndex ? 'bg-primary' : 'bg-muted-foreground/30'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 rounded-full bg-white transition-transform ${
+                      showQuestionIndex ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              </div>
             </CardContent>
           </Card>
         </div>
@@ -738,7 +848,7 @@ export default function CreateSessionPage() {
                 <div className="flex items-center justify-between py-2 border-b border-border">
                   <span className="text-muted-foreground">Vertical</span>
                   <span className="font-medium">
-                    {selectedQuestionnaireData?.vertical || '--'}
+                    {selectedQuestionnaireData ? normalizeVertical(selectedQuestionnaireData.vertical, verticalCatalog) : '--'}
                   </span>
                 </div>
                 <div className="flex items-center justify-between py-2 border-b border-border">
@@ -755,14 +865,22 @@ export default function CreateSessionPage() {
                 </div>
                 <div className="flex items-center justify-between py-2 border-b border-border">
                   <span className="text-muted-foreground">
-                    {assignMode === 'group' ? 'Group' : 'Respondent'}
+                    {assignMode === 'group'
+                      ? 'Group'
+                      : selectedRespondentsData.length > 1
+                        ? `Respondents (${selectedRespondentsData.length})`
+                        : 'Respondent'}
                   </span>
                   <span className="font-medium text-right max-w-[60%] truncate">
                     {assignMode === 'group'
                       ? selectedGroupData
                         ? `${selectedGroupData.name} (${selectedGroupData.memberIds.length})`
                         : '--'
-                      : selectedRespondentData?.name || '--'}
+                      : selectedRespondentsData.length === 0
+                        ? '--'
+                        : selectedRespondentsData.length === 1
+                          ? selectedRespondentsData[0].name
+                          : `${selectedRespondentsData[0].name} +${selectedRespondentsData.length - 1} more`}
                   </span>
                 </div>
                 <div className="flex items-center justify-between py-2 border-b border-border">
@@ -775,7 +893,7 @@ export default function CreateSessionPage() {
                     {consentId || '--'}
                   </span>
                 </div>
-                <div className="flex items-center justify-between py-2">
+                <div className="flex items-center justify-between py-2 border-b border-border">
                   <span className="text-muted-foreground">Proctoring</span>
                   <Badge
                     size="sm"
@@ -784,6 +902,17 @@ export default function CreateSessionPage() {
                     appearance="light"
                   >
                     {proctoring ? 'Enabled' : 'Disabled'}
+                  </Badge>
+                </div>
+                <div className="flex items-center justify-between py-2">
+                  <span className="text-muted-foreground">Question Index</span>
+                  <Badge
+                    size="sm"
+                    shape="circle"
+                    variant={showQuestionIndex ? 'success' : 'secondary'}
+                    appearance="light"
+                  >
+                    {showQuestionIndex ? 'Shown' : 'Hidden'}
                   </Badge>
                 </div>
               </div>
@@ -819,6 +948,8 @@ export default function CreateSessionPage() {
                     ? 'Creating...'
                     : assignMode === 'group' && selectedGroupData
                     ? `Create ${selectedGroupData.memberIds.length} Assessments`
+                    : selectedRespondentsData.length > 1
+                    ? `Create ${selectedRespondentsData.length} Assessments`
                     : 'Create Assessment'}
                 </Button>
                 <Button

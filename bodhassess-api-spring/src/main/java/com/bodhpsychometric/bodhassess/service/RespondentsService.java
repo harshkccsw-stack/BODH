@@ -101,11 +101,29 @@ public class RespondentsService {
     }
 
     public RespondentLoginResponse login(LoginRequest req) {
-        if (!StringUtils.hasText(req.getId()) || !StringUtils.hasText(req.getDob())) {
-            throw new BadRequestException("id and dob required");
+        String identifier = req.resolveIdentifier();
+        String dob = req.getDob() == null ? "" : req.getDob().trim();
+        if (identifier.isEmpty() || dob.isEmpty()) {
+            throw new BadRequestException("identifier (email or phone) and dob required");
         }
-        Respondent r = repo.findByIdAndDob(req.getId().trim(), req.getDob().trim())
-                .orElseThrow(() -> new UnauthorizedAccessException("invalid credentials"));
+        if (!DOB_FMT.matcher(dob).matches()) {
+            throw new BadRequestException("dob must be YYYY-MM-DD");
+        }
+
+        Respondent r = null;
+        if (EMAIL.matcher(identifier).matches()) {
+            r = repo.findByEmailAndDob(identifier, dob).orElse(null);
+        } else {
+            String phoneDigits = identifier.replaceAll("\\D", "");
+            if (!phoneDigits.isEmpty()) {
+                for (Respondent cand : repo.findByDobWithPhone(dob)) {
+                    String candDigits = cand.getPhone() == null ? "" : cand.getPhone().replaceAll("\\D", "");
+                    if (!candDigits.isEmpty() && candDigits.equals(phoneDigits)) { r = cand; break; }
+                }
+            }
+        }
+        if (r == null) throw new UnauthorizedAccessException("invalid credentials");
+
         String token = tokenProvider.createToken(r.getId(), r.getEmail(),
                 UserPrincipal.UserType.RESPONDENT, new ArrayList<>());
         return new RespondentLoginResponse(token, toDto(r));
