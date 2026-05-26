@@ -9,6 +9,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 public class QuestionnaireCatalogDtos {
 
     public static class CreateQuestionnaireCatalogRequest {
+        // Optional: when present, the service upserts on this id instead of
+        // generating a new one. Lets the caller make republishes idempotent.
+        private String id;
         private String name;
         @JsonProperty("short_name")             private String shortName;
         private String vertical;
@@ -23,6 +26,8 @@ public class QuestionnaireCatalogDtos {
         @JsonProperty("uses_weighted_scoring")  private boolean usesWeightedScoring;
         @JsonProperty("scoring_config")         private JsonNode scoringConfig;
 
+        public String getId() { return id; }
+        public void setId(String id) { this.id = id; }
         public String getName() { return name; }
         public void setName(String name) { this.name = name; }
         public String getShortName() { return shortName; }
