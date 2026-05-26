@@ -33,7 +33,7 @@ public class QuestionnairesCatalogService {
     public QuestionnaireCatalogDtos.QuestionnaireCatalogListResponse list(String vertical) {
         StringBuilder sql = new StringBuilder(
             "SELECT id, name, short_name, vertical, category, item_count, duration_minutes," +
-            " languages, tier_required, is_adaptive, is_fixed_sequence, norm_status, age_range," +
+            " tier_required, is_adaptive, is_fixed_sequence, norm_status, age_range," +
             " is_published, created_at" +
             " FROM instruments WHERE is_published = TRUE"
         );
@@ -48,6 +48,7 @@ public class QuestionnairesCatalogService {
         @SuppressWarnings("unchecked")
         List<Object[]> rows = q.getResultList();
         List<QuestionnaireCatalogDtos.QuestionnaireCatalogRow> data = new ArrayList<>();
+        List<String> ids = new ArrayList<>();
         for (Object[] r : rows) {
             QuestionnaireCatalogDtos.QuestionnaireCatalogRow row = new QuestionnaireCatalogDtos.QuestionnaireCatalogRow();
             row.setId((String) r[0]);
@@ -57,17 +58,37 @@ public class QuestionnairesCatalogService {
             row.setCategory((String) r[4]);
             row.setItemCount(r[5] == null ? null : ((Number) r[5]).intValue());
             row.setDurationMinutes(r[6] == null ? null : ((Number) r[6]).intValue());
-            row.setLanguages(parseStringList(r[7]));
-            row.setTierRequired((String) r[8]);
-            row.setAdaptive(asBoolean(r[9]));
-            row.setFixedSequence(asBoolean(r[10]));
-            row.setNormStatus((String) r[11]);
-            row.setAgeRange((String) r[12]);
-            row.setPublished(asBoolean(r[13]));
-            row.setCreatedAt(formatDate(r[14]));
+            row.setTierRequired((String) r[7]);
+            row.setAdaptive(asBoolean(r[8]));
+            row.setFixedSequence(asBoolean(r[9]));
+            row.setNormStatus((String) r[10]);
+            row.setAgeRange((String) r[11]);
+            row.setPublished(asBoolean(r[12]));
+            row.setCreatedAt(formatDate(r[13]));
+            row.setLanguages(new ArrayList<>());
             data.add(row);
+            ids.add(row.getId());
         }
+        attachLanguages(data, ids);
         return new QuestionnaireCatalogDtos.QuestionnaireCatalogListResponse(data, data.size());
+    }
+
+    /** Bulk-load languages from the join table and stamp them onto each row. */
+    @SuppressWarnings("unchecked")
+    private void attachLanguages(List<QuestionnaireCatalogDtos.QuestionnaireCatalogRow> rows, List<String> ids) {
+        if (rows.isEmpty() || ids.isEmpty()) return;
+        List<Object[]> langRows = em.createNativeQuery(
+                "SELECT instrument_id, language FROM instrument_languages WHERE instrument_id IN (:ids)")
+                .setParameter("ids", ids)
+                .getResultList();
+        Map<String, List<String>> byId = new LinkedHashMap<>();
+        for (Object[] lr : langRows) {
+            byId.computeIfAbsent((String) lr[0], k -> new ArrayList<>()).add((String) lr[1]);
+        }
+        for (QuestionnaireCatalogDtos.QuestionnaireCatalogRow row : rows) {
+            List<String> langs = byId.get(row.getId());
+            if (langs != null) row.setLanguages(langs);
+        }
     }
 
     // Hard delete — removes the instrument row plus its child items and any
@@ -84,7 +105,29 @@ public class QuestionnairesCatalogService {
             "SELECT name FROM instruments WHERE id = ?1")
             .setParameter(1, id)
             .getResultList();
+        // Items first (FK to instruments), and every child table they own:
+        // option_scores -> options, question_scores, languages.
+        em.createNativeQuery(
+            "DELETE ios FROM item_option_scores ios" +
+            " JOIN item_options io ON io.id = ios.option_id" +
+            " JOIN items i ON i.id = io.item_id WHERE i.instrument_id = ?1")
+            .setParameter(1, id).executeUpdate();
+        em.createNativeQuery(
+            "DELETE io FROM item_options io" +
+            " JOIN items i ON i.id = io.item_id WHERE i.instrument_id = ?1")
+            .setParameter(1, id).executeUpdate();
+        em.createNativeQuery(
+            "DELETE iqs FROM item_question_scores iqs" +
+            " JOIN items i ON i.id = iqs.item_id WHERE i.instrument_id = ?1")
+            .setParameter(1, id).executeUpdate();
+        em.createNativeQuery(
+            "DELETE il FROM item_languages il" +
+            " JOIN items i ON i.id = il.item_id WHERE i.instrument_id = ?1")
+            .setParameter(1, id).executeUpdate();
         em.createNativeQuery("DELETE FROM items WHERE instrument_id = ?1")
+            .setParameter(1, id).executeUpdate();
+        // Then the instrument's own language rows, then the instrument itself.
+        em.createNativeQuery("DELETE FROM instrument_languages WHERE instrument_id = ?1")
             .setParameter(1, id)
             .executeUpdate();
         em.createNativeQuery("DELETE FROM instruments WHERE id = ?1")
@@ -102,7 +145,7 @@ public class QuestionnairesCatalogService {
         @SuppressWarnings("unchecked")
         List<Object[]> rows = em.createNativeQuery(
             "SELECT name, short_name, vertical, category, item_count, duration_minutes," +
-            " languages, tier_required, is_adaptive, is_fixed_sequence, norm_status, age_range, created_at" +
+            " tier_required, is_adaptive, is_fixed_sequence, norm_status, age_range, created_at" +
             " FROM instruments WHERE id = ?1")
             .setParameter(1, id)
             .getResultList();
@@ -116,13 +159,19 @@ public class QuestionnairesCatalogService {
         out.put("category", r[3]);
         out.put("item_count", r[4]);
         out.put("duration_minutes", r[5]);
-        out.put("languages", parseStringList(r[6]));
-        out.put("tier_required", r[7]);
-        out.put("is_adaptive", asBoolean(r[8]));
-        out.put("is_fixed_sequence", asBoolean(r[9]));
-        out.put("norm_status", r[10]);
-        out.put("age_range", r[11]);
-        out.put("created_at", formatDate(r[12]));
+        out.put("tier_required", r[6]);
+        out.put("is_adaptive", asBoolean(r[7]));
+        out.put("is_fixed_sequence", asBoolean(r[8]));
+        out.put("norm_status", r[9]);
+        out.put("age_range", r[10]);
+        out.put("created_at", formatDate(r[11]));
+        // Per-instrument languages now live in their own table.
+        @SuppressWarnings("unchecked")
+        List<String> langs = em.createNativeQuery(
+                "SELECT language FROM instrument_languages WHERE instrument_id = ?1 ORDER BY language")
+                .setParameter(1, id)
+                .getResultList();
+        out.put("languages", langs);
         return out;
     }
 

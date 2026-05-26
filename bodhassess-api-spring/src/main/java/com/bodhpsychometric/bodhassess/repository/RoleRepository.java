@@ -14,6 +14,12 @@ public interface RoleRepository extends JpaRepository<Role, String> {
     @Query("SELECT r FROM Role r ORDER BY r.name ASC")
     List<Role> findAllOrderByName();
 
-    @Query(value = "SELECT url_paths FROM roles WHERE name IN (:names)", nativeQuery = true)
-    List<String> findUrlPathsJsonByRoleNames(java.util.Collection<String> names);
+    /**
+     * URL paths flattened across the named roles. Replaces the legacy
+     * roles.url_paths JSON column with a join through role_url_paths.
+     */
+    @Query(value = "SELECT DISTINCT rup.url_path FROM role_url_paths rup" +
+            " JOIN roles r ON r.id = rup.role_id" +
+            " WHERE r.name IN (:names)", nativeQuery = true)
+    List<String> findUrlPathsByRoleNames(java.util.Collection<String> names);
 }

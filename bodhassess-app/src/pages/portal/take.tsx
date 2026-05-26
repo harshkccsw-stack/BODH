@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Brain, Check, ChevronLeft, ChevronRight, AlertTriangle } from 'lucide-react';
+import { Brain, Check, ChevronLeft, ChevronRight, AlertTriangle, ListChecks } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -38,6 +38,8 @@ interface StoredQuestionnaire {
   mqs: MQ[];
   questions: Question[];
   disclaimer?: string;
+  instructions?: string;
+  showInstructions?: boolean;
   demographicFieldKeys?: string[];
 }
 type StoredSession = PortalSession;
@@ -74,6 +76,7 @@ export default function PortalTakePage() {
   const [submitting, setSubmitting] = useState(false);
   const [agreedToDisclaimer, setAgreedToDisclaimer] = useState(false);
   const [disclaimerChecked, setDisclaimerChecked] = useState(false);
+  const [instructionsAcknowledged, setInstructionsAcknowledged] = useState(false);
 
   // Demographics gate — fields come from the admin-managed catalog, filtered per-questionnaire.
   const [demographicsSubmitted, setDemographicsSubmitted] = useState(false);
@@ -311,6 +314,57 @@ export default function PortalTakePage() {
                 >
                   <Check className="h-4 w-4" />
                   Agree &amp; Continue
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </main>
+      </div>
+    );
+  }
+
+  // Instructions gate — shown after disclaimer (if any) when the author
+  // enabled showInstructions and provided non-empty text. No checkbox here:
+  // it's informational, the respondent just clicks Continue.
+  const hasInstructions = !!(instrument.showInstructions
+      && instrument.instructions
+      && instrument.instructions.trim().length > 0);
+  if (hasInstructions && !instructionsAcknowledged) {
+    return (
+      <div className="flex-1 min-h-screen w-full bg-linear-to-b from-muted/30 via-background to-background">
+        <header className="border-b border-border bg-background">
+          <div className="max-w-3xl mx-auto px-5 py-4 flex items-center gap-3">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+              <Brain className="h-4 w-4" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold">{instrument.name}</p>
+              <p className="text-xs text-muted-foreground">{user?.name} · Assessment {session.id}</p>
+            </div>
+          </div>
+        </header>
+        <main className="max-w-3xl mx-auto px-5 py-8">
+          <Card>
+            <CardContent className="p-6 space-y-5">
+              <div className="flex items-center gap-3">
+                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                  <ListChecks className="h-5 w-5" />
+                </div>
+                <div>
+                  <p className="text-[0.6875rem] font-medium uppercase tracking-wider text-primary">Before you begin</p>
+                  <h2 className="text-xl font-semibold tracking-tight">Instructions</h2>
+                </div>
+              </div>
+              <div className="rounded-lg border border-border bg-muted/30 p-4 whitespace-pre-wrap text-sm leading-relaxed max-h-[60vh] overflow-y-auto">
+                {instrument.instructions}
+              </div>
+              <div className="flex items-center justify-between gap-3 pt-1">
+                <Button variant="outline" onClick={() => window.location.href = '/portal/assessments'}>
+                  Cancel
+                </Button>
+                <Button variant="primary" onClick={() => setInstructionsAcknowledged(true)}>
+                  <Check className="h-4 w-4" />
+                  Continue
                 </Button>
               </div>
             </CardContent>

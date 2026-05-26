@@ -2,22 +2,20 @@ package com.bodhpsychometric.bodhassess.model;
 
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.HashSet;
+import java.util.Set;
 
+import javax.persistence.CollectionTable;
 import javax.persistence.Column;
+import javax.persistence.ElementCollection;
 import javax.persistence.Entity;
+import javax.persistence.FetchType;
 import javax.persistence.Id;
+import javax.persistence.JoinColumn;
 import javax.persistence.Table;
-
-import org.hibernate.annotations.Type;
-import org.hibernate.annotations.TypeDef;
-
-import com.vladmihalcea.hibernate.type.json.JsonStringType;
 
 @Entity
 @Table(name = "practitioners")
-@TypeDef(name = "json", typeClass = JsonStringType.class)
 public class Practitioner {
 
     @Id
@@ -29,13 +27,21 @@ public class Practitioner {
 
     private String phone;
 
-    @Type(type = "json")
-    @Column(name = "roles", columnDefinition = "json")
-    private List<String> roles = new ArrayList<>();
+    // Roles and verticals live in dedicated join tables so they're queryable
+    // ("which practitioners have role X") and indexable, instead of opaque
+    // JSON. Set (not List) sidesteps Hibernate's MultipleBagFetchException
+    // for two eager collections on the same entity.
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "practitioner_roles",
+            joinColumns = @JoinColumn(name = "practitioner_id"))
+    @Column(name = "role", nullable = false, length = 255)
+    private Set<String> roles = new HashSet<>();
 
-    @Type(type = "json")
-    @Column(columnDefinition = "json")
-    private List<String> verticals = new ArrayList<>();
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "practitioner_verticals",
+            joinColumns = @JoinColumn(name = "practitioner_id"))
+    @Column(name = "vertical", nullable = false, length = 255)
+    private Set<String> verticals = new HashSet<>();
 
     private String status;
 
@@ -58,10 +64,10 @@ public class Practitioner {
     public void setEmail(String email) { this.email = email; }
     public String getPhone() { return phone; }
     public void setPhone(String phone) { this.phone = phone; }
-    public List<String> getRoles() { return roles; }
-    public void setRoles(List<String> roles) { this.roles = roles; }
-    public List<String> getVerticals() { return verticals; }
-    public void setVerticals(List<String> verticals) { this.verticals = verticals; }
+    public Set<String> getRoles() { return roles; }
+    public void setRoles(Set<String> roles) { this.roles = roles; }
+    public Set<String> getVerticals() { return verticals; }
+    public void setVerticals(Set<String> verticals) { this.verticals = verticals; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
     public String getLastLogin() { return lastLogin; }

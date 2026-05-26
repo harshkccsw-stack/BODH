@@ -40,7 +40,7 @@ public class RolesService {
         r.setId(dto.getId());
         r.setName(dto.getName().trim());
         r.setDescription(dto.getDescription());
-        r.setUrlPaths(dto.getUrlPaths() == null ? new ArrayList<>() : new ArrayList<>(dto.getUrlPaths()));
+        r.setUrlPaths(dto.getUrlPaths() == null ? new java.util.HashSet<>() : new java.util.HashSet<>(dto.getUrlPaths()));
         return toDto(repo.save(r));
     }
 
@@ -48,7 +48,7 @@ public class RolesService {
         Role r = repo.findById(id).orElseThrow(() -> new ResourceNotFoundException("Role", "id", id));
         if (StringUtils.hasText(dto.getName())) r.setName(dto.getName());
         r.setDescription(dto.getDescription());
-        r.setUrlPaths(dto.getUrlPaths() == null ? new ArrayList<>() : new ArrayList<>(dto.getUrlPaths()));
+        r.setUrlPaths(dto.getUrlPaths() == null ? new java.util.HashSet<>() : new java.util.HashSet<>(dto.getUrlPaths()));
         return toDto(repo.save(r));
     }
 
