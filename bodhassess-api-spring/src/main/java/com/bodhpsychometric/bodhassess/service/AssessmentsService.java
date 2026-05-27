@@ -18,7 +18,10 @@ import org.springframework.util.StringUtils;
 
 import com.bodhpsychometric.bodhassess.exception.BadRequestException;
 import com.bodhpsychometric.bodhassess.exception.ResourceNotFoundException;
+import com.bodhpsychometric.bodhassess.model.AssessmentAnswer;
 import com.bodhpsychometric.bodhassess.model.PortalSession;
+import com.bodhpsychometric.bodhassess.model.PortalSessionDemographic;
+import com.bodhpsychometric.bodhassess.model.PortalSessionMqtScore;
 import com.bodhpsychometric.bodhassess.payload.AssessmentDto;
 import com.bodhpsychometric.bodhassess.payload.HeartbeatRequest;
 import com.bodhpsychometric.bodhassess.repository.PortalSessionRepository;
@@ -109,10 +112,10 @@ public class AssessmentsService {
             if (s.getStartedAt() == null && hasAnyAnswer(dto.getAnswers())) {
                 s.setStartedAt(OffsetDateTime.now(ZoneOffset.UTC));
             }
-            s.setAnswers(dto.getAnswers());
+            applyAnswersFromMap(s, dto.getAnswers());
         }
-        if (dto.getMqtScores() != null) s.setMqtScores(dto.getMqtScores());
-        if (dto.getDemographics() != null) s.setDemographics(dto.getDemographics());
+        if (dto.getMqtScores() != null) applyMqtScoresFromMap(s, dto.getMqtScores());
+        if (dto.getDemographics() != null) applyDemographicsFromMap(s, dto.getDemographics());
 
         if ("Completed".equalsIgnoreCase(dto.getStatus())) {
             OffsetDateTime ts = null;
@@ -159,10 +162,9 @@ public class AssessmentsService {
         s.setLanguage(StringUtils.hasText(dto.getLanguage()) ? dto.getLanguage() : "English");
         s.setStatus(StringUtils.hasText(dto.getStatus()) ? dto.getStatus() : "Active");
         s.setScore(dto.getScore());
-        s.setAnswers(dto.getAnswers() == null ? new HashMap<>() : dto.getAnswers());
-        Map<String, Object> mqts = dto.getMqtScores() == null ? new HashMap<>() : dto.getMqtScores();
-        s.setMqtScores(mqts);
-        s.setDemographics(dto.getDemographics() == null ? new HashMap<>() : dto.getDemographics());
+        applyAnswersFromMap(s, dto.getAnswers());
+        applyMqtScoresFromMap(s, dto.getMqtScores());
+        applyDemographicsFromMap(s, dto.getDemographics());
         s.setGroupId(dto.getGroupId());
         s.setGroupName(dto.getGroupName());
         s.setConsentId(dto.getConsentId());
@@ -185,9 +187,9 @@ public class AssessmentsService {
         d.setLanguage(s.getLanguage());
         d.setStatus(s.getStatus());
         d.setScore(s.getScore());
-        d.setAnswers(s.getAnswers());
-        d.setMqtScores(s.getMqtScores());
-        d.setDemographics(s.getDemographics());
+        d.setAnswers(answersAsMap(s));
+        d.setMqtScores(mqtScoresAsMap(s));
+        d.setDemographics(demographicsAsMap(s));
         d.setGroupId(s.getGroupId());
         d.setGroupName(s.getGroupName());
         d.setConsentId(s.getConsentId());
@@ -198,6 +200,121 @@ public class AssessmentsService {
         if (s.getCompletedAt() != null) d.setCompletedAt(s.getCompletedAt().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME));
         if (s.getStartedAt() != null) d.setStartedAt(s.getStartedAt().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME));
         return d;
+    }
+
+    /**
+     * Rebuild the session's answer rows from the incoming map. orphanRemoval
+     * on the @OneToMany takes care of deleting any rows for questions that
+     * the new map no longer mentions.
+     */
+    private void applyAnswersFromMap(PortalSession s, Map<String, Object> in) {
+        s.getAnswers().clear();
+        if (in == null || in.isEmpty()) return;
+        for (Map.Entry<String, Object> e : in.entrySet()) {
+            String qid = e.getKey();
+            if (qid == null || qid.isEmpty()) continue;
+            AssessmentAnswer row = new AssessmentAnswer();
+            row.setSession(s);
+            row.setQuestionId(qid);
+            Object v = e.getValue();
+            if (v instanceof Number) {
+                row.setOptionIndex(((Number) v).intValue());
+            } else if (v != null) {
+                row.setFreeText(v.toString());
+            }
+            s.getAnswers().add(row);
+        }
+    }
+
+    /** Flatten answer rows back to the API's {questionId: value} shape. */
+    private Map<String, Object> answersAsMap(PortalSession s) {
+        Map<String, Object> out = new HashMap<>();
+        if (s.getAnswers() == null) return out;
+        for (AssessmentAnswer a : s.getAnswers()) {
+            if (a.getQuestionId() == null) continue;
+            if (a.getOptionIndex() != null) {
+                out.put(a.getQuestionId(), a.getOptionIndex());
+            } else {
+                out.put(a.getQuestionId(), a.getFreeText());
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Rebuild the session's per-MQT score rows from the incoming map.
+     * Accepts either the current shape (`{mqt_id: {name, score}}`) or the
+     * legacy shape (`{mqt_id_or_name: score}`) so older payloads still load.
+     */
+    private void applyMqtScoresFromMap(PortalSession s, Map<String, Object> in) {
+        s.getMqtScores().clear();
+        if (in == null || in.isEmpty()) return;
+        for (Map.Entry<String, Object> e : in.entrySet()) {
+            String key = e.getKey();
+            if (key == null || key.isEmpty()) continue;
+            Object v = e.getValue();
+            Double score = null;
+            String name = null;
+            if (v instanceof Number) {
+                score = ((Number) v).doubleValue();
+            } else if (v instanceof Map) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> obj = (Map<String, Object>) v;
+                Object rawScore = obj.get("score");
+                Object rawName = obj.get("name");
+                if (rawScore instanceof Number) score = ((Number) rawScore).doubleValue();
+                if (rawName != null) name = rawName.toString();
+            }
+            if (score == null) continue;
+            PortalSessionMqtScore row = new PortalSessionMqtScore();
+            row.setSession(s);
+            row.setMqtId(key);
+            row.setMqtName(name);
+            row.setScore(score);
+            s.getMqtScores().add(row);
+        }
+    }
+
+    /** Flatten MQT score rows back to the current API shape. */
+    private Map<String, Object> mqtScoresAsMap(PortalSession s) {
+        Map<String, Object> out = new HashMap<>();
+        if (s.getMqtScores() == null) return out;
+        for (PortalSessionMqtScore row : s.getMqtScores()) {
+            if (row.getMqtId() == null) continue;
+            Map<String, Object> entry = new HashMap<>();
+            entry.put("name", row.getMqtName());
+            entry.put("score", row.getScore());
+            out.put(row.getMqtId(), entry);
+        }
+        return out;
+    }
+
+    /** Rebuild demographic answer rows from the incoming map. */
+    private void applyDemographicsFromMap(PortalSession s, Map<String, Object> in) {
+        s.getDemographics().clear();
+        if (in == null || in.isEmpty()) return;
+        for (Map.Entry<String, Object> e : in.entrySet()) {
+            String key = e.getKey();
+            if (key == null || key.isEmpty()) continue;
+            Object v = e.getValue();
+            if (v == null) continue;
+            PortalSessionDemographic row = new PortalSessionDemographic();
+            row.setSession(s);
+            row.setFieldKey(key);
+            row.setValue(v.toString());
+            s.getDemographics().add(row);
+        }
+    }
+
+    /** Flatten demographic rows back to {field_key: value}. */
+    private Map<String, Object> demographicsAsMap(PortalSession s) {
+        Map<String, Object> out = new HashMap<>();
+        if (s.getDemographics() == null) return out;
+        for (PortalSessionDemographic row : s.getDemographics()) {
+            if (row.getFieldKey() == null) continue;
+            out.put(row.getFieldKey(), row.getValue());
+        }
+        return out;
     }
 
     private boolean hasAnyAnswer(Map<String, Object> answers) {

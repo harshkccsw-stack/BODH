@@ -3,8 +3,11 @@ package com.bodhpsychometric.bodhassess.service;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
@@ -64,11 +67,11 @@ public class PractitionersService {
         p.setName(dto.getName().trim());
         p.setEmail(dto.getEmail().trim());
         p.setPhone(StringUtils.hasText(dto.getPhone()) ? dto.getPhone().trim() : null);
-        List<String> roles = (dto.getRoles() == null || dto.getRoles().isEmpty())
-                ? new ArrayList<>(Arrays.asList("Practitioner"))
-                : new ArrayList<>(dto.getRoles());
+        Set<String> roles = (dto.getRoles() == null || dto.getRoles().isEmpty())
+                ? new HashSet<>(Arrays.asList("Practitioner"))
+                : new HashSet<>(dto.getRoles());
         p.setRoles(roles);
-        p.setVerticals(dto.getVerticals() == null ? new ArrayList<>() : new ArrayList<>(dto.getVerticals()));
+        p.setVerticals(dto.getVerticals() == null ? new HashSet<>() : new HashSet<>(dto.getVerticals()));
         p.setStatus(StringUtils.hasText(dto.getStatus()) ? dto.getStatus() : "Active");
         p.setLastLogin(dto.getLastLogin());
         p.setDob(StringUtils.hasText(dto.getDob()) ? LocalDate.parse(dto.getDob()) : null);
@@ -80,8 +83,8 @@ public class PractitionersService {
         if (StringUtils.hasText(dto.getName())) p.setName(dto.getName());
         if (StringUtils.hasText(dto.getEmail())) p.setEmail(dto.getEmail());
         if (dto.getPhone() != null) p.setPhone(dto.getPhone().trim().isEmpty() ? null : dto.getPhone().trim());
-        if (dto.getRoles() != null) p.setRoles(new ArrayList<>(dto.getRoles()));
-        if (dto.getVerticals() != null) p.setVerticals(new ArrayList<>(dto.getVerticals()));
+        if (dto.getRoles() != null) p.setRoles(new HashSet<>(dto.getRoles()));
+        if (dto.getVerticals() != null) p.setVerticals(new HashSet<>(dto.getVerticals()));
         if (StringUtils.hasText(dto.getStatus())) p.setStatus(dto.getStatus());
         if (StringUtils.hasText(dto.getLastLogin())) p.setLastLogin(dto.getLastLogin());
         if (StringUtils.hasText(dto.getDob())) p.setDob(LocalDate.parse(dto.getDob()));
@@ -118,7 +121,7 @@ public class PractitionersService {
         List<String> urlPaths = urlPathsForRoles(p.getRoles());
 
         String token = tokenProvider.createToken(p.getId(), p.getEmail(),
-                UserPrincipal.UserType.PRACTITIONER, p.getRoles());
+                UserPrincipal.UserType.PRACTITIONER, new ArrayList<>(p.getRoles()));
 
         PractitionerLoginResponse.PractitionerMe me = new PractitionerLoginResponse.PractitionerMe();
         copyTo(me, toDto(p));
@@ -139,20 +142,12 @@ public class PractitionersService {
         return me;
     }
 
-    private List<String> urlPathsForRoles(List<String> roleNames) {
+    private List<String> urlPathsForRoles(Collection<String> roleNames) {
         if (roleNames == null || roleNames.isEmpty()) return new ArrayList<>();
-        List<String> jsons = roleRepo.findUrlPathsJsonByRoleNames(roleNames);
-        LinkedHashSet<String> seen = new LinkedHashSet<>();
-        for (String raw : jsons) {
-            if (raw == null || raw.isEmpty()) continue;
-            try {
-                List<String> arr = objectMapper.readValue(raw, new com.fasterxml.jackson.core.type.TypeReference<List<String>>() {});
-                seen.addAll(arr);
-            } catch (Exception e) {
-                log.warn("urlPathsForRoles: malformed url_paths JSON {}: {}", raw, e.getMessage());
-            }
-        }
-        return new ArrayList<>(seen);
+        // Returns deduplicated URL paths flattened across all named roles —
+        // the join query already does DISTINCT, but we preserve insertion
+        // order with a LinkedHashSet just in case the driver isn't stable.
+        return new ArrayList<>(new LinkedHashSet<>(roleRepo.findUrlPathsByRoleNames(roleNames)));
     }
 
     private PractitionerDto toDto(Practitioner p) {

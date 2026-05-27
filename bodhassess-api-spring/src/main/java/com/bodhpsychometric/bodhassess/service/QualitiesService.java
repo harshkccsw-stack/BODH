@@ -1,5 +1,6 @@
 package com.bodhpsychometric.bodhassess.service;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -11,6 +12,7 @@ import org.springframework.util.StringUtils;
 import com.bodhpsychometric.bodhassess.exception.BadRequestException;
 import com.bodhpsychometric.bodhassess.exception.ResourceNotFoundException;
 import com.bodhpsychometric.bodhassess.model.MeasuredQuality;
+import com.bodhpsychometric.bodhassess.model.Mqt;
 import com.bodhpsychometric.bodhassess.payload.QualityDto;
 import com.bodhpsychometric.bodhassess.repository.MeasuredQualityRepository;
 
@@ -39,19 +41,18 @@ public class QualitiesService {
         q.setId(dto.getId());
         q.setName(dto.getName());
         q.setDescription(dto.getDescription());
-        q.setMqts(dto.getMqts() == null ? java.util.Collections.emptyList() :
-                dto.getMqts().stream().map(this::dtoToEntity).collect(Collectors.toList()));
-        return toDto(repo.save(q));
-    }
 
-    private MeasuredQuality.Mqt dtoToEntity(QualityDto.MqtDto m) {
-        MeasuredQuality.Mqt out = new MeasuredQuality.Mqt();
-        out.setId(m.getId());
-        out.setName(m.getName());
-        if (m.getChildren() != null && !m.getChildren().isEmpty()) {
-            out.setChildren(m.getChildren().stream().map(this::dtoToEntity).collect(Collectors.toList()));
+        // Rebuild the MQT tree from the DTO. orphanRemoval on MeasuredQuality
+        // deletes anything no longer in the list; cascade ALL persists the
+        // new tree on save.
+        q.getMqts().clear();
+        if (dto.getMqts() != null) {
+            int idx = 0;
+            for (QualityDto.MqtDto child : dto.getMqts()) {
+                q.getMqts().add(buildMqt(q, null, child, idx++));
+            }
         }
-        return out;
+        return toDto(repo.save(q));
     }
 
     public QualityDto update(String id, QualityDto dto) {
@@ -67,17 +68,33 @@ public class QualitiesService {
         repo.deleteById(id);
     }
 
+    private Mqt buildMqt(MeasuredQuality mq, Mqt parent, QualityDto.MqtDto dto, int order) {
+        Mqt m = new Mqt();
+        m.setId(dto.getId());
+        m.setName(dto.getName());
+        m.setMq(mq);
+        m.setParent(parent);
+        m.setSortOrder(order);
+        if (dto.getChildren() != null && !dto.getChildren().isEmpty()) {
+            int idx = 0;
+            for (QualityDto.MqtDto childDto : dto.getChildren()) {
+                m.getChildren().add(buildMqt(mq, m, childDto, idx++));
+            }
+        }
+        return m;
+    }
+
     private QualityDto toDto(MeasuredQuality q) {
         QualityDto d = new QualityDto();
         d.setId(q.getId());
         d.setName(q.getName());
         d.setDescription(q.getDescription());
-        d.setMqts(q.getMqts() == null ? new java.util.ArrayList<>() :
+        d.setMqts(q.getMqts() == null ? new ArrayList<>() :
                 q.getMqts().stream().map(this::entityToDto).collect(Collectors.toList()));
         return d;
     }
 
-    private QualityDto.MqtDto entityToDto(MeasuredQuality.Mqt m) {
+    private QualityDto.MqtDto entityToDto(Mqt m) {
         QualityDto.MqtDto out = new QualityDto.MqtDto();
         out.setId(m.getId());
         out.setName(m.getName());

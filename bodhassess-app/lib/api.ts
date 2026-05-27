@@ -310,6 +310,8 @@ export interface PublishedQuestionnaire {
   }>;
   isDemo?: boolean;
   disclaimer?: string;
+  instructions?: string;
+  showInstructions?: boolean;
   demographicFieldKeys?: string[];
   createdAt?: string;
 }
