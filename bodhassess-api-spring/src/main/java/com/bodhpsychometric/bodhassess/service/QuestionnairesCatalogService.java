@@ -31,18 +31,35 @@ public class QuestionnairesCatalogService {
 
     @Transactional(readOnly = true)
     public QuestionnaireCatalogDtos.QuestionnaireCatalogListResponse list(String vertical) {
+        // item_count was historically a denormalized counter on `instruments`,
+        // populated by ItemsService.bulkCreateItems when items are written.
+        // Two real-world cases leave it at 0 even when questions exist:
+        //   1. The publish flow's Call 3 (bulk items) silently failed or was
+        //      skipped, so the `items` table stayed empty for that instrument.
+        //   2. Questions were only ever written to the `published_questionnaires`
+        //      snapshot (Call 1), not the `items` table.
+        // Derive the count live from the two real sources and take the larger,
+        // so the UI matches what the user can actually see/answer. Matching
+        // `published_questionnaire_questions` by name mirrors the dual-write
+        // convention used elsewhere (e.g. delete() below).
         StringBuilder sql = new StringBuilder(
-            "SELECT id, name, short_name, vertical, category, item_count, duration_minutes," +
-            " tier_required, is_adaptive, is_fixed_sequence, norm_status, age_range," +
-            " is_published, created_at" +
-            " FROM instruments WHERE is_published = TRUE"
+            "SELECT i.id, i.name, i.short_name, i.vertical, i.category," +
+            " GREATEST(" +
+            "   (SELECT COUNT(*) FROM items WHERE instrument_id = i.id)," +
+            "   COALESCE((SELECT COUNT(*) FROM published_questionnaire_questions pqq" +
+            "             JOIN published_questionnaires pq ON pq.id = pqq.questionnaire_id" +
+            "             WHERE LOWER(TRIM(pq.name)) = LOWER(TRIM(i.name))), 0)" +
+            " ) AS item_count," +
+            " i.duration_minutes, i.tier_required, i.is_adaptive, i.is_fixed_sequence," +
+            " i.norm_status, i.age_range, i.is_published, i.created_at" +
+            " FROM instruments i WHERE i.is_published = TRUE"
         );
         javax.persistence.Query q;
         if (StringUtils.hasText(vertical)) {
-            sql.append(" AND vertical = ?1 ORDER BY vertical, name");
+            sql.append(" AND i.vertical = ?1 ORDER BY i.vertical, i.name");
             q = em.createNativeQuery(sql.toString()).setParameter(1, vertical);
         } else {
-            sql.append(" ORDER BY vertical, name");
+            sql.append(" ORDER BY i.vertical, i.name");
             q = em.createNativeQuery(sql.toString());
         }
         @SuppressWarnings("unchecked")
@@ -142,11 +159,21 @@ public class QuestionnairesCatalogService {
 
     @Transactional(readOnly = true)
     public Map<String, Object> get(String id) {
+        // See list() above for the same item_count derivation rationale —
+        // prefer the live items count, fall back to the name-matched
+        // published_questionnaires snapshot.
         @SuppressWarnings("unchecked")
         List<Object[]> rows = em.createNativeQuery(
-            "SELECT name, short_name, vertical, category, item_count, duration_minutes," +
-            " tier_required, is_adaptive, is_fixed_sequence, norm_status, age_range, created_at" +
-            " FROM instruments WHERE id = ?1")
+            "SELECT i.name, i.short_name, i.vertical, i.category," +
+            " GREATEST(" +
+            "   (SELECT COUNT(*) FROM items WHERE instrument_id = i.id)," +
+            "   COALESCE((SELECT COUNT(*) FROM published_questionnaire_questions pqq" +
+            "             JOIN published_questionnaires pq ON pq.id = pqq.questionnaire_id" +
+            "             WHERE LOWER(TRIM(pq.name)) = LOWER(TRIM(i.name))), 0)" +
+            " ) AS item_count," +
+            " i.duration_minutes, i.tier_required, i.is_adaptive, i.is_fixed_sequence," +
+            " i.norm_status, i.age_range, i.created_at" +
+            " FROM instruments i WHERE i.id = ?1")
             .setParameter(1, id)
             .getResultList();
         if (rows.isEmpty()) throw new ResourceNotFoundException("Questionnaire", "id", id);

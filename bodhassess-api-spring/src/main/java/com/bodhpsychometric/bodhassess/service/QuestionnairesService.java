@@ -58,12 +58,25 @@ public class QuestionnairesService {
     /**
      * Idempotent on both id and name so re-publishes overwrite cleanly. We
      * first delete any other row holding this name, then upsert by id.
+     *
+     * Note: deleting via repo.delete(entity) instead of a bulk JPQL DELETE is
+     * required — the child tables (mqs, questions, languages,
+     * demographicFieldKeys) hold FKs back to published_questionnaires, and
+     * only the entity-level remove fires the cascade/orphanRemoval that
+     * clears them first.
      */
     public QuestionnaireDto upsert(QuestionnaireDto dto) {
         if (!StringUtils.hasText(dto.getId()) || !StringUtils.hasText(dto.getName())) {
             throw new BadRequestException("id and name are required");
         }
-        repo.deleteOthersByName(dto.getName().trim(), dto.getId().trim());
+        for (PublishedQuestionnaire dup : repo.findOthersByName(dto.getName().trim(), dto.getId().trim())) {
+            repo.delete(dup);
+        }
+        // Flush so the parent rows (and their cascaded children) are gone
+        // before we save the new/updated row under the kept id. Without this
+        // the upsert's INSERT can race the cascade's DELETEs in one tx and
+        // re-trip the same FK that motivated this change.
+        repo.flush();
 
         PublishedQuestionnaire q = repo.findById(dto.getId()).orElseGet(PublishedQuestionnaire::new);
         q.setId(dto.getId());
