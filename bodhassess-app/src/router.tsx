@@ -38,6 +38,7 @@ const HomePage           = () => lazyPage(() => import('@/src/pages/home'));
 const LoginPage          = () => lazyPage(() => import('@/src/pages/login'));
 const RegisterPage       = () => lazyPage(() => import('@/src/pages/register'));
 const SelectVerticalPage = () => lazyPage(() => import('@/src/pages/select-vertical'));
+const EntityRegistrationPage = () => lazyPage(() => import('@/src/pages/entity-registration'));
 
 // ── Respondent portal (own auth, lives outside dashboard chrome) ──────────
 const PortalLogin       = () => lazyPage(() => import('@/src/pages/portal/login'));
@@ -54,7 +55,8 @@ const Qualities          = () => lazyPage(() => import('@/src/pages/qualities'))
 const AdminGroups        = () => lazyPage(() => import('@/src/pages/admin/groups'));
 const AdminPermissions   = () => lazyPage(() => import('@/src/pages/admin/permissions'));
 const AdminPractitioners = () => lazyPage(() => import('@/src/pages/admin/practitioners'));
-const AdminRespondents   = () => lazyPage(() => import('@/src/pages/admin/respondents'));
+const AdminRespondents          = () => lazyPage(() => import('@/src/pages/admin/respondents'));
+const AdminEntityRegistrations  = () => lazyPage(() => import('@/src/pages/admin/entity-registrations'));
 const AdminRoles         = () => lazyPage(() => import('@/src/pages/admin/roles'));
 const AdminLiveTracking  = () => lazyPage(() => import('@/src/pages/admin/live-tracking'));
 
@@ -136,6 +138,9 @@ const routes: RouteObject[] = [
         ],
       },
 
+      // Entity registration — public form, no auth required
+      { path: '/entity-registration', element: <EntityRegistrationPage /> },
+
       // Respondent portal — handles its own auth via portal-specific tokens
       { path: '/portal/login', element: <PortalLogin /> },
       { path: '/portal/assessments', element: <PortalAssessments /> },
@@ -171,6 +176,7 @@ const routes: RouteObject[] = [
       { path: '/admin/permissions', element: <AdminPermissions /> },
       { path: '/admin/practitioners', element: <AdminPractitioners /> },
       { path: '/admin/respondents', element: <AdminRespondents /> },
+      { path: '/admin/entity-registrations', element: <AdminEntityRegistrations /> },
       { path: '/admin/roles', element: <AdminRoles /> },
       { path: '/admin/live-tracking', element: <AdminLiveTracking /> },
 

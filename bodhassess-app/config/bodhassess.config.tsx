@@ -132,6 +132,7 @@ export const MENU_SIDEBAR: MenuConfig = [
       { title: 'Practitioners', path: '/admin/practitioners' },
       { title: 'Roles & Permissions', path: '/admin/permissions' },
       { title: 'Respondents', path: '/admin/respondents' },
+      { title: 'Entity Registrations', path: '/admin/entity-registrations' },
       { title: 'Groups', path: '/admin/groups' },
       { title: 'Permissions', path: '/admin/roles' },
     ],

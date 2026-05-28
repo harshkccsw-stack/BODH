@@ -95,6 +95,31 @@ export interface BulkRespondentResult {
   inserted: Respondent[];
 }
 
+// Public self-signup table; admin-side list/delete only.
+export interface EntityRegistration {
+  id?: string;
+  name: string;
+  companyName?: string;
+  email: string;
+  phone?: string;
+  dob: string;
+  sessions_count?: number;
+  last_assessment?: string;
+  accountType?: string;
+  orgName?: string;
+  orgWebsite?: string;
+  created_at?: string;
+}
+
+export const entityRegistrationsApi = {
+  list: () => jsonFetch<EntityRegistration[]>('/entity-registrations'),
+  get: (id: string) => jsonFetch<EntityRegistration>(`/entity-registrations/${encodeURIComponent(id)}`),
+  create: (e: EntityRegistration) =>
+    jsonFetch<EntityRegistration>('/entity-registrations', { method: 'POST', body: JSON.stringify(e) }),
+  delete: (id: string) =>
+    jsonFetch<null>(`/entity-registrations/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+};
+
 export const respondentsApi = {
   list: () => jsonFetch<Respondent[]>('/respondents'),
   get: (id: string) => jsonFetch<Respondent>(`/respondents/${encodeURIComponent(id)}`),

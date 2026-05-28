@@ -70,6 +70,9 @@ public class SecurityConfig extends WebSecurityConfigurerAdapter {
                 .and()
                 .authorizeRequests()
                 .antMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+                // Self-registration: only the POST is public (the form). The
+                // list/get/delete endpoints stay behind admin auth.
+                .antMatchers(HttpMethod.POST, "/api/v1/entity-registrations").permitAll()
                 .antMatchers(
                         "/",
                         "/error",
