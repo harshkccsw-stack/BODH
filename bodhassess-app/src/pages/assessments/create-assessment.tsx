@@ -523,7 +523,9 @@ export default function CreateSessionPage() {
                     {vertical === 'all' ? (
                       <>
                         {verticalOptions.map((v) => {
-                          const group = filteredQuestionnaires.filter((i) => i.vertical === v);
+                          const group = filteredQuestionnaires.filter(
+                            (i) => normalizeVertical(i.vertical, verticalCatalog) === v
+                          );
                           if (group.length === 0) return null;
                           return (
                             <div key={v}>
