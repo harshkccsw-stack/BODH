@@ -57,7 +57,7 @@ export default function EntityRegistrationPage() {
           </div>
           <h1 className="text-2xl font-semibold tracking-tight">Entity Registration</h1>
           <p className="text-sm text-muted-foreground">
-            Register yourself or your organisation. An admin will review your submission.
+            Register your company along with your details as its contact person. An admin will review your submission.
           </p>
         </div>
 
@@ -95,15 +95,6 @@ export default function EntityRegistrationPage() {
                   </div>
                 )}
                 <div className="space-y-1.5">
-                  <label className="text-sm font-medium">Name *</label>
-                  <input
-                    value={form.name}
-                    onChange={(e) => setForm({ ...form, name: e.target.value })}
-                    placeholder="e.g., Arjun Patel"
-                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-                  />
-                </div>
-                <div className="space-y-1.5">
                   <label className="text-sm font-medium">Company Name *</label>
                   <input
                     value={form.companyName}
@@ -112,41 +103,58 @@ export default function EntityRegistrationPage() {
                     autoComplete="organization"
                     className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
                   />
+                  <p className="text-[0.6875rem] text-muted-foreground">This is the entity being registered.</p>
                 </div>
-                <div className="space-y-1.5">
-                  <label className="text-sm font-medium">Official Email *</label>
-                  <input
-                    type="email"
-                    value={form.email}
-                    onChange={(e) => setForm({ ...form, email: e.target.value })}
-                    placeholder="you@company.com"
-                    autoComplete="email"
-                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-                  />
+
+                <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-3">
+                  <p className="text-[0.6875rem] uppercase tracking-wider text-muted-foreground font-medium">Contact Person at the Company</p>
+
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium">Name *</label>
+                    <input
+                      value={form.name}
+                      onChange={(e) => setForm({ ...form, name: e.target.value })}
+                      placeholder="e.g., Arjun Patel"
+                      autoComplete="name"
+                      className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium">Official Email *</label>
+                    <input
+                      type="email"
+                      value={form.email}
+                      onChange={(e) => setForm({ ...form, email: e.target.value })}
+                      placeholder="contact@company.com"
+                      autoComplete="email"
+                      className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium">Phone *</label>
+                    <input
+                      type="tel"
+                      value={form.phone}
+                      onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                      placeholder="+91 98765 43210"
+                      autoComplete="tel"
+                      className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium">Date of Birth *</label>
+                    <input
+                      inputMode="numeric"
+                      value={form.dob}
+                      onChange={(e) => setForm({ ...form, dob: autoFormatDdmmyyyy(e.target.value) })}
+                      placeholder="DD/MM/YYYY"
+                      maxLength={10}
+                      className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                    />
+                    <p className="text-[0.6875rem] text-muted-foreground">Format DD/MM/YYYY.</p>
+                  </div>
                 </div>
-                <div className="space-y-1.5">
-                  <label className="text-sm font-medium">Phone *</label>
-                  <input
-                    type="tel"
-                    value={form.phone}
-                    onChange={(e) => setForm({ ...form, phone: e.target.value })}
-                    placeholder="+91 98765 43210"
-                    autoComplete="tel"
-                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-sm font-medium">Date of Birth *</label>
-                  <input
-                    inputMode="numeric"
-                    value={form.dob}
-                    onChange={(e) => setForm({ ...form, dob: autoFormatDdmmyyyy(e.target.value) })}
-                    placeholder="DD/MM/YYYY"
-                    maxLength={10}
-                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-                  />
-                  <p className="text-[0.6875rem] text-muted-foreground">Format DD/MM/YYYY.</p>
-                </div>
+
                 <Button type="submit" variant="primary" size="md" className="w-full" disabled={saving}>
                   <UserPlus className="h-4 w-4" />
                   {saving ? 'Submitting…' : 'Submit Registration'}

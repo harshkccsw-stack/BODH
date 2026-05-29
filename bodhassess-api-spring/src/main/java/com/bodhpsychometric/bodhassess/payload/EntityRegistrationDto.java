@@ -1,5 +1,7 @@
 package com.bodhpsychometric.bodhassess.payload;
 
+import java.util.List;
+
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 /**
@@ -20,6 +22,12 @@ public class EntityRegistrationDto {
     private String accountType;
     private String orgName;
     private String orgWebsite;
+    // Boolean (not boolean) so a null on PATCH means "don't change" — lets
+    // the dashboard flip `active` without resending the whole row.
+    private Boolean active;
+    // Linked respondent ids; admin manages via /admin/entity-registrations.
+    @JsonProperty("member_ids")
+    private List<String> memberIds;
     @JsonProperty("created_at")
     private String createdAt;
 
@@ -45,6 +53,10 @@ public class EntityRegistrationDto {
     public void setOrgName(String orgName) { this.orgName = orgName; }
     public String getOrgWebsite() { return orgWebsite; }
     public void setOrgWebsite(String orgWebsite) { this.orgWebsite = orgWebsite; }
+    public Boolean getActive() { return active; }
+    public void setActive(Boolean active) { this.active = active; }
+    public List<String> getMemberIds() { return memberIds; }
+    public void setMemberIds(List<String> memberIds) { this.memberIds = memberIds; }
     public String getCreatedAt() { return createdAt; }
     public void setCreatedAt(String createdAt) { this.createdAt = createdAt; }
 }

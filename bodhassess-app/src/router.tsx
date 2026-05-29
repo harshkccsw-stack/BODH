@@ -36,9 +36,9 @@ function lazyPage(loader: () => Promise<{ default: ComponentType }>) {
 // ── Public pages (no auth) ─────────────────────────────────────────────────
 const HomePage           = () => lazyPage(() => import('@/src/pages/home'));
 const LoginPage          = () => lazyPage(() => import('@/src/pages/login'));
-const RegisterPage       = () => lazyPage(() => import('@/src/pages/register'));
 const SelectVerticalPage = () => lazyPage(() => import('@/src/pages/select-vertical'));
 const EntityRegistrationPage = () => lazyPage(() => import('@/src/pages/entity-registration'));
+const RegisterWithToken      = () => lazyPage(() => import('@/src/pages/register-with-token'));
 
 // ── Respondent portal (own auth, lives outside dashboard chrome) ──────────
 const PortalLogin       = () => lazyPage(() => import('@/src/pages/portal/login'));
@@ -57,12 +57,17 @@ const AdminPermissions   = () => lazyPage(() => import('@/src/pages/admin/permis
 const AdminPractitioners = () => lazyPage(() => import('@/src/pages/admin/practitioners'));
 const AdminRespondents          = () => lazyPage(() => import('@/src/pages/admin/respondents'));
 const AdminEntityRegistrations  = () => lazyPage(() => import('@/src/pages/admin/entity-registrations'));
+const AdminEntityDrillIn        = () => lazyPage(() => import('@/src/pages/admin/entity-drill-in'));
 const AdminRoles         = () => lazyPage(() => import('@/src/pages/admin/roles'));
 const AdminLiveTracking  = () => lazyPage(() => import('@/src/pages/admin/live-tracking'));
 
-const Assessments       = () => lazyPage(() => import('@/src/pages/assessments/all-assessments'));
-const AssessmentsCreate = () => lazyPage(() => import('@/src/pages/assessments/create-assessment'));
-const AssessmentsBatch  = () => lazyPage(() => import('@/src/pages/assessments/batch-upload'));
+const Assessments              = () => lazyPage(() => import('@/src/pages/assessments/all-assessments'));
+const AssessmentsCreate        = () => lazyPage(() => import('@/src/pages/assessments/create-assessment'));
+const AssessmentsEdit          = () => lazyPage(() => import('@/src/pages/assessments/edit-assessment'));
+const AssessmentsBatch         = () => lazyPage(() => import('@/src/pages/assessments/batch-upload'));
+const AssessmentsBrowse        = () => lazyPage(() => import('@/src/pages/assessments/browse-assessments'));
+const AssessmentRespondents    = () => lazyPage(() => import('@/src/pages/assessments/assessment-respondents'));
+const AssessmentInviteOrCopy   = () => lazyPage(() => import('@/src/pages/assessments/invite-or-copy'));
 // Special — uses its own minimal layout, not the dashboard chrome.
 const AssessmentTake    = () => lazyPage(() => import('@/src/pages/assessments/take-assessment'));
 
@@ -96,6 +101,8 @@ const QuestionBankCreate       = () => lazyPage(() => import('@/src/pages/questi
 const QuestionBankNorms        = () => lazyPage(() => import('@/src/pages/question-bank/norms'));
 
 const Questionnaires             = () => lazyPage(() => import('@/src/pages/questionnaires/all-questionnaires'));
+const QuestionnaireParents       = () => lazyPage(() => import('@/src/pages/questionnaires/parents'));
+const QuestionnaireVersions      = () => lazyPage(() => import('@/src/pages/questionnaires/versions'));
 const QuestionnairesClinical     = () => lazyPage(() => import('@/src/pages/questionnaires/clinical'));
 const QuestionnairesCounselling  = () => lazyPage(() => import('@/src/pages/questionnaires/counselling'));
 const QuestionnairesDemographics = () => lazyPage(() => import('@/src/pages/questionnaires/demographics'));
@@ -133,13 +140,18 @@ const routes: RouteObject[] = [
         element: <PublicRoute />,
         children: [
           { path: '/login', element: <LoginPage /> },
-          { path: '/register', element: <RegisterPage /> },
           { path: '/select-vertical', element: <SelectVerticalPage /> },
         ],
       },
 
       // Entity registration — public form, no auth required
       { path: '/entity-registration', element: <EntityRegistrationPage /> },
+
+      // Registration entry point. With ?token=… it resolves the admin's
+      // invite, skips the account-type picker, links the registrant to the
+      // token's entity/group, and drops them into the assessment. Without a
+      // token it falls back to ordinary self-signup.
+      { path: '/register', element: <RegisterWithToken /> },
 
       // Respondent portal — handles its own auth via portal-specific tokens
       { path: '/portal/login', element: <PortalLogin /> },
@@ -177,12 +189,24 @@ const routes: RouteObject[] = [
       { path: '/admin/practitioners', element: <AdminPractitioners /> },
       { path: '/admin/respondents', element: <AdminRespondents /> },
       { path: '/admin/entity-registrations', element: <AdminEntityRegistrations /> },
+      { path: '/admin/entity-registrations/:id', element: <AdminEntityDrillIn /> },
       { path: '/admin/roles', element: <AdminRoles /> },
       { path: '/admin/live-tracking', element: <AdminLiveTracking /> },
 
       { path: '/assessments', element: <Assessments /> },
       { path: '/assessments/create', element: <AssessmentsCreate /> },
+      { path: '/assessments/edit/:id', element: <AssessmentsEdit /> },
       { path: '/assessments/batch', element: <AssessmentsBatch /> },
+      // Browse assessments grouped by the bulk-create group key + drill in
+      // to that assessment's respondents. /respondents (literal) must come
+      // before the /:assessmentId/respondents route so the literal wins.
+      { path: '/assessments/respondents', element: <AssessmentsBrowse /> },
+      { path: '/assessments/:assessmentId/respondents', element: <AssessmentRespondents /> },
+      // Both modes use the same page; the component reads the path
+      // suffix (/invite vs /copy-link) to pick its label and submit
+      // behaviour.
+      { path: '/assessments/:id/invite', element: <AssessmentInviteOrCopy /> },
+      { path: '/assessments/:id/copy-link', element: <AssessmentInviteOrCopy /> },
 
       { path: '/clinical/clients', element: <ClinicalClients /> },
       { path: '/clinical/mse-upload', element: <ClinicalMseUpload /> },
@@ -214,6 +238,12 @@ const routes: RouteObject[] = [
       { path: '/question-bank/norms', element: <QuestionBankNorms /> },
 
       { path: '/questionnaires', element: <Questionnaires /> },
+      // Git-style version history for a single questionnaire parent.
+      // Parent-centric list (one row per questionnaire family). The
+      // /:id/versions route below must stay registered after this so
+      // the literal /parents wins matching.
+      { path: '/questionnaires/parents', element: <QuestionnaireParents /> },
+      { path: '/questionnaires/:id/versions', element: <QuestionnaireVersions /> },
       { path: '/questionnaires/clinical', element: <QuestionnairesClinical /> },
       { path: '/questionnaires/counselling', element: <QuestionnairesCounselling /> },
       { path: '/questionnaires/demographics', element: <QuestionnairesDemographics /> },

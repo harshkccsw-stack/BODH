@@ -1,6 +1,8 @@
 package com.bodhpsychometric.bodhassess.service;
 
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -70,6 +72,28 @@ public class EntityRegistrationsService {
         if (repo.existsById(id)) repo.deleteById(id);
     }
 
+    /**
+     * Admin-only PATCH-style update. Only fields present on the dto
+     * change; a null means "don't touch" — so the dashboard can flip
+     * `active` without re-sending the whole row, and the Members dialog
+     * can replace memberIds without affecting active.
+     *
+     * For memberIds an explicit empty list IS meaningful (clear all
+     * members); only `null` means "skip".
+     *
+     * NOTE: per-(entity, assessment) caps live on AssessmentEntityAllotment
+     * now and are managed through the allotment endpoints, not here.
+     */
+    public EntityRegistrationDto adminUpdate(String id, EntityRegistrationDto dto) {
+        EntityRegistration e = repo.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("EntityRegistration", "id", id));
+        if (dto.getActive() != null) e.setActive(dto.getActive());
+        if (dto.getMemberIds() != null) {
+            e.setMemberIds(new HashSet<>(dto.getMemberIds()));
+        }
+        return toDto(repo.save(e));
+    }
+
     private EntityRegistrationDto toDto(EntityRegistration e) {
         EntityRegistrationDto d = new EntityRegistrationDto();
         d.setId(e.getId());
@@ -83,6 +107,10 @@ public class EntityRegistrationsService {
         d.setAccountType(e.getAccountType());
         d.setOrgName(e.getOrgName());
         d.setOrgWebsite(e.getOrgWebsite());
+        d.setActive(e.isActive());
+        d.setMemberIds(e.getMemberIds() == null
+                ? new ArrayList<>()
+                : new ArrayList<>(e.getMemberIds()));
         if (e.getCreatedAt() != null) {
             d.setCreatedAt(e.getCreatedAt().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME));
         }

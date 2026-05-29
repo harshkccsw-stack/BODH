@@ -82,10 +82,73 @@ public class PublishedQuestionnaire {
     @Column(name = "created_at", insertable = false, updatable = false)
     private OffsetDateTime createdAt;
 
+    // ---------- Versioning (Git-style) ----------
+    //
+    // Each PublishedQuestionnaire row is now a *version* of a parent
+    // Questionnaire. Status drives whether it can be edited (DRAFT) or
+    // allotted (COMMITTED). version_major + version_minor produce the
+    // semver-style label admins see ("v1.2"). branched_from_version_id is
+    // optional — drafts may start blank.
+    //
+    // Legacy rows that pre-date this migration are marked COMMITTED at
+    // v1.0 by the startup runner so existing assessments keep working.
+
+    @Column(name = "parent_id", length = 64)
+    private String parentId;
+
+    @Column(name = "version_major", nullable = false)
+    private Integer versionMajor = 1;
+
+    @Column(name = "version_minor", nullable = false)
+    private Integer versionMinor = 0;
+
+    @Column(name = "version_label")
+    private String versionLabel;
+
+    @Column(name = "version_name")
+    private String versionName;
+
+    @Column(name = "version_comments", columnDefinition = "text")
+    private String versionComments;
+
+    // DRAFT | COMMITTED. Plain string instead of enum so adding a new
+    // state (eg. ARCHIVED) later doesn't need a migration.
+    @Column(name = "version_status", length = 16, nullable = false)
+    private String versionStatus = "COMMITTED";
+
+    @Column(name = "branched_from_version_id", length = 64)
+    private String branchedFromVersionId;
+
+    @Column(name = "committed_at")
+    private OffsetDateTime committedAt;
+
+    @Column(name = "committed_by")
+    private String committedBy;
+
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }
+    public String getParentId() { return parentId; }
+    public void setParentId(String parentId) { this.parentId = parentId; }
+    public Integer getVersionMajor() { return versionMajor; }
+    public void setVersionMajor(Integer versionMajor) { this.versionMajor = versionMajor; }
+    public Integer getVersionMinor() { return versionMinor; }
+    public void setVersionMinor(Integer versionMinor) { this.versionMinor = versionMinor; }
+    public String getVersionLabel() { return versionLabel; }
+    public void setVersionLabel(String versionLabel) { this.versionLabel = versionLabel; }
+    public String getVersionName() { return versionName; }
+    public void setVersionName(String versionName) { this.versionName = versionName; }
+    public String getVersionComments() { return versionComments; }
+    public void setVersionComments(String versionComments) { this.versionComments = versionComments; }
+    public String getVersionStatus() { return versionStatus; }
+    public void setVersionStatus(String versionStatus) { this.versionStatus = versionStatus; }
+    public String getBranchedFromVersionId() { return branchedFromVersionId; }
+    public void setBranchedFromVersionId(String branchedFromVersionId) { this.branchedFromVersionId = branchedFromVersionId; }
+    public OffsetDateTime getCommittedAt() { return committedAt; }
+    public void setCommittedAt(OffsetDateTime committedAt) { this.committedAt = committedAt; }
+    public String getCommittedBy() { return committedBy; }
+    public void setCommittedBy(String committedBy) { this.committedBy = committedBy; }
     public String getShortName() { return shortName; }
     public void setShortName(String shortName) { this.shortName = shortName; }
     public String getVertical() { return vertical; }

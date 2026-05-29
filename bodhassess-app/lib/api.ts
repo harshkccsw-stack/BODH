@@ -108,7 +108,20 @@ export interface EntityRegistration {
   accountType?: string;
   orgName?: string;
   orgWebsite?: string;
+  // Admin-controlled gate. Defaults to false until an admin approves the
+  // self-signup; only active entities can receive assessment allotments.
+  active?: boolean;
+  // Linked respondent ids — the entity's members. Sessions get created
+  // for each member when the entity is allotted to an Assessment.
+  member_ids?: string[];
   created_at?: string;
+}
+
+// PATCH-style admin update — only the fields the dashboard wants to
+// change. Cap management moved to AssessmentEntityAllotment.cap.
+export interface EntityRegistrationUpdate {
+  active?: boolean;
+  member_ids?: string[];
 }
 
 export const entityRegistrationsApi = {
@@ -116,6 +129,11 @@ export const entityRegistrationsApi = {
   get: (id: string) => jsonFetch<EntityRegistration>(`/entity-registrations/${encodeURIComponent(id)}`),
   create: (e: EntityRegistration) =>
     jsonFetch<EntityRegistration>('/entity-registrations', { method: 'POST', body: JSON.stringify(e) }),
+  update: (id: string, patch: EntityRegistrationUpdate) =>
+    jsonFetch<EntityRegistration>(`/entity-registrations/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }),
   delete: (id: string) =>
     jsonFetch<null>(`/entity-registrations/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 };
@@ -340,10 +358,25 @@ export interface PublishedQuestionnaire {
   demographicFieldKeys?: string[];
   createdAt?: string;
 }
+// Lightweight projection returned by /questionnaires/summaries — only the
+// fields the assessment-create dropdown actually renders.
+export interface QuestionnaireSummary {
+  id: string;
+  name: string;
+  shortName?: string;
+  vertical?: string;
+  category?: string;
+  duration?: number;
+  itemCount: number;
+}
 export const questionnairesApi = {
   list: (vertical?: string) => {
     const qs = vertical ? `?vertical=${encodeURIComponent(vertical)}` : '';
     return jsonFetch<PublishedQuestionnaire[]>(`/questionnaires${qs}`);
+  },
+  listSummaries: (vertical?: string) => {
+    const qs = vertical ? `?vertical=${encodeURIComponent(vertical)}` : '';
+    return jsonFetch<QuestionnaireSummary[]>(`/questionnaires/summaries${qs}`);
   },
   get: (id: string) => jsonFetch<PublishedQuestionnaire>(`/questionnaires/${encodeURIComponent(id)}`),
   getByName: (name: string) => jsonFetch<PublishedQuestionnaire>(`/questionnaires/by-name?name=${encodeURIComponent(name)}`),
@@ -395,6 +428,10 @@ export interface Session {
 // ---------- Assessments (simple frontend-shape) ----------
 export interface Assessment {
   id: string;
+  // Group key: every session created in a single admin bulk allotment
+  // shares this id, so the UI can collapse N sessions into one assessment
+  // row. Older rows (created before this column existed) may be null.
+  assessmentId?: string;
   name?: string;
   respondentId: string;
   respondent: string;
@@ -412,6 +449,11 @@ export interface Assessment {
   mqtScores?: Record<string, MQTScore | number>;
   groupId?: string;
   groupName?: string;
+  // When the session was generated from an entity allotment, the entity
+  // is recorded here so per-(entity, assessment) cap counts can include
+  // it.
+  entityId?: string;
+  entityName?: string;
   consentId?: string;
   proctoring?: boolean;
   invitationSent?: boolean;
@@ -445,11 +487,55 @@ export interface BulkAssessmentResult {
   errors?: BulkAssessmentError[];
 }
 
+// Slim projection used by list views (dashboard's Recent Assessments,
+// All Assessments) so the heavy answers/mqtScores/demographics collections
+// aren't fetched just to render a row.
+export interface AssessmentSummary {
+  id: string;
+  assessmentId?: string;
+  name?: string;
+  respondentName?: string;
+  instrument?: string;
+  vertical?: string;
+  status?: string;
+  score?: string;
+  createdAt?: string;
+  completedAt?: string;
+}
+
+// One row per assessmentId — what /assessments/groups returns. Drives the
+// grouped All Assessments table view.
+export interface AssessmentGroup {
+  assessmentId: string;
+  name?: string;
+  instrument?: string;
+  instrumentFullName?: string;
+  vertical?: string;
+  language?: string;
+  createdAt?: string;
+  respondentCount: number;
+  completedCount: number;
+  activeCount: number;
+  pendingReviewCount: number;
+}
+
 export const assessmentsApi = {
   list: (respondentId?: string) => {
     const qs = respondentId ? `?respondentId=${encodeURIComponent(respondentId)}` : '';
     return jsonFetch<Assessment[]>(`/assessments${qs}`);
   },
+  listSummaries: (opts: { respondentId?: string; limit?: number } = {}) => {
+    const qs = new URLSearchParams();
+    if (opts.respondentId) qs.set('respondentId', opts.respondentId);
+    if (opts.limit) qs.set('limit', String(opts.limit));
+    const q = qs.toString();
+    return jsonFetch<AssessmentSummary[]>(`/assessments/summaries${q ? '?' + q : ''}`);
+  },
+  // Grouped: one row per assessmentId with aggregate counts.
+  listGroups: () => jsonFetch<AssessmentGroup[]>('/assessments/groups'),
+  // All sessions (respondent rows) for a single assessmentId.
+  listByAssessment: (assessmentId: string) =>
+    jsonFetch<AssessmentSummary[]>(`/assessments/by-assessment?assessmentId=${encodeURIComponent(assessmentId)}`),
   get: (id: string) => jsonFetch<Assessment>(`/assessments/${encodeURIComponent(id)}`),
   create: (s: Assessment) => jsonFetch<Assessment>('/assessments', { method: 'POST', body: JSON.stringify(s) }),
   bulk: (assessments: Assessment[]) => jsonFetch<BulkAssessmentResult>('/assessments/bulk', { method: 'POST', body: JSON.stringify({ assessments }) }),
@@ -510,4 +596,349 @@ export const verticalsApi = {
   list: () => jsonFetch<Vertical[]>('/verticals'),
   create: (v: Vertical) => jsonFetch<Vertical>('/verticals', { method: 'POST', body: JSON.stringify(v) }),
   delete: (id: string) => jsonFetch<null>(`/verticals/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+};
+
+// ====================================================================
+// First-class Assessment + Allotments + Tokens + Audit log
+//
+// These sit on top of /api/v1/assessment-records. The legacy /assessments
+// surface (which actually represents per-respondent SESSIONS) keeps
+// working for the take/edit flows. New Assessment-centric pages use the
+// types below.
+// ====================================================================
+
+export type AssessmentStatus = 'ACTIVE' | 'CLOSED' | 'PAUSED';
+
+// One row per allotment of (Assessment, Entity), with the per-pair cap.
+// cap = null means unlimited. sessionsCount lets the UI show used/total
+// at a glance in the Allotees popup.
+export interface AssessmentEntityAllotment {
+  assessmentId: string;
+  entityId: string;
+  entityName?: string;
+  cap?: number | null;
+  sessionsCount?: number;
+  completedCount?: number;
+  createdAt?: string;
+}
+
+export interface AssessmentGroupAllotment {
+  assessmentId: string;
+  groupId: string;
+  groupName?: string;
+  memberCount?: number;
+  createdAt?: string;
+}
+
+export interface AssessmentRespondentAllotment {
+  assessmentId: string;
+  respondentId: string;
+  respondentName?: string;
+  respondentEmail?: string;
+  createdAt?: string;
+}
+
+// Aggregate shape returned by GET /assessment-records/{id}/allotments —
+// the All Assessments "Allotees" popup renders directly from this.
+export interface AssessmentAllotees {
+  assessmentId: string;
+  entities: AssessmentEntityAllotment[];
+  groups: AssessmentGroupAllotment[];
+  respondents: AssessmentRespondentAllotment[];
+}
+
+// First-class Assessment — the reusable allotment of a Questionnaire to
+// a set of Allotees. NOT to be confused with the existing `Assessment`
+// interface above, which is the per-respondent session shape kept for
+// take/edit compatibility.
+export interface AssessmentRecord {
+  id: string;
+  name: string;
+  questionnaireId: string;             // parent (questionnaire family)
+  questionnaireVersionId?: string;     // the specific committed version this assessment is pinned to
+  questionnaireName?: string;
+  vertical?: string;
+  language?: string;
+  status: AssessmentStatus;
+  createdAt?: string;
+  createdBy?: string;
+  updatedAt?: string;
+  // Aggregate counts the list endpoint fills in.
+  entityCount?: number;
+  groupCount?: number;
+  respondentCount?: number;
+  sessionsCount?: number;
+  completedCount?: number;
+  // Initial-allotment payload used by the one-shot create form. Empty
+  // on read except when the caller is the edit/create page.
+  entityAllotments?: AssessmentEntityAllotment[];
+  groupAllotments?: string[];
+  respondentAllotments?: string[];
+}
+
+export const assessmentRecordsApi = {
+  list: () => jsonFetch<AssessmentRecord[]>('/assessment-records'),
+  get: (id: string) => jsonFetch<AssessmentRecord>(`/assessment-records/${encodeURIComponent(id)}`),
+  create: (a: Partial<AssessmentRecord>) =>
+    jsonFetch<AssessmentRecord>('/assessment-records', { method: 'POST', body: JSON.stringify(a) }),
+  update: (id: string, a: Partial<AssessmentRecord>) =>
+    jsonFetch<AssessmentRecord>(`/assessment-records/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(a) }),
+  updateStatus: (id: string, status: AssessmentStatus) =>
+    jsonFetch<AssessmentRecord>(`/assessment-records/${encodeURIComponent(id)}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
+    }),
+  delete: (id: string) => jsonFetch<null>(`/assessment-records/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  audit: (id: string) => jsonFetch<AuditLogEntry[]>(`/assessment-records/${encodeURIComponent(id)}/audit`),
+};
+
+export const assessmentAllotmentsApi = {
+  // Aggregated view drives the Allotees popup.
+  list: (assessmentId: string) =>
+    jsonFetch<AssessmentAllotees>(`/assessment-records/${encodeURIComponent(assessmentId)}/allotments`),
+
+  // Entities — only allotee type with a cap.
+  addEntity: (assessmentId: string, entityId: string, cap?: number | null) =>
+    jsonFetch<AssessmentEntityAllotment>(
+      `/assessment-records/${encodeURIComponent(assessmentId)}/allotments/entities`,
+      { method: 'POST', body: JSON.stringify({ entityId, cap }) },
+    ),
+  updateEntityCap: (assessmentId: string, entityId: string, cap: number | null) =>
+    jsonFetch<AssessmentEntityAllotment>(
+      `/assessment-records/${encodeURIComponent(assessmentId)}/allotments/entities/${encodeURIComponent(entityId)}`,
+      { method: 'PATCH', body: JSON.stringify({ cap }) },
+    ),
+  removeEntity: (assessmentId: string, entityId: string) =>
+    jsonFetch<null>(
+      `/assessment-records/${encodeURIComponent(assessmentId)}/allotments/entities/${encodeURIComponent(entityId)}`,
+      { method: 'DELETE' },
+    ),
+
+  // Groups
+  addGroup: (assessmentId: string, groupId: string) =>
+    jsonFetch<AssessmentGroupAllotment>(
+      `/assessment-records/${encodeURIComponent(assessmentId)}/allotments/groups`,
+      { method: 'POST', body: JSON.stringify({ groupId }) },
+    ),
+  removeGroup: (assessmentId: string, groupId: string) =>
+    jsonFetch<null>(
+      `/assessment-records/${encodeURIComponent(assessmentId)}/allotments/groups/${encodeURIComponent(groupId)}`,
+      { method: 'DELETE' },
+    ),
+
+  // Individual respondents
+  addRespondent: (assessmentId: string, respondentId: string) =>
+    jsonFetch<AssessmentRespondentAllotment>(
+      `/assessment-records/${encodeURIComponent(assessmentId)}/allotments/respondents`,
+      { method: 'POST', body: JSON.stringify({ respondentId }) },
+    ),
+  removeRespondent: (assessmentId: string, respondentId: string) =>
+    jsonFetch<null>(
+      `/assessment-records/${encodeURIComponent(assessmentId)}/allotments/respondents/${encodeURIComponent(respondentId)}`,
+      { method: 'DELETE' },
+    ),
+};
+
+// Registration tokens. Admin issues / lists / revokes; the /register
+// page reaches the public resolve + consume endpoints anonymously.
+export interface AssessmentToken {
+  token: string;
+  assessmentId: string;
+  // Display names, populated by the public resolve() endpoint only.
+  assessmentName?: string | null;
+  entityId?: string | null;
+  entityName?: string | null;
+  groupId?: string | null;
+  groupName?: string | null;
+  respondentId?: string | null;
+  maxUses?: number | null;
+  usedCount?: number;
+  expiresAt?: string | null;
+  createdAt?: string;
+  createdBy?: string;
+}
+export interface IssueTokenRequest {
+  assessmentId: string;
+  entityId?: string | null;
+  groupId?: string | null;
+  respondentId?: string | null;
+  maxUses?: number | null;
+  expiresAt?: string | null;
+}
+export const assessmentTokensApi = {
+  issue: (req: IssueTokenRequest) =>
+    jsonFetch<AssessmentToken>('/assessment-tokens', { method: 'POST', body: JSON.stringify(req) }),
+  listForAssessment: (assessmentId: string) =>
+    jsonFetch<AssessmentToken[]>(`/assessment-tokens/by-assessment/${encodeURIComponent(assessmentId)}`),
+  revoke: (token: string) =>
+    jsonFetch<null>(`/assessment-tokens/${encodeURIComponent(token)}`, { method: 'DELETE' }),
+};
+
+// Public-side token endpoints — called from /register. Permitted without
+// auth in SecurityConfig.
+export interface PublicRegistrationRequest {
+  name: string;
+  email: string;
+  phone?: string;
+  dob: string;  // ISO yyyy-MM-dd
+}
+export interface PublicRegistrationResult {
+  sessionId: string;
+  respondentId: string;
+  assessmentId: string;
+}
+export const publicTokensApi = {
+  resolve: (token: string) =>
+    jsonFetch<AssessmentToken>(`/public/tokens/${encodeURIComponent(token)}`),
+  consume: (token: string) =>
+    jsonFetch<AssessmentToken>(`/public/tokens/${encodeURIComponent(token)}/consume`, { method: 'POST' }),
+  // One-shot: creates/reuses respondent, links to entity, creates session,
+  // consumes token. The SPA only needs to call this — the rest of the
+  // multi-step dance lives on the server.
+  register: (token: string, body: PublicRegistrationRequest) =>
+    jsonFetch<PublicRegistrationResult>(`/public/tokens/${encodeURIComponent(token)}/register`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+};
+
+// Append-only audit log. Surfaced as tabs on the entity drill-in and
+// assessment edit pages.
+export interface AuditLogEntry {
+  id: number;
+  actorId?: string;
+  actorName?: string;
+  action: string;
+  targetType?: string;
+  targetId?: string;
+  before?: string;   // JSON string snapshot of fields before the change
+  after?: string;    // JSON string snapshot after
+  createdAt?: string;
+}
+export const auditApi = {
+  recent: () => jsonFetch<AuditLogEntry[]>('/audit'),
+  byTarget: (targetType: string, targetId: string) =>
+    jsonFetch<AuditLogEntry[]>(`/audit/${encodeURIComponent(targetType)}/${encodeURIComponent(targetId)}`),
+};
+
+// ====================================================================
+// Git-style questionnaire versioning
+//
+// Parents live at /questionnaire-records (one row per questionnaire
+// family — PHQ-9, GAD-7, …). Each parent has many versions; only
+// COMMITTED versions can be allotted to an assessment. Drafts are
+// editable; committing freezes the content and bumps semver.
+//
+// Frontend split:
+//   - questionnaireRecordsApi → parents (Question Bank list, set-current)
+//   - questionnaireVersionsApi → versions (drafts, commits, history)
+// ====================================================================
+
+export type QuestionnaireVersionStatus = 'DRAFT' | 'COMMITTED';
+
+export interface QuestionnaireVersionSummary {
+  id: string;
+  parentId: string;
+  versionMajor?: number;
+  versionMinor?: number;
+  versionLabel?: string;
+  versionName?: string;
+  versionComments?: string;
+  status: QuestionnaireVersionStatus;
+  branchedFromVersionId?: string;
+  committedAt?: string;
+  committedBy?: string;
+  isCurrent?: boolean;
+  inUseByAssessmentCount?: number;
+}
+
+export interface QuestionnaireParent {
+  id: string;
+  name: string;
+  vertical?: string;
+  currentVersionId?: string;
+  currentVersionLabel?: string;
+  createdAt?: string;
+  createdBy?: string;
+  versionCount?: number;
+  draftCount?: number;
+  // Populated on the detail endpoint, empty on list.
+  versions?: QuestionnaireVersionSummary[];
+}
+
+export interface CreateDraftRequest {
+  // null → blank draft. Otherwise must be a COMMITTED version id under
+  // the same parent — the new draft starts as a clone.
+  branchedFromVersionId?: string | null;
+  initialName?: string;
+}
+
+export interface CommitVersionRequest {
+  // 'MAJOR' or 'MINOR' (case-insensitive on the wire).
+  bump: 'MAJOR' | 'MINOR';
+  versionName?: string;
+  versionComments?: string;
+  // True → freshly-committed version also becomes the parent's current
+  // pointer. Typical default for the edit-and-ship flow.
+  setAsCurrent?: boolean;
+}
+
+export const questionnaireRecordsApi = {
+  // Parents
+  list: () => jsonFetch<QuestionnaireParent[]>('/questionnaire-records'),
+  get: (id: string) => jsonFetch<QuestionnaireParent>(`/questionnaire-records/${encodeURIComponent(id)}`),
+  create: (body: Partial<QuestionnaireParent>) =>
+    jsonFetch<QuestionnaireParent>('/questionnaire-records', { method: 'POST', body: JSON.stringify(body) }),
+  update: (id: string, body: Partial<QuestionnaireParent>) =>
+    jsonFetch<QuestionnaireParent>(`/questionnaire-records/${encodeURIComponent(id)}`, {
+      method: 'PUT', body: JSON.stringify(body),
+    }),
+  delete: (id: string) =>
+    jsonFetch<null>(`/questionnaire-records/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  setCurrentVersion: (id: string, versionId: string) =>
+    jsonFetch<QuestionnaireParent>(`/questionnaire-records/${encodeURIComponent(id)}/current-version`, {
+      method: 'PATCH', body: JSON.stringify({ versionId }),
+    }),
+  audit: (id: string) =>
+    jsonFetch<AuditLogEntry[]>(`/questionnaire-records/${encodeURIComponent(id)}/audit`),
+};
+
+export const questionnaireVersionsApi = {
+  // Versions under a parent. committedOnly → exclude drafts (used by
+  // the assessment-create version picker).
+  list: (parentId: string, committedOnly?: boolean) => {
+    const qs = committedOnly ? '?committedOnly=true' : '';
+    return jsonFetch<QuestionnaireVersionSummary[]>(
+      `/questionnaire-records/${encodeURIComponent(parentId)}/versions${qs}`,
+    );
+  },
+  // Full content of one version — uses the existing PublishedQuestionnaire-shaped DTO.
+  get: (parentId: string, versionId: string) =>
+    jsonFetch<PublishedQuestionnaire>(
+      `/questionnaire-records/${encodeURIComponent(parentId)}/versions/${encodeURIComponent(versionId)}`,
+    ),
+  // Create a draft. branchedFromVersionId optional.
+  createDraft: (parentId: string, body: CreateDraftRequest) =>
+    jsonFetch<QuestionnaireVersionSummary>(
+      `/questionnaire-records/${encodeURIComponent(parentId)}/versions/drafts`,
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
+  // PATCH a DRAFT's content. COMMITTED versions are immutable; the
+  // backend rejects with a 400.
+  editDraft: (parentId: string, versionId: string, body: Partial<PublishedQuestionnaire>) =>
+    jsonFetch<PublishedQuestionnaire>(
+      `/questionnaire-records/${encodeURIComponent(parentId)}/versions/${encodeURIComponent(versionId)}`,
+      { method: 'PATCH', body: JSON.stringify(body) },
+    ),
+  // Promote a draft to COMMITTED with the chosen bump + metadata.
+  commit: (parentId: string, versionId: string, body: CommitVersionRequest) =>
+    jsonFetch<QuestionnaireVersionSummary>(
+      `/questionnaire-records/${encodeURIComponent(parentId)}/versions/${encodeURIComponent(versionId)}/commit`,
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
+  discardDraft: (parentId: string, versionId: string) =>
+    jsonFetch<null>(
+      `/questionnaire-records/${encodeURIComponent(parentId)}/versions/${encodeURIComponent(versionId)}`,
+      { method: 'DELETE' },
+    ),
 };

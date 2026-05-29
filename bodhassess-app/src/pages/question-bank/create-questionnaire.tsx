@@ -1496,6 +1496,8 @@ export default function CreateAssessmentPage() {
         </p>
       </div>
 
+      <DraftBanner />
+
       {/* Step indicator */}
       <div className="flex items-center gap-3">
         {[
@@ -2471,6 +2473,44 @@ export default function CreateAssessmentPage() {
           </Card>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Inline banner that surfaces the Git-style versioning model whenever
+ * the editor was opened from the new Versions page. Reads
+ *   ?draftMode=1&parentId=<pid>
+ * (set by the Edit button on /questionnaires/:id/versions) and tells
+ * the admin that saves go to a draft and a commit is required before
+ * the change is available to assessments.
+ *
+ * Renders nothing when those params are absent, so the legacy edit
+ * flow is unchanged.
+ */
+function DraftBanner() {
+  if (typeof window === 'undefined') return null;
+  const params = new URLSearchParams(window.location.search);
+  const draftMode = params.get('draftMode') === '1';
+  const parentId = params.get('parentId') || '';
+  if (!draftMode || !parentId) return null;
+  return (
+    <div className="rounded-lg border border-amber-300 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30 px-4 py-3 text-sm flex items-start gap-3 flex-wrap">
+      <div className="flex-1 min-w-0">
+        <p className="font-medium text-amber-900 dark:text-amber-300">You're editing a draft.</p>
+        <p className="text-xs text-amber-800/80 dark:text-amber-400/80 mt-0.5">
+          Saves stay on this draft. When you're done, head back to the version history
+          and use <strong>Commit</strong> to materialize a new committed version.
+          Committed versions are locked — admins can't edit them, only branch new
+          drafts from them.
+        </p>
+      </div>
+      <a
+        href={`/questionnaires/${encodeURIComponent(parentId)}/versions`}
+        className="inline-flex items-center gap-1 rounded-md border border-amber-400 px-3 py-1.5 text-xs font-medium text-amber-900 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors"
+      >
+        Back to Versions →
+      </a>
     </div>
   );
 }

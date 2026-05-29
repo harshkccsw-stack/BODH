@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.bodhpsychometric.bodhassess.payload.QuestionnaireDto;
+import com.bodhpsychometric.bodhassess.payload.QuestionnaireSummaryDto;
 import com.bodhpsychometric.bodhassess.service.QuestionnairesService;
 
 @RestController
@@ -27,6 +28,15 @@ public class QuestionnairesController {
     @GetMapping
     public List<QuestionnaireDto> list(@RequestParam(value = "vertical", required = false) String vertical) {
         return service.list(vertical);
+    }
+
+    // Lightweight projection for dropdowns — id, name, vertical, category,
+    // duration, itemCount. Skips the question + MQ trees so the
+    // assessment-create page doesn't pull the full payload just to render a
+    // select list.
+    @GetMapping("/summaries")
+    public List<QuestionnaireSummaryDto> listSummaries(@RequestParam(value = "vertical", required = false) String vertical) {
+        return service.listSummaries(vertical);
     }
 
     @GetMapping("/by-name")
