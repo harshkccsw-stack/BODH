@@ -60,6 +60,7 @@ const AdminEntityRegistrations  = () => lazyPage(() => import('@/src/pages/admin
 const AdminEntityDrillIn        = () => lazyPage(() => import('@/src/pages/admin/entity-drill-in'));
 const AdminRoles         = () => lazyPage(() => import('@/src/pages/admin/roles'));
 const AdminLiveTracking  = () => lazyPage(() => import('@/src/pages/admin/live-tracking'));
+const AdminDataGrid      = () => lazyPage(() => import('@/src/pages/admin/data-grid'));
 
 const Assessments              = () => lazyPage(() => import('@/src/pages/assessments/all-assessments'));
 const AssessmentsCreate        = () => lazyPage(() => import('@/src/pages/assessments/create-assessment'));
@@ -192,6 +193,7 @@ const routes: RouteObject[] = [
       { path: '/admin/entity-registrations/:id', element: <AdminEntityDrillIn /> },
       { path: '/admin/roles', element: <AdminRoles /> },
       { path: '/admin/live-tracking', element: <AdminLiveTracking /> },
+      { path: '/admin/data-grid', element: <AdminDataGrid /> },
 
       { path: '/assessments', element: <Assessments /> },
       { path: '/assessments/create', element: <AssessmentsCreate /> },

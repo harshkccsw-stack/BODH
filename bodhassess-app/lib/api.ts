@@ -942,3 +942,38 @@ export const questionnaireVersionsApi = {
       { method: 'DELETE' },
     ),
 };
+
+// --- Data grid (datasets) -------------------------------------------------
+// Self-describing grid views. The backend declares its own columns, so dynamic
+// score / demographic columns need no frontend changes. See docs/data-grid-spec.md.
+export type DatasetColumn = {
+  key: string;
+  label: string;
+  type: 'string' | 'number' | 'datetime' | 'enum';
+  group: 'core' | 'scores' | 'demographics';
+  editable: 'none' | 'field' | 'answer' | 'override';
+  options?: string[];
+};
+
+export type DatasetRow = Record<string, unknown> & {
+  rowId: string;
+  _updatedAt?: string | null;
+};
+
+export type DatasetResponse = {
+  view: string;
+  columns: DatasetColumn[];
+  rows: DatasetRow[];
+  rowCount: number;
+};
+
+export const datasetsApi = {
+  // Sessions/Results view: one row per assessment session.
+  sessions: (params?: { entityId?: string; questionnaireId?: string }) => {
+    const qs = new URLSearchParams();
+    if (params?.entityId) qs.set('entityId', params.entityId);
+    if (params?.questionnaireId) qs.set('questionnaireId', params.questionnaireId);
+    const s = qs.toString();
+    return jsonFetch<DatasetResponse>(`/datasets/sessions${s ? `?${s}` : ''}`);
+  },
+};

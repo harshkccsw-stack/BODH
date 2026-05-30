@@ -14,6 +14,7 @@ import {
   Settings,
   Shield,
   Stethoscope,
+  Table2,
   Tag,
   Users,
 } from 'lucide-react';
@@ -124,6 +125,11 @@ export const MENU_SIDEBAR: MenuConfig = [
     title: 'Live Tracking',
     icon: Activity,
     path: '/admin/live-tracking',
+  },
+  {
+    title: 'Data Grid',
+    icon: Table2,
+    path: '/admin/data-grid',
   },
   {
     title: 'Users & Roles',
