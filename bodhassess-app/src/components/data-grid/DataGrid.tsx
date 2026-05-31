@@ -10,6 +10,7 @@ import { useCallback, useMemo, useState } from 'react';
 import {
   DataEditor,
   GridCellKind,
+  type EditableGridCell,
   type GridCell,
   type GridColumn,
   type Item,
@@ -23,6 +24,18 @@ export interface DataGridProps {
   columns: DatasetColumn[];
   rows: DatasetRow[];
   height?: number;
+  // Called when an editable cell is committed. The page owns persistence
+  // (PATCH + optimistic update + conflict handling); the grid just reports.
+  onCellEdited?: (
+    rowId: string,
+    columnKey: string,
+    newValue: string,
+    rowUpdatedAt?: string | null,
+  ) => void;
+}
+
+function isEditable(col: DatasetColumn): boolean {
+  return col.editable === 'field';
 }
 
 function defaultWidth(col: DatasetColumn): number {
@@ -47,7 +60,7 @@ function roundish(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-export function DataGrid({ columns, rows, height = 600 }: DataGridProps) {
+export function DataGrid({ columns, rows, height = 600, onCellEdited }: DataGridProps) {
   const [sort, setSort] = useState<SortState>(null);
   const [colWidths, setColWidths] = useState<Record<string, number>>({});
 
@@ -94,9 +107,27 @@ export function DataGrid({ columns, rows, height = 600 }: DataGridProps) {
       }
 
       const text = formatValue(col, raw);
-      return { kind: GridCellKind.Text, data: text, displayData: text, allowOverlay: false };
+      const editable = isEditable(col);
+      return {
+        kind: GridCellKind.Text,
+        data: text,
+        displayData: text,
+        allowOverlay: editable,
+        readonly: !editable,
+      };
     },
     [columns, sortedRows],
+  );
+
+  const handleCellEdited = useCallback(
+    ([colIdx, rowIdx]: Item, newCell: EditableGridCell) => {
+      const col = columns[colIdx];
+      const row = sortedRows[rowIdx];
+      if (!col || !row || !isEditable(col)) return;
+      if (newCell.kind !== GridCellKind.Text) return;
+      onCellEdited?.(String(row.rowId), col.key, newCell.data, row._updatedAt ?? null);
+    },
+    [columns, sortedRows, onCellEdited],
   );
 
   const onHeaderClicked = useCallback(
@@ -129,6 +160,7 @@ export function DataGrid({ columns, rows, height = 600 }: DataGridProps) {
         columns={gridColumns}
         rows={sortedRows.length}
         getCellContent={getCellContent}
+        onCellEdited={onCellEdited ? handleCellEdited : undefined}
         onHeaderClicked={onHeaderClicked}
         onColumnResize={onColumnResize}
         getCellsForSelection

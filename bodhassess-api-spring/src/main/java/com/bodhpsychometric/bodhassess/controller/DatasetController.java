@@ -1,11 +1,17 @@
 package com.bodhpsychometric.bodhassess.controller;
 
+import java.util.List;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.bodhpsychometric.bodhassess.payload.CellEditDto;
+import com.bodhpsychometric.bodhassess.payload.DatasetEditResponseDto;
 import com.bodhpsychometric.bodhassess.payload.DatasetResponseDto;
 import com.bodhpsychometric.bodhassess.security.CurrentUser;
 import com.bodhpsychometric.bodhassess.security.UserPrincipal;
@@ -30,5 +36,16 @@ public class DatasetController {
             @RequestParam(value = "entityId", required = false) String entityId,
             @RequestParam(value = "questionnaireId", required = false) String questionnaireId) {
         return service.sessions(principal, entityId, questionnaireId);
+    }
+
+    /**
+     * Apply a batch of audited cell edits to the sessions view. Returns the
+     * refreshed rows plus any per-cell validation / concurrency errors.
+     */
+    @PatchMapping("/sessions/cells")
+    public DatasetEditResponseDto editSessionCells(
+            @CurrentUser UserPrincipal principal,
+            @RequestBody List<CellEditDto> edits) {
+        return service.applyEdits(principal, edits);
     }
 }

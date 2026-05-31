@@ -42,6 +42,7 @@ export default function DataGridPage() {
   const [data, setData] = useState<DatasetResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [search, setSearch] = useState('');
 
   const refresh = async () => {
@@ -62,6 +63,52 @@ export default function DataGridPage() {
   }, []);
 
   const columns = data?.columns ?? [];
+
+  const editableColumns = useMemo(
+    () => columns.filter((c) => c.editable === 'field').map((c) => c.label),
+    [columns],
+  );
+
+  const handleCellEdited = async (
+    rowId: string,
+    columnKey: string,
+    newValue: string,
+    rowUpdatedAt?: string | null,
+  ) => {
+    setNotice('');
+    // Optimistic: reflect the new value immediately.
+    setData((prev) =>
+      prev
+        ? { ...prev, rows: prev.rows.map((r) => (r.rowId === rowId ? { ...r, [columnKey]: newValue } : r)) }
+        : prev,
+    );
+    try {
+      const res = await datasetsApi.patchSessionCells([{ rowId, columnKey, newValue, rowUpdatedAt }]);
+      // Replace edited rows with the authoritative server versions (fresh _updatedAt).
+      if (res.rows.length) {
+        setData((prev) =>
+          prev
+            ? {
+                ...prev,
+                rows: prev.rows.map((r) => res.rows.find((u) => u.rowId === r.rowId) ?? r),
+              }
+            : prev,
+        );
+      }
+      if (res.errors.length) {
+        const e = res.errors[0];
+        setNotice(
+          e.conflict
+            ? 'That row changed elsewhere — reloading the latest values.'
+            : `Edit rejected: ${e.message}`,
+        );
+        await refresh();
+      }
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : 'Edit failed — reloading.');
+      await refresh();
+    }
+  };
 
   const filteredRows = useMemo(() => {
     const rows = data?.rows ?? [];
@@ -98,12 +145,24 @@ export default function DataGridPage() {
           Spreadsheet-style view of assessment sessions. Click a column header to sort, drag to
           resize, and select a range to copy. Score and demographic columns are generated
           automatically from the data.
+          {editableColumns.length > 0 && (
+            <>
+              {' '}Double-click an editable cell ({editableColumns.join(', ')}) to change it — edits
+              are saved with an audit trail.
+            </>
+          )}
         </p>
       </div>
 
       {error && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-400">
           {error}
+        </div>
+      )}
+
+      {notice && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-300">
+          {notice}
         </div>
       )}
 
@@ -153,7 +212,12 @@ export default function DataGridPage() {
               Loading from database…
             </div>
           ) : (
-            <DataGrid columns={columns} rows={filteredRows} height={620} />
+            <DataGrid
+              columns={columns}
+              rows={filteredRows}
+              height={620}
+              onCellEdited={handleCellEdited}
+            />
           )}
         </CardContent>
       </Card>

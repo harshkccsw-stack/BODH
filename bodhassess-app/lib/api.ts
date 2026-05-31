@@ -967,6 +967,28 @@ export type DatasetResponse = {
   rowCount: number;
 };
 
+export type CellEdit = {
+  rowId: string;
+  columnKey: string;
+  oldValue?: unknown;
+  newValue: unknown;
+  rowUpdatedAt?: string | null;
+};
+
+export type CellEditError = {
+  rowId: string;
+  columnKey: string | null;
+  message: string;
+  conflict: boolean;
+  currentUpdatedAt?: string | null;
+};
+
+export type DatasetEditResponse = {
+  applied: number;
+  rows: DatasetRow[];
+  errors: CellEditError[];
+};
+
 export const datasetsApi = {
   // Sessions/Results view: one row per assessment session.
   sessions: (params?: { entityId?: string; questionnaireId?: string }) => {
@@ -976,4 +998,10 @@ export const datasetsApi = {
     const s = qs.toString();
     return jsonFetch<DatasetResponse>(`/datasets/sessions${s ? `?${s}` : ''}`);
   },
+  // Batch-apply audited cell edits to the sessions view.
+  patchSessionCells: (edits: CellEdit[]) =>
+    jsonFetch<DatasetEditResponse>('/datasets/sessions/cells', {
+      method: 'PATCH',
+      body: JSON.stringify(edits),
+    }),
 };
