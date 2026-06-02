@@ -10,3 +10,4 @@ bodhassess-app/.env.production.local
 target/
 
 bodhassess-api-spring/target
+.env
