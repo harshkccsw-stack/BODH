@@ -2,7 +2,6 @@ package com.bodhpsychometric.bodhassess.service;
 
 import java.time.OffsetDateTime;
 import java.util.HashSet;
-import java.util.Optional;
 import java.util.UUID;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -11,6 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import com.bodhpsychometric.bodhassess.exception.BadRequestException;
+import com.bodhpsychometric.bodhassess.exception.DuplicateResourceException;
 import com.bodhpsychometric.bodhassess.exception.ResourceNotFoundException;
 import com.bodhpsychometric.bodhassess.model.Assessment;
 import com.bodhpsychometric.bodhassess.model.AssessmentToken;
@@ -52,6 +52,9 @@ public class PublicRegistrationService {
     @Autowired private RespondentGroupRepository groups;
     @Autowired private PortalSessionRepository sessions;
     @Autowired private AssessmentService assessmentService;
+    @Autowired private com.bodhpsychometric.bodhassess.repository.UserRepository users;
+    @Autowired private com.bodhpsychometric.bodhassess.repository.UserMetaRepository userMeta;
+    @Autowired private com.bodhpsychometric.bodhassess.security.TokenProvider tokenProvider;
 
     public PublicRegistrationDto.Result register(String token, PublicRegistrationDto req) {
         if (req == null
@@ -73,27 +76,27 @@ public class PublicRegistrationService {
         Assessment a = assessments.findById(t.getAssessmentId())
                 .orElseThrow(() -> new ResourceNotFoundException("Assessment", "id", t.getAssessmentId()));
 
-        // 1. Respondent — pre-bound on the token wins. Otherwise create a
-        //    fresh row from the form input. We dedupe by (email, dob) so
-        //    repeated links from the same person don't sprawl.
+        // 1. Respondent — pre-bound on the token wins (admin-targeted resend).
+        //    Otherwise this is an open registration: a returning person must
+        //    log in rather than create a second account, so we reject when a
+        //    duplicate matches by (email OR phone OR companyId) AND dob.
         String respondentId = t.getRespondentId();
         if (!StringUtils.hasText(respondentId)) {
-            Optional<Respondent> existing = respondents.findByEmailAndDob(
-                    req.getEmail().trim(), req.getDob().trim());
-            Respondent r;
-            if (existing.isPresent()) {
-                r = existing.get();
-            } else {
-                r = new Respondent();
-                r.setId("R-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase());
-                r.setName(req.getName().trim());
-                r.setEmail(req.getEmail().trim());
-                r.setPhone(req.getPhone());
-                r.setDob(req.getDob().trim());
-                r.setConsent("Pending");
-                r.setAccountType("individual");
-                r = respondents.save(r);
+            if (isExistingRegistrant(req)) {
+                throw new DuplicateResourceException(
+                        "An account with these details already exists. Please log in to continue.");
             }
+            Respondent r = new Respondent();
+            r.setId("R-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase());
+            r.setName(req.getName().trim());
+            r.setEmail(req.getEmail().trim());
+            r.setPhone(blankToNull(req.getPhone()));
+            r.setDob(req.getDob().trim());
+            r.setCompanyId(blankToNull(req.getCompanyId()));
+            r.setConsent("Pending");
+            r.setAccountType("individual");
+            r.setSessionsCount(0);
+            r = respondents.save(r);
             respondentId = r.getId();
         }
 
@@ -130,6 +133,13 @@ public class PublicRegistrationService {
             }
         }
 
+        // 3b. Mirror the respondent into the unified identity table so the
+        //     person can sign in through /auth/login. app_users keyed by the
+        //     same id keeps portal_sessions/entity_members references valid.
+        //     Idempotent: create-if-absent, and just add the entity link on
+        //     return visits.
+        upsertUser(respondentId, req, t.getEntityId());
+
         // 4. Create the session. Status "Active" + minimal fields — the
         //    take-assessment flow fills the rest.
         PortalSession s = new PortalSession();
@@ -156,6 +166,75 @@ public class PublicRegistrationService {
         t.setUsedCount(t.getUsedCount() + 1);
         tokens.save(t);
 
-        return new PublicRegistrationDto.Result(savedSession.getId(), respondentId, a.getId());
+        // 6. Mint a RESPONDENT auth token for the new session so the SPA can
+        //    open /portal/take directly — the registrant is already "logged in"
+        //    to the portal and never bounces through /portal/login.
+        String authToken = tokenProvider.createToken(
+                respondentId, req.getEmail().trim(),
+                com.bodhpsychometric.bodhassess.security.UserPrincipal.UserType.RESPONDENT,
+                new java.util.ArrayList<>());
+
+        return new PublicRegistrationDto.Result(savedSession.getId(), respondentId, a.getId(), authToken);
+    }
+
+    /**
+     * Create-if-absent mirror of the registrant in the unified identity
+     * tables ({@code app_users} + {@code user_meta}), keyed by the respondent
+     * id. On a return visit (user already exists) we only ensure the entity
+     * membership link. Never throws on a pre-existing row.
+     */
+    private void upsertUser(String userId, PublicRegistrationDto req, String entityId) {
+        com.bodhpsychometric.bodhassess.model.User u = users.findById(userId).orElse(null);
+        if (u == null) {
+            // Guard the unique email: if another user already owns it, leave
+            // the existing identity alone rather than fail the registration.
+            String email = req.getEmail() == null ? null : req.getEmail().trim();
+            if (email != null && users.findByEmailIgnoreCase(email).isPresent()) {
+                return;
+            }
+            u = new com.bodhpsychometric.bodhassess.model.User();
+            u.setId(userId);
+            u.setEmail(email);
+            u.setDob(req.getDob() == null ? null : req.getDob().trim());
+            u.setStatus("Active");
+            u.setSuperAdmin(false);
+
+            com.bodhpsychometric.bodhassess.model.UserMeta m =
+                    new com.bodhpsychometric.bodhassess.model.UserMeta();
+            m.setUserId(userId);
+            m.setName(req.getName() == null ? null : req.getName().trim());
+            m.setPhone(blankToNull(req.getPhone()));
+            m.setConsent("Pending");
+            m.setCompanyId(blankToNull(req.getCompanyId()));
+            userMeta.save(m);
+        }
+        if (StringUtils.hasText(entityId)) {
+            if (u.getEntityIds() == null) u.setEntityIds(new HashSet<>());
+            u.getEntityIds().add(entityId);
+        }
+        users.save(u);
+    }
+
+    /**
+     * Pre-registration check used by the public page to decide whether to
+     * prompt "log in" instead of letting the person register again. Requires
+     * a dob plus at least one of email / phone / company id to be meaningful.
+     */
+    @Transactional(readOnly = true)
+    public PublicRegistrationDto.CheckResult checkExisting(PublicRegistrationDto req) {
+        return new PublicRegistrationDto.CheckResult(isExistingRegistrant(req));
+    }
+
+    private boolean isExistingRegistrant(PublicRegistrationDto req) {
+        if (req == null || !StringUtils.hasText(req.getDob())) return false;
+        String email = blankToNull(req.getEmail());
+        String phone = blankToNull(req.getPhone());
+        String companyId = blankToNull(req.getCompanyId());
+        if (email == null && phone == null && companyId == null) return false;
+        return !respondents.findDuplicates(email, phone, companyId, req.getDob().trim()).isEmpty();
+    }
+
+    private static String blankToNull(String s) {
+        return StringUtils.hasText(s) ? s.trim() : null;
     }
 }

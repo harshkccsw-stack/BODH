@@ -83,7 +83,7 @@ public class SecurityConfig extends WebSecurityConfigurerAdapter {
                         "/favicon.ico",
                         "/uploads/**",
                         "/api/v1/health",
-                        "/api/v1/admin/login",
+                        "/api/v1/auth/login",
                         "/api/v1/practitioners/login",
                         "/api/v1/respondents/login",
                         "/api/v1/questionnaires-catalog/**",

@@ -6,6 +6,7 @@ import {
   publicTokensApi,
   type AssessmentToken,
 } from '@/lib/api';
+import { config } from '@/lib/config';
 import { autoFormatDdmmyyyy, ddmmyyyyToIso } from '@/lib/helpers';
 import { PublicRoute } from '@/src/components/public-route';
 import PortalRegisterPage from './register';
@@ -44,8 +45,8 @@ export default function RegisterEntry() {
  *   2. If entityId is on the token, member is appended to that entity
  *   3. PortalSession created for (assessment, respondent, optional entityId)
  *   4. Token consumed (usedCount++)
- *   5. Redirect to /portal/login with prefilled email (admin can configure
- *      the password flow externally)
+ *   5. Server returns a RESPONDENT token; we store it and open
+ *      /portal/take?id=<sessionId> so the assessment starts immediately.
  */
 function RegisterWithTokenPage() {
   const params = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams();
@@ -55,10 +56,15 @@ function RegisterWithTokenPage() {
   const [loading, setLoading] = useState(true);
   const [tokenError, setTokenError] = useState('');
 
-  const [form, setForm] = useState({ name: '', email: '', phone: '', dob: '' });
+  const [form, setForm] = useState({ name: '', email: '', phone: '', dob: '', companyId: '' });
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [done, setDone] = useState(false);
+  // Set when the dedup check (email/phone/companyId + dob) finds an existing
+  // account — we prompt the person to log in instead of registering again.
+  const [alreadyExists, setAlreadyExists] = useState(false);
+
+  const loginHref = `/portal/login${form.email.trim() ? `?email=${encodeURIComponent(form.email.trim())}` : ''}`;
 
   // The entity/group this invite binds the registrant to — shown instead of
   // an account-type picker so it's clear who they're joining.
@@ -95,21 +101,48 @@ function RegisterWithTokenPage() {
     if (!isoDob) { setError('Date of birth must be in DD/MM/YYYY format.'); return; }
     setSaving(true);
     try {
-      // Single anonymous call — the server creates/reuses the
-      // respondent, links into entity members if scoped, enforces the
-      // cap, builds the session, and consumes the token. Avoids the
-      // per-step auth failures we'd hit calling /respondents or
-      // /assessments directly without a logged-in admin token.
+      // Dedup gate: if a person with this dob + (email/phone/companyId)
+      // already exists, send them to login rather than creating a second
+      // account. The register endpoint enforces this too (409), but checking
+      // first lets us show a friendly prompt without a failed POST.
+      const { exists } = await publicTokensApi.registrationCheck({
+        email: form.email.trim() || undefined,
+        phone: form.phone.trim() || undefined,
+        companyId: form.companyId.trim() || undefined,
+        dob: isoDob,
+      });
+      if (exists) {
+        setAlreadyExists(true);
+        setSaving(false);
+        return;
+      }
+
+      // Single anonymous call — the server creates the respondent, links
+      // into entity members if scoped, enforces the cap, builds the
+      // session, and consumes the token. Avoids the per-step auth failures
+      // we'd hit calling /respondents or /assessments directly.
       const result = await publicTokensApi.register(token, {
         name: form.name.trim(),
         email: form.email.trim(),
         phone: form.phone.trim() || undefined,
         dob: isoDob,
+        companyId: form.companyId.trim() || undefined,
       });
+      // Store the RESPONDENT token the server minted so the portal take flow
+      // authenticates the just-registered person — then open the portal take
+      // page for this session. (The /assessments/:id/take route is behind the
+      // dashboard's PrivateRoute and would bounce an anonymous registrant to
+      // /login, which is why the assessment never started.)
+      sessionStorage.setItem(config.authStorageKey, result.token);
       setDone(true);
-      setTimeout(() => { window.location.href = `/assessments/${encodeURIComponent(result.sessionId)}/take`; }, 1200);
+      setTimeout(() => { window.location.href = `/portal/take?id=${encodeURIComponent(result.sessionId)}`; }, 1200);
     } catch (err: any) {
-      setError(err?.message || 'Failed to register.');
+      // 409 from the server's own dedup guard → same login prompt.
+      if (/\[API 409\]|already exists/i.test(err?.message || '')) {
+        setAlreadyExists(true);
+      } else {
+        setError(err?.message || 'Failed to register.');
+      }
       setSaving(false);
     }
   };
@@ -142,7 +175,7 @@ function RegisterWithTokenPage() {
         )}
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-base">{done ? 'You\'re in' : 'Your details'}</CardTitle>
+            <CardTitle className="text-base">{done ? 'You\'re in' : alreadyExists ? 'Account found' : 'Your details'}</CardTitle>
           </CardHeader>
           <CardContent>
             {done ? (
@@ -152,6 +185,22 @@ function RegisterWithTokenPage() {
                   <p className="font-medium">Registered.</p>
                   <p className="text-xs mt-1">Loading your assessment…</p>
                 </div>
+              </div>
+            ) : alreadyExists ? (
+              <div className="space-y-4">
+                <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30 px-3 py-3 text-sm text-amber-700 dark:text-amber-400">
+                  <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+                  <div>
+                    <p className="font-medium">You already have an account.</p>
+                    <p className="text-xs mt-1">These details match an existing registration. Please log in to continue to your assessment.</p>
+                  </div>
+                </div>
+                <Button variant="primary" size="md" className="w-full" onClick={() => { window.location.href = loginHref; }}>
+                  Log in to continue
+                </Button>
+                <button type="button" onClick={() => setAlreadyExists(false)} className="w-full text-center text-xs text-muted-foreground hover:text-foreground">
+                  Use different details
+                </button>
               </div>
             ) : (
               <form onSubmit={submit} className="space-y-4">
@@ -174,6 +223,11 @@ function RegisterWithTokenPage() {
                   <input type="tel" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="+91 98765 43210" autoComplete="tel" className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" />
                 </div>
                 <div className="space-y-1.5">
+                  <label className="text-sm font-medium">Company ID</label>
+                  <input value={form.companyId} onChange={(e) => setForm({ ...form, companyId: e.target.value })} placeholder="Company identification number" className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" />
+                  <p className="text-[0.6875rem] text-muted-foreground">Optional. Helps us recognise a returning account.</p>
+                </div>
+                <div className="space-y-1.5">
                   <label className="text-sm font-medium">Date of Birth *</label>
                   <input inputMode="numeric" value={form.dob} onChange={(e) => setForm({ ...form, dob: autoFormatDdmmyyyy(e.target.value) })} placeholder="DD/MM/YYYY" maxLength={10} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" />
                   <p className="text-[0.6875rem] text-muted-foreground">Format DD/MM/YYYY.</p>
@@ -181,6 +235,10 @@ function RegisterWithTokenPage() {
                 <Button type="submit" variant="primary" size="md" className="w-full" disabled={saving}>
                   <UserPlus className="h-4 w-4" /> {saving ? 'Registering…' : 'Register & begin assessment'}
                 </Button>
+                <p className="text-center text-sm text-muted-foreground">
+                  Already registered?{' '}
+                  <a href={loginHref} className="font-medium text-primary hover:underline">Log in</a>
+                </p>
               </form>
             )}
           </CardContent>

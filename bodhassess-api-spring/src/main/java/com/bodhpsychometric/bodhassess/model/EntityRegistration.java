@@ -40,7 +40,7 @@ public class EntityRegistration {
     private String dob;
 
     @Column(name = "sessions_count")
-    private Integer sessionsCount;
+    private Integer sessionsCount = 0;
 
     @Column(name = "last_assessment")
     private String lastAssessment;

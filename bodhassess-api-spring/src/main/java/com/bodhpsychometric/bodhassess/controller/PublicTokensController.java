@@ -1,10 +1,14 @@
 package com.bodhpsychometric.bodhassess.controller;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import org.springframework.web.bind.annotation.RequestBody;
@@ -35,6 +39,33 @@ public class PublicTokensController {
     @PostMapping("/{token}/consume")
     public AssessmentTokenDto consume(@PathVariable String token) {
         return service.consume(token);
+    }
+
+    /**
+     * QR code (PNG) for the token's registration link. Generated once and
+     * persisted on the token row, so repeat downloads stream the same bytes.
+     * {@code base} carries the front-end origin so the encoded link points at
+     * the right host; the SPA passes window.location.origin.
+     */
+    @GetMapping(value = "/{token}/qr", produces = MediaType.IMAGE_PNG_VALUE)
+    public ResponseEntity<byte[]> qr(@PathVariable String token,
+                                     @RequestParam(value = "base", required = false) String base) {
+        byte[] png = service.qrPng(token, base);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"assessment-qr.png\"")
+                .contentType(MediaType.IMAGE_PNG)
+                .body(png);
+    }
+
+    /**
+     * Pre-registration duplicate check used by the public /register page: a
+     * person already exists when their DOB matches AND any of email / phone /
+     * company id matches. The page uses this to prompt "log in" instead of
+     * creating a second account.
+     */
+    @PostMapping("/registration-check")
+    public PublicRegistrationDto.CheckResult registrationCheck(@RequestBody PublicRegistrationDto body) {
+        return registrationService.checkExisting(body);
     }
 
     /**

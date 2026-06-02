@@ -5,6 +5,7 @@ import java.time.OffsetDateTime;
 import javax.persistence.Column;
 import javax.persistence.Entity;
 import javax.persistence.Id;
+import javax.persistence.Lob;
 import javax.persistence.Table;
 
 /**
@@ -59,6 +60,14 @@ public class AssessmentToken {
     @Column(name = "created_by")
     private String createdBy;
 
+    // PNG bytes of the QR code that encodes this token's registration link.
+    // Generated lazily the first time the QR is requested and persisted so
+    // it is produced exactly once (per the "generate once, save in DB"
+    // requirement); later downloads just stream the stored bytes.
+    @Lob
+    @Column(name = "qr_code", columnDefinition = "LONGBLOB")
+    private byte[] qrCode;
+
     public String getToken() { return token; }
     public void setToken(String token) { this.token = token; }
     public String getAssessmentId() { return assessmentId; }
@@ -78,4 +87,6 @@ public class AssessmentToken {
     public OffsetDateTime getCreatedAt() { return createdAt; }
     public String getCreatedBy() { return createdBy; }
     public void setCreatedBy(String createdBy) { this.createdBy = createdBy; }
+    public byte[] getQrCode() { return qrCode; }
+    public void setQrCode(byte[] qrCode) { this.qrCode = qrCode; }
 }

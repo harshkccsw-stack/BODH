@@ -104,8 +104,13 @@ public class PractitionersService {
         try { dob = LocalDate.parse(req.getDob()); }
         catch (Exception e) { throw new BadRequestException("dob must be YYYY-MM-DD"); }
 
+        // [login-debug] Echo exactly what arrived. Remove once login is fixed.
+        boolean byEmail = identifier.contains("@");
+        log.info("[login-debug] practitioner login attempt: identifier='{}' (by{}), dob={}",
+                identifier, byEmail ? "Email" : "Phone", dob);
+
         Practitioner p = null;
-        if (identifier.contains("@")) {
+        if (byEmail) {
             p = repo.findActiveByEmailAndDob(identifier, dob).orElse(null);
         } else {
             String phoneDigits = identifier.replaceAll("\\D", "");
@@ -116,7 +121,30 @@ public class PractitionersService {
                 }
             }
         }
-        if (p == null) throw new UnauthorizedAccessException("invalid credentials");
+        if (p == null) {
+            // [login-debug] Explain WHY the match failed. For the email path we
+            // can look the account up ignoring dob/status and compare fields.
+            if (byEmail) {
+                List<Practitioner> byEmailOnly = repo.findByEmailForDebug(identifier);
+                if (byEmailOnly.isEmpty()) {
+                    log.warn("[login-debug] FAIL: no practitioner with email '{}' exists in this DB", identifier);
+                } else {
+                    for (Practitioner cand : byEmailOnly) {
+                        log.warn("[login-debug] FAIL: account found (id={}, storedEmail='{}') but did not match — "
+                                + "storedDob={} vs typedDob={} (dobMatch={}), storedStatus='{}' (statusActive={})",
+                                cand.getId(), cand.getEmail(), cand.getDob(), dob,
+                                dob.equals(cand.getDob()), cand.getStatus(),
+                                "Active".equalsIgnoreCase(cand.getStatus()));
+                    }
+                }
+            } else {
+                log.warn("[login-debug] FAIL: no Active practitioner with dob={} matched phone digits of '{}'",
+                        dob, identifier);
+            }
+            throw new UnauthorizedAccessException("invalid credentials");
+        }
+        log.info("[login-debug] login OK: practitioner id={} email='{}' status='{}'",
+                p.getId(), p.getEmail(), p.getStatus());
 
         List<String> urlPaths = urlPathsForRoles(p.getRoles());
 

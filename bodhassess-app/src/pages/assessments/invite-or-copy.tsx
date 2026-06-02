@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useParams } from '@/src/lib/router-helpers';
-import { AlertTriangle, ArrowLeft, Check, Link as LinkIcon, Send } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Check, Link as LinkIcon, QrCode, Send } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,15 +9,34 @@ import {
   assessmentRecordsApi,
   assessmentAllotmentsApi,
   assessmentTokensApi,
+  publicTokensApi,
   entityRegistrationsApi,
   groupsApi,
   respondentsApi,
   type AssessmentRecord,
   type AssessmentAllotees,
+  type AssessmentToken,
   type EntityRegistration,
   type Group,
   type Respondent,
 } from '@/lib/api';
+
+// Human label for a stored token, from its scope ids. Mirrors the labels
+// fire() builds so freshly-issued and previously-saved links read the same.
+function labelForToken(
+  t: AssessmentToken,
+  entityById: Record<string, EntityRegistration>,
+  respondentById: Record<string, Respondent>,
+  groups: Group[],
+): string {
+  const entName = (eid: string) => entityById[eid]?.companyName || entityById[eid]?.name || eid;
+  const repName = (rid: string) => respondentById[rid]?.name || rid;
+  if (t.entityId && t.respondentId) return `${entName(t.entityId)} → ${repName(t.respondentId)}`;
+  if (t.entityId) return entName(t.entityId);
+  if (t.groupId) return `Group · ${groups.find((g) => g.id === t.groupId)?.name || t.groupId}`;
+  if (t.respondentId) return repName(t.respondentId);
+  return 'Standalone';
+}
 
 /**
  * Shared invite + copy-link page. Reached from the All Assessments
@@ -57,25 +76,37 @@ export default function InviteOrCopyPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [issuing, setIssuing] = useState(false);
-  const [results, setResults] = useState<{ target: string; url: string }[]>([]);
+  const [results, setResults] = useState<{ target: string; url: string; token: string }[]>([]);
   const [copyFlash, setCopyFlash] = useState<string | null>(null);
+  const [qrBusy, setQrBusy] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
     (async () => {
       try {
-        const [r, a, ents, grps, reps] = await Promise.all([
+        const [r, a, ents, grps, reps, existing] = await Promise.all([
           assessmentRecordsApi.get(id),
           assessmentAllotmentsApi.list(id),
           entityRegistrationsApi.list().catch(() => [] as EntityRegistration[]),
           groupsApi.list().catch(() => [] as Group[]),
           respondentsApi.list().catch(() => [] as Respondent[]),
+          assessmentTokensApi.listForAssessment(id).catch(() => [] as AssessmentToken[]),
         ]);
         setRecord(r);
         setAllotees(a);
         setEntities(ents);
         setGroups(grps);
         setRespondents(reps);
+        // Surface links already saved for this assessment so the admin sees the
+        // existing URL instead of minting a new one each visit. Names resolve
+        // from the lookups we just fetched.
+        const entMap = Object.fromEntries(ents.map((e) => [e.id, e])) as Record<string, EntityRegistration>;
+        const repMap = Object.fromEntries(reps.map((p) => [p.id, p])) as Record<string, Respondent>;
+        setResults(existing.map((t) => ({
+          target: labelForToken(t, entMap, repMap, grps),
+          url: buildUrl(t.token),
+          token: t.token,
+        })));
       } catch (e: any) {
         setError(e?.message || 'Failed to load.');
       } finally {
@@ -93,8 +124,7 @@ export default function InviteOrCopyPage() {
     if (!id || !record) return;
     setIssuing(true);
     setError('');
-    setResults([]);
-    const newResults: { target: string; url: string }[] = [];
+    const newResults: { target: string; url: string; token: string }[] = [];
     try {
       // Entities
       for (const eid of Array.from(entityPicks)) {
@@ -105,33 +135,40 @@ export default function InviteOrCopyPage() {
             const t = await assessmentTokensApi.issue({
               assessmentId: id, entityId: eid, respondentId: rid, maxUses: 1,
             });
-            newResults.push({ target: `${entityById[eid]?.companyName || entityById[eid]?.name || eid} → ${respondentById[rid]?.name || rid}`, url: buildUrl(t.token) });
+            newResults.push({ target: `${entityById[eid]?.companyName || entityById[eid]?.name || eid} → ${respondentById[rid]?.name || rid}`, url: buildUrl(t.token), token: t.token });
           }
         } else {
           // Entity-wide token — anyone with the link registers under this entity.
           const t = await assessmentTokensApi.issue({ assessmentId: id, entityId: eid });
-          newResults.push({ target: entityById[eid]?.companyName || entityById[eid]?.name || eid, url: buildUrl(t.token) });
+          newResults.push({ target: entityById[eid]?.companyName || entityById[eid]?.name || eid, url: buildUrl(t.token), token: t.token });
         }
       }
       // Groups
       for (const gid of Array.from(groupPicks)) {
         const t = await assessmentTokensApi.issue({ assessmentId: id, groupId: gid });
         const gname = groups.find((g) => g.id === gid)?.name || gid;
-        newResults.push({ target: `Group · ${gname}`, url: buildUrl(t.token) });
+        newResults.push({ target: `Group · ${gname}`, url: buildUrl(t.token), token: t.token });
       }
       // Individual allotted respondents
       for (const rid of Array.from(respondentPicks)) {
         const t = await assessmentTokensApi.issue({ assessmentId: id, respondentId: rid, maxUses: 1 });
-        newResults.push({ target: respondentById[rid]?.name || rid, url: buildUrl(t.token) });
+        newResults.push({ target: respondentById[rid]?.name || rid, url: buildUrl(t.token), token: t.token });
       }
       // Standalone individual — no respondentId pre-bound; on registration
       // a brand-new respondent row is created from the form.
       if (standaloneEmail.trim()) {
         const t = await assessmentTokensApi.issue({ assessmentId: id, maxUses: 1 });
-        newResults.push({ target: `Standalone · ${standaloneEmail.trim()}`, url: buildUrl(t.token) });
+        newResults.push({ target: `Standalone · ${standaloneEmail.trim()}`, url: buildUrl(t.token), token: t.token });
       }
 
-      setResults(newResults);
+      // Merge with whatever is already on screen (existing saved links),
+      // deduping by token. The backend reuses a live token for the same scope,
+      // so re-issuing returns the same token rather than a duplicate row.
+      setResults((prev) => {
+        const byToken = new Map(prev.map((r) => [r.token, r]));
+        for (const r of newResults) byToken.set(r.token, r);
+        return Array.from(byToken.values());
+      });
       // Copy all links to the clipboard joined with newlines — works for
       // both modes. Send-mode would additionally call an email backend
       // when configured.
@@ -146,6 +183,30 @@ export default function InviteOrCopyPage() {
 
   const copyOne = async (url: string, target: string) => {
     try { await navigator.clipboard.writeText(url); setCopyFlash(target); setTimeout(() => setCopyFlash(null), 1500); } catch {}
+  };
+
+  // Download the QR PNG for a link. The server generates it once and stores
+  // it on the token, so repeat downloads stream the same image. We fetch as a
+  // blob (rather than navigating) to keep a clean filename.
+  const downloadQr = async (token: string, target: string) => {
+    setQrBusy(token);
+    try {
+      const res = await fetch(publicTokensApi.qrUrl(token, window.location.origin));
+      if (!res.ok) throw new Error('QR fetch failed');
+      const blob = await res.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = objectUrl;
+      a.download = `assessment-qr-${target.replace(/[^a-z0-9]+/gi, '-').slice(0, 32) || token.slice(0, 8)}.png`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch (e: any) {
+      setError(e?.message || 'Failed to download QR code.');
+    } finally {
+      setQrBusy(null);
+    }
   };
 
   const totalSelected = entityPicks.size + groupPicks.size + respondentPicks.size + (standaloneEmail.trim() ? 1 : 0);
@@ -287,16 +348,22 @@ export default function InviteOrCopyPage() {
             <Card>
               <CardHeader className="pb-3"><CardTitle className="text-base">Generated links</CardTitle></CardHeader>
               <CardContent className="space-y-2">
-                <p className="text-xs text-muted-foreground">All links were copied to your clipboard (one per line). You can also copy individually below.</p>
+                <p className="text-xs text-muted-foreground">Saved links for this assessment — each link is generated once and reused. Copy individually below.</p>
                 {results.map((r) => (
                   <div key={r.url} className="flex items-center justify-between gap-2 border border-border rounded-md px-3 py-2 text-sm">
                     <div className="min-w-0">
                       <div className="font-medium truncate">{r.target}</div>
                       <div className="text-[0.6875rem] text-muted-foreground truncate font-mono">{r.url}</div>
                     </div>
-                    <Button variant="outline" size="sm" onClick={() => copyOne(r.url, r.target)}>
-                      {copyFlash === r.target ? 'Copied!' : 'Copy'}
-                    </Button>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <Button variant="outline" size="sm" onClick={() => copyOne(r.url, r.target)}>
+                        {copyFlash === r.target ? 'Copied!' : 'Copy'}
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => downloadQr(r.token, r.target)} disabled={qrBusy === r.token}>
+                        <QrCode className="size-3.5" />
+                        {qrBusy === r.token ? 'Preparing…' : 'QR'}
+                      </Button>
+                    </div>
                   </div>
                 ))}
               </CardContent>

@@ -7,16 +7,14 @@ import { config } from './config';
 export const API_BASE = config.apiBase;
 
 // Pick the most appropriate stored token in priority order:
-//   1. Practitioner (dashboard)
-//   2. Admin       (dashboard)
-//   3. Respondent  (portal)
+//   1. Dashboard (super admin / practitioner — unified /auth token)
+//   2. Respondent (portal)
 // Returning null is fine — the call goes out unauthenticated and the
 // API returns 401 if the route requires auth.
 function getActiveToken(): string | null {
   if (typeof window === 'undefined') return null;
   return (
     sessionStorage.getItem(config.practitionerAuthStorageKey) ||
-    sessionStorage.getItem(config.adminAuthStorageKey) ||
     sessionStorage.getItem(config.authStorageKey) ||
     null
   );
@@ -69,6 +67,8 @@ export interface Respondent {
   accountType?: 'individual' | 'organization' | string;
   orgName?: string;
   orgWebsite?: string;
+  // Optional company identification number; used in registration dedup.
+  companyId?: string;
 }
 export interface LoginResponse {
   token: string;
@@ -171,28 +171,30 @@ export interface Practitioner {
 export interface PractitionerMe extends Practitioner {
   url_paths: string[];
 }
-export interface PractitionerLoginResponse {
+// Unified login over the single app_users identity table. Both login pages
+// (dashboard + assessment portal) call this; the response's isSuperAdmin
+// decides which surface the caller routes to. roles/url_paths carry the RBAC
+// the dashboard uses to gate routes — so /auth/me is the only identity call.
+export interface AuthUser {
+  id: string;
+  email: string;
+  name?: string;
+  isSuperAdmin: boolean;
+  entityIds?: string[];
+  roles?: string[];
+  url_paths?: string[];
+}
+export interface AuthLoginResponse {
   token: string;
-  practitioner: PractitionerMe;
+  user: AuthUser;
 }
-// ---------- Admin (single env-driven account) ----------
-// Different shape from practitioners: username + password, no DOB. The
-// backend issues a JWT carrying userType=ADMIN with full url_paths access.
-export interface AdminInfo {
-  username: string;
-  role: string; // always "ADMIN"
-}
-export interface AdminLoginResponse {
-  token: string;
-  admin: AdminInfo;
-}
-export const adminApi = {
-  login: (username: string, password: string) =>
-    jsonFetch<AdminLoginResponse>('/admin/login', { method: 'POST', body: JSON.stringify({ username, password }) }),
+export const authApi = {
+  login: (email: string, dob: string) =>
+    jsonFetch<AuthLoginResponse>('/auth/login', { method: 'POST', body: JSON.stringify({ email, dob }) }),
   me: (token: string) =>
-    jsonFetch<AdminInfo>('/admin/me', { headers: { Authorization: `Bearer ${token}` } }),
+    jsonFetch<AuthUser>('/auth/me', { headers: { Authorization: `Bearer ${token}` } }),
   logout: (token: string) =>
-    jsonFetch<null>('/admin/logout', { method: 'POST', headers: { Authorization: `Bearer ${token}` } }),
+    jsonFetch<null>('/auth/logout', { method: 'POST', headers: { Authorization: `Bearer ${token}` } }),
 };
 
 export const practitionersApi = {
@@ -201,12 +203,8 @@ export const practitionersApi = {
   create: (p: Practitioner) => jsonFetch<Practitioner>('/practitioners', { method: 'POST', body: JSON.stringify(p) }),
   update: (id: string, p: Partial<Practitioner>) => jsonFetch<Practitioner>(`/practitioners/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(p) }),
   delete: (id: string) => jsonFetch<null>(`/practitioners/${encodeURIComponent(id)}`, { method: 'DELETE' }),
-  login: (identifier: string, dob: string) =>
-    jsonFetch<PractitionerLoginResponse>('/practitioners/login', { method: 'POST', body: JSON.stringify({ identifier, dob }) }),
-  me: (token: string) =>
-    jsonFetch<PractitionerMe>('/practitioners/me', { headers: { Authorization: `Bearer ${token}` } }),
-  logout: (token: string) =>
-    jsonFetch<null>('/practitioners/logout', { method: 'POST', headers: { Authorization: `Bearer ${token}` } }),
+  // Auth (login/me/logout) is unified under authApi → /auth. These CRUD
+  // methods are the practitioner-management surface only.
 };
 
 // ---------- Roles (page-access bundles) ----------
@@ -781,11 +779,22 @@ export interface PublicRegistrationRequest {
   email: string;
   phone?: string;
   dob: string;  // ISO yyyy-MM-dd
+  companyId?: string;
 }
 export interface PublicRegistrationResult {
   sessionId: string;
   respondentId: string;
   assessmentId: string;
+  // RESPONDENT auth token — store it so the portal take flow opens without
+  // a second login.
+  token: string;
+}
+// Pre-registration dedup check — dob plus any one of email/phone/companyId.
+export interface RegistrationCheckRequest {
+  email?: string;
+  phone?: string;
+  companyId?: string;
+  dob: string;  // ISO yyyy-MM-dd
 }
 export const publicTokensApi = {
   resolve: (token: string) =>
@@ -800,6 +809,17 @@ export const publicTokensApi = {
       method: 'POST',
       body: JSON.stringify(body),
     }),
+  // Returns { exists } so the page can prompt login instead of re-registering.
+  registrationCheck: (body: RegistrationCheckRequest) =>
+    jsonFetch<{ exists: boolean }>(`/public/tokens/registration-check`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  // Absolute URL of the QR PNG for a token's registration link. `base` is the
+  // front-end origin so the encoded link points at this host. Used as an
+  // <img>/download src — the endpoint streams image/png.
+  qrUrl: (token: string, base: string) =>
+    `${API_BASE}/public/tokens/${encodeURIComponent(token)}/qr?base=${encodeURIComponent(base)}`,
 };
 
 // Append-only audit log. Surfaced as tabs on the entity drill-in and
