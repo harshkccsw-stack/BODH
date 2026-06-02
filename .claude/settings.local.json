@@ -11,12 +11,10 @@
       "Bash(curl -sI \"https://bodhh.vercel.app/\")",
       "Bash(curl -sI \"https://bodhh.vercel.app/dashboard\")",
       "Bash(curl -sI \"https://bodhh.vercel.app/portal/login\")",
-<<<<<<< HEAD
       "Bash(curl -sS -o /tmp/layout1-page.js -w 'layout-1 page=%{http_code} size=%{size_download}\\\\n' 'http://127.0.0.1:3000/app/\\(layouts\\)/layout-1/page.tsx')",
       "Bash(curl -sS -o /tmp/layout1-comp.js -w 'layout-1 index=%{http_code} size=%{size_download}\\\\n' 'http://127.0.0.1:3000/components/layouts/layout-1/index.tsx')",
       "Bash(curl -sS -o /tmp/register.js -w 'register=%{http_code} size=%{size_download}\\\\n' 'http://127.0.0.1:3000/app/register/page.tsx')",
-      "Bash(pkill -f 'vite dev')"
-=======
+      "Bash(pkill -f 'vite dev')",
       "Bash(go version *)",
       "Bash(npm --version)",
       "Bash(docker --version)",
@@ -35,7 +33,6 @@
       "Bash(python3 -c \"import acme_tiny; print\\('acme_tiny version:', acme_tiny.__name__\\)\")",
       "Bash(curl -sS -o /dev/null -w \"HTTPS status: %{http_code}\\\\nSSL verify: %{ssl_verify_result}\\\\n\" https://api.bodh.biz/ --max-time 10)",
       "Bash(curl -sSIv https://api.bodh.biz/ --max-time 10)"
->>>>>>> 0d049bbc18f6d4cfde6960c2f511d2a32303c268
     ]
   }
 }
