@@ -21,6 +21,7 @@ import com.bodhpsychometric.bodhassess.model.PublishedQuestionnaireQuestionOptio
 import com.bodhpsychometric.bodhassess.model.PublishedQuestionnaireQuestionOptionScore;
 import com.bodhpsychometric.bodhassess.model.PublishedQuestionnaireQuestionScore;
 import com.bodhpsychometric.bodhassess.payload.QuestionnaireDto;
+import com.bodhpsychometric.bodhassess.payload.QuestionnaireSummaryDto;
 import com.bodhpsychometric.bodhassess.repository.PublishedQuestionnaireRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -40,6 +41,13 @@ public class QuestionnairesService {
                 ? repo.findByVertical(vertical)
                 : repo.findAllOrderByCreated();
         return rows.stream().map(this::toDto).collect(Collectors.toList());
+    }
+
+    @Transactional(readOnly = true)
+    public List<QuestionnaireSummaryDto> listSummaries(String vertical) {
+        return StringUtils.hasText(vertical)
+                ? repo.findSummariesByVertical(vertical)
+                : repo.findAllSummariesOrderByCreated();
     }
 
     @Transactional(readOnly = true)
@@ -69,6 +77,18 @@ public class QuestionnairesService {
         if (!StringUtils.hasText(dto.getId()) || !StringUtils.hasText(dto.getName())) {
             throw new BadRequestException("id and name are required");
         }
+        // Lock: a COMMITTED version is immutable. To "edit", admin must
+        // create a new draft via the versioning service. Existing rows
+        // pre-migration are already marked COMMITTED, so this guard
+        // applies uniformly — there's no back-door to mutate a row
+        // that's locked in by live assessments.
+        repo.findById(dto.getId().trim()).ifPresent(existing -> {
+            if ("COMMITTED".equals(existing.getVersionStatus())) {
+                throw new BadRequestException(
+                        "This questionnaire version is locked (committed). "
+                        + "Create a new draft from it to make changes.");
+            }
+        });
         for (PublishedQuestionnaire dup : repo.findOthersByName(dto.getName().trim(), dto.getId().trim())) {
             repo.delete(dup);
         }

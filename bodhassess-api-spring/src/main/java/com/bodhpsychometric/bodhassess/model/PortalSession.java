@@ -18,6 +18,14 @@ public class PortalSession {
     @Id
     private String id;
 
+    // Stable group key shared by all sessions created in the same admin
+    // bulk allotment. Lets the All Assessments page collapse N sessions
+    // into one assessment row, and the /assessments/:id/respondents page
+    // list the respondents that received this particular allotment.
+    // Nullable for older rows created before this column existed.
+    @Column(name = "assessment_id", length = 64)
+    private String assessmentId;
+
     private String name;
 
     @Column(name = "respondent_id")
@@ -63,6 +71,15 @@ public class PortalSession {
     @Column(name = "group_name")
     private String groupName;
 
+    // Entity scope: when the session was generated from an entity
+    // allotment, this points at the entity. Drives per-(entity,
+    // assessment) cap enforcement.
+    @Column(name = "entity_id")
+    private String entityId;
+
+    @Column(name = "entity_name")
+    private String entityName;
+
     @Column(name = "consent_id")
     private String consentId;
 
@@ -93,6 +110,8 @@ public class PortalSession {
 
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
+    public String getAssessmentId() { return assessmentId; }
+    public void setAssessmentId(String assessmentId) { this.assessmentId = assessmentId; }
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }
     public String getRespondentId() { return respondentId; }
@@ -123,6 +142,10 @@ public class PortalSession {
     public void setGroupId(String groupId) { this.groupId = groupId; }
     public String getGroupName() { return groupName; }
     public void setGroupName(String groupName) { this.groupName = groupName; }
+    public String getEntityId() { return entityId; }
+    public void setEntityId(String entityId) { this.entityId = entityId; }
+    public String getEntityName() { return entityName; }
+    public void setEntityName(String entityName) { this.entityName = entityName; }
     public String getConsentId() { return consentId; }
     public void setConsentId(String consentId) { this.consentId = consentId; }
     public boolean isProctoring() { return proctoring; }

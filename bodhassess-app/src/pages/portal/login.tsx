@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Brain, LogIn, AlertTriangle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { respondentsApi } from '@/lib/api';
+import { authApi } from '@/lib/api';
 import { config } from '@/lib/config';
 import { autoFormatDdmmyyyy, ddmmyyyyToIso } from '@/lib/helpers';
 
@@ -29,7 +29,10 @@ export default function PortalLoginPage() {
     }
     setLoading(true);
     try {
-      const res = await respondentsApi.login(id, isoDob);
+      // Unified login against the single app_users table. A super admin who
+      // signs in here still gets routed to the portal surface — same token,
+      // this page just always lands in /portal.
+      const res = await authApi.login(id, isoDob);
       sessionStorage.setItem(AUTH_KEY, res.token);
       window.location.href = '/portal/assessments';
     } catch (e: any) {

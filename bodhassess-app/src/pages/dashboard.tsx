@@ -1,24 +1,25 @@
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from '@/src/lib/router-helpers';
 import {
   Activity,
   BarChart3,
   ClipboardCheck,
-  Clock,
   Database,
   Library,
   Server,
+  TrendingUp,
   Users,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { getHealth, type HealthStatus } from '@/lib/api';
+import { Skeleton } from '@/components/ui/skeleton';
+import { ProgressCircle } from '@/components/ui/progress';
+import { getHealth, type HealthStatus, type AssessmentSummary } from '@/lib/api';
 import {
   getRespondents,
   getPractitioners,
   countByVertical,
 } from '@/lib/data-store';
-import { portalSessionsApi, getQuestionnairesCatalog as fetchQuestionnaires } from '@/lib/api';
-import { formatDDMMYYYY } from '@/lib/helpers';
+import { assessmentsApi, getQuestionnairesCatalog as fetchQuestionnaires } from '@/lib/api';
 
 const verticalLabels: Record<string, string> = {
   clinical: 'Clinical Psychology',
@@ -36,13 +37,77 @@ const verticalTerminology: Record<string, { respondent: string; practitioner: st
   whitelabel: { respondent: 'Users', practitioner: 'Administrators' },
 };
 
-type RecentSession = {
-  id: string;
-  respondent: string;
-  instrument: string;
-  status: string;
-  score: string;
-  time: string;
+const ACTIVITY_WINDOW_DAYS = 14;
+
+/** Bucket a list of ISO dates into the last `days` calendar days (oldest → newest). */
+function buildDailyBuckets(dates: Array<string | undefined>, days: number) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const buckets = Array.from({ length: days }, (_, i) => {
+    const d = new Date(today);
+    d.setDate(today.getDate() - (days - 1 - i));
+    return { date: d, count: 0 };
+  });
+  const indexByDay = new Map(buckets.map((b, i) => [b.date.toDateString(), i]));
+
+  for (const raw of dates) {
+    if (!raw) continue;
+    const dt = new Date(raw);
+    if (Number.isNaN(dt.getTime())) continue;
+    dt.setHours(0, 0, 0, 0);
+    const idx = indexByDay.get(dt.toDateString());
+    if (idx !== undefined) buckets[idx].count += 1;
+  }
+  return buckets;
+}
+
+/**
+ * Lightweight inline-SVG area sparkline. Matches the hand-rolled chart
+ * convention used elsewhere in the app (theme tokens, no chart library).
+ */
+function ActivitySparkline({ buckets }: { buckets: Array<{ date: Date; count: number }> }) {
+  const W = 100;
+  const H = 36;
+  const max = Math.max(1, ...buckets.map((b) => b.count));
+  const n = buckets.length;
+
+  const points = buckets.map((b, i) => {
+    const x = n === 1 ? 0 : (i / (n - 1)) * W;
+    const y = H - (b.count / max) * H;
+    return { x, y };
+  });
+
+  const line = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(2)} ${p.y.toFixed(2)}`).join(' ');
+  const area = `${line} L ${W} ${H} L 0 ${H} Z`;
+  const total = buckets.reduce((sum, b) => sum + b.count, 0);
+
+  return (
+    <svg
+      viewBox={`0 0 ${W} ${H}`}
+      preserveAspectRatio="none"
+      className="h-24 w-full"
+      role="img"
+      aria-label={`${total} assessments completed over the last ${n} days`}
+    >
+      <path d={area} fill="hsl(var(--primary))" fillOpacity={0.12} />
+      <path
+        d={line}
+        fill="none"
+        stroke="hsl(var(--primary))"
+        strokeWidth={1.5}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        vectorEffect="non-scaling-stroke"
+      />
+    </svg>
+  );
+}
+
+const statusStyles: Record<string, string> = {
+  Completed: 'bg-green-500',
+  Active: 'bg-blue-500',
+  'Pending Review': 'bg-yellow-500',
 };
 
 function DashboardContent() {
@@ -50,30 +115,38 @@ function DashboardContent() {
   const vertical = searchParams.get('vertical') || 'clinical';
   const label = verticalLabels[vertical] || 'Clinical Psychology';
   const terms = verticalTerminology[vertical] || verticalTerminology.clinical;
+
   const [health, setHealth] = useState<HealthStatus | null>(null);
   const [respondentCount, setRespondentCount] = useState(0);
   const [practitionerCount, setPractitionerCount] = useState(0);
   const [questionnaireCount, setQuestionnaireCount] = useState(0);
-  const [sessionsForVertical, setSessionsForVertical] = useState<Array<{ status: string; score?: string }>>([]);
-  const [recentLive, setRecentLive] = useState<RecentSession[]>([]);
+  const [sessions, setSessions] = useState<AssessmentSummary[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     getHealth().then(setHealth).catch(() => setHealth(null));
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
     (async () => {
-      const [allRespondents, allPractitioners, allQuestionnaires, allSessions] = await Promise.all([
+      // Dashboard reads only the slim /assessments/summaries projection
+      // (id, respondent, instrument, vertical, status, score, createdAt) —
+      // enough for the KPI cards and overview charts, without pulling the
+      // full session payload (answers, mqt scores, demographics).
+      const [allRespondents, allPractitioners, allQuestionnaires, allSummaries] = await Promise.all([
         getRespondents(),
         getPractitioners(),
         fetchQuestionnaires().catch(() => []),
-        portalSessionsApi.list().catch(() => []),
+        assessmentsApi.listSummaries().catch(() => []),
       ]);
+      if (cancelled) return;
 
       const verticalSessions = vertical === 'whitelabel'
-        ? allSessions
-        : allSessions.filter((s) => String(s.vertical || '').toLowerCase() === vertical);
-      setSessionsForVertical(verticalSessions);
+        ? allSummaries
+        : allSummaries.filter((s) => String(s.vertical || '').toLowerCase() === vertical);
+      setSessions(verticalSessions);
 
       if (vertical === 'whitelabel') {
         setRespondentCount(allRespondents.length);
@@ -88,31 +161,59 @@ function DashboardContent() {
           ).length,
         );
       }
-
-      const live = verticalSessions.slice(0, 5).map((s: any) => ({
-        id: s.id,
-        respondent: s.respondent,
-        instrument: s.instrument,
-        status: s.status,
-        score: s.score || '—',
-        time: formatDDMMYYYY(s.createdAt),
-      }));
-      setRecentLive(live);
+      setLoading(false);
     })();
+    return () => {
+      cancelled = true;
+    };
   }, [vertical]);
 
-  const activeCount = sessionsForVertical.filter((s) => s.status === 'Active').length;
-  const completedCount = sessionsForVertical.filter((s) => s.status === 'Completed').length;
-  const pendingReviewCount = sessionsForVertical.filter((s) => s.status === 'Pending Review').length;
+  const metrics = useMemo(() => {
+    const total = sessions.length;
+    const activeCount = sessions.filter((s) => s.status === 'Active').length;
+    const completedCount = sessions.filter((s) => s.status === 'Completed').length;
+    const pendingReviewCount = sessions.filter((s) => s.status === 'Pending Review').length;
+    const completionRate = total ? Math.round((completedCount / total) * 100) : 0;
+    return { total, activeCount, completedCount, pendingReviewCount, completionRate };
+  }, [sessions]);
+
+  // Completions over time — bucket each completed session by its completedAt
+  // (created sessions that aren't finished yet don't carry one).
+  const activityBuckets = useMemo(
+    () => buildDailyBuckets(sessions.map((s) => s.completedAt), ACTIVITY_WINDOW_DAYS),
+    [sessions],
+  );
+  const activityTotal = useMemo(
+    () => activityBuckets.reduce((sum, b) => sum + b.count, 0),
+    [activityBuckets],
+  );
+
+  const topInstruments = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const s of sessions) {
+      const key = s.instrument || 'Unspecified';
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+    return [...counts.entries()]
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+  }, [sessions]);
 
   const stats = [
-    { label: 'Active Assessments', value: String(activeCount), icon: Activity, change: `${sessionsForVertical.length} total in this vertical` },
-    { label: 'Completed Today', value: String(completedCount), icon: ClipboardCheck, change: `${completedCount} submitted` },
-    { label: `${terms.respondent} Registered`, value: String(respondentCount), icon: Users, change: `${practitionerCount} ${terms.practitioner.toLowerCase()}` },
-    { label: 'Questionnaires Available', value: String(questionnaireCount || 0), icon: Library, change: pendingReviewCount > 0 ? `${pendingReviewCount} pending review` : 'Includes library + custom' },
+    { label: 'Active Assessments', value: metrics.activeCount, icon: Activity, change: `${metrics.total} total in this vertical` },
+    { label: 'Completed', value: metrics.completedCount, icon: ClipboardCheck, change: `${metrics.completionRate}% completion rate` },
+    { label: `${terms.respondent} Registered`, value: respondentCount, icon: Users, change: `${practitionerCount} ${terms.practitioner.toLowerCase()}` },
+    { label: 'Questionnaires Available', value: questionnaireCount || 0, icon: Library, change: metrics.pendingReviewCount > 0 ? `${metrics.pendingReviewCount} pending review` : 'Includes library + custom' },
   ];
 
-  const recentSessions = recentLive;
+  const statusBreakdown = [
+    { label: 'Completed', count: metrics.completedCount },
+    { label: 'Active', count: metrics.activeCount },
+    { label: 'Pending Review', count: metrics.pendingReviewCount },
+  ];
+
+  const maxInstrumentCount = Math.max(1, ...topInstruments.map((i) => i.count));
 
   return (
     <div className="p-5 lg:p-7.5 space-y-7">
@@ -151,7 +252,11 @@ function DashboardContent() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-muted-foreground">{stat.label}</p>
-                  <p className="text-2xl font-semibold mt-1">{stat.value}</p>
+                  {loading ? (
+                    <Skeleton className="h-8 w-16 mt-1" />
+                  ) : (
+                    <p className="text-2xl font-semibold mt-1 tabular-nums">{stat.value}</p>
+                  )}
                   <p className="text-xs text-muted-foreground mt-1">{stat.change}</p>
                 </div>
                 <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-primary/10">
@@ -163,61 +268,98 @@ function DashboardContent() {
         ))}
       </div>
 
-      {/* Recent Sessions Table */}
+      {/* Analytics Row */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        {/* Completion Rate */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Completion Rate</CardTitle>
+          </CardHeader>
+          <CardContent className="flex items-center gap-6">
+            {loading ? (
+              <Skeleton className="h-[120px] w-[120px] rounded-full" />
+            ) : (
+              <ProgressCircle value={metrics.completionRate} size={120} strokeWidth={10}>
+                <span className="text-xl font-semibold">{metrics.completionRate}%</span>
+              </ProgressCircle>
+            )}
+            <ul className="space-y-2 text-sm">
+              {statusBreakdown.map((row) => (
+                <li key={row.label} className="flex items-center gap-2">
+                  <span className={`h-2.5 w-2.5 rounded-full ${statusStyles[row.label] || 'bg-muted-foreground'}`} />
+                  <span className="text-muted-foreground">{row.label}</span>
+                  <span className="ml-auto font-medium tabular-nums">{row.count}</span>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+
+        {/* Activity Trend */}
+        <Card className="lg:col-span-2">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base">Completions</CardTitle>
+              <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                <TrendingUp className="h-3.5 w-3.5" /> Last {ACTIVITY_WINDOW_DAYS} days
+              </span>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {loading ? (
+              <Skeleton className="h-24 w-full" />
+            ) : activityTotal === 0 ? (
+              <div className="flex h-24 items-center justify-center text-sm text-muted-foreground">
+                No completions in the last {ACTIVITY_WINDOW_DAYS} days.
+              </div>
+            ) : (
+              <>
+                <ActivitySparkline buckets={activityBuckets} />
+                <div className="mt-2 flex justify-between text-xs text-muted-foreground">
+                  <span>{activityBuckets[0]?.date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
+                  <span>{activityBuckets[activityBuckets.length - 1]?.date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Top Questionnaires */}
       <Card>
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
-            <CardTitle className="text-base">Recent Assessments</CardTitle>
+            <CardTitle className="text-base">Top Questionnaires</CardTitle>
             <a href="/assessments" className="text-sm text-primary hover:underline">View all</a>
           </div>
         </CardHeader>
-        <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border">
-                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Assessment ID</th>
-                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">{terms.respondent.slice(0, -1)}</th>
-                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Questionnaire</th>
-                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Status</th>
-                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Score</th>
-                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Time</th>
-                </tr>
-              </thead>
-              <tbody>
-                {recentSessions.length === 0 && (
-                  <tr>
-                    <td colSpan={6} className="px-5 py-8 text-center text-sm text-muted-foreground">
-                      No recent assessments yet.
-                    </td>
-                  </tr>
-                )}
-                {recentSessions.map((session) => (
-                  <tr key={session.id} className="border-b border-border last:border-0 hover:bg-muted/50 transition-colors">
-                    <td className="px-5 py-3 font-mono text-xs">{session.id}</td>
-                    <td className="px-5 py-3 font-medium">{session.respondent}</td>
-                    <td className="px-5 py-3">{session.instrument}</td>
-                    <td className="px-5 py-3">
-                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
-                        session.status === 'Completed' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' :
-                        session.status === 'In Progress' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' :
-                        'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
-                      }`}>
-                        {session.status}
-                      </span>
-                    </td>
-                    <td className="px-5 py-3 font-mono text-xs">{session.score}</td>
-                    <td className="px-5 py-3 text-muted-foreground">
-                      <span className="flex items-center gap-1">
-                        <Clock className="h-3 w-3" />
-                        {session.time}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+        <CardContent>
+          {loading ? (
+            <div className="space-y-3">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <Skeleton key={i} className="h-6 w-full" />
+              ))}
+            </div>
+          ) : topInstruments.length === 0 ? (
+            <p className="py-4 text-center text-sm text-muted-foreground">No assessments to summarise yet.</p>
+          ) : (
+            <ul className="space-y-3">
+              {topInstruments.map((item) => (
+                <li key={item.name} className="space-y-1">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="truncate pr-3 font-medium">{item.name}</span>
+                    <span className="tabular-nums text-muted-foreground">{item.count}</span>
+                  </div>
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-secondary">
+                    <div
+                      className="h-full rounded-full bg-primary transition-all duration-500"
+                      style={{ width: `${(item.count / maxInstrumentCount) * 100}%` }}
+                    />
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
         </CardContent>
       </Card>
 

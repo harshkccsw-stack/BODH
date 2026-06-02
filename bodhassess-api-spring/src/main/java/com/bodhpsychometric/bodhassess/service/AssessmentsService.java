@@ -22,7 +22,9 @@ import com.bodhpsychometric.bodhassess.model.AssessmentAnswer;
 import com.bodhpsychometric.bodhassess.model.PortalSession;
 import com.bodhpsychometric.bodhassess.model.PortalSessionDemographic;
 import com.bodhpsychometric.bodhassess.model.PortalSessionMqtScore;
-import com.bodhpsychometric.bodhassess.payload.AssessmentDto;
+import com.bodhpsychometric.bodhassess.payload.AssessmentSessionDto;
+import com.bodhpsychometric.bodhassess.payload.AssessmentGroupDto;
+import com.bodhpsychometric.bodhassess.payload.AssessmentSummaryDto;
 import com.bodhpsychometric.bodhassess.payload.HeartbeatRequest;
 import com.bodhpsychometric.bodhassess.repository.PortalSessionRepository;
 import com.bodhpsychometric.bodhassess.security.UserPrincipal;
@@ -42,7 +44,7 @@ public class AssessmentsService {
     private HeartbeatService heartbeats;
 
     @Transactional(readOnly = true)
-    public List<AssessmentDto> list(String respondentId) {
+    public List<AssessmentSessionDto> list(String respondentId) {
         List<PortalSession> rows = StringUtils.hasText(respondentId)
                 ? repo.findByRespondentId(respondentId)
                 : repo.findAllOrderByCreated();
@@ -50,11 +52,35 @@ public class AssessmentsService {
     }
 
     @Transactional(readOnly = true)
-    public AssessmentDto get(String id) {
+    public List<AssessmentSummaryDto> listSummaries(String respondentId, Integer limit) {
+        List<AssessmentSummaryDto> rows = StringUtils.hasText(respondentId)
+                ? repo.findSummariesByRespondentId(respondentId)
+                : repo.findAllSummariesOrderByCreated();
+        if (limit != null && limit > 0 && rows.size() > limit) {
+            return new ArrayList<>(rows.subList(0, limit));
+        }
+        return rows;
+    }
+
+    @Transactional(readOnly = true)
+    public List<AssessmentSummaryDto> listSummariesByAssessment(String assessmentId) {
+        if (!StringUtils.hasText(assessmentId)) {
+            throw new BadRequestException("assessmentId query param required");
+        }
+        return repo.findSummariesByAssessmentId(assessmentId);
+    }
+
+    @Transactional(readOnly = true)
+    public List<AssessmentGroupDto> listGroups() {
+        return repo.findAssessmentGroups();
+    }
+
+    @Transactional(readOnly = true)
+    public AssessmentSessionDto get(String id) {
         return toDto(repo.findById(id).orElseThrow(() -> new ResourceNotFoundException("Assessment", "id", id)));
     }
 
-    public AssessmentDto create(AssessmentDto dto) {
+    public AssessmentSessionDto create(AssessmentSessionDto dto) {
         if (!StringUtils.hasText(dto.getId()) || !StringUtils.hasText(dto.getRespondentId())
                 || !StringUtils.hasText(dto.getInstrument())) {
             throw new BadRequestException("id, respondentId, instrument required");
@@ -66,24 +92,24 @@ public class AssessmentsService {
         return toDto(repo.save(s));
     }
 
-    public AssessmentDto.BulkAssessmentResponse bulkCreate(List<AssessmentDto> items) {
+    public AssessmentSessionDto.BulkAssessmentResponse bulkCreate(List<AssessmentSessionDto> items) {
         int created = 0;
-        List<AssessmentDto.BulkAssessmentError> errors = new ArrayList<>();
-        if (items == null) return new AssessmentDto.BulkAssessmentResponse(0, errors);
+        List<AssessmentSessionDto.BulkAssessmentError> errors = new ArrayList<>();
+        if (items == null) return new AssessmentSessionDto.BulkAssessmentResponse(0, errors);
         for (int i = 0; i < items.size(); i++) {
-            AssessmentDto dto = items.get(i);
+            AssessmentSessionDto dto = items.get(i);
             if (dto == null) {
-                errors.add(new AssessmentDto.BulkAssessmentError(i, null, "row is null"));
+                errors.add(new AssessmentSessionDto.BulkAssessmentError(i, null, "row is null"));
                 continue;
             }
             if (!StringUtils.hasText(dto.getId()) || !StringUtils.hasText(dto.getRespondentId())
                     || !StringUtils.hasText(dto.getInstrument())) {
-                errors.add(new AssessmentDto.BulkAssessmentError(i, dto.getId(),
+                errors.add(new AssessmentSessionDto.BulkAssessmentError(i, dto.getId(),
                         "id, respondentId, instrument required"));
                 continue;
             }
             if (repo.existsById(dto.getId())) {
-                errors.add(new AssessmentDto.BulkAssessmentError(i, dto.getId(),
+                errors.add(new AssessmentSessionDto.BulkAssessmentError(i, dto.getId(),
                         "session already exists"));
                 continue;
             }
@@ -92,14 +118,14 @@ public class AssessmentsService {
                 created++;
             } catch (Exception e) {
                 log.warn("bulkCreate row {} (id={}) failed: {}", i, dto.getId(), e.getMessage());
-                errors.add(new AssessmentDto.BulkAssessmentError(i, dto.getId(),
+                errors.add(new AssessmentSessionDto.BulkAssessmentError(i, dto.getId(),
                         e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()));
             }
         }
-        return new AssessmentDto.BulkAssessmentResponse(created, errors);
+        return new AssessmentSessionDto.BulkAssessmentResponse(created, errors);
     }
 
-    public AssessmentDto update(String id, AssessmentDto dto) {
+    public AssessmentSessionDto update(String id, AssessmentSessionDto dto) {
         PortalSession s = repo.findById(id).orElseThrow(() -> new ResourceNotFoundException("Assessment", "id", id));
         if (StringUtils.hasText(dto.getName())) s.setName(dto.getName());
         if (StringUtils.hasText(dto.getLanguage())) s.setLanguage(dto.getLanguage());
@@ -149,9 +175,10 @@ public class AssessmentsService {
         if (repo.existsById(id)) repo.deleteById(id);
     }
 
-    private PortalSession fromDto(AssessmentDto dto) {
+    private PortalSession fromDto(AssessmentSessionDto dto) {
         PortalSession s = new PortalSession();
         s.setId(dto.getId());
+        s.setAssessmentId(dto.getAssessmentId());
         s.setName(dto.getName());
         s.setRespondentId(dto.getRespondentId());
         s.setRespondentName(dto.getRespondentName());
@@ -167,6 +194,8 @@ public class AssessmentsService {
         applyDemographicsFromMap(s, dto.getDemographics());
         s.setGroupId(dto.getGroupId());
         s.setGroupName(dto.getGroupName());
+        s.setEntityId(dto.getEntityId());
+        s.setEntityName(dto.getEntityName());
         s.setConsentId(dto.getConsentId());
         s.setProctoring(dto.isProctoring());
         s.setInvitationSent(dto.isInvitationSent());
@@ -174,9 +203,10 @@ public class AssessmentsService {
         return s;
     }
 
-    private AssessmentDto toDto(PortalSession s) {
-        AssessmentDto d = new AssessmentDto();
+    private AssessmentSessionDto toDto(PortalSession s) {
+        AssessmentSessionDto d = new AssessmentSessionDto();
         d.setId(s.getId());
+        d.setAssessmentId(s.getAssessmentId());
         d.setName(s.getName());
         d.setRespondentId(s.getRespondentId());
         d.setRespondentName(s.getRespondentName());
@@ -192,6 +222,8 @@ public class AssessmentsService {
         d.setDemographics(demographicsAsMap(s));
         d.setGroupId(s.getGroupId());
         d.setGroupName(s.getGroupName());
+        d.setEntityId(s.getEntityId());
+        d.setEntityName(s.getEntityName());
         d.setConsentId(s.getConsentId());
         d.setProctoring(s.isProctoring());
         d.setInvitationSent(s.isInvitationSent());

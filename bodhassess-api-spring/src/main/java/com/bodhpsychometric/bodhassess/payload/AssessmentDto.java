@@ -1,120 +1,81 @@
 package com.bodhpsychometric.bodhassess.payload;
 
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 
+/**
+ * Wire shape for the first-class Assessment row — the reusable allotment
+ * of a Questionnaire to a set of Allotees (entities, groups, individual
+ * respondents). Carries cached display fields (questionnaireName,
+ * vertical) so the All Assessments table doesn't need to join the
+ * questionnaire to render. Sessions live separately on portal_sessions.
+ */
 public class AssessmentDto {
-
     private String id;
     private String name;
-    @JsonProperty("respondentId")        private String respondentId;
-    @JsonProperty("respondent")          private String respondentName;
-    @JsonProperty("respondentEmail")     private String respondentEmail;
-    private String instrument;
-    @JsonProperty("instrumentFullName")  private String instrumentFullName;
+    @JsonProperty("questionnaireId")    private String questionnaireId;
+    @JsonProperty("questionnaireName")  private String questionnaireName;
     private String vertical;
     private String language;
+    // ACTIVE | CLOSED | PAUSED. All transitions reversible.
     private String status;
-    private String score;
-    private Map<String, Object> answers;
-    @JsonProperty("mqtScores")           private Map<String, Object> mqtScores;
-    private Map<String, Object> demographics;
-    @JsonProperty("groupId")             private String groupId;
-    @JsonProperty("groupName")           private String groupName;
-    @JsonProperty("consentId")           private String consentId;
-    private boolean proctoring;
-    @JsonProperty("invitationSent")      private boolean invitationSent;
-    @JsonProperty("showQuestionIndex")   private boolean showQuestionIndex;
-    @JsonProperty("createdAt")           private String createdAt;
-    @JsonProperty("completedAt")         private String completedAt;
-    @JsonProperty("startedAt")           private String startedAt;
+    @JsonProperty("createdAt")          private String createdAt;
+    @JsonProperty("createdBy")          private String createdBy;
+    @JsonProperty("updatedAt")          private String updatedAt;
+
+    // Read-side aggregates filled by the service so the All Assessments
+    // table can render counts without an extra round-trip.
+    @JsonProperty("entityCount")        private Integer entityCount;
+    @JsonProperty("groupCount")         private Integer groupCount;
+    @JsonProperty("respondentCount")    private Integer respondentCount;
+    @JsonProperty("sessionsCount")      private Integer sessionsCount;
+    @JsonProperty("completedCount")     private Integer completedCount;
+
+    // For the one-shot create flow: the initial allotments admin picks on
+    // the create form. Each entity carries its own cap.
+    @JsonProperty("entityAllotments")
+    private List<AssessmentEntityAllotmentDto> entityAllotments = new ArrayList<>();
+    @JsonProperty("groupAllotments")
+    private List<String> groupAllotments = new ArrayList<>();
+    @JsonProperty("respondentAllotments")
+    private List<String> respondentAllotments = new ArrayList<>();
 
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }
-    public String getRespondentId() { return respondentId; }
-    public void setRespondentId(String respondentId) { this.respondentId = respondentId; }
-    public String getRespondentName() { return respondentName; }
-    public void setRespondentName(String respondentName) { this.respondentName = respondentName; }
-    public String getRespondentEmail() { return respondentEmail; }
-    public void setRespondentEmail(String respondentEmail) { this.respondentEmail = respondentEmail; }
-    public String getInstrument() { return instrument; }
-    public void setInstrument(String instrument) { this.instrument = instrument; }
-    public String getInstrumentFullName() { return instrumentFullName; }
-    public void setInstrumentFullName(String instrumentFullName) { this.instrumentFullName = instrumentFullName; }
+    public String getQuestionnaireId() { return questionnaireId; }
+    public void setQuestionnaireId(String questionnaireId) { this.questionnaireId = questionnaireId; }
+    public String getQuestionnaireName() { return questionnaireName; }
+    public void setQuestionnaireName(String questionnaireName) { this.questionnaireName = questionnaireName; }
     public String getVertical() { return vertical; }
     public void setVertical(String vertical) { this.vertical = vertical; }
     public String getLanguage() { return language; }
     public void setLanguage(String language) { this.language = language; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
-    public String getScore() { return score; }
-    public void setScore(String score) { this.score = score; }
-    public Map<String, Object> getAnswers() { return answers; }
-    public void setAnswers(Map<String, Object> answers) { this.answers = answers; }
-    public Map<String, Object> getMqtScores() { return mqtScores; }
-    public void setMqtScores(Map<String, Object> mqtScores) { this.mqtScores = mqtScores; }
-    public Map<String, Object> getDemographics() { return demographics; }
-    public void setDemographics(Map<String, Object> demographics) { this.demographics = demographics; }
-    public String getGroupId() { return groupId; }
-    public void setGroupId(String groupId) { this.groupId = groupId; }
-    public String getGroupName() { return groupName; }
-    public void setGroupName(String groupName) { this.groupName = groupName; }
-    public String getConsentId() { return consentId; }
-    public void setConsentId(String consentId) { this.consentId = consentId; }
-    public boolean isProctoring() { return proctoring; }
-    public void setProctoring(boolean proctoring) { this.proctoring = proctoring; }
-    public boolean isInvitationSent() { return invitationSent; }
-    public void setInvitationSent(boolean invitationSent) { this.invitationSent = invitationSent; }
-    public boolean isShowQuestionIndex() { return showQuestionIndex; }
-    public void setShowQuestionIndex(boolean showQuestionIndex) { this.showQuestionIndex = showQuestionIndex; }
     public String getCreatedAt() { return createdAt; }
     public void setCreatedAt(String createdAt) { this.createdAt = createdAt; }
-    public String getCompletedAt() { return completedAt; }
-    public void setCompletedAt(String completedAt) { this.completedAt = completedAt; }
-    public String getStartedAt() { return startedAt; }
-    public void setStartedAt(String startedAt) { this.startedAt = startedAt; }
-
-    public static class BulkAssessmentRequest {
-        private List<AssessmentDto> assessments;
-        public List<AssessmentDto> getAssessments() { return assessments; }
-        public void setAssessments(List<AssessmentDto> assessments) { this.assessments = assessments; }
-    }
-
-    public static class BulkAssessmentResponse {
-        private int created;
-        // Per-row failures so callers can surface what was skipped instead of
-        // silently counting successes. Additive on the wire — older clients
-        // that only read `created` keep working.
-        private List<BulkAssessmentError> errors = new java.util.ArrayList<>();
-        public BulkAssessmentResponse() {}
-        public BulkAssessmentResponse(int created) { this.created = created; }
-        public BulkAssessmentResponse(int created, List<BulkAssessmentError> errors) {
-            this.created = created;
-            this.errors = errors == null ? new java.util.ArrayList<>() : errors;
-        }
-        public int getCreated() { return created; }
-        public void setCreated(int created) { this.created = created; }
-        public List<BulkAssessmentError> getErrors() { return errors; }
-        public void setErrors(List<BulkAssessmentError> errors) { this.errors = errors; }
-    }
-
-    public static class BulkAssessmentError {
-        private int row;
-        private String id;
-        private String reason;
-        public BulkAssessmentError() {}
-        public BulkAssessmentError(int row, String id, String reason) {
-            this.row = row; this.id = id; this.reason = reason;
-        }
-        public int getRow() { return row; }
-        public void setRow(int row) { this.row = row; }
-        public String getId() { return id; }
-        public void setId(String id) { this.id = id; }
-        public String getReason() { return reason; }
-        public void setReason(String reason) { this.reason = reason; }
-    }
+    public String getCreatedBy() { return createdBy; }
+    public void setCreatedBy(String createdBy) { this.createdBy = createdBy; }
+    public String getUpdatedAt() { return updatedAt; }
+    public void setUpdatedAt(String updatedAt) { this.updatedAt = updatedAt; }
+    public Integer getEntityCount() { return entityCount; }
+    public void setEntityCount(Integer entityCount) { this.entityCount = entityCount; }
+    public Integer getGroupCount() { return groupCount; }
+    public void setGroupCount(Integer groupCount) { this.groupCount = groupCount; }
+    public Integer getRespondentCount() { return respondentCount; }
+    public void setRespondentCount(Integer respondentCount) { this.respondentCount = respondentCount; }
+    public Integer getSessionsCount() { return sessionsCount; }
+    public void setSessionsCount(Integer sessionsCount) { this.sessionsCount = sessionsCount; }
+    public Integer getCompletedCount() { return completedCount; }
+    public void setCompletedCount(Integer completedCount) { this.completedCount = completedCount; }
+    public List<AssessmentEntityAllotmentDto> getEntityAllotments() { return entityAllotments; }
+    public void setEntityAllotments(List<AssessmentEntityAllotmentDto> entityAllotments) { this.entityAllotments = entityAllotments; }
+    public List<String> getGroupAllotments() { return groupAllotments; }
+    public void setGroupAllotments(List<String> groupAllotments) { this.groupAllotments = groupAllotments; }
+    public List<String> getRespondentAllotments() { return respondentAllotments; }
+    public void setRespondentAllotments(List<String> respondentAllotments) { this.respondentAllotments = respondentAllotments; }
 }

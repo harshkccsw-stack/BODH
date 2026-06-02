@@ -70,18 +70,30 @@ public class SecurityConfig extends WebSecurityConfigurerAdapter {
                 .and()
                 .authorizeRequests()
                 .antMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+                // Self-registration: only the POST is public (the form). The
+                // list/get/delete endpoints stay behind admin auth.
+                .antMatchers(HttpMethod.POST, "/api/v1/entity-registrations").permitAll()
+                // Respondent self-signup from the public /register page. Only
+                // the base create POST is public — /bulk stays admin-only and
+                // list/get/update/delete remain behind auth.
+                .antMatchers(HttpMethod.POST, "/api/v1/respondents").permitAll()
                 .antMatchers(
                         "/",
                         "/error",
                         "/favicon.ico",
                         "/uploads/**",
                         "/api/v1/health",
-                        "/api/v1/admin/login",
+                        "/api/v1/auth/login",
                         "/api/v1/practitioners/login",
                         "/api/v1/respondents/login",
                         "/api/v1/questionnaires-catalog/**",
                         "/api/v1/questionnaires/**",
-                        "/api/v1/upload"
+                        "/api/v1/upload",
+                        // Token resolve/consume — the /register page is
+                        // reached anonymously via a link; it needs to look
+                        // up the assessment context and then mark the
+                        // token used once the new respondent is saved.
+                        "/api/v1/public/tokens/**"
                 ).permitAll()
                 .anyRequest().authenticated();
 
