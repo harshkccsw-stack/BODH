@@ -48,6 +48,7 @@ public class AssessmentAllotmentsService {
     @Autowired private EntityRegistrationRepository entities;
     @Autowired private PortalSessionRepository sessions;
     @Autowired private AuditService audit;
+    @Autowired private SessionProvisioningService sessionProvisioning;
 
     @Transactional(readOnly = true)
     public AssessmentAllotteesDto listAllotees(String assessmentId) {
@@ -80,6 +81,9 @@ public class AssessmentAllotmentsService {
         row.setEntityId(entityId);
         row.setCap(cap);
         AssessmentEntityAllotment saved = entityAllotments.save(row);
+        // Materialise sessions for the entity's members (up to the cap) so the
+        // assessment shows up in their portals.
+        sessionProvisioning.provisionEntity(assessmentId, entityId);
 
         Map<String, Object> snap = new HashMap<>();
         snap.put("assessmentId", assessmentId);
@@ -99,6 +103,9 @@ public class AssessmentAllotmentsService {
         if (cap != null && cap < 0) throw new BadRequestException("cap must be >= 0");
         row.setCap(cap);
         AssessmentEntityAllotment saved = entityAllotments.save(row);
+        // Raising the cap can free up room for more of the entity's members —
+        // fill those new slots now (idempotent, respects the new cap).
+        sessionProvisioning.provisionEntity(assessmentId, entityId);
         Map<String, Object> b = new HashMap<>(); b.put("cap", before);
         Map<String, Object> a = new HashMap<>(); a.put("cap", cap);
         audit.record("ALLOTMENT_CAP_CHANGED",
@@ -124,6 +131,8 @@ public class AssessmentAllotmentsService {
         row.setAssessmentId(assessmentId);
         row.setGroupId(groupId);
         AssessmentGroupAllotment saved = groupAllotments.save(row);
+        // Materialise a session for every group member.
+        sessionProvisioning.provisionGroup(assessmentId, groupId);
         audit.record("ALLOTMENT_GROUP_ADDED",
                 "assessment_group_allotment", assessmentId + ":" + groupId, null, null);
         return toGroupDto(saved);
@@ -147,6 +156,9 @@ public class AssessmentAllotmentsService {
         row.setAssessmentId(assessmentId);
         row.setRespondentId(respondentId);
         AssessmentRespondentAllotment saved = respondentAllotments.save(row);
+        // Materialise the respondent's portal_session so the assessment shows
+        // up in their portal — an allotment row alone is invisible to them.
+        sessionProvisioning.provisionRespondent(assessmentId, respondentId);
         audit.record("ALLOTMENT_RESPONDENT_ADDED",
                 "assessment_respondent_allotment", assessmentId + ":" + respondentId, null, null);
         return toRespondentDto(saved);

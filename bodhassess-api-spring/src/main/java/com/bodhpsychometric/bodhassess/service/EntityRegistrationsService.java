@@ -4,6 +4,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -17,6 +18,7 @@ import com.bodhpsychometric.bodhassess.exception.ResourceNotFoundException;
 import com.bodhpsychometric.bodhassess.model.EntityRegistration;
 import com.bodhpsychometric.bodhassess.payload.EntityRegistrationDto;
 import com.bodhpsychometric.bodhassess.repository.EntityRegistrationRepository;
+import com.bodhpsychometric.bodhassess.repository.UserRepository;
 
 @Service
 @Transactional
@@ -24,6 +26,9 @@ public class EntityRegistrationsService {
 
     @Autowired
     private EntityRegistrationRepository repo;
+
+    @Autowired
+    private UserRepository users;
 
     @Transactional(readOnly = true)
     public List<EntityRegistrationDto> list() {
@@ -89,9 +94,37 @@ public class EntityRegistrationsService {
                 .orElseThrow(() -> new ResourceNotFoundException("EntityRegistration", "id", id));
         if (dto.getActive() != null) e.setActive(dto.getActive());
         if (dto.getMemberIds() != null) {
-            e.setMemberIds(new HashSet<>(dto.getMemberIds()));
+            Set<String> oldMembers = e.getMemberIds() == null ? new HashSet<>() : new HashSet<>(e.getMemberIds());
+            Set<String> newMembers = new HashSet<>(dto.getMemberIds());
+            e.setMemberIds(newMembers);
+            syncMemberEntities(e.getId(), oldMembers, newMembers);
         }
         return toDto(repo.save(e));
+    }
+
+    /**
+     * Keep the auth-side {@code user_entities} join in step with
+     * {@code entity_members}. That join is the same mapping
+     * IdentityBootstrapRunner rebuilds from entity members at startup; mirroring
+     * it here means a member added/removed through the Members dialog is
+     * reflected in the user's identity (the {@code entityIds} returned by
+     * /auth/login and /me) immediately, not only after the next reboot.
+     * Members without an app_users row are skipped.
+     */
+    private void syncMemberEntities(String entityId, Set<String> oldMembers, Set<String> newMembers) {
+        for (String uid : newMembers) {
+            if (oldMembers.contains(uid)) continue; // added
+            users.findById(uid).ifPresent(u -> {
+                if (u.getEntityIds() == null) u.setEntityIds(new HashSet<>());
+                if (u.getEntityIds().add(entityId)) users.save(u);
+            });
+        }
+        for (String uid : oldMembers) {
+            if (newMembers.contains(uid)) continue; // removed
+            users.findById(uid).ifPresent(u -> {
+                if (u.getEntityIds() != null && u.getEntityIds().remove(entityId)) users.save(u);
+            });
+        }
     }
 
     private EntityRegistrationDto toDto(EntityRegistration e) {

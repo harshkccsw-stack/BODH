@@ -16,6 +16,10 @@ public class AssessmentDto {
     private String id;
     private String name;
     @JsonProperty("questionnaireId")    private String questionnaireId;
+    // The committed version (PublishedQuestionnaire id) this assessment is
+    // pinned to. The create form sends this alongside the parent
+    // questionnaireId; the version id is what the content/scoring read from.
+    @JsonProperty("questionnaireVersionId") private String questionnaireVersionId;
     @JsonProperty("questionnaireName")  private String questionnaireName;
     private String vertical;
     private String language;
@@ -48,6 +52,8 @@ public class AssessmentDto {
     public void setName(String name) { this.name = name; }
     public String getQuestionnaireId() { return questionnaireId; }
     public void setQuestionnaireId(String questionnaireId) { this.questionnaireId = questionnaireId; }
+    public String getQuestionnaireVersionId() { return questionnaireVersionId; }
+    public void setQuestionnaireVersionId(String questionnaireVersionId) { this.questionnaireVersionId = questionnaireVersionId; }
     public String getQuestionnaireName() { return questionnaireName; }
     public void setQuestionnaireName(String questionnaireName) { this.questionnaireName = questionnaireName; }
     public String getVertical() { return vertical; }

@@ -23,11 +23,15 @@ import com.bodhpsychometric.bodhassess.exception.ResourceNotFoundException;
 import com.bodhpsychometric.bodhassess.exception.ServiceException;
 import com.bodhpsychometric.bodhassess.exception.UnauthorizedAccessException;
 import com.bodhpsychometric.bodhassess.model.Respondent;
+import com.bodhpsychometric.bodhassess.model.User;
+import com.bodhpsychometric.bodhassess.model.UserMeta;
 import com.bodhpsychometric.bodhassess.payload.BulkRespondentDtos;
 import com.bodhpsychometric.bodhassess.payload.LoginRequest;
 import com.bodhpsychometric.bodhassess.payload.RespondentDto;
 import com.bodhpsychometric.bodhassess.payload.RespondentLoginResponse;
 import com.bodhpsychometric.bodhassess.repository.RespondentRepository;
+import com.bodhpsychometric.bodhassess.repository.UserMetaRepository;
+import com.bodhpsychometric.bodhassess.repository.UserRepository;
 import com.bodhpsychometric.bodhassess.security.TokenProvider;
 import com.bodhpsychometric.bodhassess.security.UserPrincipal;
 
@@ -48,6 +52,12 @@ public class RespondentsService {
 
     @Autowired
     private TokenProvider tokenProvider;
+
+    @Autowired
+    private UserRepository users;
+
+    @Autowired
+    private UserMetaRepository userMeta;
 
     @PersistenceContext
     private EntityManager em;
@@ -78,7 +88,9 @@ public class RespondentsService {
         r.setAccountType(StringUtils.hasText(dto.getAccountType()) ? dto.getAccountType() : "individual");
         r.setOrgName(dto.getOrgName());
         r.setOrgWebsite(dto.getOrgWebsite());
-        return toDto(repo.save(r));
+        Respondent saved = repo.save(r);
+        syncIdentity(saved);
+        return toDto(saved);
     }
 
     public RespondentDto update(String id, RespondentDto dto) {
@@ -93,7 +105,49 @@ public class RespondentsService {
         if (StringUtils.hasText(dto.getAccountType())) r.setAccountType(dto.getAccountType());
         if (StringUtils.hasText(dto.getOrgName())) r.setOrgName(dto.getOrgName());
         if (StringUtils.hasText(dto.getOrgWebsite())) r.setOrgWebsite(dto.getOrgWebsite());
-        return toDto(repo.save(r));
+        Respondent saved = repo.save(r);
+        syncIdentity(saved);
+        return toDto(saved);
+    }
+
+    /**
+     * Mirror a respondent into the unified {@code app_users} + {@code user_meta}
+     * identity so the portal's /auth/login (which authenticates against
+     * app_users) sees it immediately, instead of only after the boot-time
+     * IdentityBootstrapRunner re-runs. Upsert keyed on the respondent id —
+     * the id is reused as the user id so existing references
+     * (portal_sessions.respondent_id, etc.) stay valid.
+     */
+    private void syncIdentity(Respondent r) {
+        if (r == null || !StringUtils.hasText(r.getId())) return;
+        // Unique-email guard: if this email already belongs to a DIFFERENT
+        // user row, don't clobber it — log and skip. Mirrors the runner's
+        // guard so the two paths behave the same.
+        if (StringUtils.hasText(r.getEmail())) {
+            User other = users.findByEmailIgnoreCase(r.getEmail().trim()).orElse(null);
+            if (other != null && !other.getId().equals(r.getId())) {
+                log.warn("[respondent-identity] skip sync for {} — email '{}' already a different user ({})",
+                        r.getId(), r.getEmail(), other.getId());
+                return;
+            }
+        }
+        User u = users.findById(r.getId()).orElseGet(User::new);
+        boolean isNew = u.getId() == null;
+        u.setId(r.getId());
+        if (StringUtils.hasText(r.getEmail())) u.setEmail(r.getEmail().trim());
+        u.setDob(r.getDob());
+        if (!StringUtils.hasText(u.getStatus())) u.setStatus("Active");
+        if (isNew) u.setSuperAdmin(false);
+        users.save(u);
+
+        UserMeta m = userMeta.findById(r.getId()).orElseGet(UserMeta::new);
+        m.setUserId(r.getId());
+        m.setName(r.getName());
+        m.setPhone(r.getPhone());
+        m.setConsent(r.getConsent());
+        m.setOrgName(r.getOrgName());
+        m.setOrgWebsite(r.getOrgWebsite());
+        userMeta.save(m);
     }
 
     public void delete(String id) {
@@ -233,6 +287,26 @@ public class RespondentsService {
                     resp.getErrors().add(new BulkRespondentDtos.Error(rowNum, email, "email already exists"));
                     continue;
                 }
+
+                // Mirror into the unified identity tables so the bulk-created
+                // respondent can log in to the portal immediately (/auth/login
+                // authenticates against app_users), not only after the next
+                // IdentityBootstrapRunner pass. INSERT IGNORE leaves any
+                // pre-existing user row for this email untouched.
+                em.createNativeQuery(
+                    "INSERT IGNORE INTO app_users (id, email, dob, status, is_super_admin)" +
+                    " VALUES (?1, ?2, ?3, 'Active', 0)")
+                    .setParameter(1, nextId)
+                    .setParameter(2, email)
+                    .setParameter(3, dob)
+                    .executeUpdate();
+                em.createNativeQuery(
+                    "INSERT IGNORE INTO user_meta (user_id, name, consent)" +
+                    " VALUES (?1, ?2, ?3)")
+                    .setParameter(1, nextId)
+                    .setParameter(2, name)
+                    .setParameter(3, consent)
+                    .executeUpdate();
 
                 @SuppressWarnings("unchecked")
                 List<Object[]> fetched = em.createNativeQuery(

@@ -5,7 +5,9 @@ import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.Map;
 import java.util.stream.Collectors;
 
@@ -240,22 +242,40 @@ public class AssessmentsService {
      * the new map no longer mentions.
      */
     private void applyAnswersFromMap(PortalSession s, Map<String, Object> in) {
-        s.getAnswers().clear();
-        if (in == null || in.isEmpty()) return;
+        if (in == null) return;
+        // Reconcile in place rather than clear-and-recreate: an unchanged
+        // question becomes an UPDATE, not a DELETE+INSERT of the same
+        // (session_id, question_id). Recreating made Hibernate flush the
+        // INSERT before the orphan DELETE, tripping the
+        // uniq_answer_session_question constraint on every re-save (e.g. the
+        // submit PUT, which re-sends all previously autosaved answers).
+        Map<String, AssessmentAnswer> existing = new HashMap<>();
+        for (AssessmentAnswer a : s.getAnswers()) existing.put(a.getQuestionId(), a);
+        Set<String> incoming = new HashSet<>();
         for (Map.Entry<String, Object> e : in.entrySet()) {
             String qid = e.getKey();
             if (qid == null || qid.isEmpty()) continue;
-            AssessmentAnswer row = new AssessmentAnswer();
-            row.setSession(s);
-            row.setQuestionId(qid);
+            incoming.add(qid);
+            AssessmentAnswer row = existing.get(qid);
+            if (row == null) {
+                row = new AssessmentAnswer();
+                row.setSession(s);
+                row.setQuestionId(qid);
+                s.getAnswers().add(row);
+            }
             Object v = e.getValue();
             if (v instanceof Number) {
                 row.setOptionIndex(((Number) v).intValue());
+                row.setFreeText(null);
             } else if (v != null) {
                 row.setFreeText(v.toString());
+                row.setOptionIndex(null);
+            } else {
+                row.setOptionIndex(null);
+                row.setFreeText(null);
             }
-            s.getAnswers().add(row);
         }
+        s.getAnswers().removeIf(a -> !incoming.contains(a.getQuestionId()));
     }
 
     /** Flatten answer rows back to the API's {questionId: value} shape. */
@@ -279,8 +299,12 @@ public class AssessmentsService {
      * legacy shape (`{mqt_id_or_name: score}`) so older payloads still load.
      */
     private void applyMqtScoresFromMap(PortalSession s, Map<String, Object> in) {
-        s.getMqtScores().clear();
-        if (in == null || in.isEmpty()) return;
+        if (in == null) return;
+        // Reconcile in place — see applyAnswersFromMap for why clear-and-recreate
+        // trips the uniq_session_mqt constraint on re-save.
+        Map<String, PortalSessionMqtScore> existing = new HashMap<>();
+        for (PortalSessionMqtScore r : s.getMqtScores()) existing.put(r.getMqtId(), r);
+        Set<String> incoming = new HashSet<>();
         for (Map.Entry<String, Object> e : in.entrySet()) {
             String key = e.getKey();
             if (key == null || key.isEmpty()) continue;
@@ -298,13 +322,18 @@ public class AssessmentsService {
                 if (rawName != null) name = rawName.toString();
             }
             if (score == null) continue;
-            PortalSessionMqtScore row = new PortalSessionMqtScore();
-            row.setSession(s);
-            row.setMqtId(key);
+            incoming.add(key);
+            PortalSessionMqtScore row = existing.get(key);
+            if (row == null) {
+                row = new PortalSessionMqtScore();
+                row.setSession(s);
+                row.setMqtId(key);
+                s.getMqtScores().add(row);
+            }
             row.setMqtName(name);
             row.setScore(score);
-            s.getMqtScores().add(row);
         }
+        s.getMqtScores().removeIf(r -> !incoming.contains(r.getMqtId()));
     }
 
     /** Flatten MQT score rows back to the current API shape. */
@@ -323,19 +352,28 @@ public class AssessmentsService {
 
     /** Rebuild demographic answer rows from the incoming map. */
     private void applyDemographicsFromMap(PortalSession s, Map<String, Object> in) {
-        s.getDemographics().clear();
-        if (in == null || in.isEmpty()) return;
+        if (in == null) return;
+        // Reconcile in place — see applyAnswersFromMap for why clear-and-recreate
+        // trips the uniq_session_field constraint on re-save.
+        Map<String, PortalSessionDemographic> existing = new HashMap<>();
+        for (PortalSessionDemographic r : s.getDemographics()) existing.put(r.getFieldKey(), r);
+        Set<String> incoming = new HashSet<>();
         for (Map.Entry<String, Object> e : in.entrySet()) {
             String key = e.getKey();
             if (key == null || key.isEmpty()) continue;
             Object v = e.getValue();
             if (v == null) continue;
-            PortalSessionDemographic row = new PortalSessionDemographic();
-            row.setSession(s);
-            row.setFieldKey(key);
+            incoming.add(key);
+            PortalSessionDemographic row = existing.get(key);
+            if (row == null) {
+                row = new PortalSessionDemographic();
+                row.setSession(s);
+                row.setFieldKey(key);
+                s.getDemographics().add(row);
+            }
             row.setValue(v.toString());
-            s.getDemographics().add(row);
         }
+        s.getDemographics().removeIf(r -> !incoming.contains(r.getFieldKey()));
     }
 
     /** Flatten demographic rows back to {field_key: value}. */
