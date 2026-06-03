@@ -260,6 +260,8 @@ export default function CreateAssessmentPage() {
   const [instCategory, setInstCategory] = useState('');
   const [instDescription, setInstDescription] = useState('');
   const [instDisclaimer, setInstDisclaimer] = useState('');
+  const [instShowInstructions, setInstShowInstructions] = useState(false);
+  const [instInstructions, setInstInstructions] = useState('');
   const [instDuration, setInstDuration] = useState(10);
   const [instTier, setInstTier] = useState('T1');
   const [instLanguages, setInstLanguages] = useState<string[]>(['en']);
@@ -318,6 +320,8 @@ export default function CreateAssessmentPage() {
         setInstCategory(match.category || '');
         setInstDescription(match.description || '');
         setInstDisclaimer(match.disclaimer || '');
+        setInstInstructions(match.instructions || '');
+        setInstShowInstructions(!!match.showInstructions);
         if (Array.isArray(match.demographicFieldKeys)) {
           setDemoFieldKeys(match.demographicFieldKeys);
         }
@@ -837,7 +841,7 @@ export default function CreateAssessmentPage() {
           const newMqtId = `mqt-${Math.random().toString(36).slice(2, 10)}`;
           mqt = { id: newMqtId, name: pair.mqt };
           const updated: StoredMQ = { ...mq, mqts: [...mq.mqts, mqt] };
-          await qualitiesApi.update(mq.id, { mqts: updated.mqts });
+          await qualitiesApi.update(mq.id, updated);
           catalogCopy = catalogCopy.map((m) => (m.id === mq!.id ? updated : m));
         }
         resolved.set(key, mqt.id);
@@ -1483,6 +1487,10 @@ export default function CreateAssessmentPage() {
       setError('Add at least one question');
       return;
     }
+    if (!instShortName.trim()) {
+      setError('Short name is required — set one in Step 1 before publishing');
+      return;
+    }
     const empty = questions.find((q) => !q.stem.trim() && q.media_type === 'none');
     if (empty) {
       setError('Every question needs either text or media');
@@ -1503,6 +1511,8 @@ export default function CreateAssessmentPage() {
         category: instCategory,
         description: instDescription,
         disclaimer: instDisclaimer,
+        instructions: instShowInstructions ? instInstructions : '',
+        showInstructions: instShowInstructions,
         duration: Number(instDuration) || 0,
         tier: instTier,
         languages: instLanguages,
@@ -1536,9 +1546,10 @@ export default function CreateAssessmentPage() {
       });
 
       // Also register the instrument in the /instruments catalog so it shows
-      // up in the Questionnaire Library. Failure here is non-fatal (the
-      // published questionnaire write above already succeeded), but we surface
-      // a warning so the user knows to retry if the library is missing it.
+      // up in the Questionnaire Library, then bulk-insert the questions into
+      // the items table so they're queryable per-row (not only as JSON inside
+      // published_questionnaires). Both failures are non-fatal — the published
+      // questionnaire write above already succeeded — but we surface warnings.
       let catalogWarning = '';
       try {
         const scoring_config = {
@@ -1549,6 +1560,9 @@ export default function CreateAssessmentPage() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            // Passing the same id every republish makes the backend upsert
+            // instead of inserting a new instrument row each time.
+            id: qid,
             name: instName,
             short_name: instShortName,
             vertical: instVertical,
@@ -1566,6 +1580,44 @@ export default function CreateAssessmentPage() {
         if (!res.ok && res.status !== 204) {
           const text = await res.text().catch(() => res.statusText);
           catalogWarning = `but catalog registration failed (${res.status}: ${text}). It may not show in the Questionnaire Library — try republishing.`;
+        } else {
+          const catalogBody = await res.json().catch(() => null as any);
+          const instrumentDbId: string | undefined = catalogBody?.id;
+          if (instrumentDbId) {
+            const itemsPayload = {
+              items: questions.map((q, idx) => ({
+                stem: q.stem,
+                format: q.format,
+                media_url: q.media_type === 'none' ? '' : q.media_url,
+                media_type: q.media_type === 'none' ? 'none' : q.media_type,
+                options: q.options
+                  .filter((o) => o.text.trim() || o.media_url || o.scores.length > 0)
+                  .map((o) => ({
+                    text: o.text,
+                    scores: o.scores.map((s) => ({ mqt_id: s.mqt_id, score: Number(s.score) || 0 })),
+                    media_url: o.media_url,
+                    media_type: o.media_type,
+                  })),
+                sub_domains: q.question_scores.map((s) => ({ domain: s.mqt_id, weight: Number(s.score) || 0 })),
+                clinical_risk_flag: q.clinical_risk_flag,
+                risk_flag_rule: q.risk_flag_rule,
+                sequence_order: idx + 1,
+                languages: instLanguages,
+              })),
+            };
+            const itemsRes = await fetch(
+              `${API_BASE}/questionnaires-catalog/${encodeURIComponent(instrumentDbId)}/items/bulk`,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(itemsPayload),
+              },
+            );
+            if (!itemsRes.ok) {
+              const text = await itemsRes.text().catch(() => itemsRes.statusText);
+              catalogWarning = `but items table population failed (${itemsRes.status}: ${text}). The questionnaire is published, but per-row item queries will be empty for this instrument.`;
+            }
+          }
         }
       } catch (e: any) {
         catalogWarning = `but catalog registration failed (${e?.message || 'network error'}). It may not show in the Questionnaire Library — try republishing.`;
@@ -1617,6 +1669,8 @@ export default function CreateAssessmentPage() {
             : 'Define your instrument with Measured Qualities (MQ) and their MQTs, then score each option against one or more MQTs.'}
         </p>
       </div>
+
+      <DraftBanner />
 
       {/* Step indicator */}
       <div className="flex items-center gap-3">
@@ -1769,6 +1823,35 @@ export default function CreateAssessmentPage() {
                 <p className="text-[0.6875rem] text-muted-foreground">
                   When present, the respondent must tick <em>I agree &amp; continue</em> before the assessment starts.
                 </p>
+              </div>
+
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between gap-3">
+                  <label className="flex items-center gap-2 text-sm font-medium">
+                    <input
+                      type="checkbox"
+                      checked={instShowInstructions}
+                      onChange={(e) => setInstShowInstructions(e.target.checked)}
+                      className="rounded"
+                    />
+                    Show Instructions to respondents
+                  </label>
+                  <span className="text-[0.6875rem] text-muted-foreground">Optional — guide respondents on how to take the assessment</span>
+                </div>
+                {instShowInstructions && (
+                  <>
+                    <textarea
+                      value={instInstructions}
+                      onChange={(e) => setInstInstructions(e.target.value)}
+                      rows={6}
+                      placeholder="e.g. Read each question carefully. Answer honestly — there are no right or wrong answers. Allow about 15 minutes to complete."
+                      className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                    />
+                    <p className="text-[0.6875rem] text-muted-foreground">
+                      Shown on the portal between the disclaimer (if any) and the first question.
+                    </p>
+                  </>
+                )}
               </div>
 
               <div className="space-y-1.5">
@@ -2176,6 +2259,13 @@ export default function CreateAssessmentPage() {
                   </p>
                 )}
 
+                {instShowInstructions && instInstructions.trim() && (
+                  <div className="rounded-lg border border-border bg-muted/30 p-4">
+                    <p className="text-[0.6875rem] font-medium uppercase tracking-wider text-primary mb-2">Instructions</p>
+                    <p className="text-sm whitespace-pre-wrap leading-relaxed">{instInstructions}</p>
+                  </div>
+                )}
+
                 {questions.map((q, idx) => (
                   <div key={q.id} className="rounded-xl border border-border bg-background overflow-hidden">
                     <div className="flex items-start gap-3 px-4 py-3 bg-muted/40 border-b border-border">
@@ -2446,6 +2536,9 @@ export default function CreateAssessmentPage() {
             </p>
             <div className="flex justify-center gap-3 pt-4">
               <Button variant="outline" onClick={() => window.location.href = '/questionnaires'}>View in Library</Button>
+              <Button variant="outline" onClick={openPreview} disabled={questions.length === 0}>
+                <Eye className="h-4 w-4" /> Preview
+              </Button>
               <Button variant="primary" onClick={() => window.location.href = '/assessments/create'}>Create Assessment</Button>
             </div>
           </CardContent>
@@ -2613,6 +2706,44 @@ export default function CreateAssessmentPage() {
           </Card>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Inline banner that surfaces the Git-style versioning model whenever
+ * the editor was opened from the new Versions page. Reads
+ *   ?draftMode=1&parentId=<pid>
+ * (set by the Edit button on /questionnaires/:id/versions) and tells
+ * the admin that saves go to a draft and a commit is required before
+ * the change is available to assessments.
+ *
+ * Renders nothing when those params are absent, so the legacy edit
+ * flow is unchanged.
+ */
+function DraftBanner() {
+  if (typeof window === 'undefined') return null;
+  const params = new URLSearchParams(window.location.search);
+  const draftMode = params.get('draftMode') === '1';
+  const parentId = params.get('parentId') || '';
+  if (!draftMode || !parentId) return null;
+  return (
+    <div className="rounded-lg border border-amber-300 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30 px-4 py-3 text-sm flex items-start gap-3 flex-wrap">
+      <div className="flex-1 min-w-0">
+        <p className="font-medium text-amber-900 dark:text-amber-300">You're editing a draft.</p>
+        <p className="text-xs text-amber-800/80 dark:text-amber-400/80 mt-0.5">
+          Saves stay on this draft. When you're done, head back to the version history
+          and use <strong>Commit</strong> to materialize a new committed version.
+          Committed versions are locked — admins can't edit them, only branch new
+          drafts from them.
+        </p>
+      </div>
+      <a
+        href={`/questionnaires/${encodeURIComponent(parentId)}/versions`}
+        className="inline-flex items-center gap-1 rounded-md border border-amber-400 px-3 py-1.5 text-xs font-medium text-amber-900 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors"
+      >
+        Back to Versions →
+      </a>
     </div>
   );
 }

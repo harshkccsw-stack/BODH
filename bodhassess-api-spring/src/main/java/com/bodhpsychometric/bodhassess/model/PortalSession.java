@@ -1,26 +1,30 @@
 package com.bodhpsychometric.bodhassess.model;
 
 import java.time.OffsetDateTime;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.ArrayList;
+import java.util.List;
 
+import javax.persistence.CascadeType;
 import javax.persistence.Column;
 import javax.persistence.Entity;
 import javax.persistence.Id;
+import javax.persistence.OneToMany;
 import javax.persistence.Table;
-
-import org.hibernate.annotations.Type;
-import org.hibernate.annotations.TypeDef;
-
-import com.vladmihalcea.hibernate.type.json.JsonStringType;
 
 @Entity
 @Table(name = "portal_sessions")
-@TypeDef(name = "json", typeClass = JsonStringType.class)
 public class PortalSession {
 
     @Id
     private String id;
+
+    // Stable group key shared by all sessions created in the same admin
+    // bulk allotment. Lets the All Assessments page collapse N sessions
+    // into one assessment row, and the /assessments/:id/respondents page
+    // list the respondents that received this particular allotment.
+    // Nullable for older rows created before this column existed.
+    @Column(name = "assessment_id", length = 64)
+    private String assessmentId;
 
     private String name;
 
@@ -46,26 +50,35 @@ public class PortalSession {
 
     private String score;
 
-    @Type(type = "json")
-    @Column(name = "answers", columnDefinition = "json")
-    private Map<String, Object> answers = new HashMap<>();
+    // Per-question responses live in the assessment_answers child table
+    // (one row per question) instead of a JSON blob, so reports can join
+    // and filter on individual answers. Cascade + orphanRemoval keep the
+    // child rows in lockstep with the session lifecycle.
+    @OneToMany(mappedBy = "session", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<AssessmentAnswer> answers = new ArrayList<>();
 
-    // Per-MQT scoring result. Kept opaque so the frontend can store either
-    // legacy `{ [name]: total }` rows or the current
-    // `{ [mqt_id]: { name, score } }` shape without backend churn.
-    @Type(type = "json")
-    @Column(name = "mqt_scores", columnDefinition = "json")
-    private Map<String, Object> mqtScores = new HashMap<>();
+    // Per-MQT scoring result and demographic answers — both live in their
+    // own child tables so reports can join/filter on individual rows.
+    @OneToMany(mappedBy = "session", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<PortalSessionMqtScore> mqtScores = new ArrayList<>();
 
-    @Type(type = "json")
-    @Column(name = "demographics", columnDefinition = "json")
-    private Map<String, Object> demographics = new HashMap<>();
+    @OneToMany(mappedBy = "session", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<PortalSessionDemographic> demographics = new ArrayList<>();
 
     @Column(name = "group_id")
     private String groupId;
 
     @Column(name = "group_name")
     private String groupName;
+
+    // Entity scope: when the session was generated from an entity
+    // allotment, this points at the entity. Drives per-(entity,
+    // assessment) cap enforcement.
+    @Column(name = "entity_id")
+    private String entityId;
+
+    @Column(name = "entity_name")
+    private String entityName;
 
     @Column(name = "consent_id")
     private String consentId;
@@ -97,6 +110,8 @@ public class PortalSession {
 
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
+    public String getAssessmentId() { return assessmentId; }
+    public void setAssessmentId(String assessmentId) { this.assessmentId = assessmentId; }
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }
     public String getRespondentId() { return respondentId; }
@@ -117,16 +132,20 @@ public class PortalSession {
     public void setStatus(String status) { this.status = status; }
     public String getScore() { return score; }
     public void setScore(String score) { this.score = score; }
-    public Map<String, Object> getAnswers() { return answers; }
-    public void setAnswers(Map<String, Object> answers) { this.answers = answers; }
-    public Map<String, Object> getMqtScores() { return mqtScores; }
-    public void setMqtScores(Map<String, Object> mqtScores) { this.mqtScores = mqtScores; }
-    public Map<String, Object> getDemographics() { return demographics; }
-    public void setDemographics(Map<String, Object> demographics) { this.demographics = demographics; }
+    public List<AssessmentAnswer> getAnswers() { return answers; }
+    public void setAnswers(List<AssessmentAnswer> answers) { this.answers = answers; }
+    public List<PortalSessionMqtScore> getMqtScores() { return mqtScores; }
+    public void setMqtScores(List<PortalSessionMqtScore> mqtScores) { this.mqtScores = mqtScores; }
+    public List<PortalSessionDemographic> getDemographics() { return demographics; }
+    public void setDemographics(List<PortalSessionDemographic> demographics) { this.demographics = demographics; }
     public String getGroupId() { return groupId; }
     public void setGroupId(String groupId) { this.groupId = groupId; }
     public String getGroupName() { return groupName; }
     public void setGroupName(String groupName) { this.groupName = groupName; }
+    public String getEntityId() { return entityId; }
+    public void setEntityId(String entityId) { this.entityId = entityId; }
+    public String getEntityName() { return entityName; }
+    public void setEntityName(String entityName) { this.entityName = entityName; }
     public String getConsentId() { return consentId; }
     public void setConsentId(String consentId) { this.consentId = consentId; }
     public boolean isProctoring() { return proctoring; }

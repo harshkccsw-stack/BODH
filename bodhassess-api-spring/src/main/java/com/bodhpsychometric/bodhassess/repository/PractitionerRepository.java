@@ -25,4 +25,10 @@ public interface PractitionerRepository extends JpaRepository<Practitioner, Stri
     // do the final digit comparison in Java.
     @Query("SELECT p FROM Practitioner p WHERE p.dob = :dob AND p.status = 'Active' AND p.phone IS NOT NULL")
     List<Practitioner> findActiveByDobWithPhone(@Param("dob") LocalDate dob);
+
+    // [login-debug] Diagnostic only — matches by email ignoring dob/status so
+    // login failures can report whether the account exists and what its stored
+    // dob/status actually are. Remove once login is fixed.
+    @Query("SELECT p FROM Practitioner p WHERE LOWER(p.email) = LOWER(:email)")
+    List<Practitioner> findByEmailForDebug(@Param("email") String email);
 }

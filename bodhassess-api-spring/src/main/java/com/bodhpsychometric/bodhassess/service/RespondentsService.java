@@ -73,7 +73,7 @@ public class RespondentsService {
         r.setPhone(dto.getPhone());
         r.setDob(dto.getDob());
         r.setConsent(StringUtils.hasText(dto.getConsent()) ? dto.getConsent() : "Pending");
-        r.setSessionsCount(dto.getSessionsCount());
+        r.setSessionsCount(dto.getSessionsCount() != null ? dto.getSessionsCount() : 0);
         r.setLastAssessment(dto.getLastAssessment());
         r.setAccountType(StringUtils.hasText(dto.getAccountType()) ? dto.getAccountType() : "individual");
         r.setOrgName(dto.getOrgName());

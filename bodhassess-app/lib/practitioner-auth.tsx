@@ -21,18 +21,15 @@ import {
   useState,
 } from 'react';
 import { usePathname, useRouter } from '@/src/lib/router-helpers';
-import { adminApi, practitionersApi, type PractitionerMe } from '@/lib/api';
+import { authApi, type AuthUser, type PractitionerMe } from '@/lib/api';
 import {
   LOGIN_PATH,
-  adminAsPractitionerMe,
+  authUserToPractitionerMe,
   canAccess,
-  clearAdminToken,
-  clearPractitionerToken,
-  getAdminToken,
-  getPractitionerToken,
+  clearDashboardToken,
+  getDashboardToken,
   isPublicPath,
-  setAdminToken,
-  setPractitionerToken,
+  setDashboardToken,
 } from '@/lib/practitioner-auth-utils';
 
 // ---- Context ------------------------------------------------------------
@@ -45,11 +42,10 @@ type AuthState =
 type AuthContextValue = AuthState & {
   logout: () => Promise<void>;
   canAccess: (pathname: string) => boolean;
-  // Set state directly from a fresh login response. Used by the /login
+  // Set state directly from a fresh /auth/login response. Used by the /login
   // page so it can soft-navigate via react-router instead of forcing a
   // full page reload to re-trigger auth resolution.
-  loginAsPractitioner: (token: string, me: PractitionerMe) => void;
-  loginAsAdmin: (token: string, username: string) => void;
+  login: (token: string, user: AuthUser) => void;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -59,41 +55,27 @@ export function PractitionerAuthProvider({ children }: { children: ReactNode }) 
   const pathname = usePathname();
   const [state, setState] = useState<AuthState>({ status: 'loading', me: null });
 
-  // Resolve token → /me on mount. Tries practitioner first, then admin —
-  // either path lands the user in the dashboard. Admin gets full url_paths
-  // access so canAccess() returns true everywhere.
+  // Resolve token → /auth/me on mount. One unified identity call; the
+  // response's url_paths drive canAccess() (super admin carries '/*').
   useEffect(() => {
     let cancelled = false;
-    const practitionerToken = getPractitionerToken();
-    const adminToken = getAdminToken();
+    const token = getDashboardToken();
 
-    if (!practitionerToken && !adminToken) {
+    if (!token) {
       setState({ status: 'unauthenticated', me: null });
       return;
     }
 
     (async () => {
-      if (practitionerToken) {
-        try {
-          const me = await practitionersApi.me(practitionerToken);
-          if (!cancelled) setState({ status: 'authenticated', me });
-          return;
-        } catch {
-          clearPractitionerToken();
+      try {
+        const user = await authApi.me(token);
+        if (!cancelled) {
+          setState({ status: 'authenticated', me: authUserToPractitionerMe(user) });
         }
+      } catch {
+        clearDashboardToken();
+        if (!cancelled) setState({ status: 'unauthenticated', me: null });
       }
-      if (adminToken) {
-        try {
-          const info = await adminApi.me(adminToken);
-          if (!cancelled) {
-            setState({ status: 'authenticated', me: adminAsPractitionerMe(info.username) });
-          }
-          return;
-        } catch {
-          clearAdminToken();
-        }
-      }
-      if (!cancelled) setState({ status: 'unauthenticated', me: null });
     })();
 
     return () => { cancelled = true; };
@@ -116,40 +98,27 @@ export function PractitionerAuthProvider({ children }: { children: ReactNode }) 
   }, [state.status, pathname, router]);
 
   const logout = useCallback(async () => {
-    const practitionerToken = getPractitionerToken();
-    const adminToken = getAdminToken();
-    clearPractitionerToken();
-    clearAdminToken();
+    const token = getDashboardToken();
+    clearDashboardToken();
     setState({ status: 'unauthenticated', me: null });
-    if (practitionerToken) {
-      try { await practitionersApi.logout(practitionerToken); } catch { /* best effort */ }
-    }
-    if (adminToken) {
-      try { await adminApi.logout(adminToken); } catch { /* best effort */ }
+    if (token) {
+      try { await authApi.logout(token); } catch { /* best effort */ }
     }
     router.replace(LOGIN_PATH);
   }, [router]);
 
-  const loginAsPractitioner = useCallback((token: string, me: PractitionerMe) => {
-    clearAdminToken();
-    setPractitionerToken(token);
-    setState({ status: 'authenticated', me });
-  }, []);
-
-  const loginAsAdmin = useCallback((token: string, username: string) => {
-    clearPractitionerToken();
-    setAdminToken(token);
-    setState({ status: 'authenticated', me: adminAsPractitionerMe(username) });
+  const login = useCallback((token: string, user: AuthUser) => {
+    setDashboardToken(token);
+    setState({ status: 'authenticated', me: authUserToPractitionerMe(user) });
   }, []);
 
   const value = useMemo<AuthContextValue>(() => ({
     ...state,
     logout,
-    loginAsPractitioner,
-    loginAsAdmin,
+    login,
     canAccess: (p: string) =>
       state.status === 'authenticated' ? canAccess(p, state.me.url_paths) : isPublicPath(p),
-  }), [state, logout, loginAsPractitioner, loginAsAdmin]);
+  }), [state, logout, login]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

@@ -3,10 +3,11 @@
 // "incompatible exports" warnings.
 
 import { config } from '@/lib/config';
-import type { PractitionerMe } from '@/lib/api';
+import type { AuthUser, PractitionerMe } from '@/lib/api';
 
+// One dashboard session token. Both super admins and practitioners now
+// authenticate through /auth, so there is a single token slot.
 const TOKEN_KEY = config.practitionerAuthStorageKey;
-const ADMIN_TOKEN_KEY = config.adminAuthStorageKey;
 
 export const LOGIN_PATH = '/login';
 
@@ -40,49 +41,32 @@ export function canAccess(pathname: string, urlPaths: string[]): boolean {
 
 // ---- Token helpers (safe in SSR — guard window) -------------------------
 
-export function getPractitionerToken(): string | null {
+export function getDashboardToken(): string | null {
   if (typeof window === 'undefined') return null;
   return sessionStorage.getItem(TOKEN_KEY);
 }
 
-export function setPractitionerToken(token: string) {
+export function setDashboardToken(token: string) {
   if (typeof window === 'undefined') return;
   sessionStorage.setItem(TOKEN_KEY, token);
 }
 
-export function clearPractitionerToken() {
+export function clearDashboardToken() {
   if (typeof window === 'undefined') return;
   sessionStorage.removeItem(TOKEN_KEY);
 }
 
-// Admin uses the same dashboard shell. Stored under a distinct key so we
-// can support practitioner ↔ admin re-login without one stomping the other.
-export function getAdminToken(): string | null {
-  if (typeof window === 'undefined') return null;
-  return sessionStorage.getItem(ADMIN_TOKEN_KEY);
-}
-
-export function setAdminToken(token: string) {
-  if (typeof window === 'undefined') return;
-  sessionStorage.setItem(ADMIN_TOKEN_KEY, token);
-}
-
-export function clearAdminToken() {
-  if (typeof window === 'undefined') return;
-  sessionStorage.removeItem(ADMIN_TOKEN_KEY);
-}
-
-// Synthesize a PractitionerMe-shaped object for an admin so the rest of
-// the dashboard (which is built around PractitionerMe) "just works".
-// `url_paths: ['/*']` grants access to every route via canAccess().
-export function adminAsPractitionerMe(username: string): PractitionerMe {
+// Adapt the unified /auth identity onto the PractitionerMe shape the dashboard
+// is built around. RBAC (roles + url_paths) comes straight from /auth; a super
+// admin carries `url_paths: ['/*']` which grants every route via canAccess().
+export function authUserToPractitionerMe(user: AuthUser): PractitionerMe {
   return {
-    id: username,
-    name: 'Administrator',
-    email: `${username}@admin.local`,
-    roles: ['Admin'],
+    id: user.id,
+    name: user.name || (user.isSuperAdmin ? 'Administrator' : user.email),
+    email: user.email,
+    roles: user.roles ?? (user.isSuperAdmin ? ['SUPER_ADMIN'] : []),
     verticals: [],
     status: 'Active',
-    url_paths: ['/*'],
+    url_paths: user.url_paths ?? (user.isSuperAdmin ? ['/*'] : []),
   };
 }

@@ -2,27 +2,24 @@ package com.bodhpsychometric.bodhassess.model;
 
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
+import javax.persistence.CascadeType;
+import javax.persistence.CollectionTable;
 import javax.persistence.Column;
+import javax.persistence.ElementCollection;
 import javax.persistence.Entity;
+import javax.persistence.FetchType;
 import javax.persistence.Id;
+import javax.persistence.JoinColumn;
+import javax.persistence.OneToMany;
+import javax.persistence.OrderBy;
 import javax.persistence.Table;
-
-import org.hibernate.annotations.Type;
-import org.hibernate.annotations.TypeDef;
-import org.hibernate.annotations.TypeDefs;
-
-import com.fasterxml.jackson.databind.JsonNode;
-import com.vladmihalcea.hibernate.type.json.JsonNodeStringType;
-import com.vladmihalcea.hibernate.type.json.JsonStringType;
 
 @Entity
 @Table(name = "items")
-@TypeDefs({
-    @TypeDef(name = "json", typeClass = JsonStringType.class),
-    @TypeDef(name = "json-node", typeClass = JsonNodeStringType.class)
-})
 public class Item {
 
     @Id
@@ -37,9 +34,11 @@ public class Item {
     @Column(name = "sub_domain")
     private String subDomain;
 
-    @Type(type = "json-node")
-    @Column(name = "sub_domains", columnDefinition = "json")
-    private JsonNode subDomains;
+    // Question-level MQT scoring rows. The frontend's "question_scores" — a
+    // score credited whenever the question is answered at all, regardless of
+    // which option was picked. Was the items.sub_domains JSON array.
+    @OneToMany(mappedBy = "item", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<ItemQuestionScore> questionScores = new ArrayList<>();
 
     @Column(name = "item_format")
     private String itemFormat;
@@ -53,9 +52,13 @@ public class Item {
     @Column(name = "media_type")
     private String mediaType;
 
-    @Type(type = "json-node")
-    @Column(columnDefinition = "json")
-    private JsonNode options;
+    // MCQ options live in the item_options child table; per-option MQT
+    // scoring on each ItemOption. @OrderBy ensures stable presentation order
+    // (option 0 vs option 1). Lazy to avoid joining a deep tree on every
+    // single-row read; reload via JPA when needed.
+    @OneToMany(mappedBy = "item", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OrderBy("sortOrder ASC")
+    private List<ItemOption> options = new ArrayList<>();
 
     @Column(name = "irt_a")
     private Double irtA;
@@ -78,9 +81,11 @@ public class Item {
     @Column(name = "sequence_order")
     private Integer sequenceOrder;
 
-    @Type(type = "json")
-    @Column(columnDefinition = "json")
-    private List<String> languages = new ArrayList<>();
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "item_languages",
+            joinColumns = @JoinColumn(name = "item_id"))
+    @Column(name = "language", nullable = false, length = 8)
+    private Set<String> languages = new HashSet<>();
 
     @Column(name = "created_at", insertable = false, updatable = false)
     private OffsetDateTime createdAt;
@@ -93,8 +98,8 @@ public class Item {
     public void setVertical(String vertical) { this.vertical = vertical; }
     public String getSubDomain() { return subDomain; }
     public void setSubDomain(String subDomain) { this.subDomain = subDomain; }
-    public JsonNode getSubDomains() { return subDomains; }
-    public void setSubDomains(JsonNode subDomains) { this.subDomains = subDomains; }
+    public List<ItemQuestionScore> getQuestionScores() { return questionScores; }
+    public void setQuestionScores(List<ItemQuestionScore> questionScores) { this.questionScores = questionScores; }
     public String getItemFormat() { return itemFormat; }
     public void setItemFormat(String itemFormat) { this.itemFormat = itemFormat; }
     public String getStem() { return stem; }
@@ -103,8 +108,8 @@ public class Item {
     public void setMediaUrl(String mediaUrl) { this.mediaUrl = mediaUrl; }
     public String getMediaType() { return mediaType; }
     public void setMediaType(String mediaType) { this.mediaType = mediaType; }
-    public JsonNode getOptions() { return options; }
-    public void setOptions(JsonNode options) { this.options = options; }
+    public List<ItemOption> getOptions() { return options; }
+    public void setOptions(List<ItemOption> options) { this.options = options; }
     public Double getIrtA() { return irtA; }
     public void setIrtA(Double irtA) { this.irtA = irtA; }
     public Double getIrtB() { return irtB; }
@@ -119,7 +124,7 @@ public class Item {
     public void setRiskRule(String riskRule) { this.riskRule = riskRule; }
     public Integer getSequenceOrder() { return sequenceOrder; }
     public void setSequenceOrder(Integer sequenceOrder) { this.sequenceOrder = sequenceOrder; }
-    public List<String> getLanguages() { return languages; }
-    public void setLanguages(List<String> languages) { this.languages = languages; }
+    public Set<String> getLanguages() { return languages; }
+    public void setLanguages(Set<String> languages) { this.languages = languages; }
     public OffsetDateTime getCreatedAt() { return createdAt; }
 }
