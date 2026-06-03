@@ -66,7 +66,7 @@ export default function LoginPage() {
       } else {
         // Authenticated, but not a dashboard account — their surface is the
         // assessment portal.
-        sessionStorage.setItem(config.authStorageKey, res.token);
+        localStorage.setItem(config.authStorageKey, res.token);
         window.location.href = '/portal/assessments';
       }
     } catch (err: any) {

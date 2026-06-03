@@ -2,7 +2,7 @@
 
 // Practitioner dashboard auth.
 //
-// Login (id + DOB) at /login mints an opaque token stored in sessionStorage.
+// Login (id + DOB) at /login mints an opaque token stored in localStorage.
 // PractitionerAuthProvider wraps the dashboard; on mount it exchanges the
 // token for the practitioner record + the merged url_paths from every role
 // they hold. Pages and the sidebar use canAccess() to gate visibility.

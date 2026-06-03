@@ -14,8 +14,8 @@ export const API_BASE = config.apiBase;
 function getActiveToken(): string | null {
   if (typeof window === 'undefined') return null;
   return (
-    sessionStorage.getItem(config.practitionerAuthStorageKey) ||
-    sessionStorage.getItem(config.authStorageKey) ||
+    localStorage.getItem(config.practitionerAuthStorageKey) ||
+    localStorage.getItem(config.authStorageKey) ||
     null
   );
 }
@@ -1024,4 +1024,111 @@ export const datasetsApi = {
       method: 'PATCH',
       body: JSON.stringify(edits),
     }),
+};
+
+// --- Data Studio (workbooks / sheets / derived columns) -------------------
+// Persisted spreadsheet definitions layered on top of the live dataset views.
+// Data is never copied — a sheet re-pulls live rows via datasetsApi and
+// computes derived columns (CLIENT in-browser, SERVER on the backend).
+export type DsAccess = 'OWNER' | 'EDITOR' | 'VIEWER' | 'ADMIN' | 'NONE';
+
+export type DerivedColumn = {
+  id?: number;
+  colKey: string;
+  label: string;
+  expr: string;
+  evalTarget: 'CLIENT' | 'SERVER';
+  resultType: 'number' | 'string' | 'boolean' | 'datetime';
+  format?: string | null;
+  sortOrder?: number | null;
+};
+
+export type Sheet = {
+  id: number;
+  workbookId: number;
+  name: string;
+  sourceView: string;
+  sourceFilters: Record<string, unknown>;
+  grain: string;
+  displayState: Record<string, unknown>;
+  sortOrder?: number | null;
+  derivedColumns: DerivedColumn[];
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type WorkbookShare = {
+  id: number;
+  sharedWithUserId: string;
+  role: 'EDITOR' | 'VIEWER';
+  grantedBy: string;
+  createdAt?: string;
+};
+
+export type Workbook = {
+  id: number;
+  name: string;
+  description?: string | null;
+  ownerId: string;
+  access: DsAccess;
+  sheets: Sheet[];
+  shares: WorkbookShare[];
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type ValidateExprResult = {
+  ok: boolean;
+  evalTarget: 'CLIENT' | 'SERVER';
+  resultType: 'number' | 'string' | 'boolean' | 'datetime';
+  errors: string[];
+  referencedColumns: string[];
+  functions: string[];
+};
+
+export const dataStudioApi = {
+  listWorkbooks: () => jsonFetch<Workbook[]>('/workbooks'),
+  createWorkbook: (body: { name: string; description?: string }) =>
+    jsonFetch<Workbook>('/workbooks', { method: 'POST', body: JSON.stringify(body) }),
+  getWorkbook: (id: number) => jsonFetch<Workbook>(`/workbooks/${id}`),
+  updateWorkbook: (id: number, body: { name?: string; description?: string }) =>
+    jsonFetch<Workbook>(`/workbooks/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  deleteWorkbook: (id: number) => jsonFetch<null>(`/workbooks/${id}`, { method: 'DELETE' }),
+
+  addShare: (id: number, body: { sharedWithUserId: string; role: 'EDITOR' | 'VIEWER' }) =>
+    jsonFetch<WorkbookShare>(`/workbooks/${id}/shares`, { method: 'POST', body: JSON.stringify(body) }),
+  removeShare: (id: number, userId: string) =>
+    jsonFetch<null>(`/workbooks/${id}/shares/${encodeURIComponent(userId)}`, { method: 'DELETE' }),
+
+  createSheet: (
+    workbookId: number,
+    body: { name: string; sourceView?: string; sourceFilters?: Record<string, unknown>; grain?: string },
+  ) => jsonFetch<Sheet>(`/workbooks/${workbookId}/sheets`, { method: 'POST', body: JSON.stringify(body) }),
+  getSheet: (id: number) => jsonFetch<Sheet>(`/sheets/${id}`),
+  updateSheet: (
+    id: number,
+    body: { name?: string; sourceFilters?: Record<string, unknown>; displayState?: Record<string, unknown>; sortOrder?: number },
+  ) => jsonFetch<Sheet>(`/sheets/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  deleteSheet: (id: number) => jsonFetch<null>(`/sheets/${id}`, { method: 'DELETE' }),
+
+  validateExpr: (sheetId: number, expr: string) =>
+    jsonFetch<ValidateExprResult>(`/sheets/${sheetId}/validate-expr`, {
+      method: 'POST',
+      body: JSON.stringify({ expr }),
+    }),
+  addColumn: (
+    sheetId: number,
+    body: { label: string; expr: string; evalTarget?: string; format?: string },
+  ) => jsonFetch<DerivedColumn>(`/sheets/${sheetId}/columns`, { method: 'POST', body: JSON.stringify(body) }),
+  updateColumn: (
+    sheetId: number,
+    colKey: string,
+    body: { label: string; expr: string; evalTarget?: string; format?: string },
+  ) =>
+    jsonFetch<DerivedColumn>(`/sheets/${sheetId}/columns/${encodeURIComponent(colKey)}`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+  deleteColumn: (sheetId: number, colKey: string) =>
+    jsonFetch<null>(`/sheets/${sheetId}/columns/${encodeURIComponent(colKey)}`, { method: 'DELETE' }),
 };
