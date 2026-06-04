@@ -346,6 +346,9 @@ export interface PublishedQuestionnaire {
     media_type: string;
     options: Array<{ text: string; scores: Array<{ mqt_id: string; score: number }>; media_url?: string; media_type?: string }>;
     question_scores?: Array<{ mqt_id: string; score: number }>;
+    // MQ/MQT coverage tags — which qualities/traits this question measures.
+    // Independent of scoring; used for filtering and coverage reporting.
+    coverage?: { mqs: string[]; mqts: string[] };
     clinical_risk_flag: boolean;
     risk_flag_rule: string;
   }>;

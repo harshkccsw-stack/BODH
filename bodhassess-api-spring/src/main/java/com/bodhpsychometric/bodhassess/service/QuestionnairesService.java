@@ -1,9 +1,12 @@
 package com.bodhpsychometric.bodhassess.service;
 
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -20,9 +23,11 @@ import com.bodhpsychometric.bodhassess.model.PublishedQuestionnaireQuestion;
 import com.bodhpsychometric.bodhassess.model.PublishedQuestionnaireQuestionOption;
 import com.bodhpsychometric.bodhassess.model.PublishedQuestionnaireQuestionOptionScore;
 import com.bodhpsychometric.bodhassess.model.PublishedQuestionnaireQuestionScore;
+import com.bodhpsychometric.bodhassess.model.Questionnaire;
 import com.bodhpsychometric.bodhassess.payload.QuestionnaireDto;
 import com.bodhpsychometric.bodhassess.payload.QuestionnaireSummaryDto;
 import com.bodhpsychometric.bodhassess.repository.PublishedQuestionnaireRepository;
+import com.bodhpsychometric.bodhassess.repository.QuestionnaireRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
@@ -34,6 +39,9 @@ public class QuestionnairesService {
 
     @Autowired
     private PublishedQuestionnaireRepository repo;
+
+    @Autowired
+    private QuestionnaireRepository parents;
 
     @Transactional(readOnly = true)
     public List<QuestionnaireDto> list(String vertical) {
@@ -115,7 +123,33 @@ public class QuestionnairesService {
         q.setInstructions(dto.getInstructions());
         q.setShowInstructions(dto.isShowInstructions());
         q.setDemographicFieldKeys(dto.getDemographicFieldKeys() == null ? new HashSet<>() : new HashSet<>(dto.getDemographicFieldKeys()));
-        return toDto(repo.save(q));
+        PublishedQuestionnaire saved = repo.save(q);
+
+        // The wizard publishes land here as standalone COMMITTED rows. The
+        // versioning model — and the assessment-create questionnaire/version
+        // pickers — require every version to hang off a parent Questionnaire.
+        // Create one on the spot for parent-less rows so the questionnaire is
+        // immediately pickable, instead of being invisible until the boot-time
+        // QuestionnaireVersioningMigrationRunner backfills it. Mirrors that
+        // runner's field choices so the two paths stay consistent.
+        if (!StringUtils.hasText(saved.getParentId())) {
+            Questionnaire p = new Questionnaire();
+            p.setId("Q-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase());
+            p.setName(saved.getName());
+            p.setVertical(saved.getVertical());
+            p.setCurrentVersionId(saved.getId());
+            p.setCreatedBy("wizard-publish");
+            parents.save(p);
+
+            saved.setParentId(p.getId());
+            if (saved.getVersionMajor() == 0 && saved.getVersionMinor() == 0) saved.setVersionMajor(1);
+            if (!StringUtils.hasText(saved.getVersionLabel())) saved.setVersionLabel("v1.0");
+            if (!StringUtils.hasText(saved.getVersionStatus())) saved.setVersionStatus("COMMITTED");
+            if (saved.getCommittedAt() == null) saved.setCommittedAt(OffsetDateTime.now(ZoneOffset.UTC));
+            if (!StringUtils.hasText(saved.getCommittedBy())) saved.setCommittedBy("wizard-publish");
+            saved = repo.save(saved);
+        }
+        return toDto(saved);
     }
 
     public void delete(String id) {

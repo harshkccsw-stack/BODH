@@ -14,6 +14,7 @@ import {
   Microscope,
   Settings,
   Shield,
+  ShieldCheck,
   Stethoscope,
   Table2,
   Tag,
@@ -138,14 +139,20 @@ export const MENU_SIDEBAR: MenuConfig = [
     path: '/admin/data-grid',
   },
   {
-    title: 'Users & Roles',
+    title: 'Users',
     icon: Users,
     children: [
       { title: 'Practitioners', path: '/admin/practitioners' },
-      { title: 'Roles & Permissions', path: '/admin/permissions' },
       { title: 'Respondents', path: '/admin/respondents' },
-      { title: 'Entity Registrations', path: '/admin/entity-registrations' },
+      { title: 'Entity Registration', path: '/admin/entity-registrations' },
       { title: 'Groups', path: '/admin/groups' },
+    ],
+  },
+  {
+    title: 'Roles',
+    icon: ShieldCheck,
+    children: [
+      { title: 'Roles & Permissions', path: '/admin/permissions' },
       { title: 'Permissions', path: '/admin/roles' },
     ],
   },

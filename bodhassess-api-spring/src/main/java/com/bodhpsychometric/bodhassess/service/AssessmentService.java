@@ -49,7 +49,7 @@ import com.bodhpsychometric.bodhassess.security.UserPrincipal;
 public class AssessmentService {
 
     private static final Set<String> VALID_STATUSES = new HashSet<>(java.util.Arrays.asList(
-            "ACTIVE", "CLOSED", "PAUSED"));
+            "ACTIVE", "CLOSED", "PAUSED", "TEST"));
 
     @Autowired private AssessmentRepository repo;
     @Autowired private AssessmentEntityAllotmentRepository entityAllotments;
@@ -57,6 +57,8 @@ public class AssessmentService {
     @Autowired private AssessmentRespondentAllotmentRepository respondentAllotments;
     @Autowired private PublishedQuestionnaireRepository questionnaireRepo;
     @Autowired private PortalSessionRepository sessionRepo;
+
+    @Autowired private SessionProvisioningService sessionProvisioning;
     @Autowired private AuditService audit;
 
     @Transactional(readOnly = true)
@@ -76,15 +78,26 @@ public class AssessmentService {
         if (!StringUtils.hasText(dto.getQuestionnaireId())) {
             throw new BadRequestException("questionnaireId is required");
         }
-        PublishedQuestionnaire q = questionnaireRepo.findById(dto.getQuestionnaireId())
-                .orElseThrow(() -> new BadRequestException("Unknown questionnaireId: " + dto.getQuestionnaireId()));
+        // An assessment is pinned to a committed VERSION (a
+        // PublishedQuestionnaire row), not the parent questionnaire family.
+        // The create form sends the version in questionnaireVersionId; fall
+        // back to questionnaireId for legacy callers that passed a published
+        // id directly.
+        String versionId = StringUtils.hasText(dto.getQuestionnaireVersionId())
+                ? dto.getQuestionnaireVersionId()
+                : dto.getQuestionnaireId();
+        PublishedQuestionnaire q = questionnaireRepo.findById(versionId)
+                .orElseThrow(() -> new BadRequestException("Unknown questionnaireVersionId: " + versionId));
 
         Assessment a = new Assessment();
         a.setId(StringUtils.hasText(dto.getId())
                 ? dto.getId()
                 : "AS-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase());
         a.setName(dto.getName().trim());
-        a.setQuestionnaireId(q.getId());
+        // Parent family id for grouping; version id is what drives content
+        // and scoring for respondents.
+        a.setQuestionnaireId(StringUtils.hasText(q.getParentId()) ? q.getParentId() : q.getId());
+        a.setQuestionnaireVersionId(q.getId());
         // Cache display fields so list views don't need to join.
         a.setQuestionnaireName(q.getName());
         a.setVertical(StringUtils.hasText(dto.getVertical()) ? dto.getVertical() : q.getVertical());
@@ -105,6 +118,9 @@ public class AssessmentService {
                 row.setCap(e.getCap());
                 row.setCreatedBy(currentActorId());
                 entityAllotments.save(row);
+                // Materialise sessions for the entity's members (up to the cap)
+                // so they appear in those respondents' portals.
+                sessionProvisioning.provisionEntity(saved.getId(), e.getEntityId());
             }
         }
         if (dto.getGroupAllotments() != null) {
@@ -115,6 +131,8 @@ public class AssessmentService {
                 row.setGroupId(gid);
                 row.setCreatedBy(currentActorId());
                 groupAllotments.save(row);
+                // Materialise a session for every group member.
+                sessionProvisioning.provisionGroup(saved.getId(), gid);
             }
         }
         if (dto.getRespondentAllotments() != null) {
@@ -125,6 +143,10 @@ public class AssessmentService {
                 row.setRespondentId(rid);
                 row.setCreatedBy(currentActorId());
                 respondentAllotments.save(row);
+                // Materialise the respondent's portal_session so the
+                // assessment is visible/launchable in their portal — an
+                // allotment row alone is not.
+                sessionProvisioning.provisionRespondent(saved, rid);
             }
         }
 
@@ -207,6 +229,7 @@ public class AssessmentService {
         d.setId(a.getId());
         d.setName(a.getName());
         d.setQuestionnaireId(a.getQuestionnaireId());
+        d.setQuestionnaireVersionId(a.getQuestionnaireVersionId());
         d.setQuestionnaireName(a.getQuestionnaireName());
         d.setVertical(a.getVertical());
         d.setLanguage(a.getLanguage());
@@ -244,7 +267,7 @@ public class AssessmentService {
     private String normaliseStatus(String s) {
         String up = s.trim().toUpperCase();
         if (!VALID_STATUSES.contains(up)) {
-            throw new BadRequestException("status must be one of: ACTIVE, CLOSED, PAUSED");
+            throw new BadRequestException("status must be one of: ACTIVE, CLOSED, PAUSED, TEST");
         }
         return up;
     }
