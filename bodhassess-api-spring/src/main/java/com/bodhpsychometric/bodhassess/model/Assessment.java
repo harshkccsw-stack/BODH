@@ -53,8 +53,8 @@ public class Assessment {
 
     private String language;
 
-    // ACTIVE / CLOSED / PAUSED. Plain string instead of enum so adding a
-    // new state doesn't require a migration.
+    // ACTIVE / CLOSED / PAUSED / TEST. Plain string instead of enum so adding
+    // a new state doesn't require a migration. TEST use case TBD.
     @Column(nullable = false, length = 16)
     private String status = "ACTIVE";
 

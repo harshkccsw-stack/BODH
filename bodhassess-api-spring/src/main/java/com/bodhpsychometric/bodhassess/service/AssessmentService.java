@@ -49,7 +49,7 @@ import com.bodhpsychometric.bodhassess.security.UserPrincipal;
 public class AssessmentService {
 
     private static final Set<String> VALID_STATUSES = new HashSet<>(java.util.Arrays.asList(
-            "ACTIVE", "CLOSED", "PAUSED"));
+            "ACTIVE", "CLOSED", "PAUSED", "TEST"));
 
     @Autowired private AssessmentRepository repo;
     @Autowired private AssessmentEntityAllotmentRepository entityAllotments;
@@ -267,7 +267,7 @@ public class AssessmentService {
     private String normaliseStatus(String s) {
         String up = s.trim().toUpperCase();
         if (!VALID_STATUSES.contains(up)) {
-            throw new BadRequestException("status must be one of: ACTIVE, CLOSED, PAUSED");
+            throw new BadRequestException("status must be one of: ACTIVE, CLOSED, PAUSED, TEST");
         }
         return up;
     }
