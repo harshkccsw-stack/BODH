@@ -16,7 +16,7 @@ export default function PortalCompletePage() {
   useEffect(() => {
     (async () => {
       try {
-        const token = sessionStorage.getItem(AUTH_KEY);
+        const token = localStorage.getItem(AUTH_KEY);
         if (token) {
           try {
             const me = await respondentsApi.me(token);

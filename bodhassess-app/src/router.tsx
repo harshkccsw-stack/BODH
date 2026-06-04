@@ -49,6 +49,8 @@ const PortalComplete    = () => lazyPage(() => import('@/src/pages/portal/comple
 // ── Private pages (practitioner dashboard) ────────────────────────────────
 const Dashboard          = () => lazyPage(() => import('@/src/pages/dashboard'));
 const Analytics          = () => lazyPage(() => import('@/src/pages/analytics'));
+const DataStudioHome     = () => lazyPage(() => import('@/src/pages/data-studio/index'));
+const DataStudioWorkbook = () => lazyPage(() => import('@/src/pages/data-studio/workbook'));
 const Survey             = () => lazyPage(() => import('@/src/pages/survey'));
 const Qualities          = () => lazyPage(() => import('@/src/pages/qualities'));
 
@@ -182,6 +184,8 @@ const routes: RouteObject[] = [
     children: [
       { path: '/dashboard', element: <Dashboard /> },
       { path: '/analytics', element: <Analytics /> },
+      { path: '/data-studio', element: <DataStudioHome /> },
+      { path: '/data-studio/wb/:wid', element: <DataStudioWorkbook /> },
       { path: '/survey', element: <Survey /> },
       { path: '/question-bank/qualities', element: <Qualities /> },
 

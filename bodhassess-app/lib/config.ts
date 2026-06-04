@@ -17,13 +17,13 @@ export const config = {
   /** Brand name shown in page titles, headers, and toast messages. */
   appName: read('VITE_APP_NAME', 'BodhAssess'),
 
-  /** sessionStorage key used to persist the respondent's auth token. */
+  /** localStorage key used to persist the respondent's auth token. */
   authStorageKey: read('VITE_AUTH_STORAGE_KEY', 'bodhassess.auth.token'),
 
-  /** sessionStorage key used to persist the practitioner dashboard auth token. */
+  /** localStorage key used to persist the practitioner dashboard auth token. */
   practitionerAuthStorageKey: read('VITE_PRACTITIONER_AUTH_STORAGE_KEY', 'bodhassess.practitioner.token'),
 
-  /** sessionStorage key used to persist the admin dashboard auth token. */
+  /** localStorage key used to persist the admin dashboard auth token. */
   adminAuthStorageKey: read('VITE_ADMIN_AUTH_STORAGE_KEY', 'bodhassess.admin.token'),
 
   /** Optional sub-path mount, e.g. "/bodh". Empty string means served at root. */

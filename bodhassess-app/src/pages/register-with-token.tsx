@@ -133,7 +133,7 @@ function RegisterWithTokenPage() {
       // page for this session. (The /assessments/:id/take route is behind the
       // dashboard's PrivateRoute and would bounce an anonymous registrant to
       // /login, which is why the assessment never started.)
-      sessionStorage.setItem(config.authStorageKey, result.token);
+      localStorage.setItem(config.authStorageKey, result.token);
       setDone(true);
       setTimeout(() => { window.location.href = `/portal/take?id=${encodeURIComponent(result.sessionId)}`; }, 1200);
     } catch (err: any) {

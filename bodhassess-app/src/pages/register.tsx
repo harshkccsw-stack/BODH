@@ -94,7 +94,7 @@ export default function PortalRegisterPage() {
       let autoSignedIn = false;
       try {
         const loginRes = await respondentsApi.login(trimmedEmail, isoDob);
-        sessionStorage.setItem(AUTH_KEY, loginRes.token);
+        localStorage.setItem(AUTH_KEY, loginRes.token);
         autoSignedIn = true;
       } catch {
         // Auto-login failed — not fatal. The user can still sign in manually.

@@ -135,13 +135,13 @@ export default function PortalTakePage() {
   useEffect(() => {
     (async () => {
       try {
-        const token = sessionStorage.getItem(AUTH_KEY);
+        const token = localStorage.getItem(AUTH_KEY);
         if (!token) { window.location.href = '/portal/login'; return; }
         let u: AuthUser;
         try {
           u = await respondentsApi.me(token);
         } catch {
-          sessionStorage.removeItem(AUTH_KEY);
+          localStorage.removeItem(AUTH_KEY);
           window.location.href = '/portal/login';
           return;
         }

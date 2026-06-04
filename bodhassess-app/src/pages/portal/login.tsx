@@ -33,7 +33,7 @@ export default function PortalLoginPage() {
       // signs in here still gets routed to the portal surface — same token,
       // this page just always lands in /portal.
       const res = await authApi.login(id, isoDob);
-      sessionStorage.setItem(AUTH_KEY, res.token);
+      localStorage.setItem(AUTH_KEY, res.token);
       window.location.href = '/portal/assessments';
     } catch (e: any) {
       const msg = String(e?.message || '');

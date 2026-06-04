@@ -16,7 +16,7 @@ export default function PortalAssessmentsPage() {
 
   useEffect(() => {
     (async () => {
-      const token = sessionStorage.getItem(AUTH_KEY);
+      const token = localStorage.getItem(AUTH_KEY);
       if (!token) { window.location.href = '/portal/login'; return; }
       try {
         const me = await respondentsApi.me(token);
@@ -29,7 +29,7 @@ export default function PortalAssessmentsPage() {
         }
       } catch {
         // Token invalid/expired
-        sessionStorage.removeItem(AUTH_KEY);
+        localStorage.removeItem(AUTH_KEY);
         window.location.href = '/portal/login';
       }
       setChecked(true);
@@ -37,11 +37,11 @@ export default function PortalAssessmentsPage() {
   }, []);
 
   const logout = async () => {
-    const token = sessionStorage.getItem(AUTH_KEY);
+    const token = localStorage.getItem(AUTH_KEY);
     if (token) {
       try { await respondentsApi.logout(token); } catch {}
     }
-    sessionStorage.removeItem(AUTH_KEY);
+    localStorage.removeItem(AUTH_KEY);
     window.location.href = '/portal/login';
   };
 

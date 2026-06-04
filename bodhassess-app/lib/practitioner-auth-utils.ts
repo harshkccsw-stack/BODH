@@ -43,17 +43,17 @@ export function canAccess(pathname: string, urlPaths: string[]): boolean {
 
 export function getDashboardToken(): string | null {
   if (typeof window === 'undefined') return null;
-  return sessionStorage.getItem(TOKEN_KEY);
+  return localStorage.getItem(TOKEN_KEY);
 }
 
 export function setDashboardToken(token: string) {
   if (typeof window === 'undefined') return;
-  sessionStorage.setItem(TOKEN_KEY, token);
+  localStorage.setItem(TOKEN_KEY, token);
 }
 
 export function clearDashboardToken() {
   if (typeof window === 'undefined') return;
-  sessionStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(TOKEN_KEY);
 }
 
 // Adapt the unified /auth identity onto the PractitionerMe shape the dashboard

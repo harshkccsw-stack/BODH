@@ -10,6 +10,7 @@ import {
   GraduationCap,
   Heart,
   LayoutDashboard,
+  LayoutGrid,
   Microscope,
   Settings,
   Shield,
@@ -106,6 +107,11 @@ export const MENU_SIDEBAR: MenuConfig = [
     title: 'BodhLens Analytics',
     icon: Microscope,
     path: '/analytics',
+  },
+  {
+    title: 'Data Studio',
+    icon: LayoutGrid,
+    path: '/data-studio',
   },
   {
     title: 'BodhSurvey',
