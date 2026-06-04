@@ -29,6 +29,7 @@ import com.bodhpsychometric.bodhassess.repository.AssessmentGroupAllotmentReposi
 import com.bodhpsychometric.bodhassess.repository.AssessmentRespondentAllotmentRepository;
 import com.bodhpsychometric.bodhassess.repository.EntityRegistrationRepository;
 import com.bodhpsychometric.bodhassess.repository.PortalSessionRepository;
+import com.bodhpsychometric.bodhassess.repository.RespondentGroupRepository;
 
 /**
  * Manages the three allotee join tables for an Assessment. All mutating
@@ -46,6 +47,7 @@ public class AssessmentAllotmentsService {
     @Autowired private AssessmentGroupAllotmentRepository groupAllotments;
     @Autowired private AssessmentRespondentAllotmentRepository respondentAllotments;
     @Autowired private EntityRegistrationRepository entities;
+    @Autowired private RespondentGroupRepository groups;
     @Autowired private PortalSessionRepository sessions;
     @Autowired private AuditService audit;
     @Autowired private SessionProvisioningService sessionProvisioning;
@@ -198,8 +200,13 @@ public class AssessmentAllotmentsService {
         AssessmentGroupAllotmentDto d = new AssessmentGroupAllotmentDto();
         d.setAssessmentId(a.getAssessmentId());
         d.setGroupId(a.getGroupId());
-        // Display name + member count are filled in by the controller
-        // since groups live in a separate (frontend-only) store today.
+        // Resolve the group's display name + member count so the Allotees
+        // popup shows the name rather than the raw id. Falls back silently
+        // for legacy rows whose group no longer exists.
+        groups.findById(a.getGroupId()).ifPresent(g -> {
+            d.setGroupName(g.getName());
+            d.setMemberCount(g.getMemberIds() == null ? 0 : g.getMemberIds().size());
+        });
         if (a.getCreatedAt() != null) d.setCreatedAt(a.getCreatedAt().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME));
         return d;
     }
