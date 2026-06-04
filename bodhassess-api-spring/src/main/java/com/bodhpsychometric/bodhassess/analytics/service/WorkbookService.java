@@ -17,8 +17,10 @@ import com.bodhpsychometric.bodhassess.analytics.payload.WorkbookDto;
 import com.bodhpsychometric.bodhassess.analytics.payload.WorkbookRequests.CreateWorkbook;
 import com.bodhpsychometric.bodhassess.analytics.payload.WorkbookRequests.ShareWorkbook;
 import com.bodhpsychometric.bodhassess.analytics.payload.WorkbookShareDto;
+import com.bodhpsychometric.bodhassess.analytics.repository.DsDashboardRepository;
 import com.bodhpsychometric.bodhassess.analytics.repository.DsDerivedColumnRepository;
 import com.bodhpsychometric.bodhassess.analytics.repository.DsSheetRepository;
+import com.bodhpsychometric.bodhassess.analytics.repository.DsWidgetRepository;
 import com.bodhpsychometric.bodhassess.analytics.repository.DsWorkbookRepository;
 import com.bodhpsychometric.bodhassess.analytics.repository.DsWorkbookShareRepository;
 import com.bodhpsychometric.bodhassess.exception.BadRequestException;
@@ -33,6 +35,9 @@ public class WorkbookService {
     @Autowired private DsSheetRepository sheets;
     @Autowired private DsDerivedColumnRepository columns;
     @Autowired private DsWorkbookShareRepository shares;
+    @Autowired private DsDashboardRepository dashboards;
+    @Autowired private DsWidgetRepository widgets;
+    @Autowired private DashboardService dashboardService;
     @Autowired private DsMapper mapper;
     @Autowired private DataStudioAccess access;
 
@@ -68,6 +73,7 @@ public class WorkbookService {
                 .map(this::sheetWithColumns)
                 .collect(Collectors.toList());
         dto.setSheets(sheetDtos);
+        dto.setDashboards(dashboardService.listForWorkbook(id));
 
         // Shares are visible to anyone who can read; only owners can change them.
         dto.setShares(shares.findByWorkbookId(id).stream()
@@ -95,6 +101,10 @@ public class WorkbookService {
             columns.deleteBySheetId(s.getId());
         }
         sheets.deleteByWorkbookId(id);
+        for (var d : dashboards.findByWorkbookIdOrderBySortOrderAscIdAsc(id)) {
+            widgets.deleteByDashboardId(d.getId());
+        }
+        dashboards.deleteByWorkbookId(id);
         shares.deleteByWorkbookId(id);
         workbooks.deleteById(id);
     }

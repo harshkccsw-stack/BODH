@@ -22,7 +22,7 @@ class FormulaError extends Error {}
 type Tok =
   | { k: 'num'; v: number }
   | { k: 'str'; v: string }
-  | { k: 'ident'; v: string }
+  | { k: 'ident'; v: string; bracketed?: boolean }
   | { k: 'op'; v: string }
   | { k: '('; v: '(' }
   | { k: ')'; v: ')' }
@@ -40,6 +40,16 @@ function lex(src: string): Tok[] {
     if (c === '(') { out.push({ k: '(', v: '(' }); i++; continue; }
     if (c === ')') { out.push({ k: ')', v: ')' }); i++; continue; }
     if (c === ',') { out.push({ k: ',', v: ',' }); i++; continue; }
+    if (c === '[') {
+      // [column key] — bracket-quoted ref allowing any char except ']'
+      i++;
+      let key = '';
+      while (i < src.length && src[i] !== ']') { key += src[i]; i++; }
+      if (i >= src.length) throw new FormulaError("Unterminated '[' column reference.");
+      i++;
+      out.push({ k: 'ident', v: key, bracketed: true });
+      continue;
+    }
     if (c === '"' || c === "'") {
       const quote = c; i++;
       let s = '';
@@ -152,6 +162,7 @@ class Evaluator {
     if (t.k === 'str') { this.next(); return t.v; }
     if (t.k === '(') { this.next(); const v = this.orExpr(); this.expect(')'); return v; }
     if (t.k === 'ident') {
+      if (t.bracketed) { this.next(); return coerce(this.lookup(t.v)); } // [key] is always a column
       if (this.isKw(t, 'AND') || this.isKw(t, 'OR') || this.isKw(t, 'NOT') || this.isKw(t, 'BY')) {
         throw new FormulaError(`Unexpected keyword '${t.v}'.`);
       }

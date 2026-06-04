@@ -4,8 +4,123 @@
 > experts** to load live assessment data, compute custom metrics with formulas,
 > and build shareable dashboards.
 
-Status: **Phase 1 implemented** (2026-06-03). Phases 2–6 pending.
+Status: **Phases 1–3 implemented** (2026-06-04). Phases 4–6 pending. **v1 complete.**
 Author context: requirements gathered 2026-06-03.
+
+## Phase 3 — implementation notes
+
+Shipped: the dashboard builder. Backend `./mvnw compile` BUILD SUCCESS; frontend
+`npm run typecheck` clean; backend smoke-tested live.
+
+**Backend:**
+- Entities `DsDashboard`, `DsWidget` (`ds_dashboard`, `ds_widget`); repositories.
+- `DashboardService` (CRUD dashboards + widgets, access enforced via the parent
+  workbook), `DashboardController` (`/workbooks/{id}/dashboards`, `/dashboards/{id}`,
+  `/dashboards/{id}/widgets`, `/widgets/{id}`). Widget types CHART | KPI | TABLE |
+  PIVOT | TEXT.
+- `WorkbookService.get` now includes dashboards (with widgets); `delete` cascades
+  to dashboards + widgets. Verified: deleting a workbook 404s its dashboards.
+
+**Frontend:**
+- `DashboardWidgets` — `WidgetBody` renders KPI (big number), Chart (**Recharts**
+  bar/line/pie), and Table, each powered by `POST /analytics/query` built from
+  the widget config and the bound sheet's filters. (Recharts, not ApexCharts:
+  the app already uses Recharts, and `react-apexcharts`' CJS pre-bundling tripped
+  Vite's React-dedupe → "invalid hook call". Recharts avoids the interop issue.)
+- `DashboardView` — a 12-column grid; **edit mode** adds widgets (type + sheet +
+  dimension/measure/agg picker, columns loaded via `getSheetData`), resizes
+  (¼/½/¾/full), reorders via **dnd-kit** (rectSorting), and deletes.
+- Workbook page gained a **Sheets / Dashboards** toggle; dashboards have their
+  own tabs + create dialog. No new route — dashboards live inside
+  `/data-studio/wb/:wid`.
+
+**Smoke test (2026-06-04):** create dashboard → add KPI/Chart/Table widgets →
+GET dashboard → resize + reorder (`sortOrder`) → workbook GET includes dashboards
+→ delete widget → cascade delete. All passed.
+
+**v1 (Phases 1–3) is feature-complete:** live spreadsheet + formulas +
+co-ownership, server-side population math + aggregation queries, and the
+dashboard builder. Phases 4–6 (PDF/Excel export, share links, BodhLens NL)
+remain.
+
+## Post-v1 UX additions (2026-06-04)
+
+- **Workbook edit / delete** on the gallery cards (owner/admin only): pencil →
+  rename + description, trash → confirm + cascade delete. `WorkbookFormDialog`
+  now handles both create and edit.
+- **In-place formula editing.** Each computed-column chip now has a pencil
+  (edit) as well as a trash (delete). Edit reopens the dialog prefilled and
+  saves via `PUT /sheets/{id}/columns/{colKey}` — the column key stays stable,
+  the formula/label update, and the CLIENT/SERVER class is re-inferred and the
+  sheet recomputed. Verified: editing a `÷2` (client) column into `ZSCORE(...)`
+  flipped it to server and recomputed (mean ≈ 0).
+- **Assessment-scoped sheets.** Creating a sheet now uses a **searchable
+  assessment picker** (`AssessmentPicker`, fed by `/assessment-records`) instead
+  of a bare name field. The chosen assessment id is stored in
+  `sheet.sourceFilters.assessmentId`; `SheetService`/`QueryService` pass it to
+  `DatasetService` (which matches `PortalSession.assessmentId`), so the sheet
+  shows exactly that assessment's respondents. Verified: a sheet scoped to an
+  assessment with 5 sessions returns exactly 5 rows (vs 17 unfiltered).
+  (`assessmentId` is the canonical filter key; the legacy `questionnaireId` key
+  is still accepted as a fallback.)
+
+## Phase 2 — implementation notes
+
+Shipped: server-side evaluation of SERVER (population/cohort) columns and the
+grouped-aggregation query endpoint. Backend `./mvnw compile` BUILD SUCCESS;
+frontend `npm run typecheck` clean.
+
+**Backend:**
+- `ExpressionService` refactored to build a real **AST** (`Node` hierarchy) via
+  the same closed-whitelist grammar; `validate()` API unchanged. New `parse()`
+  returns the AST.
+- `ExpressionEvaluator` — evaluates an AST against a row with access to the full
+  population. Row-local funcs (IF/AND/OR/NOT/MIN/MAX/ROUND/ABS/SQRT/LOG) plus
+  **population funcs**: `AVERAGE`, `SUM`, `COUNT`, `COUNTIF`, `AVERAGEIF`,
+  `PERCENTILE`, `PERCENTRANK`, `ZSCORE`, `RANK`, `NORMBAND` — each honouring an
+  optional `BY <column>` scope (cohort grouping). Aggregates cached per
+  (function-node, scope-value).
+- `SheetService.getSheetData` → `GET /sheets/{id}/data`: pulls live rows, then
+  computes **every** derived column in sortOrder, materialising each into the
+  row maps so later columns (CLIENT or SERVER) can reference earlier ones. A
+  fresh evaluator per column isolates aggregate caches.
+- `QueryService` + `AnalyticsController` → `POST /api/v1/analytics/query`:
+  filters → group by dimensions → measures (agg ∈ sum/avg/count/min/max/p25/
+  p50/p75/median of an expression per group). No dimensions ⇒ single group (KPI).
+  Returns the self-describing `{columns, rows}` envelope.
+
+**Frontend:**
+- `SheetView` now loads from `getSheetData` (server-authoritative values);
+  `useDerivedColumns` keeps server values and only client-computes as a fallback
+  (optimistic add before refetch). `analyticsApi.query` + types added (UI
+  consumer lands in Phase 3 dashboards).
+
+**Bracketed column references (syntax addition).** Real dataset keys contain
+characters that clash with the grammar — e.g. MQT ids are `mqt:mqt-4ur6d57j`,
+and `-` is the subtraction operator. Column references are therefore
+**bracket-quoted**: `[mqt:mqt-4ur6d57j]`, `[demo:age]`. The "insert column"
+chips always emit the bracketed form, so users never type raw keys. Bare
+identifiers (no special chars) still parse, and `BY [col]` works for scopes.
+Both lexers (Java + the TS client evaluator) support it identically.
+
+**Smoke test (2026-06-04, 15 live sessions).** Verified end-to-end against a
+running instance: CLIENT/SERVER classification, unknown-column / unknown-function
+errors, derived-column add, `GET /sheets/{id}/data` (ZSCORE mean ≈ 0,
+PERCENTRANK, RANK, NORMBAND banding), and `POST /analytics/query` (group-by-entity
++ no-dimension KPI). Two bugs found and fixed in the process: the hyphenated-key
+parse failure (→ bracket quoting) and an inverted NORMBAND arity check.
+
+**Decision — evaluate in Java, not compiled SQL (refinement of §5).** The design
+described compiling SERVER expressions to parameterised SQL. The dataset is a
+*Java-assembled projection* — `DatasetService` pivots per-MQT scores and
+demographics into dynamic `mqt:*` / `demo:*` columns that do not exist as SQL
+columns. Compiling to SQL would mean reproducing that pivot in SQL (fragile, and
+duplicated logic). Since `DatasetService` already loads the full scoped
+population into memory, Phase 2 evaluates SERVER expressions **in Java over that
+population** — identical correctness guarantee (the server sees all rows; the
+client only loaded rows). SQL/columnar compilation stays the documented scale-up
+(§9) for when row counts outgrow in-memory evaluation; the AST is the seam where
+it would plug in.
 
 ## Phase 1 — implementation notes
 
@@ -391,9 +506,9 @@ API client: add `dataStudioApi` to `lib/api.ts` next to `datasetsApi`, reusing
 
 | Phase | In v1? | Scope | New artifacts |
 |---|---|---|---|
-| **1. Sheets + formulas + co-ownership** | ✅ v1 | Workbooks/sheets persistence; **co-ownership (`ds_workbook_share`, EDITOR/VIEWER)**; wrap grid; CLIENT derived columns via HyperFormula; `validate-expr`. | `ds_workbook/sheet/derived_column/workbook_share`; Workbook+Sheet controllers + access guard; `ExpressionService` (parse/validate); `SheetView`, `useHyperFormula`. |
-| **2. Server aggregation + population math** | ✅ v1 | `POST /analytics/query`; SERVER-eval columns; `GET /sheets/{id}/data` merge; **`PERCENTILE/PERCENTRANK/ZSCORE/RANK/NORMBAND`**; KPI + pivot data. | `QueryController`, AST→SQL compiler, population-function SQL, query DTOs. |
-| **3. Dashboard builder** | ✅ v1 | Canvas, chart/KPI/table/pivot widgets, persistence. | `ds_dashboard/widget`; `DashboardController`; widget components. |
+| **1. Sheets + formulas + co-ownership** ✔ done | ✅ v1 | Workbooks/sheets persistence; **co-ownership (`ds_workbook_share`, EDITOR/VIEWER)**; wrap grid; CLIENT derived columns; `validate-expr`. | `ds_workbook/sheet/derived_column/workbook_share`; Workbook+Sheet controllers + access guard; `ExpressionService` (parse/validate); `SheetView`, client evaluator. |
+| **2. Server aggregation + population math** ✔ done | ✅ v1 | `POST /analytics/query`; SERVER-eval columns; `GET /sheets/{id}/data`; **`PERCENTILE/PERCENTRANK/ZSCORE/RANK/NORMBAND`** + `AVERAGE/SUM/COUNT/COUNTIF/AVERAGEIF`, `BY` scope. | `AnalyticsController`/`QueryService`, `ExpressionEvaluator` (Java, over in-memory population), AST, query payloads. |
+| **3. Dashboard builder** ✔ done | ✅ v1 | 12-col grid, KPI/chart/table widgets, dnd-kit reorder + resize, persistence. | `ds_dashboard/widget`; `DashboardController`/`DashboardService`; `DashboardView`, `DashboardWidgets` (Recharts). |
 | **4. Export (print→PDF) + Excel** | ⬜ next phase | Print-stylesheet → PDF; Excel export via `xlsx`. *(Explicitly deferred past v1.)* | `ExportMenu`, print layout. |
 | **5. Share links** | ⬜ later | Read-only tokenized dashboard links; public route. Scope (internal vs external) **TBD**. | `ds_share_link`; `/public/dashboards/{token}`. |
 | **6. BodhLens NL** | ⬜ later | Wire the NL stub to generate `QueryRequest`/formula suggestions via the Claude API (the analytics page already advertises it). | NL→query service. |

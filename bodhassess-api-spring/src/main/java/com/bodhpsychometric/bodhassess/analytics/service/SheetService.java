@@ -1,5 +1,6 @@
 package com.bodhpsychometric.bodhassess.analytics.service;
 
+import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -11,7 +12,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import com.bodhpsychometric.bodhassess.analytics.expression.ExpressionEvaluator;
 import com.bodhpsychometric.bodhassess.analytics.expression.ExpressionService;
+import com.bodhpsychometric.bodhassess.analytics.expression.ExpressionService.Node;
 import com.bodhpsychometric.bodhassess.analytics.model.DsDerivedColumn;
 import com.bodhpsychometric.bodhassess.analytics.model.DsSheet;
 import com.bodhpsychometric.bodhassess.analytics.model.DsWorkbook;
@@ -27,8 +30,11 @@ import com.bodhpsychometric.bodhassess.analytics.repository.DsWorkbookRepository
 import com.bodhpsychometric.bodhassess.exception.BadRequestException;
 import com.bodhpsychometric.bodhassess.exception.ResourceNotFoundException;
 import com.bodhpsychometric.bodhassess.payload.DatasetColumnDto;
+import com.bodhpsychometric.bodhassess.payload.DatasetResponseDto;
 import com.bodhpsychometric.bodhassess.security.UserPrincipal;
 import com.bodhpsychometric.bodhassess.service.DatasetService;
+
+import java.util.Map;
 
 @Service
 @Transactional
@@ -66,6 +72,55 @@ public class SheetService {
         DsSheet s = loadSheet(sheetId);
         access.requireRead(loadWorkbook(s.getWorkbookId()), principal);
         return sheetWithColumns(s);
+    }
+
+    /**
+     * Live data for a sheet: the dataset rows for its source view + filters,
+     * with every derived column computed server-side. Columns are computed in
+     * sortOrder and materialised into the row maps, so a later column (CLIENT or
+     * SERVER) may reference an earlier one. Population functions aggregate over
+     * the full scoped population. The client renders these values directly.
+     */
+    @Transactional(readOnly = true)
+    public DatasetResponseDto getSheetData(UserPrincipal principal, Long sheetId) {
+        DsSheet s = loadSheet(sheetId);
+        access.requireRead(loadWorkbook(s.getWorkbookId()), principal);
+
+        var filters = mapper.readMap(s.getSourceFilters());
+        DatasetResponseDto base = datasets.sessions(
+                principal, asString(filters.get("entityId")), assessmentFilter(filters));
+
+        List<Map<String, Object>> rows = base.getRows();
+        List<DsDerivedColumn> derived = columns.findBySheetIdOrderBySortOrderAscIdAsc(sheetId);
+
+        List<DatasetColumnDto> outColumns = new ArrayList<>(base.getColumns());
+        for (DsDerivedColumn col : derived) {
+            Node ast;
+            try {
+                ast = expressions.parse(col.getExpr());
+            } catch (RuntimeException ex) {
+                // A saved column should already be valid; if not, surface it as blank.
+                for (Map<String, Object> r : rows) r.put(col.getColKey(), null);
+                outColumns.add(derivedColumnMeta(col));
+                continue;
+            }
+            // Fresh evaluator per column → isolated aggregate cache (Call ids
+            // restart each parse, so sharing a cache across columns would clash).
+            ExpressionEvaluator evaluator = new ExpressionEvaluator(rows);
+            for (Map<String, Object> r : rows) {
+                r.put(col.getColKey(), evaluator.eval(ast, r));
+            }
+            outColumns.add(derivedColumnMeta(col));
+        }
+
+        return new DatasetResponseDto(base.getView(), outColumns, rows);
+    }
+
+    private DatasetColumnDto derivedColumnMeta(DsDerivedColumn col) {
+        DatasetColumnDto dto = new DatasetColumnDto(
+                col.getColKey(), col.getLabel(),
+                "number".equals(col.getResultType()) ? "number" : "string", "derived");
+        return dto;
     }
 
     public SheetDto update(UserPrincipal principal, Long sheetId, UpdateSheet req) {
@@ -156,8 +211,7 @@ public class SheetService {
         Set<String> keys = new LinkedHashSet<>();
         var filters = mapper.readMap(s.getSourceFilters());
         String entityId = asString(filters.get("entityId"));
-        String questionnaireId = asString(filters.get("questionnaireId"));
-        for (DatasetColumnDto c : datasets.sessions(principal, entityId, questionnaireId).getColumns()) {
+        for (DatasetColumnDto c : datasets.sessions(principal, entityId, assessmentFilter(filters)).getColumns()) {
             keys.add(c.getKey());
         }
         for (DsDerivedColumn c : columns.findBySheetIdOrderBySortOrderAscIdAsc(s.getId())) {
@@ -167,6 +221,16 @@ public class SheetService {
     }
 
     private String asString(Object o) { return o == null ? null : String.valueOf(o); }
+
+    /**
+     * The assessment a sheet is scoped to. Stored under "assessmentId"; we also
+     * accept the legacy "questionnaireId" key. Passed to DatasetService as its
+     * assessment filter (it matches PortalSession.assessmentId).
+     */
+    private String assessmentFilter(Map<String, Object> filters) {
+        String a = asString(filters.get("assessmentId"));
+        return a != null ? a : asString(filters.get("questionnaireId"));
+    }
 
     private String uniqueKey(Long sheetId, String label) {
         String slug = label.toLowerCase(Locale.ROOT).trim()

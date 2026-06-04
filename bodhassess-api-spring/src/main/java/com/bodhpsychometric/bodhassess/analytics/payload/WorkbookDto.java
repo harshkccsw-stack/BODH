@@ -15,6 +15,7 @@ public class WorkbookDto {
     private String ownerId;
     private String access;          // caller's role: OWNER | EDITOR | VIEWER
     private List<SheetDto> sheets = new ArrayList<>();
+    private List<DashboardDto> dashboards = new ArrayList<>();
     private List<WorkbookShareDto> shares = new ArrayList<>();
     private String createdAt;
     private String updatedAt;
@@ -31,6 +32,8 @@ public class WorkbookDto {
     public void setAccess(String access) { this.access = access; }
     public List<SheetDto> getSheets() { return sheets; }
     public void setSheets(List<SheetDto> sheets) { this.sheets = sheets; }
+    public List<DashboardDto> getDashboards() { return dashboards; }
+    public void setDashboards(List<DashboardDto> dashboards) { this.dashboards = dashboards; }
     public List<WorkbookShareDto> getShares() { return shares; }
     public void setShares(List<WorkbookShareDto> shares) { this.shares = shares; }
     public String getCreatedAt() { return createdAt; }

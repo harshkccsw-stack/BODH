@@ -970,8 +970,10 @@ export type DatasetColumn = {
   key: string;
   label: string;
   type: 'string' | 'number' | 'datetime' | 'enum';
-  group: 'core' | 'scores' | 'demographics';
-  editable: 'none' | 'field' | 'answer' | 'override';
+  // core/scores/demographics from the dataset; derived (computed columns);
+  // dimension/measure from analytics-query results.
+  group: 'core' | 'scores' | 'demographics' | 'derived' | 'dimension' | 'measure';
+  editable?: 'none' | 'field' | 'answer' | 'override';
   options?: string[];
 };
 
@@ -1065,6 +1067,32 @@ export type WorkbookShare = {
   createdAt?: string;
 };
 
+export type WidgetType = 'CHART' | 'KPI' | 'TABLE' | 'PIVOT' | 'TEXT';
+
+export type Widget = {
+  id: number;
+  dashboardId: number;
+  type: WidgetType;
+  sheetId?: number | null;
+  config: Record<string, unknown>;
+  posX?: number | null;
+  posY?: number | null;
+  w?: number | null;
+  h?: number | null;
+  sortOrder?: number | null;
+};
+
+export type Dashboard = {
+  id: number;
+  workbookId: number;
+  name: string;
+  layout: Record<string, unknown>;
+  sortOrder?: number | null;
+  widgets: Widget[];
+  createdAt?: string;
+  updatedAt?: string;
+};
+
 export type Workbook = {
   id: number;
   name: string;
@@ -1072,6 +1100,7 @@ export type Workbook = {
   ownerId: string;
   access: DsAccess;
   sheets: Sheet[];
+  dashboards: Dashboard[];
   shares: WorkbookShare[];
   createdAt?: string;
   updatedAt?: string;
@@ -1105,6 +1134,8 @@ export const dataStudioApi = {
     body: { name: string; sourceView?: string; sourceFilters?: Record<string, unknown>; grain?: string },
   ) => jsonFetch<Sheet>(`/workbooks/${workbookId}/sheets`, { method: 'POST', body: JSON.stringify(body) }),
   getSheet: (id: number) => jsonFetch<Sheet>(`/sheets/${id}`),
+  // Live rows with all derived columns computed server-side.
+  getSheetData: (id: number) => jsonFetch<DatasetResponse>(`/sheets/${id}/data`),
   updateSheet: (
     id: number,
     body: { name?: string; sourceFilters?: Record<string, unknown>; displayState?: Record<string, unknown>; sortOrder?: number },
@@ -1131,4 +1162,47 @@ export const dataStudioApi = {
     }),
   deleteColumn: (sheetId: number, colKey: string) =>
     jsonFetch<null>(`/sheets/${sheetId}/columns/${encodeURIComponent(colKey)}`, { method: 'DELETE' }),
+
+  // Dashboards + widgets
+  createDashboard: (workbookId: number, body: { name: string }) =>
+    jsonFetch<Dashboard>(`/workbooks/${workbookId}/dashboards`, { method: 'POST', body: JSON.stringify(body) }),
+  getDashboard: (id: number) => jsonFetch<Dashboard>(`/dashboards/${id}`),
+  updateDashboard: (id: number, body: { name?: string; layout?: Record<string, unknown> }) =>
+    jsonFetch<Dashboard>(`/dashboards/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  deleteDashboard: (id: number) => jsonFetch<null>(`/dashboards/${id}`, { method: 'DELETE' }),
+
+  addWidget: (dashboardId: number, body: Partial<Widget> & { type: WidgetType }) =>
+    jsonFetch<Widget>(`/dashboards/${dashboardId}/widgets`, { method: 'POST', body: JSON.stringify(body) }),
+  updateWidget: (widgetId: number, body: Partial<Widget>) =>
+    jsonFetch<Widget>(`/widgets/${widgetId}`, { method: 'PUT', body: JSON.stringify(body) }),
+  deleteWidget: (widgetId: number) => jsonFetch<null>(`/widgets/${widgetId}`, { method: 'DELETE' }),
+};
+
+// --- Analytics queries (KPIs / pivots / charts) ---------------------------
+// Grouped aggregation over a dataset view. Returns the same self-describing
+// {columns, rows} envelope as the data grid, so the same renderers work.
+export type AnalyticsMeasure = {
+  expr: string;
+  agg?: 'sum' | 'avg' | 'count' | 'min' | 'max' | 'median' | 'p25' | 'p50' | 'p75';
+  label?: string;
+};
+
+export type AnalyticsFilter = {
+  colKey: string;
+  op: '=' | '!=' | '<' | '<=' | '>' | '>=' | 'contains';
+  value: unknown;
+};
+
+export type AnalyticsQuery = {
+  sourceView?: string;
+  sourceFilters?: Record<string, unknown>;
+  dimensions?: string[];
+  measures: AnalyticsMeasure[];
+  filters?: AnalyticsFilter[];
+  limit?: number;
+};
+
+export const analyticsApi = {
+  query: (body: AnalyticsQuery) =>
+    jsonFetch<DatasetResponse>('/analytics/query', { method: 'POST', body: JSON.stringify(body) }),
 };

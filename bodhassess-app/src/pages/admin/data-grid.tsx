@@ -12,7 +12,7 @@ import {
   type DatasetRow,
 } from '@/lib/api';
 
-const GROUP_LABELS: Record<DatasetColumn['group'], string> = {
+const GROUP_LABELS: Partial<Record<DatasetColumn['group'], string>> = {
   core: 'Core',
   scores: 'Scores',
   demographics: 'Demographics',

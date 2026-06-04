@@ -11,10 +11,12 @@ export type AugmentedResult = {
 };
 
 /**
- * Merge a sheet's derived columns into the live dataset. CLIENT columns are
- * evaluated in-browser per row (in sortOrder, so a column may reference an
- * earlier derived column); SERVER columns are appended as placeholders pending
- * backend evaluation. The base dataset is never mutated.
+ * Merge a sheet's derived columns into the dataset for display. When rows come
+ * from {@code GET /sheets/{id}/data} the backend has already computed every
+ * derived column, so we keep those authoritative values. As a fallback (e.g.
+ * an optimistic add before the next refetch), CLIENT columns are evaluated
+ * in-browser and SERVER columns show a placeholder. The base dataset is never
+ * mutated.
  */
 export function useDerivedColumns(
   baseColumns: DatasetColumn[],
@@ -28,10 +30,16 @@ export function useDerivedColumns(
       (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.colKey.localeCompare(b.colKey),
     );
 
+    // Derived columns the server already computed need no client work.
+    const serverProvided = new Set(
+      baseColumns.filter((c) => ordered.some((d) => d.colKey === c.key)).map((c) => c.key),
+    );
+
     // Work on shallow row copies so computed values don't leak into the source.
     const rows: DatasetRow[] = baseRows.map((r) => ({ ...r }));
 
     for (const col of ordered) {
+      if (serverProvided.has(col.colKey)) continue; // authoritative value already present
       if (col.evalTarget === 'SERVER') {
         for (const row of rows) row[col.colKey] = SERVER_PENDING;
         continue;
@@ -41,15 +49,16 @@ export function useDerivedColumns(
       }
     }
 
-    const derivedCols: DatasetColumn[] = ordered.map((col) => ({
-      key: col.colKey,
-      label: col.label,
-      // SERVER columns hold a placeholder until Phase 2 computes them, so render
-      // them as text; CLIENT numeric columns use the number cell.
-      type: col.evalTarget === 'CLIENT' && col.resultType === 'number' ? 'number' : 'string',
-      group: 'scores',
-      editable: 'none',
-    }));
+    // Only add defs for columns the server didn't already declare.
+    const derivedCols: DatasetColumn[] = ordered
+      .filter((col) => !serverProvided.has(col.colKey))
+      .map((col) => ({
+        key: col.colKey,
+        label: col.label,
+        type: col.resultType === 'number' ? 'number' : 'string',
+        group: 'scores',
+        editable: 'none',
+      }));
 
     return { columns: [...baseColumns, ...derivedCols], rows };
   }, [baseColumns, baseRows, derived]);

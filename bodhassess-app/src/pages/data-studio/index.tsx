@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
-import { LayoutGrid, Loader2, Plus, Table2, Users } from 'lucide-react';
+import { LayoutGrid, Loader2, Pencil, Plus, Table2, Trash2, Users } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -18,6 +18,8 @@ export default function DataStudioHome() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [editTarget, setEditTarget] = useState<Workbook | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Workbook | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -90,13 +92,35 @@ export default function DataStudioHome() {
                 <CardContent className="space-y-2 p-5">
                   <div className="flex items-start justify-between gap-2">
                     <h3 className="font-medium">{w.name}</h3>
-                    <Badge
-                      variant={w.access === 'OWNER' || w.access === 'ADMIN' ? 'primary' : 'secondary'}
-                      appearance="light"
-                      size="sm"
-                    >
-                      {w.access.toLowerCase()}
-                    </Badge>
+                    <div className="flex items-center gap-1">
+                      <Badge
+                        variant={w.access === 'OWNER' || w.access === 'ADMIN' ? 'primary' : 'secondary'}
+                        appearance="light"
+                        size="sm"
+                      >
+                        {w.access.toLowerCase()}
+                      </Badge>
+                      {(w.access === 'OWNER' || w.access === 'ADMIN') && (
+                        <>
+                          <button
+                            type="button"
+                            aria-label="Edit workbook"
+                            className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); setEditTarget(w); }}
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            aria-label="Delete workbook"
+                            className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-red-600"
+                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); setDeleteTarget(w); }}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </div>
                   {w.description && (
                     <p className="line-clamp-2 text-sm text-muted-foreground">{w.description}</p>
@@ -121,21 +145,37 @@ export default function DataStudioHome() {
       )}
 
       {dialogOpen && (
-        <CreateWorkbookDialog
+        <WorkbookFormDialog
           onClose={() => setDialogOpen(false)}
-          onCreated={() => {
-            setDialogOpen(false);
-            load();
-          }}
+          onSaved={() => { setDialogOpen(false); load(); }}
+        />
+      )}
+
+      {editTarget && (
+        <WorkbookFormDialog
+          workbook={editTarget}
+          onClose={() => setEditTarget(null)}
+          onSaved={() => { setEditTarget(null); load(); }}
+        />
+      )}
+
+      {deleteTarget && (
+        <DeleteWorkbookDialog
+          workbook={deleteTarget}
+          onClose={() => setDeleteTarget(null)}
+          onDeleted={() => { setDeleteTarget(null); load(); }}
         />
       )}
     </div>
   );
 }
 
-function CreateWorkbookDialog({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
-  const [name, setName] = useState('');
-  const [description, setDescription] = useState('');
+function WorkbookFormDialog({
+  workbook, onClose, onSaved,
+}: { workbook?: Workbook; onClose: () => void; onSaved: () => void }) {
+  const editing = !!workbook;
+  const [name, setName] = useState(workbook?.name ?? '');
+  const [description, setDescription] = useState(workbook?.description ?? '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -144,10 +184,12 @@ function CreateWorkbookDialog({ onClose, onCreated }: { onClose: () => void; onC
     setSaving(true);
     setError('');
     try {
-      await dataStudioApi.createWorkbook({ name: name.trim(), description: description.trim() || undefined });
-      onCreated();
+      const body = { name: name.trim(), description: description.trim() || undefined };
+      if (editing) await dataStudioApi.updateWorkbook(workbook!.id, body);
+      else await dataStudioApi.createWorkbook(body);
+      onSaved();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to create workbook');
+      setError(e instanceof Error ? e.message : 'Failed to save workbook');
       setSaving(false);
     }
   };
@@ -156,7 +198,7 @@ function CreateWorkbookDialog({ onClose, onCreated }: { onClose: () => void; onC
     <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>New workbook</DialogTitle>
+          <DialogTitle>{editing ? 'Edit workbook' : 'New workbook'}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
           <div className="space-y-1.5">
@@ -173,7 +215,48 @@ function CreateWorkbookDialog({ onClose, onCreated }: { onClose: () => void; onC
           <Button variant="outline" onClick={onClose}>Cancel</Button>
           <Button variant="primary" onClick={create} disabled={!name.trim() || saving}>
             {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-            Create
+            {editing ? 'Save' : 'Create'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function DeleteWorkbookDialog({
+  workbook, onClose, onDeleted,
+}: { workbook: Workbook; onClose: () => void; onDeleted: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const confirm = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      await dataStudioApi.deleteWorkbook(workbook.id);
+      onDeleted();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to delete workbook');
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Delete workbook?</DialogTitle>
+        </DialogHeader>
+        <p className="text-sm text-muted-foreground">
+          <strong className="text-foreground">{workbook.name}</strong> and all its sheets,
+          computed columns, and dashboards will be permanently deleted. This cannot be undone.
+        </p>
+        {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button variant="destructive" onClick={confirm} disabled={busy}>
+            {busy && <Loader2 className="h-4 w-4 animate-spin" />}
+            Delete
           </Button>
         </DialogFooter>
       </DialogContent>

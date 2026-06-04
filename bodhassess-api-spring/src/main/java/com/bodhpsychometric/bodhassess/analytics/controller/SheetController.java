@@ -20,6 +20,7 @@ import com.bodhpsychometric.bodhassess.analytics.payload.WorkbookRequests.SaveCo
 import com.bodhpsychometric.bodhassess.analytics.payload.WorkbookRequests.UpdateSheet;
 import com.bodhpsychometric.bodhassess.analytics.payload.WorkbookRequests.ValidateExpr;
 import com.bodhpsychometric.bodhassess.analytics.service.SheetService;
+import com.bodhpsychometric.bodhassess.payload.DatasetResponseDto;
 import com.bodhpsychometric.bodhassess.security.CurrentUser;
 import com.bodhpsychometric.bodhassess.security.UserPrincipal;
 
@@ -45,6 +46,12 @@ public class SheetController {
     @GetMapping("/sheets/{id}")
     public SheetDto get(@CurrentUser UserPrincipal principal, @PathVariable Long id) {
         return service.get(principal, id);
+    }
+
+    /** Live rows for the sheet with all derived columns computed server-side. */
+    @GetMapping("/sheets/{id}/data")
+    public DatasetResponseDto data(@CurrentUser UserPrincipal principal, @PathVariable Long id) {
+        return service.getSheetData(principal, id);
     }
 
     @PutMapping("/sheets/{id}")

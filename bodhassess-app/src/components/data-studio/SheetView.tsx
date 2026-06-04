@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  AlertTriangle, Check, Loader2, Plus, RefreshCw, Sigma, Trash2,
+  AlertTriangle, Check, Loader2, Pencil, Plus, RefreshCw, Sigma, Trash2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -16,7 +16,6 @@ import { DataGrid } from '@/src/components/data-grid/DataGrid';
 import { useDerivedColumns } from '@/src/components/data-studio/useDerivedColumns';
 import {
   dataStudioApi,
-  datasetsApi,
   type DatasetResponse,
   type DerivedColumn,
   type Sheet,
@@ -34,7 +33,8 @@ export function SheetView({ sheet, canEdit, onColumnsChanged }: SheetViewProps) 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [derived, setDerived] = useState<DerivedColumn[]>(sheet.derivedColumns ?? []);
-  const [dialogOpen, setDialogOpen] = useState(false);
+  // null = closed; { editing: null } = add; { editing: col } = edit in place.
+  const [columnDialog, setColumnDialog] = useState<{ editing: DerivedColumn | null } | null>(null);
 
   // Re-seed local derived columns whenever a different sheet is shown.
   useEffect(() => {
@@ -45,18 +45,15 @@ export function SheetView({ sheet, canEdit, onColumnsChanged }: SheetViewProps) 
     setLoading(true);
     setError('');
     try {
-      const f = sheet.sourceFilters ?? {};
-      const res = await datasetsApi.sessions({
-        entityId: typeof f.entityId === 'string' ? f.entityId : undefined,
-        questionnaireId: typeof f.questionnaireId === 'string' ? f.questionnaireId : undefined,
-      });
-      setData(res);
+      // Server computes every derived column (CLIENT + SERVER) over the full
+      // population and returns the merged rows.
+      setData(await dataStudioApi.getSheetData(sheet.id));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load data');
     } finally {
       setLoading(false);
     }
-  }, [sheet.sourceFilters]);
+  }, [sheet.id]);
 
   useEffect(() => {
     loadData();
@@ -84,13 +81,15 @@ export function SheetView({ sheet, canEdit, onColumnsChanged }: SheetViewProps) 
       ? derived.map((c) => (c.colKey === col.colKey ? col : c))
       : [...derived, col];
     commitColumns(next);
-    setDialogOpen(false);
+    setColumnDialog(null);
+    loadData(); // pull server-computed values (esp. SERVER columns)
   };
 
   const handleDelete = async (colKey: string) => {
     try {
       await dataStudioApi.deleteColumn(sheet.id, colKey);
       commitColumns(derived.filter((c) => c.colKey !== colKey));
+      loadData();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to delete column');
     }
@@ -114,21 +113,31 @@ export function SheetView({ sheet, canEdit, onColumnsChanged }: SheetViewProps) 
                 {c.evalTarget === 'SERVER' ? 'server' : 'client'}
               </Badge>
               {canEdit && (
-                <button
-                  type="button"
-                  onClick={() => handleDelete(c.colKey)}
-                  className="ml-0.5 text-muted-foreground hover:text-red-600"
-                  aria-label={`Delete ${c.label}`}
-                >
-                  <Trash2 className="h-3 w-3" />
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setColumnDialog({ editing: c })}
+                    className="ml-0.5 text-muted-foreground hover:text-foreground"
+                    aria-label={`Edit ${c.label}`}
+                  >
+                    <Pencil className="h-3 w-3" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(c.colKey)}
+                    className="text-muted-foreground hover:text-red-600"
+                    aria-label={`Delete ${c.label}`}
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                </>
               )}
             </span>
           ))}
         </div>
         <div className="flex items-center gap-2">
           {canEdit && (
-            <Button variant="primary" size="sm" onClick={() => setDialogOpen(true)} disabled={loading}>
+            <Button variant="primary" size="sm" onClick={() => setColumnDialog({ editing: null })} disabled={loading}>
               <Plus className="h-4 w-4" />
               Add computed column
             </Button>
@@ -154,11 +163,13 @@ export function SheetView({ sheet, canEdit, onColumnsChanged }: SheetViewProps) 
         <DataGrid columns={columns} rows={rows} height={560} />
       )}
 
-      {dialogOpen && (
-        <AddColumnDialog
+      {columnDialog && (
+        <ColumnDialog
           sheetId={sheet.id}
-          availableKeys={availableKeys}
-          onClose={() => setDialogOpen(false)}
+          editing={columnDialog.editing}
+          // Exclude the column being edited so it can't reference itself.
+          availableKeys={availableKeys.filter((k) => k.key !== columnDialog.editing?.colKey)}
+          onClose={() => setColumnDialog(null)}
           onSaved={handleSaved}
         />
       )}
@@ -166,18 +177,19 @@ export function SheetView({ sheet, canEdit, onColumnsChanged }: SheetViewProps) 
   );
 }
 
-/* ---------------- add-column dialog ---------------- */
+/* ---------------- add / edit column dialog ---------------- */
 
-interface AddColumnDialogProps {
+interface ColumnDialogProps {
   sheetId: number;
+  editing: DerivedColumn | null;
   availableKeys: { key: string; label: string }[];
   onClose: () => void;
   onSaved: (col: DerivedColumn) => void;
 }
 
-function AddColumnDialog({ sheetId, availableKeys, onClose, onSaved }: AddColumnDialogProps) {
-  const [label, setLabel] = useState('');
-  const [expr, setExpr] = useState('');
+function ColumnDialog({ sheetId, editing, availableKeys, onClose, onSaved }: ColumnDialogProps) {
+  const [label, setLabel] = useState(editing?.label ?? '');
+  const [expr, setExpr] = useState(editing?.expr ?? '');
   const [result, setResult] = useState<ValidateExprResult | null>(null);
   const [validating, setValidating] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -204,17 +216,19 @@ function AddColumnDialog({ sheetId, availableKeys, onClose, onSaved }: AddColumn
   }, [expr, sheetId]);
 
   const insertKey = (key: string) => {
+    // Always bracket-quote: column keys can contain '-'/':' (e.g. mqt ids).
+    const token = `[${key}]`;
     const el = exprRef.current;
     if (!el) {
-      setExpr((e) => `${e}${key}`);
+      setExpr((e) => `${e}${token}`);
       return;
     }
     const start = el.selectionStart ?? expr.length;
     const end = el.selectionEnd ?? expr.length;
-    setExpr(`${expr.slice(0, start)}${key}${expr.slice(end)}`);
+    setExpr(`${expr.slice(0, start)}${token}${expr.slice(end)}`);
     requestAnimationFrame(() => {
       el.focus();
-      const pos = start + key.length;
+      const pos = start + token.length;
       el.setSelectionRange(pos, pos);
     });
   };
@@ -226,7 +240,10 @@ function AddColumnDialog({ sheetId, availableKeys, onClose, onSaved }: AddColumn
     setSaving(true);
     setSaveError('');
     try {
-      const col = await dataStudioApi.addColumn(sheetId, { label: label.trim(), expr });
+      const body = { label: label.trim(), expr };
+      const col = editing
+        ? await dataStudioApi.updateColumn(sheetId, editing.colKey, body)
+        : await dataStudioApi.addColumn(sheetId, body);
       onSaved(col);
     } catch (e) {
       setSaveError(e instanceof Error ? e.message : 'Failed to save column');
@@ -239,11 +256,12 @@ function AddColumnDialog({ sheetId, availableKeys, onClose, onSaved }: AddColumn
     <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Add computed column</DialogTitle>
+          <DialogTitle>{editing ? 'Edit computed column' : 'Add computed column'}</DialogTitle>
           <DialogDescription>
-            Write a formula over your columns — e.g. <code>(mqt:ANX + mqt:DEP) / 2</code> or{' '}
-            <code>IF(demo:age &gt; 40, "senior", "other")</code>. Population functions
-            (ZSCORE, PERCENTILE, …) run on the server.
+            Click a column below to insert it (wrapped in <code>[ ]</code>), then build a
+            formula — e.g. <code>([score:anx] + [score:dep]) / 2</code> or{' '}
+            <code>ZSCORE([score:anx])</code>. Population functions (ZSCORE, PERCENTILE, …)
+            run on the server.
           </DialogDescription>
         </DialogHeader>
 
@@ -288,7 +306,7 @@ function AddColumnDialog({ sheetId, availableKeys, onClose, onSaved }: AddColumn
             </div>
           </div>
 
-          <div className="min-h-[2.5rem] rounded-md border border-border px-3 py-2 text-sm">
+          <div className="min-h-10 rounded-md border border-border px-3 py-2 text-sm">
             {validating ? (
               <span className="flex items-center gap-2 text-muted-foreground">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" /> Checking…
@@ -318,7 +336,7 @@ function AddColumnDialog({ sheetId, availableKeys, onClose, onSaved }: AddColumn
           <Button variant="outline" onClick={onClose}>Cancel</Button>
           <Button variant="primary" onClick={save} disabled={!canSave}>
             {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-            Add column
+            {editing ? 'Save changes' : 'Add column'}
           </Button>
         </DialogFooter>
       </DialogContent>

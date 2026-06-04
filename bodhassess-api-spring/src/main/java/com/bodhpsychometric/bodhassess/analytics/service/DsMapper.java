@@ -8,12 +8,16 @@ import java.util.Map;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
+import com.bodhpsychometric.bodhassess.analytics.model.DsDashboard;
 import com.bodhpsychometric.bodhassess.analytics.model.DsDerivedColumn;
 import com.bodhpsychometric.bodhassess.analytics.model.DsSheet;
+import com.bodhpsychometric.bodhassess.analytics.model.DsWidget;
 import com.bodhpsychometric.bodhassess.analytics.model.DsWorkbook;
 import com.bodhpsychometric.bodhassess.analytics.model.DsWorkbookShare;
+import com.bodhpsychometric.bodhassess.analytics.payload.DashboardDto;
 import com.bodhpsychometric.bodhassess.analytics.payload.DerivedColumnDto;
 import com.bodhpsychometric.bodhassess.analytics.payload.SheetDto;
+import com.bodhpsychometric.bodhassess.analytics.payload.WidgetDto;
 import com.bodhpsychometric.bodhassess.analytics.payload.WorkbookDto;
 import com.bodhpsychometric.bodhassess.analytics.payload.WorkbookShareDto;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -82,6 +86,35 @@ public class DsMapper {
         d.setFormat(c.getFormat());
         d.setSortOrder(c.getSortOrder());
         return d;
+    }
+
+    /* ---------- dashboard + widgets ---------- */
+
+    public DashboardDto toDashboardDto(DsDashboard d) {
+        DashboardDto dto = new DashboardDto();
+        dto.setId(d.getId());
+        dto.setWorkbookId(d.getWorkbookId());
+        dto.setName(d.getName());
+        dto.setLayout(readMap(d.getLayout()));
+        dto.setSortOrder(d.getSortOrder());
+        dto.setCreatedAt(iso(d.getCreatedAt()));
+        dto.setUpdatedAt(iso(d.getUpdatedAt()));
+        return dto;
+    }
+
+    public WidgetDto toWidgetDto(DsWidget w) {
+        WidgetDto dto = new WidgetDto();
+        dto.setId(w.getId());
+        dto.setDashboardId(w.getDashboardId());
+        dto.setType(w.getType());
+        dto.setSheetId(w.getSheetId());
+        dto.setConfig(readMap(w.getConfig()));
+        dto.setPosX(w.getPosX());
+        dto.setPosY(w.getPosY());
+        dto.setW(w.getW());
+        dto.setH(w.getH());
+        dto.setSortOrder(w.getSortOrder());
+        return dto;
     }
 
     /* ---------- json helpers ---------- */
