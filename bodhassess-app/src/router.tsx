@@ -45,6 +45,7 @@ const PortalLogin       = () => lazyPage(() => import('@/src/pages/portal/login'
 const PortalAssessments = () => lazyPage(() => import('@/src/pages/portal/assessments'));
 const PortalTake        = () => lazyPage(() => import('@/src/pages/portal/take'));
 const PortalComplete    = () => lazyPage(() => import('@/src/pages/portal/complete'));
+const PreviewQuestionnaire = () => lazyPage(() => import('@/src/pages/portal/preview'));
 
 // ── Private pages (practitioner dashboard) ────────────────────────────────
 const Dashboard          = () => lazyPage(() => import('@/src/pages/dashboard'));
@@ -149,6 +150,10 @@ const routes: RouteObject[] = [
 
       // Entity registration — public form, no auth required
       { path: '/entity-registration', element: <EntityRegistrationPage /> },
+
+      // Public, no-login questionnaire preview ("test link"). Renders a
+      // version's content as a walkthrough; nothing is saved.
+      { path: '/preview/:versionId', element: <PreviewQuestionnaire /> },
 
       // Registration entry point. With ?token=… it resolves the admin's
       // invite, skips the account-type picker, links the registrant to the

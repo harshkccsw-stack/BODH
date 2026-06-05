@@ -112,7 +112,10 @@ const statusStyles: Record<string, string> = {
 
 function DashboardContent() {
   const searchParams = useSearchParams();
-  const vertical = searchParams.get('vertical') || 'clinical';
+  // Default to the white-label (all-verticals) view so the dashboard
+  // aggregates every vertical out of the box — landing on a single empty
+  // vertical (e.g. clinical with no sessions) read as "broken" to admins.
+  const vertical = searchParams.get('vertical') || 'whitelabel';
   const label = verticalLabels[vertical] || 'Clinical Psychology';
   const terms = verticalTerminology[vertical] || verticalTerminology.clinical;
 

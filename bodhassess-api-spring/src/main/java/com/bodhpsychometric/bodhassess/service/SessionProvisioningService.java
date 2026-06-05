@@ -155,6 +155,9 @@ public class SessionProvisioningService {
         }
         s.setInstrument(a.getQuestionnaireName());
         s.setInstrumentFullName(a.getQuestionnaireName());
+        // Pin the exact version so a later re-publish can't change what
+        // this respondent sees. Falls back to by-name resolution if null.
+        s.setQuestionnaireVersionId(a.getQuestionnaireVersionId());
         s.setVertical(a.getVertical());
         s.setLanguage(StringUtils.hasText(a.getLanguage()) ? a.getLanguage() : "English");
         s.setStatus("Active");

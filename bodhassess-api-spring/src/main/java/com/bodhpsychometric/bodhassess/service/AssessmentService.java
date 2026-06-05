@@ -66,6 +66,16 @@ public class AssessmentService {
         return repo.findAllOrderByCreated().stream().map(this::toDtoWithCounts).collect(Collectors.toList());
     }
 
+    /** Every assessment in a questionnaire family — drives the pre-publish
+     *  "connected assessments" popup so admins can see (and pause/close)
+     *  what a new commit might affect before they ship it. */
+    @Transactional(readOnly = true)
+    public List<AssessmentDto> listByQuestionnaire(String questionnaireId) {
+        if (!StringUtils.hasText(questionnaireId)) return new ArrayList<>();
+        return repo.findByQuestionnaireId(questionnaireId).stream()
+                .map(this::toDtoWithCounts).collect(Collectors.toList());
+    }
+
     @Transactional(readOnly = true)
     public AssessmentDto get(String id) {
         return toDtoWithCounts(loadOrThrow(id));
@@ -230,6 +240,10 @@ public class AssessmentService {
         d.setName(a.getName());
         d.setQuestionnaireId(a.getQuestionnaireId());
         d.setQuestionnaireVersionId(a.getQuestionnaireVersionId());
+        if (StringUtils.hasText(a.getQuestionnaireVersionId())) {
+            questionnaireRepo.findById(a.getQuestionnaireVersionId())
+                    .ifPresent(v -> d.setQuestionnaireVersionLabel(v.getVersionLabel()));
+        }
         d.setQuestionnaireName(a.getQuestionnaireName());
         d.setVertical(a.getVertical());
         d.setLanguage(a.getLanguage());

@@ -151,10 +151,80 @@ public class QuestionnairesCatalogService {
             .setParameter(1, id)
             .executeUpdate();
         if (!names.isEmpty() && names.get(0) != null) {
+            String pqName = names.get(0).toString();
+            // published_questionnaires owns a nested subtree, all referencing
+            // it (directly or transitively) by FK. They must be deleted
+            // deepest-first, otherwise the parent delete fails with a foreign
+            // key constraint violation (MySQL error 1451 -> HTTP 500). Tree:
+            //   pq
+            //   ├─ demographic_keys / languages            (leaves)
+            //   ├─ mqs -> mqts (-> mqts via parent_id, self-ref)
+            //   └─ questions ├─ question_scores            (leaf)
+            //                └─ question_options -> question_option_scores
+            // Every statement is scoped to the matching pq by name.
+
+            // --- questions subtree ---
+            deleteByPqName(
+                "DELETE s FROM published_questionnaire_question_option_scores s" +
+                " JOIN published_questionnaire_question_options o ON o.id = s.pq_option_id" +
+                " JOIN published_questionnaire_questions q ON q.id = o.pq_question_id" +
+                " JOIN published_questionnaires pq ON pq.id = q.questionnaire_id" +
+                " WHERE LOWER(pq.name) = LOWER(?1)", pqName);
+            deleteByPqName(
+                "DELETE o FROM published_questionnaire_question_options o" +
+                " JOIN published_questionnaire_questions q ON q.id = o.pq_question_id" +
+                " JOIN published_questionnaires pq ON pq.id = q.questionnaire_id" +
+                " WHERE LOWER(pq.name) = LOWER(?1)", pqName);
+            deleteByPqName(
+                "DELETE sc FROM published_questionnaire_question_scores sc" +
+                " JOIN published_questionnaire_questions q ON q.id = sc.pq_question_id" +
+                " JOIN published_questionnaires pq ON pq.id = q.questionnaire_id" +
+                " WHERE LOWER(pq.name) = LOWER(?1)", pqName);
+            deleteByPqName(
+                "DELETE q FROM published_questionnaire_questions q" +
+                " JOIN published_questionnaires pq ON pq.id = q.questionnaire_id" +
+                " WHERE LOWER(pq.name) = LOWER(?1)", pqName);
+
+            // --- mqs subtree (mqts self-references via parent_id; break the
+            // link first so the rows can be removed in one delete) ---
+            em.createNativeQuery(
+                "UPDATE published_questionnaire_mqts t" +
+                " JOIN published_questionnaire_mqs m ON m.id = t.pq_mq_id" +
+                " JOIN published_questionnaires pq ON pq.id = m.questionnaire_id" +
+                " SET t.parent_id = NULL WHERE LOWER(pq.name) = LOWER(?1)")
+                .setParameter(1, pqName)
+                .executeUpdate();
+            deleteByPqName(
+                "DELETE t FROM published_questionnaire_mqts t" +
+                " JOIN published_questionnaire_mqs m ON m.id = t.pq_mq_id" +
+                " JOIN published_questionnaires pq ON pq.id = m.questionnaire_id" +
+                " WHERE LOWER(pq.name) = LOWER(?1)", pqName);
+            deleteByPqName(
+                "DELETE m FROM published_questionnaire_mqs m" +
+                " JOIN published_questionnaires pq ON pq.id = m.questionnaire_id" +
+                " WHERE LOWER(pq.name) = LOWER(?1)", pqName);
+
+            // --- leaves ---
+            deleteByPqName(
+                "DELETE l FROM published_questionnaire_languages l" +
+                " JOIN published_questionnaires pq ON pq.id = l.questionnaire_id" +
+                " WHERE LOWER(pq.name) = LOWER(?1)", pqName);
+            deleteByPqName(
+                "DELETE d FROM published_questionnaire_demographic_keys d" +
+                " JOIN published_questionnaires pq ON pq.id = d.questionnaire_id" +
+                " WHERE LOWER(pq.name) = LOWER(?1)", pqName);
+
+            // --- the parent row itself ---
             em.createNativeQuery("DELETE FROM published_questionnaires WHERE LOWER(name) = LOWER(?1)")
-                .setParameter(1, names.get(0).toString())
+                .setParameter(1, pqName)
                 .executeUpdate();
         }
+    }
+
+    /** Runs a single-parameter native DELETE scoped to a published_questionnaire
+     *  name. Keeps the subtree teardown in {@link #delete(String)} readable. */
+    private void deleteByPqName(String sql, String pqName) {
+        em.createNativeQuery(sql).setParameter(1, pqName).executeUpdate();
     }
 
     @Transactional(readOnly = true)

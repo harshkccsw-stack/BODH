@@ -165,12 +165,23 @@ export default function PortalTakePage() {
       const target = (s.instrumentFullName || s.instrument || '').trim();
       const shortTarget = (s.instrument || '').trim();
       let inst: StoredQuestionnaire | null = null;
-      for (const candidate of [target, shortTarget]) {
-        if (!candidate) continue;
+      // Prefer the exact pinned version so a later re-publish of the
+      // questionnaire never changes what this respondent sees. Fall back to
+      // the by-name lookup for legacy sessions with no pinned version.
+      if (s.questionnaireVersionId) {
         try {
-          const res = await questionnairesApi.getByName(candidate);
-          if (res) { inst = res as any; break; }
+          const res = await questionnairesApi.get(s.questionnaireVersionId);
+          if (res) inst = res as any;
         } catch {}
+      }
+      if (!inst) {
+        for (const candidate of [target, shortTarget]) {
+          if (!candidate) continue;
+          try {
+            const res = await questionnairesApi.getByName(candidate);
+            if (res) { inst = res as any; break; }
+          } catch {}
+        }
       }
       if (!inst) {
         setLoadError(`The assessment "${target}" isn't available in the database. Ask your administrator to publish it via Question Bank → Create Questionnaire.`);
