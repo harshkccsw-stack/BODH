@@ -16,6 +16,12 @@ public interface PortalSessionRepository extends JpaRepository<PortalSession, St
     @Query("SELECT s FROM PortalSession s ORDER BY s.createdAt DESC")
     List<PortalSession> findAllOrderByCreated();
 
+    // Sessions created before the version-pinning column existed. The
+    // startup backfill stamps these from their parent assessment so the
+    // take page can resolve content by the exact pinned version.
+    @Query("SELECT s FROM PortalSession s WHERE s.questionnaireVersionId IS NULL AND s.assessmentId IS NOT NULL")
+    List<PortalSession> findMissingVersionId();
+
     @Query("SELECT s FROM PortalSession s WHERE s.respondentId = :rid ORDER BY s.createdAt DESC")
     List<PortalSession> findByRespondentId(@Param("rid") String rid);
 

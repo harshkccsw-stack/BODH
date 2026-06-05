@@ -22,6 +22,9 @@ public class AssessmentSessionDto {
     @JsonProperty("respondentEmail")     private String respondentEmail;
     private String instrument;
     @JsonProperty("instrumentFullName")  private String instrumentFullName;
+    // Pinned version the take page should resolve content by (preferred
+    // over the by-name lookup on instrument). Null for legacy sessions.
+    @JsonProperty("questionnaireVersionId") private String questionnaireVersionId;
     private String vertical;
     private String language;
     private String status;
@@ -57,6 +60,8 @@ public class AssessmentSessionDto {
     public void setInstrument(String instrument) { this.instrument = instrument; }
     public String getInstrumentFullName() { return instrumentFullName; }
     public void setInstrumentFullName(String instrumentFullName) { this.instrumentFullName = instrumentFullName; }
+    public String getQuestionnaireVersionId() { return questionnaireVersionId; }
+    public void setQuestionnaireVersionId(String questionnaireVersionId) { this.questionnaireVersionId = questionnaireVersionId; }
     public String getVertical() { return vertical; }
     public void setVertical(String vertical) { this.vertical = vertical; }
     public String getLanguage() { return language; }

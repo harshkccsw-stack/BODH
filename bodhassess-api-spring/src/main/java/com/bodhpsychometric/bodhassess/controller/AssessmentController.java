@@ -40,6 +40,14 @@ public class AssessmentController {
     @GetMapping("/{id}")
     public AssessmentDto get(@PathVariable String id) { return service.get(id); }
 
+    // Every assessment in a questionnaire family — used by the pre-publish
+    // popup to list (and let admins change the status of) assessments that
+    // a new version commit might affect.
+    @GetMapping("/by-questionnaire/{questionnaireId}")
+    public List<AssessmentDto> listByQuestionnaire(@PathVariable String questionnaireId) {
+        return service.listByQuestionnaire(questionnaireId);
+    }
+
     @PostMapping
     public ResponseEntity<AssessmentDto> create(@RequestBody AssessmentDto dto) {
         return new ResponseEntity<>(service.create(dto), HttpStatus.CREATED);

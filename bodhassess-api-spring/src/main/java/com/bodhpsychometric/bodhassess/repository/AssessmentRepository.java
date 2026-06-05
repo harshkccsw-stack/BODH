@@ -19,4 +19,9 @@ public interface AssessmentRepository extends JpaRepository<Assessment, String> 
      *  in by N assessments" — also gates draft deletion when needed. */
     @Query("SELECT COUNT(a) FROM Assessment a WHERE a.questionnaireVersionId = :vid")
     long countByQuestionnaireVersionId(@Param("vid") String questionnaireVersionId);
+
+    /** Every assessment in a questionnaire family (any pinned version),
+     *  newest first. Powers the pre-publish "connected assessments" popup. */
+    @Query("SELECT a FROM Assessment a WHERE a.questionnaireId = :qid ORDER BY a.createdAt DESC")
+    List<Assessment> findByQuestionnaireId(@Param("qid") String questionnaireId);
 }

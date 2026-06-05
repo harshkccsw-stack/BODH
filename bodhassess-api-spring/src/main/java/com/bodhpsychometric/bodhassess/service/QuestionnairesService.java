@@ -97,7 +97,15 @@ public class QuestionnairesService {
                         + "Create a new draft from it to make changes.");
             }
         });
+        // Name-based dedup is a legacy "one published row per name" cleanup
+        // from before versioning. Under the versioning model, every version
+        // of a family (v1.0, v1.1, …) deliberately shares the same name, so
+        // we must NOT treat same-name rows as duplicates — doing so deleted
+        // the source version when branching a draft (and could silently drop
+        // committed versions pinned by live assessments). Only collapse rows
+        // that are truly orphaned (no parent family); real versions are kept.
         for (PublishedQuestionnaire dup : repo.findOthersByName(dto.getName().trim(), dto.getId().trim())) {
+            if (StringUtils.hasText(dup.getParentId())) continue;
             repo.delete(dup);
         }
         // Flush so the parent rows (and their cascaded children) are gone

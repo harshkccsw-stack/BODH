@@ -41,11 +41,12 @@ import {
 } from '@/lib/api';
 import { formatDDMMYYYY } from '@/lib/helpers';
 
-const statusOptions: AssessmentStatus[] = ['ACTIVE', 'CLOSED', 'PAUSED'];
+const statusOptions: AssessmentStatus[] = ['ACTIVE', 'CLOSED', 'PAUSED', 'TEST'];
 
 const statusBadge = (s: AssessmentStatus) => {
   if (s === 'ACTIVE') return { variant: 'success' as const, appearance: 'light' as const };
   if (s === 'CLOSED') return { variant: 'secondary' as const, appearance: 'light' as const };
+  if (s === 'TEST') return { variant: 'info' as const, appearance: 'light' as const };
   return { variant: 'warning' as const, appearance: 'light' as const };
 };
 

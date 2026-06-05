@@ -42,6 +42,15 @@ public class PortalSession {
     @Column(name = "instrument_full_name")
     private String instrumentFullName;
 
+    // The exact committed questionnaire version (PublishedQuestionnaire id)
+    // this session is pinned to, copied from the parent assessment at
+    // provisioning time. The take page resolves content by this id so a
+    // later re-publish of the questionnaire never changes what an
+    // already-live respondent sees. Nullable for legacy rows — those fall
+    // back to the by-name lookup on `instrument`.
+    @Column(name = "questionnaire_version_id", length = 64)
+    private String questionnaireVersionId;
+
     private String vertical;
 
     private String language;
@@ -124,6 +133,8 @@ public class PortalSession {
     public void setInstrument(String instrument) { this.instrument = instrument; }
     public String getInstrumentFullName() { return instrumentFullName; }
     public void setInstrumentFullName(String instrumentFullName) { this.instrumentFullName = instrumentFullName; }
+    public String getQuestionnaireVersionId() { return questionnaireVersionId; }
+    public void setQuestionnaireVersionId(String questionnaireVersionId) { this.questionnaireVersionId = questionnaireVersionId; }
     public String getVertical() { return vertical; }
     public void setVertical(String vertical) { this.vertical = vertical; }
     public String getLanguage() { return language; }

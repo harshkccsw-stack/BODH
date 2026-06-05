@@ -20,6 +20,9 @@ public class AssessmentDto {
     // pinned to. The create form sends this alongside the parent
     // questionnaireId; the version id is what the content/scoring read from.
     @JsonProperty("questionnaireVersionId") private String questionnaireVersionId;
+    // Cached label of the pinned version (e.g. "v1.2") so the connected-
+    // assessments popup can show which version each assessment runs.
+    @JsonProperty("questionnaireVersionLabel") private String questionnaireVersionLabel;
     @JsonProperty("questionnaireName")  private String questionnaireName;
     private String vertical;
     private String language;
@@ -54,6 +57,8 @@ public class AssessmentDto {
     public void setQuestionnaireId(String questionnaireId) { this.questionnaireId = questionnaireId; }
     public String getQuestionnaireVersionId() { return questionnaireVersionId; }
     public void setQuestionnaireVersionId(String questionnaireVersionId) { this.questionnaireVersionId = questionnaireVersionId; }
+    public String getQuestionnaireVersionLabel() { return questionnaireVersionLabel; }
+    public void setQuestionnaireVersionLabel(String questionnaireVersionLabel) { this.questionnaireVersionLabel = questionnaireVersionLabel; }
     public String getQuestionnaireName() { return questionnaireName; }
     public void setQuestionnaireName(String questionnaireName) { this.questionnaireName = questionnaireName; }
     public String getVertical() { return vertical; }

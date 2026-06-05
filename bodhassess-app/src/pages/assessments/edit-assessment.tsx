@@ -33,7 +33,7 @@ const LANGUAGES = [
   'Tamil', 'Gujarati', 'Kannada', 'Malayalam', 'Odia', 'Punjabi',
 ];
 
-const STATUSES: AssessmentStatus[] = ['ACTIVE', 'CLOSED', 'PAUSED'];
+const STATUSES: AssessmentStatus[] = ['ACTIVE', 'CLOSED', 'PAUSED', 'TEST'];
 
 export default function EditAssessmentPage() {
   const params = useParams();

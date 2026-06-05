@@ -215,6 +215,7 @@ public class AssessmentsService {
         d.setRespondentEmail(s.getRespondentEmail());
         d.setInstrument(s.getInstrument());
         d.setInstrumentFullName(s.getInstrumentFullName());
+        d.setQuestionnaireVersionId(s.getQuestionnaireVersionId());
         d.setVertical(s.getVertical());
         d.setLanguage(s.getLanguage());
         d.setStatus(s.getStatus());

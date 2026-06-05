@@ -439,6 +439,10 @@ export interface Assessment {
   respondentEmail?: string;
   instrument: string;
   instrumentFullName?: string;
+  // The exact pinned questionnaire version. When present the take page
+  // resolves content by this id (immutable) instead of by instrument name,
+  // so a later re-publish can't change what this respondent sees.
+  questionnaireVersionId?: string;
   vertical?: string;
   language?: string;
   status: string;
@@ -608,7 +612,7 @@ export const verticalsApi = {
 // types below.
 // ====================================================================
 
-export type AssessmentStatus = 'ACTIVE' | 'CLOSED' | 'PAUSED';
+export type AssessmentStatus = 'ACTIVE' | 'CLOSED' | 'PAUSED' | 'TEST';
 
 // One row per allotment of (Assessment, Entity), with the per-pair cap.
 // cap = null means unlimited. sessionsCount lets the UI show used/total
@@ -657,6 +661,7 @@ export interface AssessmentRecord {
   name: string;
   questionnaireId: string;             // parent (questionnaire family)
   questionnaireVersionId?: string;     // the specific committed version this assessment is pinned to
+  questionnaireVersionLabel?: string;  // cached label of that version, e.g. "v1.2"
   questionnaireName?: string;
   vertical?: string;
   language?: string;
@@ -679,6 +684,10 @@ export interface AssessmentRecord {
 
 export const assessmentRecordsApi = {
   list: () => jsonFetch<AssessmentRecord[]>('/assessment-records'),
+  // Every assessment in a questionnaire family — powers the pre-publish
+  // "connected assessments" popup on the versions page.
+  listByQuestionnaire: (questionnaireId: string) =>
+    jsonFetch<AssessmentRecord[]>(`/assessment-records/by-questionnaire/${encodeURIComponent(questionnaireId)}`),
   get: (id: string) => jsonFetch<AssessmentRecord>(`/assessment-records/${encodeURIComponent(id)}`),
   create: (a: Partial<AssessmentRecord>) =>
     jsonFetch<AssessmentRecord>('/assessment-records', { method: 'POST', body: JSON.stringify(a) }),
