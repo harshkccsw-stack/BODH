@@ -143,16 +143,23 @@ public class SessionProvisioningService {
                 .anyMatch(s -> a.getId().equals(s.getAssessmentId()));
         if (exists) return false;
 
+        // portal_sessions.respondent_name is NOT NULL — an orphaned allotment
+        // (respondent row deleted but allotment row left behind) would crash
+        // the INSERT here. Skip instead so the boot-time backfill stays clean
+        // and the unfulfillable allotment doesn't keep tripping the warning.
         Respondent r = respondents.findById(respondentId).orElse(null);
+        if (r == null) {
+            log.debug("Skipping session provisioning for assessment={} respondent={}: respondent row not found",
+                    a.getId(), respondentId);
+            return false;
+        }
         PortalSession s = new PortalSession();
         s.setId("SESS-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase());
         s.setAssessmentId(a.getId());
         s.setName(a.getName());
         s.setRespondentId(respondentId);
-        if (r != null) {
-            s.setRespondentName(r.getName());
-            s.setRespondentEmail(r.getEmail());
-        }
+        s.setRespondentName(r.getName());
+        s.setRespondentEmail(r.getEmail());
         s.setInstrument(a.getQuestionnaireName());
         s.setInstrumentFullName(a.getQuestionnaireName());
         // Pin the exact version so a later re-publish can't change what
