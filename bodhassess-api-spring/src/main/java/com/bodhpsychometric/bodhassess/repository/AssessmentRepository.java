@@ -1,5 +1,6 @@
 package com.bodhpsychometric.bodhassess.repository;
 
+import java.util.Collection;
 import java.util.List;
 
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -24,4 +25,10 @@ public interface AssessmentRepository extends JpaRepository<Assessment, String> 
      *  newest first. Powers the pre-publish "connected assessments" popup. */
     @Query("SELECT a FROM Assessment a WHERE a.questionnaireId = :qid ORDER BY a.createdAt DESC")
     List<Assessment> findByQuestionnaireId(@Param("qid") String questionnaireId);
+
+    /** Of the given assessment ids, return only those that still exist. Used
+     *  to drop orphaned portal sessions (whose parent assessment was deleted)
+     *  from the respondent dashboard without destroying their answer data. */
+    @Query("SELECT a.id FROM Assessment a WHERE a.id IN :ids")
+    List<String> findExistingIds(@Param("ids") Collection<String> ids);
 }

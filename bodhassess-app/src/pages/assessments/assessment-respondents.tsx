@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useParams } from '@/src/lib/router-helpers';
-import { ArrowLeft, AlertTriangle, Search, Users as UsersIcon, RefreshCcw } from 'lucide-react';
+import { ArrowLeft, AlertTriangle, Search, Users as UsersIcon, RefreshCcw, RotateCcw } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input, InputWrapper } from '@/components/ui/input';
@@ -24,6 +24,8 @@ export default function AssessmentRespondentsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
+  const [confirmReset, setConfirmReset] = useState<AssessmentSummary | null>(null);
+  const [resetting, setResetting] = useState(false);
 
   const load = async () => {
     if (!assessmentId) return;
@@ -40,6 +42,21 @@ export default function AssessmentRespondentsPage() {
   };
 
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [assessmentId]);
+
+  const doReset = async () => {
+    if (!confirmReset) return;
+    setResetting(true);
+    setError('');
+    try {
+      await assessmentsApi.reset(confirmReset.id);
+      setConfirmReset(null);
+      await load();
+    } catch (e: any) {
+      setError(e?.message || 'Failed to reset this respondent’s attempt.');
+    } finally {
+      setResetting(false);
+    }
+  };
 
   // The header info — instrument, vertical, etc. — is the same for every
   // row in this assessment (all sessions share it), so we read it off the
@@ -177,6 +194,7 @@ export default function AssessmentRespondentsPage() {
                     <th className="px-4 py-2.5 font-medium">Score</th>
                     <th className="px-4 py-2.5 font-medium">Created</th>
                     <th className="px-4 py-2.5 font-medium text-right">Response</th>
+                    <th className="px-4 py-2.5 font-medium text-right">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
@@ -203,6 +221,17 @@ export default function AssessmentRespondentsPage() {
                             View Response
                           </Button>
                         </td>
+                        <td className="px-4 py-2.5 text-right">
+                          {/* Wipes this respondent's previous attempt so they
+                              must take the assessment again. */}
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setConfirmReset(r)}
+                          >
+                            <RotateCcw className="h-3.5 w-3.5" /> Reset
+                          </Button>
+                        </td>
                       </tr>
                     );
                   })}
@@ -212,6 +241,31 @@ export default function AssessmentRespondentsPage() {
           )}
         </CardContent>
       </Card>
+
+      {confirmReset && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={() => !resetting && setConfirmReset(null)}>
+          <Card className="w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 text-amber-500" /> Reset Attempt
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm">
+                Reset the assessment for <strong>{confirmReset.respondentName || confirmReset.id}</strong>?
+                Their previous attempt — all answers and scores — will be permanently erased and they will have
+                to take the assessment again. This cannot be undone.
+              </p>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setConfirmReset(null)} disabled={resetting}>Cancel</Button>
+                <Button variant="primary" onClick={doReset} disabled={resetting} className="bg-amber-600 hover:bg-amber-700 text-white">
+                  <RotateCcw className="h-3.5 w-3.5" /> {resetting ? 'Resetting…' : 'Reset'}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }
