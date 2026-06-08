@@ -546,6 +546,9 @@ export const assessmentsApi = {
   bulk: (assessments: Assessment[]) => jsonFetch<BulkAssessmentResult>('/assessments/bulk', { method: 'POST', body: JSON.stringify({ assessments }) }),
   update: (id: string, s: Partial<Assessment>) => jsonFetch<Assessment>(`/assessments/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(s) }),
   delete: (id: string) => jsonFetch<null>(`/assessments/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  // Wipe a respondent's attempt (answers, scores, demographics) and return the
+  // session to a fresh Active state so they have to take the assessment again.
+  reset: (id: string) => jsonFetch<Assessment>(`/assessments/${encodeURIComponent(id)}/reset`, { method: 'POST' }),
   heartbeat: (id: string, body: { currentIndex: number; totalQuestions: number }) =>
     jsonFetch<void>(`/assessments/${encodeURIComponent(id)}/heartbeat`, { method: 'POST', body: JSON.stringify(body) }),
 };

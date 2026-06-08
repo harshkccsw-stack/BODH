@@ -6,6 +6,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Set;
 import java.util.Map;
@@ -28,6 +29,7 @@ import com.bodhpsychometric.bodhassess.payload.AssessmentSessionDto;
 import com.bodhpsychometric.bodhassess.payload.AssessmentGroupDto;
 import com.bodhpsychometric.bodhassess.payload.AssessmentSummaryDto;
 import com.bodhpsychometric.bodhassess.payload.HeartbeatRequest;
+import com.bodhpsychometric.bodhassess.repository.AssessmentRepository;
 import com.bodhpsychometric.bodhassess.repository.PortalSessionRepository;
 import com.bodhpsychometric.bodhassess.security.UserPrincipal;
 
@@ -43,6 +45,9 @@ public class AssessmentsService {
     private PortalSessionRepository repo;
 
     @Autowired
+    private AssessmentRepository assessmentRepo;
+
+    @Autowired
     private HeartbeatService heartbeats;
 
     @Transactional(readOnly = true)
@@ -50,7 +55,71 @@ public class AssessmentsService {
         List<PortalSession> rows = StringUtils.hasText(respondentId)
                 ? repo.findByRespondentId(respondentId)
                 : repo.findAllOrderByCreated();
+        if (StringUtils.hasText(respondentId)) {
+            // When the parent assessment was deleted, hide the respondent's
+            // pending/not-started cards for it — but keep submitted
+            // (Completed) sessions so the record and its answers remain on the
+            // dashboard. Legacy sessions with a null assessmentId predate the
+            // column and are always kept.
+            rows = dropOrphanedPendingSessions(rows);
+            // One card per assessment: a respondent reachable through more than
+            // one allotment (entity, group, individual) should still see a
+            // single card for that assessment. Provisioning already guards
+            // against this, but collapse here too so the portal is correct even
+            // if duplicate sessions ever slip in.
+            rows = dedupByAssessment(rows);
+        }
         return rows.stream().map(this::toDto).collect(Collectors.toList());
+    }
+
+    /**
+     * Collapse multiple sessions that share an assessmentId into one, keeping
+     * the most-progressed (so the respondent never loses answers): a submitted
+     * session beats a started one, which beats an untouched one; ties go to the
+     * earliest-created (original) session. Sessions with a null assessmentId
+     * (legacy) are each kept as-is.
+     */
+    private List<PortalSession> dedupByAssessment(List<PortalSession> rows) {
+        Map<String, PortalSession> best = new LinkedHashMap<>();
+        List<PortalSession> out = new ArrayList<>();
+        for (PortalSession s : rows) {
+            String aid = s.getAssessmentId();
+            if (!StringUtils.hasText(aid)) { out.add(s); continue; }
+            PortalSession cur = best.get(aid);
+            if (cur == null || progressRank(s) > progressRank(cur)
+                    || (progressRank(s) == progressRank(cur) && createdBefore(s, cur))) {
+                best.put(aid, s);
+            }
+        }
+        out.addAll(best.values());
+        return out;
+    }
+
+    private int progressRank(PortalSession s) {
+        if ("Completed".equalsIgnoreCase(s.getStatus())) return 2;
+        if (s.getStartedAt() != null) return 1;
+        return 0;
+    }
+
+    private boolean createdBefore(PortalSession a, PortalSession b) {
+        if (a.getCreatedAt() == null) return false;
+        if (b.getCreatedAt() == null) return true;
+        return a.getCreatedAt().isBefore(b.getCreatedAt());
+    }
+
+    private List<PortalSession> dropOrphanedPendingSessions(List<PortalSession> rows) {
+        Set<String> assessmentIds = rows.stream()
+                .filter(s -> !"Completed".equalsIgnoreCase(s.getStatus()))
+                .map(PortalSession::getAssessmentId)
+                .filter(StringUtils::hasText)
+                .collect(Collectors.toSet());
+        if (assessmentIds.isEmpty()) return rows;
+        Set<String> existing = new HashSet<>(assessmentRepo.findExistingIds(assessmentIds));
+        return rows.stream()
+                .filter(s -> "Completed".equalsIgnoreCase(s.getStatus())
+                        || !StringUtils.hasText(s.getAssessmentId())
+                        || existing.contains(s.getAssessmentId()))
+                .collect(Collectors.toList());
     }
 
     @Transactional(readOnly = true)
@@ -175,6 +244,28 @@ public class AssessmentsService {
 
     public void delete(String id) {
         if (repo.existsById(id)) repo.deleteById(id);
+    }
+
+    /**
+     * Reset a respondent's session so they must take the assessment again.
+     * Wipes the previous attempt — answers, per-MQT scores, demographics,
+     * overall score — and returns the session to a fresh, not-started state
+     * (Active, no started/completed timestamps, heartbeat cleared). The
+     * session itself (and its allotment) is kept so the assessment stays in
+     * the respondent's portal.
+     */
+    public AssessmentSessionDto reset(String id) {
+        PortalSession s = repo.findById(id).orElseThrow(() -> new ResourceNotFoundException("Assessment", "id", id));
+        // orphanRemoval on the child collections deletes the rows on flush.
+        s.getAnswers().clear();
+        s.getMqtScores().clear();
+        s.getDemographics().clear();
+        s.setScore(null);
+        s.setStatus("Active");
+        s.setStartedAt(null);
+        s.setCompletedAt(null);
+        heartbeats.clear(id);
+        return toDto(repo.save(s));
     }
 
     private PortalSession fromDto(AssessmentSessionDto dto) {

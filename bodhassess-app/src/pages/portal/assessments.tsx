@@ -138,7 +138,7 @@ export default function PortalAssessmentsPage() {
                         )}
                       </div>
                       <div className="space-y-1.5">
-                        <p className="font-semibold leading-snug text-[0.9375rem]">{s.instrumentFullName || s.instrument}</p>
+                        <p className="font-semibold leading-snug text-[0.9375rem]">{s.name || s.instrumentFullName || s.instrument}</p>
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                           <span className="font-mono">{s.id}</span>
                           <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{formatDDMMYYYY(s.createdAt)}</span>
@@ -178,7 +178,7 @@ export default function PortalAssessmentsPage() {
                     <CheckCircle2 className="h-5 w-5" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="font-medium truncate">{s.instrumentFullName || s.instrument}</p>
+                    <p className="font-medium truncate">{s.name || s.instrumentFullName || s.instrument}</p>
                     <p className="text-xs text-muted-foreground mt-0.5 font-mono">{s.id}</p>
                   </div>
                   <span className="text-xs font-semibold text-green-700 dark:text-green-400">Submitted</span>

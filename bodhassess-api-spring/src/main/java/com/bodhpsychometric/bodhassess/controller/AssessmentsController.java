@@ -88,6 +88,13 @@ public class AssessmentsController {
         return ResponseEntity.noContent().build();
     }
 
+    // Reset a respondent's attempt — clears their previous answers/score and
+    // returns the session to a fresh Active state so they can retake it.
+    @PostMapping("/{id}/reset")
+    public AssessmentSessionDto reset(@PathVariable String id) {
+        return service.reset(id);
+    }
+
     @PostMapping("/{id}/heartbeat")
     public ResponseEntity<Void> heartbeat(@PathVariable String id, @RequestBody HeartbeatRequest body,
                                           @CurrentUser UserPrincipal principal) {
