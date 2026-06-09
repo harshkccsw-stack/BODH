@@ -80,4 +80,17 @@ public class PublicTokensController {
             @RequestBody PublicRegistrationDto body) {
         return registrationService.register(token, body);
     }
+
+    /**
+     * Existing-account path for a register-kind link: when the registrant is
+     * recognised, they confirm email + dob and we sign them in, link them into
+     * the token's entity/group, ensure the session, and return it — so a known
+     * entity member lands straight in the assessment, not the dashboard.
+     */
+    @PostMapping("/{token}/login")
+    public PublicRegistrationDto.Result loginExisting(
+            @PathVariable String token,
+            @RequestBody PublicRegistrationDto body) {
+        return registrationService.loginExisting(token, body);
+    }
 }
