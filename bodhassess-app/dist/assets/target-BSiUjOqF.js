@@ -1,1 +1,0 @@
-import{at as c}from"./index-cFdBPTge.js";const e=[["circle",{cx:"12",cy:"12",r:"10",key:"1mglay"}],["circle",{cx:"12",cy:"12",r:"6",key:"1vlfrh"}],["circle",{cx:"12",cy:"12",r:"2",key:"1c9p78"}]],t=c("target",e);export{t as T};

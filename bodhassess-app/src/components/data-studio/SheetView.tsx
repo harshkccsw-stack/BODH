@@ -102,38 +102,6 @@ export function SheetView({ sheet, canEdit, onColumnsChanged }: SheetViewProps) 
           <span className="text-sm text-muted-foreground">
             {loading ? 'Loading…' : `${rows.length} rows · ${columns.length} columns`}
           </span>
-          {derived.map((c) => (
-            <span
-              key={c.colKey}
-              className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs"
-            >
-              <Sigma className="h-3 w-3 text-primary" />
-              {c.label}
-              <Badge variant={c.evalTarget === 'SERVER' ? 'warning' : 'info'} size="sm" appearance="light">
-                {c.evalTarget === 'SERVER' ? 'server' : 'client'}
-              </Badge>
-              {canEdit && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => setColumnDialog({ editing: c })}
-                    className="ml-0.5 text-muted-foreground hover:text-foreground"
-                    aria-label={`Edit ${c.label}`}
-                  >
-                    <Pencil className="h-3 w-3" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleDelete(c.colKey)}
-                    className="text-muted-foreground hover:text-red-600"
-                    aria-label={`Delete ${c.label}`}
-                  >
-                    <Trash2 className="h-3 w-3" />
-                  </button>
-                </>
-              )}
-            </span>
-          ))}
         </div>
         <div className="flex items-center gap-2">
           {canEdit && (
@@ -152,6 +120,47 @@ export function SheetView({ sheet, canEdit, onColumnsChanged }: SheetViewProps) 
       {error && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-400">
           {error}
+        </div>
+      )}
+
+      {derived.length > 0 && (
+        <div className="rounded-lg border border-border">
+          <div className="border-b border-border px-3 py-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Computed columns
+          </div>
+          <ul className="divide-y divide-border">
+            {derived.map((c) => (
+              <li key={c.colKey} className="flex items-center justify-between gap-3 px-3 py-2">
+                <div className="flex min-w-0 items-center gap-2">
+                  <Sigma className="h-4 w-4 shrink-0 text-primary" />
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="truncate text-sm font-medium">{c.label}</span>
+                      <Badge variant={c.evalTarget === 'SERVER' ? 'warning' : 'info'} size="sm" appearance="light">
+                        {c.evalTarget === 'SERVER' ? 'server' : 'client'}
+                      </Badge>
+                    </div>
+                    <code className="block truncate text-xs text-muted-foreground">{c.expr}</code>
+                  </div>
+                </div>
+                {canEdit && (
+                  <div className="flex shrink-0 items-center gap-1">
+                    <Button variant="outline" size="sm" onClick={() => setColumnDialog({ editing: c })}>
+                      <Pencil className="h-3.5 w-3.5" /> Edit
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleDelete(c.colKey)}
+                      className="text-red-600 hover:text-red-700"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 

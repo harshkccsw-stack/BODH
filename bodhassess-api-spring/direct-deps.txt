@@ -1,0 +1,16 @@
+
+The following files have been resolved:
+   org.springframework.boot:spring-boot-starter-web:jar:2.5.5:compile[36m -- module spring.boot.starter.web[0;1m [auto][m
+   org.springframework.boot:spring-boot-starter-data-jpa:jar:2.5.5:compile[36m -- module spring.boot.starter.data.jpa[0;1m [auto][m
+   org.springframework.boot:spring-boot-starter-security:jar:2.5.5:compile[36m -- module spring.boot.starter.security[0;1m [auto][m
+   org.springframework.boot:spring-boot-starter-validation:jar:2.5.5:compile[36m -- module spring.boot.starter.validation[0;1m [auto][m
+   org.springframework.boot:spring-boot-starter-data-redis:jar:2.5.5:compile[36m -- module spring.boot.starter.data.redis[0;1m [auto][m
+   mysql:mysql-connector-java:jar:8.0.26:runtime[36m -- module mysql.connector.java[0;1;33m (auto)[m
+   com.vladmihalcea:hibernate-types-52:jar:2.21.1:compile[36m -- module com.vladmihalcea.hibernate.type[0;1m [auto][m
+   io.jsonwebtoken:jjwt-api:jar:0.11.5:compile[36m -- module jjwt.api[0;1;33m (auto)[m
+   io.jsonwebtoken:jjwt-impl:jar:0.11.5:runtime[36m -- module jjwt.impl[0;1;33m (auto)[m
+   io.jsonwebtoken:jjwt-jackson:jar:0.11.5:runtime[36m -- module jjwt.jackson[0;1;33m (auto)[m
+   org.springframework.boot:spring-boot-starter-test:jar:2.5.5:test[36m -- module spring.boot.starter.test[0;1m [auto][m
+   com.google.zxing:core:jar:3.5.1:compile[36m -- module com.google.zxing[0;1m [auto][m
+   com.google.zxing:javase:jar:3.5.1:compile[36m -- module com.google.zxing.javase[0;1m [auto][m
+

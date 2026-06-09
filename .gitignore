@@ -14,3 +14,7 @@ bodhassess-api-spring/target
 .env
 .env.production
 .env.development    
+docker-compose.yml
+docker-compose.prod.yml
+docker-compose.dev.yml
+docker-compose.override.yml
