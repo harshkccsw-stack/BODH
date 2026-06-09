@@ -46,7 +46,11 @@ function labelForToken(
   if (t.entityId && t.respondentId) return `${entName(t.entityId)} → ${repName(t.respondentId)}`;
   if (t.entityId) return entName(t.entityId);
   if (t.groupId) return `Group · ${groups.find((g) => g.id === t.groupId)?.name || t.groupId}`;
+  // Standalone that matched an existing account: respondent-bound + email, no
+  // entity/group. Show "Standalone · email" like a fresh standalone link.
+  if (t.respondentId && t.email && !t.entityId && !t.groupId) return `Standalone · ${t.email}`;
   if (t.respondentId) return repName(t.respondentId);
+  if (t.email) return `Standalone · ${t.email}`;
   return 'Standalone';
 }
 
@@ -235,8 +239,9 @@ export default function InviteOrCopyPage() {
     setError('');
     try {
       const t = await assessmentTokensApi.issue({ assessmentId: id, email, maxUses: 1 });
-      const label = t.kind === 'login' ? `${email} (existing account)` : `Standalone · ${email}`;
-      await mergeAndCopy([{ target: label, url: urlFor(t), token: t.token || '', kind: t.kind || 'register' }]);
+      // Same label for both kinds; the Login/Register badge already signals
+      // whether this matched an existing account.
+      await mergeAndCopy([{ target: `Standalone · ${email}`, url: urlFor(t), token: t.token || '', kind: t.kind || 'register' }]);
       setStandaloneEmail('');
     } catch (e: any) {
       setError(e?.message || 'Failed to assign assessment.');
