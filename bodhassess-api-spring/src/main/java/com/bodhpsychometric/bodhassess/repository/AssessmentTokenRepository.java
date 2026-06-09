@@ -29,4 +29,13 @@ public interface AssessmentTokenRepository extends JpaRepository<AssessmentToken
                                       @Param("eid") String entityId,
                                       @Param("gid") String groupId,
                                       @Param("rid") String respondentId);
+
+    // Idempotent reuse for "standalone" links: a token for this assessment
+    // carrying no entity/group/respondent scope but the same invitee email.
+    // Email match is case-insensitive. Newest first.
+    @Query("SELECT t FROM AssessmentToken t WHERE t.assessmentId = :aid "
+         + "AND t.entityId IS NULL AND t.groupId IS NULL AND t.respondentId IS NULL "
+         + "AND LOWER(t.email) = LOWER(:email) ORDER BY t.createdAt DESC")
+    List<AssessmentToken> findStandaloneByEmail(@Param("aid") String assessmentId,
+                                                @Param("email") String email);
 }

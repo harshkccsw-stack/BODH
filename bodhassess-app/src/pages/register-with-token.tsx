@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Brain, UserPlus, AlertTriangle, Check, Building2 } from 'lucide-react';
+import { Brain, UserPlus, AlertTriangle, Check, Building2, LogIn } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
   publicTokensApi,
+  authApi,
   type AssessmentToken,
 } from '@/lib/api';
 import { config } from '@/lib/config';
@@ -82,6 +83,11 @@ function RegisterWithTokenPage() {
         // we don't need a second (auth-gated) call to render the context.
         const t = await publicTokensApi.resolve(token);
         setTokenInfo(t);
+        // Login token → the person already has an account; prefill their email
+        // so they only need to confirm their DOB to sign in.
+        if (t.kind === 'login' && t.loginEmail) {
+          setForm((f) => ({ ...f, email: t.loginEmail! }));
+        }
       } catch (e: any) {
         setTokenError(e?.message || 'Invalid or expired link.');
       } finally {
@@ -90,12 +96,69 @@ function RegisterWithTokenPage() {
     })();
   }, [token]);
 
+  // Login-token path: the recipient is a known account, so we don't register —
+  // they confirm their DOB (the portal "password"), we sign them in, and open
+  // the already-assigned session.
+  const signIn = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    setError('');
+    if (!tokenInfo) return;
+    const email = (tokenInfo.loginEmail || form.email).trim();
+    if (!email) { setError('This link has no email on file. Please contact your administrator.'); return; }
+    if (!form.dob.trim()) { setError('Date of birth is required.'); return; }
+    const isoDob = ddmmyyyyToIso(form.dob);
+    if (!isoDob) { setError('Date of birth must be in DD/MM/YYYY format.'); return; }
+    setSaving(true);
+    try {
+      const res = await authApi.login(email, isoDob);
+      localStorage.setItem(config.authStorageKey, res.token);
+      setDone(true);
+      setTimeout(() => {
+        window.location.href = tokenInfo.sessionId
+          ? `/portal/take?id=${encodeURIComponent(tokenInfo.sessionId)}`
+          : '/portal/assessments';
+      }, 1000);
+    } catch (err: any) {
+      if (/\[API 401\]|unauthor/i.test(err?.message || '')) {
+        setError("Email or date of birth doesn't match our records.");
+      } else {
+        setError(err?.message || 'Failed to sign in.');
+      }
+      setSaving(false);
+    }
+  };
+
+  // Existing-account path off the register form: the person was recognised, so
+  // confirm their email + dob, link them into the entity/group, assign the
+  // session, and open it — landing in the assessment, not the dashboard.
+  const claimExisting = async () => {
+    setError('');
+    if (!form.email.trim()) { setError('Email is required.'); return; }
+    const isoDob = ddmmyyyyToIso(form.dob);
+    if (!isoDob) { setError('Date of birth must be in DD/MM/YYYY format.'); return; }
+    setSaving(true);
+    try {
+      const result = await publicTokensApi.loginExisting(token, { email: form.email.trim(), dob: isoDob });
+      localStorage.setItem(config.authStorageKey, result.token);
+      setAlreadyExists(false);
+      setDone(true);
+      setTimeout(() => { window.location.href = `/portal/take?id=${encodeURIComponent(result.sessionId)}`; }, 1000);
+    } catch (err: any) {
+      if (/\[API 401\]|unauthor|doesn't match/i.test(err?.message || '')) {
+        setError("Email or date of birth doesn't match. Try the standard login page below.");
+      } else {
+        setError(err?.message || 'Failed to sign in.');
+      }
+      setSaving(false);
+    }
+  };
+
   const submit = async (e?: React.FormEvent) => {
     e?.preventDefault();
     setError('');
     if (!tokenInfo) return;
-    if (!form.name.trim()) { setError('Name is required.'); return; }
     if (!form.email.trim()) { setError('Email is required.'); return; }
+    if (!form.name.trim()) { setError('Name is required.'); return; }
     if (!form.dob.trim()) { setError('Date of birth is required.'); return; }
     const isoDob = ddmmyyyyToIso(form.dob);
     if (!isoDob) { setError('Date of birth must be in DD/MM/YYYY format.'); return; }
@@ -153,6 +216,7 @@ function RegisterWithTokenPage() {
   if (tokenError) {
     return <CenterCard title="Link unavailable" message={tokenError} error />;
   }
+  const isLogin = tokenInfo?.kind === 'login';
   return (
     <div className="flex-1 min-h-screen w-full flex items-center justify-center bg-linear-to-br from-primary/10 via-background to-primary/5 px-4 py-10">
       <div className="w-full max-w-md space-y-6">
@@ -160,12 +224,12 @@ function RegisterWithTokenPage() {
           <div className="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-primary text-primary-foreground">
             <Brain className="h-6 w-6" />
           </div>
-          <h1 className="text-2xl font-semibold tracking-tight">Register to begin</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">{isLogin ? 'Sign in to begin' : 'Register to begin'}</h1>
           {tokenInfo?.assessmentName && (
             <p className="text-sm text-muted-foreground">{tokenInfo.assessmentName}</p>
           )}
         </div>
-        {orgName && (
+        {orgName && !isLogin && (
           <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2.5 text-sm">
             <Building2 className="h-4 w-4 shrink-0 text-primary" />
             <span className="text-muted-foreground">
@@ -175,30 +239,63 @@ function RegisterWithTokenPage() {
         )}
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-base">{done ? 'You\'re in' : alreadyExists ? 'Account found' : 'Your details'}</CardTitle>
+            <CardTitle className="text-base">{done ? 'You\'re in' : isLogin ? 'Confirm it\'s you' : alreadyExists ? 'Account found' : 'Your details'}</CardTitle>
           </CardHeader>
           <CardContent>
             {done ? (
               <div className="flex items-start gap-2 rounded-lg border border-green-200 bg-green-50 dark:border-green-900 dark:bg-green-950/30 px-3 py-3 text-sm text-green-700 dark:text-green-400">
                 <Check className="h-4 w-4 mt-0.5 shrink-0" />
                 <div>
-                  <p className="font-medium">Registered.</p>
+                  <p className="font-medium">{isLogin ? 'Signed in.' : 'Registered.'}</p>
                   <p className="text-xs mt-1">Loading your assessment…</p>
                 </div>
               </div>
+            ) : isLogin ? (
+              <form onSubmit={signIn} className="space-y-4">
+                {error && (
+                  <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-3 py-2 text-xs text-red-700 dark:text-red-400">
+                    <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                    <span>{error}</span>
+                  </div>
+                )}
+                <p className="text-sm text-muted-foreground">
+                  You're already registered. Confirm your date of birth to start your assessment.
+                </p>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">Email</label>
+                  <input type="email" value={tokenInfo?.loginEmail || form.email} readOnly className="w-full rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground outline-none cursor-not-allowed" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">Date of Birth *</label>
+                  <input inputMode="numeric" value={form.dob} onChange={(e) => setForm({ ...form, dob: autoFormatDdmmyyyy(e.target.value) })} placeholder="DD/MM/YYYY" maxLength={10} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" />
+                  <p className="text-[0.6875rem] text-muted-foreground">Enter your date of birth to verify it's you.</p>
+                </div>
+                <Button type="submit" variant="primary" size="md" className="w-full" disabled={saving}>
+                  <LogIn className="h-4 w-4" /> {saving ? 'Signing in…' : 'Sign in & begin assessment'}
+                </Button>
+              </form>
             ) : alreadyExists ? (
               <div className="space-y-4">
                 <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30 px-3 py-3 text-sm text-amber-700 dark:text-amber-400">
                   <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
                   <div>
                     <p className="font-medium">You already have an account.</p>
-                    <p className="text-xs mt-1">These details match an existing registration. Please log in to continue to your assessment.</p>
+                    <p className="text-xs mt-1">These details match an existing account. Log in to start your assessment.</p>
                   </div>
                 </div>
-                <Button variant="primary" size="md" className="w-full" onClick={() => { window.location.href = loginHref; }}>
-                  Log in to continue
+                {error && (
+                  <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-3 py-2 text-xs text-red-700 dark:text-red-400">
+                    <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                    <span>{error}</span>
+                  </div>
+                )}
+                <Button variant="primary" size="md" className="w-full" onClick={claimExisting} disabled={saving}>
+                  <LogIn className="h-4 w-4" /> {saving ? 'Signing in…' : 'Log in & begin assessment'}
                 </Button>
-                <button type="button" onClick={() => setAlreadyExists(false)} className="w-full text-center text-xs text-muted-foreground hover:text-foreground">
+                <a href={loginHref} className="block w-full text-center text-xs text-muted-foreground hover:text-foreground">
+                  Use the standard login page instead
+                </a>
+                <button type="button" onClick={() => { setAlreadyExists(false); setError(''); }} className="w-full text-center text-xs text-muted-foreground hover:text-foreground">
                   Use different details
                 </button>
               </div>
@@ -211,12 +308,12 @@ function RegisterWithTokenPage() {
                   </div>
                 )}
                 <div className="space-y-1.5">
-                  <label className="text-sm font-medium">Name *</label>
-                  <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Your name" className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" />
-                </div>
-                <div className="space-y-1.5">
                   <label className="text-sm font-medium">Email *</label>
                   <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="you@example.com" autoComplete="email" className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">Name *</label>
+                  <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Your name" className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" />
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-sm font-medium">Phone</label>

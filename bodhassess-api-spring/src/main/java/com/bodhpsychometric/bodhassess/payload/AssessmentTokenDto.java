@@ -18,11 +18,25 @@ public class AssessmentTokenDto {
     @JsonProperty("groupId")      private String groupId;
     @JsonProperty("groupName")    private String groupName;
     @JsonProperty("respondentId") private String respondentId;
+    // Invitee email — input for a standalone link (drives reuse-by-email), and
+    // echoed back. Not display-name like the others.
+    @JsonProperty("email")        private String email;
     @JsonProperty("maxUses")      private Integer maxUses;
     @JsonProperty("usedCount")    private Integer usedCount;
     @JsonProperty("expiresAt")    private String expiresAt;
     @JsonProperty("createdAt")    private String createdAt;
     @JsonProperty("createdBy")    private String createdBy;
+
+    // ---- Output-only: what kind of link the admin should hand out ----
+    // "register" → /register?token=…  (recipient fills the form)
+    // "login"    → /portal/login?email=…  (recipient is already a known user;
+    //              the session is assigned, they just sign in and begin)
+    @JsonProperty("kind")         private String kind;
+    // Email to prefill on the sign-in step when kind == "login".
+    @JsonProperty("loginEmail")   private String loginEmail;
+    // The already-assigned session to open after a login-token sign-in, so the
+    // public page can drop the respondent straight into the assessment.
+    @JsonProperty("sessionId")    private String sessionId;
 
     public String getToken() { return token; }
     public void setToken(String token) { this.token = token; }
@@ -40,6 +54,8 @@ public class AssessmentTokenDto {
     public void setGroupName(String groupName) { this.groupName = groupName; }
     public String getRespondentId() { return respondentId; }
     public void setRespondentId(String respondentId) { this.respondentId = respondentId; }
+    public String getEmail() { return email; }
+    public void setEmail(String email) { this.email = email; }
     public Integer getMaxUses() { return maxUses; }
     public void setMaxUses(Integer maxUses) { this.maxUses = maxUses; }
     public Integer getUsedCount() { return usedCount; }
@@ -50,4 +66,10 @@ public class AssessmentTokenDto {
     public void setCreatedAt(String createdAt) { this.createdAt = createdAt; }
     public String getCreatedBy() { return createdBy; }
     public void setCreatedBy(String createdBy) { this.createdBy = createdBy; }
+    public String getKind() { return kind; }
+    public void setKind(String kind) { this.kind = kind; }
+    public String getLoginEmail() { return loginEmail; }
+    public void setLoginEmail(String loginEmail) { this.loginEmail = loginEmail; }
+    public String getSessionId() { return sessionId; }
+    public void setSessionId(String sessionId) { this.sessionId = sessionId; }
 }

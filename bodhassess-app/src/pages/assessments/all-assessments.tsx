@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
+  ArrowUpDown,
   ChevronRight,
   Copy as CopyIcon,
   Edit3,
@@ -57,6 +58,7 @@ export default function AllAssessmentsPage() {
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [sortBy, setSortBy] = useState<string>('created-desc');
 
   const [allotteesOpen, setAllotteesOpen] = useState<AssessmentRecord | null>(null);
   const [allotteesData, setAllotteesData] = useState<AssessmentAllotees | null>(null);
@@ -92,6 +94,22 @@ export default function AllAssessmentsPage() {
       );
     });
   }, [rows, search, statusFilter]);
+
+  const sorted = useMemo(() => {
+    const arr = [...filtered];
+    const byName = (a: AssessmentRecord, b: AssessmentRecord) =>
+      (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
+    const ts = (r: AssessmentRecord) => (r.createdAt ? new Date(r.createdAt).getTime() : 0);
+    switch (sortBy) {
+      case 'created-asc': arr.sort((a, b) => ts(a) - ts(b)); break;
+      case 'name-asc': arr.sort(byName); break;
+      case 'name-desc': arr.sort((a, b) => byName(b, a)); break;
+      case 'sessions-desc': arr.sort((a, b) => (b.sessionsCount || 0) - (a.sessionsCount || 0)); break;
+      case 'created-desc':
+      default: arr.sort((a, b) => ts(b) - ts(a)); break;
+    }
+    return arr;
+  }, [filtered, sortBy]);
 
   const openAllotees = async (row: AssessmentRecord) => {
     setAllotteesOpen(row);
@@ -177,6 +195,19 @@ export default function AllAssessmentsPage() {
                 {statusOptions.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
               </SelectContent>
             </Select>
+            <Select value={sortBy} onValueChange={setSortBy}>
+              <SelectTrigger className="w-44" size="md">
+                <ArrowUpDown className="size-3.5 opacity-60" />
+                <SelectValue placeholder="Sort" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="created-desc">Newest first</SelectItem>
+                <SelectItem value="created-asc">Oldest first</SelectItem>
+                <SelectItem value="name-asc">Name A–Z</SelectItem>
+                <SelectItem value="name-desc">Name Z–A</SelectItem>
+                <SelectItem value="sessions-desc">Most sessions</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </CardContent>
       </Card>
@@ -206,9 +237,9 @@ export default function AllAssessmentsPage() {
               <tbody>
                 {loading ? (
                   <tr><td colSpan={8} className="px-5 py-8 text-center text-muted-foreground">Loading…</td></tr>
-                ) : filtered.length === 0 ? (
+                ) : sorted.length === 0 ? (
                   <tr><td colSpan={8} className="px-5 py-12 text-center text-muted-foreground">No assessments yet.</td></tr>
-                ) : filtered.map((r) => (
+                ) : sorted.map((r) => (
                   <tr key={r.id} className="border-b border-border last:border-0 hover:bg-muted/50">
                     <td className="px-5 py-3">
                       <div className="font-medium">{r.name || <em className="italic text-muted-foreground text-xs">Untitled</em>}</div>

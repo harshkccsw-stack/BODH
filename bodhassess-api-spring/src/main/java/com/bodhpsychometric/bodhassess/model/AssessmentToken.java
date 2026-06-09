@@ -45,6 +45,13 @@ public class AssessmentToken {
     @Column(name = "respondent_id", length = 64)
     private String respondentId;
 
+    // Invitee email for a "standalone" register link (no entity/group/
+    // respondent scope). Lets the copy-link popup reuse the SAME link for a
+    // given (assessment, email) instead of minting a fresh anonymous token
+    // each click. Null for scoped tokens.
+    @Column(name = "email", length = 255)
+    private String email;
+
     @Column(name = "max_uses")
     private Integer maxUses;
 
@@ -78,6 +85,8 @@ public class AssessmentToken {
     public void setGroupId(String groupId) { this.groupId = groupId; }
     public String getRespondentId() { return respondentId; }
     public void setRespondentId(String respondentId) { this.respondentId = respondentId; }
+    public String getEmail() { return email; }
+    public void setEmail(String email) { this.email = email; }
     public Integer getMaxUses() { return maxUses; }
     public void setMaxUses(Integer maxUses) { this.maxUses = maxUses; }
     public int getUsedCount() { return usedCount; }

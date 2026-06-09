@@ -764,17 +764,27 @@ export interface AssessmentToken {
   groupId?: string | null;
   groupName?: string | null;
   respondentId?: string | null;
+  email?: string | null;
   maxUses?: number | null;
   usedCount?: number;
   expiresAt?: string | null;
   createdAt?: string;
   createdBy?: string;
+  // What the public /register page does when the link is opened.
+  // "register" → show the form. "login" → known account; show "sign in & begin".
+  kind?: 'register' | 'login';
+  // For a login token: email to prefill and the assigned session to open.
+  loginEmail?: string | null;
+  sessionId?: string | null;
 }
 export interface IssueTokenRequest {
   assessmentId: string;
   entityId?: string | null;
   groupId?: string | null;
   respondentId?: string | null;
+  // Invitee email for a standalone link — drives reuse-by-email and the
+  // login-vs-register decision on the server.
+  email?: string | null;
   maxUses?: number | null;
   expiresAt?: string | null;
 }
@@ -827,6 +837,14 @@ export const publicTokensApi = {
   // Returns { exists } so the page can prompt login instead of re-registering.
   registrationCheck: (body: RegistrationCheckRequest) =>
     jsonFetch<{ exists: boolean }>(`/public/tokens/registration-check`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  // Existing-account path for a register-kind link: verifies email + dob, links
+  // the person into the token's entity/group, ensures the session, signs them
+  // in, and returns it — so they land straight in the assessment.
+  loginExisting: (token: string, body: { email: string; dob: string }) =>
+    jsonFetch<PublicRegistrationResult>(`/public/tokens/${encodeURIComponent(token)}/login`, {
       method: 'POST',
       body: JSON.stringify(body),
     }),

@@ -12,6 +12,7 @@ import org.springframework.util.StringUtils;
 import com.bodhpsychometric.bodhassess.exception.BadRequestException;
 import com.bodhpsychometric.bodhassess.exception.DuplicateResourceException;
 import com.bodhpsychometric.bodhassess.exception.ResourceNotFoundException;
+import com.bodhpsychometric.bodhassess.exception.UnauthorizedAccessException;
 import com.bodhpsychometric.bodhassess.model.Assessment;
 import com.bodhpsychometric.bodhassess.model.AssessmentToken;
 import com.bodhpsychometric.bodhassess.model.EntityRegistration;
@@ -175,6 +176,100 @@ public class PublicRegistrationService {
                 new java.util.ArrayList<>());
 
         return new PublicRegistrationDto.Result(savedSession.getId(), respondentId, a.getId(), authToken);
+    }
+
+    /**
+     * Existing-account path for a register-kind link (entity / group /
+     * standalone). When the person filling the form already has an account, we
+     * don't register them again — they confirm their email + dob (the portal
+     * credential), and we: verify it, link them into the token's entity/group,
+     * ensure they have a session for the assessment, count the token use, and
+     * mint a RESPONDENT auth token. The SPA then opens that session directly,
+     * so a registered entity member lands IN the assessment instead of the
+     * dashboard.
+     */
+    public PublicRegistrationDto.Result loginExisting(String token, PublicRegistrationDto req) {
+        if (req == null || !StringUtils.hasText(req.getEmail()) || !StringUtils.hasText(req.getDob())) {
+            throw new BadRequestException("email and dob are required");
+        }
+        AssessmentToken t = tokens.findById(token)
+                .orElseThrow(() -> new ResourceNotFoundException("AssessmentToken", "token", token));
+        if (t.getExpiresAt() != null && t.getExpiresAt().isBefore(OffsetDateTime.now(java.time.ZoneOffset.UTC))) {
+            throw new BadRequestException("Token expired");
+        }
+        if (t.getMaxUses() != null && t.getUsedCount() >= t.getMaxUses()) {
+            throw new BadRequestException("Token has been used the maximum number of times");
+        }
+        Assessment a = assessments.findById(t.getAssessmentId())
+                .orElseThrow(() -> new ResourceNotFoundException("Assessment", "id", t.getAssessmentId()));
+
+        // Verify the existing account — email + dob is the portal password.
+        String email = req.getEmail().trim();
+        String dob = req.getDob().trim();
+        com.bodhpsychometric.bodhassess.model.User u = users.findByEmailIgnoreCase(email)
+                .orElseThrow(() -> new UnauthorizedAccessException("Email or date of birth doesn't match our records."));
+        if (!dob.equals(u.getDob() == null ? null : u.getDob().trim())) {
+            throw new UnauthorizedAccessException("Email or date of birth doesn't match our records.");
+        }
+        if (u.getStatus() != null && !"Active".equalsIgnoreCase(u.getStatus())) {
+            throw new UnauthorizedAccessException("This account is not active.");
+        }
+        String respondentId = u.getId();
+
+        // Link into the token's entity/group (idempotent), mirroring register().
+        String entityName = null;
+        if (StringUtils.hasText(t.getEntityId())) {
+            EntityRegistration e = entities.findById(t.getEntityId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Entity", "id", t.getEntityId()));
+            entityName = StringUtils.hasText(e.getCompanyName()) ? e.getCompanyName() : e.getName();
+            if (e.getMemberIds() == null) e.setMemberIds(new HashSet<>());
+            if (!e.getMemberIds().contains(respondentId)) { e.getMemberIds().add(respondentId); entities.save(e); }
+        }
+        if (StringUtils.hasText(t.getGroupId())) {
+            RespondentGroup g = groups.findById(t.getGroupId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Group", "id", t.getGroupId()));
+            if (g.getMemberIds() == null) g.setMemberIds(new HashSet<>());
+            if (!g.getMemberIds().contains(respondentId)) { g.getMemberIds().add(respondentId); groups.save(g); }
+        }
+        upsertUser(respondentId, req, t.getEntityId());
+
+        // Ensure exactly one session for (assessment, respondent) — reuse if any.
+        PortalSession session = sessions.findByRespondentId(respondentId).stream()
+                .filter(s -> a.getId().equals(s.getAssessmentId()))
+                .findFirst().orElse(null);
+        if (session == null) {
+            if (StringUtils.hasText(t.getEntityId())
+                    && assessmentService.wouldExceedEntityCap(a.getId(), t.getEntityId(), 1)) {
+                throw new BadRequestException(
+                        "This assessment's cap for the entity has been reached. Please contact the administrator.");
+            }
+            Respondent r = respondents.findById(respondentId).orElse(null);
+            PortalSession s = new PortalSession();
+            s.setId("SESS-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase());
+            s.setAssessmentId(a.getId());
+            s.setName(a.getName());
+            s.setRespondentId(respondentId);
+            s.setRespondentName(r != null ? r.getName() : null);
+            s.setRespondentEmail(email);
+            s.setInstrument(a.getQuestionnaireName());
+            s.setInstrumentFullName(a.getQuestionnaireName());
+            s.setVertical(a.getVertical());
+            s.setLanguage(a.getLanguage() != null ? a.getLanguage() : "English");
+            s.setStatus("Active");
+            s.setScore("--");
+            if (StringUtils.hasText(t.getEntityId())) { s.setEntityId(t.getEntityId()); s.setEntityName(entityName); }
+            session = sessions.save(s);
+        }
+
+        // Count the use, like register() does.
+        t.setUsedCount(t.getUsedCount() + 1);
+        tokens.save(t);
+
+        String authToken = tokenProvider.createToken(
+                respondentId, email,
+                com.bodhpsychometric.bodhassess.security.UserPrincipal.UserType.RESPONDENT,
+                new java.util.ArrayList<>());
+        return new PublicRegistrationDto.Result(session.getId(), respondentId, a.getId(), authToken);
     }
 
     /**
