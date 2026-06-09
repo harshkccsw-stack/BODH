@@ -33,7 +33,6 @@ import com.bodhpsychometric.bodhassess.repository.AssessmentRepository;
 import com.bodhpsychometric.bodhassess.repository.PortalSessionRepository;
 import com.bodhpsychometric.bodhassess.security.UserPrincipal;
 
-import org.springframework.security.access.AccessDeniedException;
 
 @Service
 @Transactional
@@ -232,12 +231,19 @@ public class AssessmentsService {
 
     public void recordHeartbeat(String id, HeartbeatRequest body, UserPrincipal principal) {
         PortalSession s = repo.findById(id).orElseThrow(() -> new ResourceNotFoundException("Assessment", "id", id));
-        if (principal == null || !s.getRespondentId().equals(principal.getId())) {
-            throw new AccessDeniedException("Not the owner of this assessment session");
+        // Heartbeat tracks "where is the respondent in this assessment" for
+        // the Live Tracking admin view — purely informational. The rest of
+        // the take flow (PUT /assessments/{id} submit, GET /{id}, /reset)
+        // has no auth at all, so a strict principal == respondent check here
+        // produced spurious 403s whenever a take URL was opened by anyone
+        // other than the original respondent (kiosk, shared link, etc.).
+        // Just record what we can; if there's no auth, attribute the beat
+        // to the session's own respondent so the tracking still works.
+        if (principal != null && !s.getRespondentId().equals(principal.getId())) {
+            log.debug("heartbeat for session {} from principal {} (owner {}): allowing",
+                    id, principal.getId(), s.getRespondentId());
         }
-        if ("Completed".equalsIgnoreCase(s.getStatus())) {
-            throw new BadRequestException("Assessment already completed");
-        }
+        if ("Completed".equalsIgnoreCase(s.getStatus())) return;
         heartbeats.record(id, s.getRespondentId(), s.getInstrument(), s.getGroupId(),
                 body.getCurrentIndex(), body.getTotalQuestions());
     }

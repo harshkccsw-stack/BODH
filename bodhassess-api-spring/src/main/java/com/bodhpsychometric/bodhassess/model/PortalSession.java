@@ -57,6 +57,10 @@ public class PortalSession {
 
     private String status;
 
+    // Aggregate summary string, e.g. "Cognitive Flexibility=13, Resilience=13, ...".
+    // Grows with the MQT count; default varchar(255) overflows on instruments
+    // with many MQTs and trips Data truncation on save.
+    @Column(columnDefinition = "text")
     private String score;
 
     // Per-question responses live in the assessment_answers child table
