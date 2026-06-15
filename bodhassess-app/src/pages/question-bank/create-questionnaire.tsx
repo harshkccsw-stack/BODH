@@ -74,6 +74,13 @@ interface OptionMqtScore {
   score: number;
 }
 
+// Stable, case-insensitive map key for a nested trait path under an MQ —
+// e.g. ("Wellbeing", ["Stress", "Acute"]). Used by the bulk importer to match
+// a parsed scoring entry to the leaf-trait id created while walking the tree.
+function scorePathKey(mq: string, path: string[]): string {
+  return [mq, ...path].map((s) => s.toLowerCase()).join('›');
+}
+
 // MQ/MQT coverage tags for a question. Which qualities/traits the question
 // measures, independent of the option/question scoring above.
 interface Coverage {
@@ -611,16 +618,38 @@ export default function CreateAssessmentPage() {
   // Expected columns (case-insensitive):
   //   stem (required), format, section, risk_flag, risk_rule,
   //   coverage_mqs, coverage_mqts (semicolon-separated names; tags only)
+  //   question_mq, question_mqt, question_score (question-level scoring)
   //   option1..option8
   //   option1_mq, option1_mqt, option1_score ... (per option)
   // MQ/MQT names for scoring are resolved against the catalog; missing ones
-  // are created in the database on import. Coverage names are resolved against
-  // the catalog for tagging only and dropped if they don't match.
+  // (including nested traits) are created in the database on import.
+  //
+  // Two power-user conventions on the scoring cells (option*_/question_*):
+  //   • Multiple scores per scope — the _mq / _mqt / _score cells may each
+  //     carry a ';'- (or '|'-) separated list whose items pair up positionally,
+  //     so one option can score several MQTs at once. A single _mq value
+  //     broadcasts to every entry in that scope.
+  //   • Nested sub-/sub-sub-traits — an _mqt value may be a '>'-separated path
+  //     (e.g. "Stress > Acute > Panic"); each segment below the MQ is created
+  //     as needed and the leaf is the trait that gets scored.
+  // Coverage names are resolved against the catalog for tagging only and
+  // dropped if they don't match.
+
+  // A single scoring entry: an MQ, a (possibly nested) MQT path under it, and
+  // the score. mqtPath holds the trait hierarchy below the MQ — e.g.
+  // ["Stress", "Acute"] for "Stress > Acute". An empty mqtPath with a present
+  // mq defaults to a single trait named after the MQ; an empty mq with only a
+  // score is a bare score that falls back to the first catalog trait.
+  interface ParsedScore {
+    mq: string;
+    mqtPath: string[];
+    score: number | null;
+  }
   interface ParsedOption {
     text: string;
-    mq: string;
-    mqt: string;
-    score: number | null;
+    // One option can score against several MQTs at once — the source cells
+    // option{n}_mq / _mqt / _score may each carry a ';'-separated list.
+    scores: ParsedScore[];
   }
   interface ParsedRow {
     stem: string;
@@ -629,9 +658,10 @@ export default function CreateAssessmentPage() {
     risk_flag: boolean;
     risk_rule: string;
     options: ParsedOption[];
-    // Question-level (mq, mqt, score) — applied to the MQT total whenever
-    // the question is answered, regardless of which option was picked.
-    question_score: ParsedOption | null;
+    // Question-level scores — applied to the MQT totals whenever the question
+    // is answered, regardless of which option was picked. Like options, the
+    // question_mq / _mqt / _score columns may carry ';'-separated lists.
+    question_scores: ParsedScore[];
     // Coverage tags (names; resolved to ids on import). Semicolon-separated
     // in the source columns coverage_mqs / coverage_mqts.
     coverage_mqs: string[];
@@ -713,6 +743,62 @@ export default function CreateAssessmentPage() {
         // empty rows, and we don't want to flag each one as "stem is empty".
         .filter((row) => Object.values(row).some((v) => v !== '' && v !== undefined && v !== null));
 
+      // Split a scoring cell into a list on ';' or '|' (mirrors coverage cols).
+      const splitCell = (raw: any) => String(raw ?? '').split(/[;|]/).map((s) => s.trim());
+      // Turn the (mq, mqt, score) cell trio for one scope into scoring entries.
+      // Each cell may hold a ';'-separated list whose items pair up positionally;
+      // a single mq broadcasts to every entry; an mqt value may be a
+      // '>'-separated nesting path. requireScore=true (question scope) flags an
+      // mq with no score as an error rather than silently skipping it.
+      const parseScoreCells = (
+        mqRaw: any,
+        mqtRaw: any,
+        scoreRaw: any,
+        label: string,
+        requireScore: boolean,
+        errors: string[],
+      ): ParsedScore[] => {
+        const mqList = splitCell(mqRaw);
+        const mqtList = splitCell(mqtRaw);
+        const scoreList = splitCell(scoreRaw);
+        const present = (l: string[]) => l.some((s) => s !== '');
+        if (!present(mqList) && !present(mqtList) && !present(scoreList)) return [];
+        const count = Math.max(
+          present(mqList) ? mqList.length : 0,
+          present(mqtList) ? mqtList.length : 0,
+          present(scoreList) ? scoreList.length : 0,
+        );
+        const out: ParsedScore[] = [];
+        for (let i = 0; i < count; i++) {
+          // A single MQ broadcasts across every entry; otherwise pair by index.
+          const mq = (mqList.length === 1 ? mqList[0] : mqList[i] ?? '').trim();
+          const mqtSeg = (mqtList[i] ?? '').trim();
+          // Nested path below the MQ. If no MQT is given but an MQ is, default
+          // to a single trait named after the MQ (auto-created on import).
+          const mqtPath = mqtSeg
+            ? mqtSeg.split('>').map((s) => s.trim()).filter(Boolean)
+            : (mq ? [mq] : []);
+          const sStr = (scoreList[i] ?? '').trim();
+          const sNum = sStr === '' ? null : Number(sStr);
+          const score = sStr !== '' && Number.isFinite(sNum as number) ? (sNum as number) : null;
+          if (sStr !== '' && score === null) {
+            errors.push(`${label}: invalid score "${sStr}"`);
+          }
+          if (!mq && mqtSeg) {
+            errors.push(`${label}: MQT given without MQ`);
+            continue;
+          }
+          if (requireScore && mq && score === null) {
+            errors.push(`${label}: MQ given without score`);
+            continue;
+          }
+          // Skip an entirely-empty positional slot (e.g. from a trailing ';').
+          if (!mq && mqtPath.length === 0 && score === null) continue;
+          out.push({ mq, mqtPath, score });
+        }
+        return out;
+      };
+
       const parsed: ParsedRow[] = rows.map((row) => {
         const errors: string[] = [];
         const stem = String(row.stem ?? row.question ?? row.text ?? '').trim();
@@ -726,38 +812,29 @@ export default function CreateAssessmentPage() {
         const options: ParsedOption[] = [];
         for (let n = 1; n <= 8; n++) {
           const text = String(row[`option${n}`] ?? '').trim();
-          const mq = String(row[`option${n}_mq`] ?? '').trim();
-          // If only MQ is given, default MQT to the same name — we auto-create
-          // a single trait under that quality during import.
-          const mqt = String(row[`option${n}_mqt`] ?? '').trim() || mq;
-          const scoreRaw = row[`option${n}_score`];
-          const scoreStr = scoreRaw === '' || scoreRaw === undefined || scoreRaw === null ? '' : String(scoreRaw).trim();
-          const score = scoreStr === '' ? null : Number(scoreStr);
           if (!text) continue;
-          if (!mq && mqt) {
-            errors.push(`option${n}: MQT given without MQ`);
-          }
-          options.push({ text, mq, mqt, score: Number.isFinite(score as number) ? (score as number) : null });
+          const scores = parseScoreCells(
+            row[`option${n}_mq`],
+            row[`option${n}_mqt`],
+            row[`option${n}_score`],
+            `option${n}`,
+            false,
+            errors,
+          );
+          options.push({ text, scores });
         }
         if (format !== 'FREE_TEXT' && options.length < 2) {
           errors.push(`format ${format} needs at least 2 options`);
         }
-        // Optional question-level score (applied on any answer).
-        const qMq = String(row.question_mq ?? '').trim();
-        const qMqt = String(row.question_mqt ?? '').trim() || qMq;
-        const qScoreRaw = row.question_score;
-        const qScoreStr = qScoreRaw === '' || qScoreRaw === undefined || qScoreRaw === null ? '' : String(qScoreRaw).trim();
-        const qScoreNum = qScoreStr === '' ? null : Number(qScoreStr);
-        let question_score: ParsedOption | null = null;
-        if (qMq || qScoreStr !== '') {
-          if (!qMq && qMqt) {
-            errors.push('question_score: MQT given without MQ');
-          } else if (qMq && qScoreStr === '') {
-            errors.push('question_score: MQ given without score');
-          } else if (qMq && qScoreNum !== null && Number.isFinite(qScoreNum)) {
-            question_score = { text: '', mq: qMq, mqt: qMqt, score: qScoreNum };
-          }
-        }
+        // Optional question-level scores (applied on any answer).
+        const question_scores = parseScoreCells(
+          row.question_mq,
+          row.question_mqt,
+          row.question_score,
+          'question_score',
+          true,
+          errors,
+        );
         const splitNames = (raw: any) =>
           String(raw ?? '')
             .split(/[;|]/)
@@ -765,7 +842,7 @@ export default function CreateAssessmentPage() {
             .filter(Boolean);
         const coverage_mqs = splitNames(row.coverage_mqs ?? row.coverage_mq);
         const coverage_mqts = splitNames(row.coverage_mqts ?? row.coverage_mqt);
-        return { stem, format, section, risk_flag, risk_rule, options, question_score, coverage_mqs, coverage_mqts, errors };
+        return { stem, format, section, risk_flag, risk_rule, options, question_scores, coverage_mqs, coverage_mqts, errors };
       });
 
       setBulkRows(parsed);
@@ -777,29 +854,35 @@ export default function CreateAssessmentPage() {
     }
   };
 
-  // Collect every distinct (MQ name, MQT name) pair from valid rows.
+  // Collect every distinct (MQ, nested MQT path) reference from valid rows.
+  // `mqt` is the path rendered as a breadcrumb for display; `path` drives
+  // resolution/creation; `isNew` is true when the full path doesn't yet exist.
   const bulkPendingPairs = useMemo(() => {
-    const pairs = new Map<string, { mq: string; mqt: string; isNew: boolean }>();
-    const addPair = (mq: string, mqt: string) => {
-      if (!mq || !mqt) return;
-      const key = `${mq.toLowerCase()}|${mqt.toLowerCase()}`;
+    const pairs = new Map<string, { mq: string; mqt: string; path: string[]; isNew: boolean }>();
+    // Walk the catalog tree to see if a nested trait path already resolves.
+    const pathExists = (mqName: string, path: string[]): boolean => {
+      const mq = mqs.find((m) => m.name.toLowerCase() === mqName.toLowerCase());
+      if (!mq) return false;
+      let level: MQT[] | undefined = mq.mqts;
+      let node: MQT | undefined;
+      for (const seg of path) {
+        node = level?.find((t) => t.name.toLowerCase() === seg.toLowerCase());
+        if (!node) return false;
+        level = node.children;
+      }
+      return !!node;
+    };
+    const addEntry = (mq: string, path: string[]) => {
+      if (!mq || path.length === 0) return;
+      const key = scorePathKey(mq, path);
       if (pairs.has(key)) return;
-      const existingMq = mqs.find((m) => m.name.toLowerCase() === mq.toLowerCase());
-      const existingMqt = existingMq?.mqts.find((t) => t.name.toLowerCase() === mqt.toLowerCase());
-      pairs.set(key, { mq, mqt, isNew: !existingMqt });
+      pairs.set(key, { mq, mqt: path.join(' › '), path, isNew: !pathExists(mq, path) });
     };
     bulkRows
       .filter((r) => r.errors.length === 0)
       .forEach((r) => {
-        if (r.question_score) addPair(r.question_score.mq, r.question_score.mqt);
-        r.options.forEach((o) => {
-          if (!o.mq || !o.mqt) return;
-          const key = `${o.mq.toLowerCase()}|${o.mqt.toLowerCase()}`;
-          if (pairs.has(key)) return;
-          const existingMq = mqs.find((m) => m.name.toLowerCase() === o.mq.toLowerCase());
-          const existingMqt = existingMq?.mqts.find((t) => t.name.toLowerCase() === o.mqt.toLowerCase());
-          pairs.set(key, { mq: o.mq, mqt: o.mqt, isNew: !existingMqt });
-        });
+        r.question_scores.forEach((s) => addEntry(s.mq, s.mqtPath));
+        r.options.forEach((o) => o.scores.forEach((s) => addEntry(s.mq, s.mqtPath)));
       });
     return Array.from(pairs.values());
   }, [bulkRows, mqs]);
@@ -810,41 +893,60 @@ export default function CreateAssessmentPage() {
     setBulkImporting(true);
     setBulkError('');
     try {
-      // Resolve / create MQs and MQTs against the database before building questions.
-      // Working copy of the catalog that we mutate as we create things so later
-      // pairs can find them without another API round-trip.
-      let catalogCopy: StoredMQ[] = catalog.map((m) => ({ ...m, mqts: m.mqts.map((t) => ({ ...t })) }));
+      // Resolve / create MQs and nested MQTs against the database before
+      // building questions. Deep-clone the catalog so we can grow trait trees
+      // in place; later paths then find the nodes earlier ones created.
+      const cloneMqt = (t: any): any => ({
+        id: t.id,
+        name: t.name,
+        ...(Array.isArray(t.children) ? { children: t.children.map(cloneMqt) } : {}),
+      });
+      let catalogCopy: StoredMQ[] = catalog.map((m) => ({ ...m, mqts: m.mqts.map(cloneMqt) }));
       const findMq = (name: string) => catalogCopy.find((m) => m.name.toLowerCase() === name.toLowerCase());
-      const findMqt = (mq: StoredMQ, name: string) => mq.mqts.find((t) => t.name.toLowerCase() === name.toLowerCase());
+      const genMqtId = () => `mqt-${Math.random().toString(36).slice(2, 10)}`;
 
-      // Track resolved mqt_id for each (mq,mqt) key.
+      // resolved: scorePathKey -> leaf-trait id. created/changed track which MQs
+      // need a create vs. an update call so we persist each MQ exactly once.
       const resolved = new Map<string, string>();
+      const createdMqIds = new Set<string>();
+      const changedMqIds = new Set<string>();
       const { qualitiesApi } = await import('@/lib/api');
 
-      for (const pair of bulkPendingPairs) {
-        const key = `${pair.mq.toLowerCase()}|${pair.mqt.toLowerCase()}`;
-        let mq = findMq(pair.mq);
+      for (const pending of bulkPendingPairs) {
+        let mq = findMq(pending.mq);
         if (!mq) {
-          const newMqtId = `mqt-${Math.random().toString(36).slice(2, 10)}`;
-          const newMq: StoredMQ = {
-            id: `mq-${Math.random().toString(36).slice(2, 10)}`,
-            name: pair.mq,
-            mqts: [{ id: newMqtId, name: pair.mqt }],
-          };
-          await qualitiesApi.create(newMq);
-          catalogCopy = [...catalogCopy, newMq];
-          resolved.set(key, newMqtId);
-          continue;
+          mq = { id: `mq-${Math.random().toString(36).slice(2, 10)}`, name: pending.mq, mqts: [] };
+          catalogCopy = [...catalogCopy, mq];
+          createdMqIds.add(mq.id);
         }
-        let mqt = findMqt(mq, pair.mqt);
-        if (!mqt) {
-          const newMqtId = `mqt-${Math.random().toString(36).slice(2, 10)}`;
-          mqt = { id: newMqtId, name: pair.mqt };
-          const updated: StoredMQ = { ...mq, mqts: [...mq.mqts, mqt] };
-          await qualitiesApi.update(mq.id, updated);
-          catalogCopy = catalogCopy.map((m) => (m.id === mq!.id ? updated : m));
-        }
-        resolved.set(key, mqt.id);
+        // Walk the path under the MQ, creating each missing segment. The last
+        // segment is the leaf trait that scores actually attach to.
+        let level: any[] = mq.mqts;
+        let leafId = '';
+        pending.path.forEach((seg, d) => {
+          let node = level.find((t: any) => t.name.toLowerCase() === seg.toLowerCase());
+          if (!node) {
+            node = { id: genMqtId(), name: seg };
+            level.push(node);
+            if (!createdMqIds.has(mq!.id)) changedMqIds.add(mq!.id);
+          }
+          leafId = node.id;
+          if (d < pending.path.length - 1) {
+            if (!node.children) node.children = [];
+            level = node.children;
+          }
+        });
+        if (leafId) resolved.set(scorePathKey(pending.mq, pending.path), leafId);
+      }
+
+      // Persist: brand-new MQs via create, existing MQs that gained traits via update.
+      for (const id of createdMqIds) {
+        const mq = catalogCopy.find((m) => m.id === id);
+        if (mq) await qualitiesApi.create(mq);
+      }
+      for (const id of changedMqIds) {
+        const mq = catalogCopy.find((m) => m.id === id);
+        if (mq) await qualitiesApi.update(mq.id, mq);
       }
       // Push the updated catalog into state so downstream code (MQT pickers,
       // upsert payload) sees the newly-created MQs/MQTs without a round-trip.
@@ -905,23 +1007,34 @@ export default function CreateAssessmentPage() {
           media_type: 'none',
           options: r.options.map((o) => {
             const scores: Array<{ mqt_id: string; score: number }> = [];
-            if (o.mq && o.mqt && o.score !== null) {
-              const key = `${o.mq.toLowerCase()}|${o.mqt.toLowerCase()}`;
-              const mqtId = resolved.get(key);
-              if (mqtId) scores.push({ mqt_id: mqtId, score: o.score });
-            } else if (!o.mq && !o.mqt && o.score !== null && firstMqtInCatalog) {
-              scores.push({ mqt_id: firstMqtInCatalog.id, score: o.score });
-            }
+            const seen = new Set<string>();
+            o.scores.forEach((s) => {
+              if (s.score === null) return;
+              let mqtId: string | undefined;
+              if (s.mq && s.mqtPath.length) {
+                mqtId = resolved.get(scorePathKey(s.mq, s.mqtPath));
+              } else if (!s.mq && s.mqtPath.length === 0 && firstMqtInCatalog) {
+                // Bare score with no MQ/MQT — fall back to the first trait.
+                mqtId = firstMqtInCatalog.id;
+              }
+              if (mqtId && !seen.has(mqtId)) {
+                seen.add(mqtId);
+                scores.push({ mqt_id: mqtId, score: s.score });
+              }
+            });
             return { text: o.text, scores };
           }),
           question_scores: (() => {
             const out: Array<{ mqt_id: string; score: number }> = [];
-            const qs = r.question_score;
-            if (qs && qs.mq && qs.mqt && qs.score !== null) {
-              const key = `${qs.mq.toLowerCase()}|${qs.mqt.toLowerCase()}`;
-              const mqtId = resolved.get(key);
-              if (mqtId) out.push({ mqt_id: mqtId, score: qs.score });
-            }
+            const seen = new Set<string>();
+            r.question_scores.forEach((s) => {
+              if (s.score === null || !s.mq || !s.mqtPath.length) return;
+              const mqtId = resolved.get(scorePathKey(s.mq, s.mqtPath));
+              if (mqtId && !seen.has(mqtId)) {
+                seen.add(mqtId);
+                out.push({ mqt_id: mqtId, score: s.score });
+              }
+            });
             return out;
           })(),
           coverage: {
@@ -955,21 +1068,26 @@ export default function CreateAssessmentPage() {
       'option3', 'option3_mq', 'option3_mqt', 'option3_score',
       'option4', 'option4_mq', 'option4_mqt', 'option4_score',
     ];
+    // The _mqt cells show two power-user conventions: a '>' path creates
+    // nested sub-/sub-sub-traits (row 1 scores under "Stress > Acute Stress"),
+    // and ';'-separated lists in the _mqt / _score cells score one option
+    // against several MQTs at once (row 2's options score both Attention and
+    // Memory). A single _mq value broadcasts across the listed MQTs.
     const sample = [
       ['How often do you feel overwhelmed by work?', 'LIKERT', 'Stress', 'false', '',
         'Wellbeing', 'Stress Level',
         '', '', '',
-        'Never',      'Wellbeing', 'Stress Level', '0',
-        'Sometimes',  'Wellbeing', 'Stress Level', '1',
-        'Often',      'Wellbeing', 'Stress Level', '2',
-        'Always',     'Wellbeing', 'Stress Level', '3'],
-      ['I find it easy to focus for long periods.', 'LIKERT', 'Focus', 'false', '',
-        'Cognitive', 'Attention',
-        'Cognitive', '', '1',
-        'Strongly disagree', 'Cognitive', 'Attention', '0',
-        'Disagree',          'Cognitive', 'Attention', '1',
-        'Agree',             'Cognitive', 'Attention', '2',
-        'Strongly agree',    'Cognitive', 'Attention', '3'],
+        'Never',      'Wellbeing', 'Stress > Acute Stress', '0',
+        'Sometimes',  'Wellbeing', 'Stress > Acute Stress', '1',
+        'Often',      'Wellbeing', 'Stress > Acute Stress', '2',
+        'Always',     'Wellbeing', 'Stress > Acute Stress', '3'],
+      ['I keep track of several tasks at once.', 'LIKERT', 'Focus', 'false', '',
+        'Cognitive', 'Attention; Memory',
+        '', '', '',
+        'Strongly disagree', 'Cognitive', 'Attention; Memory', '0; 0',
+        'Disagree',          'Cognitive', 'Attention; Memory', '1; 0',
+        'Agree',             'Cognitive', 'Attention; Memory', '2; 1',
+        'Strongly agree',    'Cognitive', 'Attention; Memory', '3; 2'],
     ];
     const csv = [header, ...sample]
       .map((row) => row.map((cell) => {
