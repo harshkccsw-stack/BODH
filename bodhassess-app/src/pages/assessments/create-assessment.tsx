@@ -77,6 +77,15 @@ export default function CreateAssessmentPage() {
     })();
   }, []);
 
+  // Only questionnaires still present in the library are selectable. When a
+  // questionnaire is deleted from the Questionnaire Library its committed
+  // versions are stripped, leaving an orphaned parent with versionCount 0 —
+  // those (and draft-only questionnaires that can't be assigned) are hidden.
+  const availableQuestionnaires = useMemo(
+    () => questionnaires.filter((q) => (q.versionCount ?? 0) > 0),
+    [questionnaires],
+  );
+
   const selectedQ = questionnaires.find((q) => q.id === pickedQuestionnaire);
   const selectedVersion = versions.find((v) => v.id === pickedVersion);
 
@@ -223,7 +232,12 @@ export default function CreateAssessmentPage() {
             <Select value={pickedQuestionnaire} onValueChange={setPickedQuestionnaire}>
               <SelectTrigger className="w-full" size="md"><SelectValue placeholder="Pick a questionnaire" /></SelectTrigger>
               <SelectContent>
-                {questionnaires.map((q) => (
+                {availableQuestionnaires.length === 0 && (
+                  <div className="px-3 py-2 text-xs text-muted-foreground">
+                    No questionnaires available. Add one in the Questionnaire Library first.
+                  </div>
+                )}
+                {availableQuestionnaires.map((q) => (
                   <SelectItem key={q.id} value={q.id}>
                     {q.name}{q.vertical ? ` · ${q.vertical}` : ''}{q.versionCount ? ` · ${q.versionCount} version${q.versionCount === 1 ? '' : 's'}` : ''}
                   </SelectItem>
