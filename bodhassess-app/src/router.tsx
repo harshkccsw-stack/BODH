@@ -41,10 +41,14 @@ const EntityRegistrationPage = () => lazyPage(() => import('@/src/pages/entity-r
 const RegisterWithToken      = () => lazyPage(() => import('@/src/pages/register-with-token'));
 
 // ── Respondent portal (own auth, lives outside dashboard chrome) ──────────
-const PortalLogin       = () => lazyPage(() => import('@/src/pages/portal/login'));
-const PortalAssessments = () => lazyPage(() => import('@/src/pages/portal/assessments'));
-const PortalTake        = () => lazyPage(() => import('@/src/pages/portal/take'));
-const PortalComplete    = () => lazyPage(() => import('@/src/pages/portal/complete'));
+// MOVED to the standalone bodhassess-portal app (served at portal.bodh.biz).
+// Commented out (not deleted) so the cutover stays reversible. The take flow's
+// gates now live inside that app's /portal/assessment/:sessionId route.
+// const PortalLogin       = () => lazyPage(() => import('@/src/pages/portal/login'));
+// const PortalAssessments = () => lazyPage(() => import('@/src/pages/portal/assessments'));
+// const PortalTake        = () => lazyPage(() => import('@/src/pages/portal/take'));
+// const PortalComplete    = () => lazyPage(() => import('@/src/pages/portal/complete'));
+// /preview is the public questionnaire test-link (authoring tool) — kept here.
 const PreviewQuestionnaire = () => lazyPage(() => import('@/src/pages/portal/preview'));
 
 // ── Private pages (practitioner dashboard) ────────────────────────────────
@@ -161,11 +165,16 @@ const routes: RouteObject[] = [
       // token it falls back to ordinary self-signup.
       { path: '/register', element: <RegisterWithToken /> },
 
-      // Respondent portal — handles its own auth via portal-specific tokens
-      { path: '/portal/login', element: <PortalLogin /> },
-      { path: '/portal/assessments', element: <PortalAssessments /> },
-      { path: '/portal/take', element: <PortalTake /> },
-      { path: '/portal/complete', element: <PortalComplete /> },
+      // Respondent portal — MOVED to the standalone bodhassess-portal app
+      // (served at portal.bodh.biz). Commented out here, not deleted, so the
+      // cutover is reversible. NOTE: in-app redirects to /portal/* (login.tsx,
+      // register-with-token.tsx, admin/respondents.tsx "Portal URL") now fall
+      // through to the catch-all → /dashboard; retarget them to the portal
+      // origin when finishing the decommission.
+      // { path: '/portal/login', element: <PortalLogin /> },
+      // { path: '/portal/assessments', element: <PortalAssessments /> },
+      // { path: '/portal/take', element: <PortalTake /> },
+      // { path: '/portal/complete', element: <PortalComplete /> },
 
   // Take-assessment view — private but uses its own minimal full-screen layout
   {
