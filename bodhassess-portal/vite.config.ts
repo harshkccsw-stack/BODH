@@ -20,12 +20,12 @@ export default defineConfig(({ mode }) => {
       },
     },
     server: {
-      // 3001 so it can run next to the admin app (3000) in local dev.
-      port: 3001,
+      // 3002 so it can run next to the admin app (3000) in local dev.
+      port: 3002,
       host: true,
     },
     preview: {
-      port: 3001,
+      port: 3002,
       host: true,
     },
     build: {

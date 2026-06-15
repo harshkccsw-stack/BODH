@@ -65,9 +65,9 @@ export default function LoginPage() {
         router.replace('/dashboard');
       } else {
         // Authenticated, but not a dashboard account — their surface is the
-        // assessment portal.
+        // assessment portal, which is now a separate app (config.portalUrl).
         localStorage.setItem(config.authStorageKey, res.token);
-        window.location.href = '/portal/assessments';
+        window.location.href = `${config.portalUrl}/portal/assessment`;
       }
     } catch (err: any) {
       const msg = String(err?.message || '');

@@ -28,6 +28,16 @@ export const config = {
 
   /** Optional sub-path mount, e.g. "/bodh". Empty string means served at root. */
   basePath: read('VITE_BASE_PATH', ''),
+
+  /**
+   * Origin of the standalone respondent portal app (bodhassess-portal),
+   * e.g. https://portal.bodh.biz in production. Respondent-facing links
+   * (copy-link, QR, login redirects) are built against this so they leave
+   * the admin app and land in the portal. Defaults to the portal's local
+   * dev server (http://localhost:3002) so local stays working unchanged;
+   * production sets VITE_PORTAL_URL. No trailing slash.
+   */
+  portalUrl: read('VITE_PORTAL_URL', 'http://localhost:3002'),
 } as const;
 
 export type AppConfig = typeof config;

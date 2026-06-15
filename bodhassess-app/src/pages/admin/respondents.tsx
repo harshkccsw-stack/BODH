@@ -3,6 +3,7 @@
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { API_BASE, assessmentsApi, type Assessment } from '@/lib/api';
+import { config } from '@/lib/config';
 import { createRespondent, deleteRespondent, getRespondents, updateRespondent, type StoredRespondent } from '@/lib/data-store';
 import { autoFormatDdmmyyyy, ddmmyyyyToIso, formatDDMMYYYY } from '@/lib/helpers';
 import { Bell, ClipboardCheck, Pencil, Plus, ShieldCheck, Trash2, Upload, Users, X } from 'lucide-react';
@@ -472,7 +473,7 @@ export default function RespondentsPage() {
                     <p className="mt-1 text-xs">Share these login credentials with the respondent:</p>
                   </div>
                   <div className="rounded-lg border border-border bg-muted/40 p-3 space-y-2 font-mono text-xs">
-                    <div className="flex items-center justify-between"><span className="text-muted-foreground">Portal URL</span><span>/portal/login</span></div>
+                    <div className="flex items-center justify-between"><span className="text-muted-foreground">Portal URL</span><span className="truncate ml-2">{`${config.portalUrl}/portal/login`}</span></div>
                     <div className="flex items-center justify-between"><span className="text-muted-foreground">Email (login)</span><span className="font-semibold truncate ml-2">{form.email.trim()}</span></div>
                     {form.phone.trim() && (
                       <div className="flex items-center justify-between"><span className="text-muted-foreground">Phone (also accepted)</span><span className="font-semibold">{form.phone.trim()}</span></div>
@@ -482,7 +483,7 @@ export default function RespondentsPage() {
                   </div>
                   <div className="flex justify-end gap-2 pt-2">
                     <Button variant="outline" onClick={() => setModalOpen(false)}>Close</Button>
-                    <Button variant="primary" onClick={() => window.open('/portal/login', '_blank')}>Open Portal</Button>
+                    <Button variant="primary" onClick={() => window.open(`${config.portalUrl}/portal/login`, '_blank')}>Open Portal</Button>
                   </div>
                 </div>
               ) : (

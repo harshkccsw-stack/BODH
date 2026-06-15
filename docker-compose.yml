@@ -65,7 +65,7 @@ services:
       APP_AUTH_TOKEN_EXPIRATION_MSEC: ${APP_AUTH_TOKEN_EXPIRATION_MSEC:-604800000}
       # Includes the standalone respondent portal origins (separate subdomain →
       # own origin → must be explicitly allow-listed; credentials are sent).
-      APP_CORS_ALLOWED_ORIGINS: ${APP_CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:3001,https://admin.bodh.biz,https://portal.bodh.biz}
+      APP_CORS_ALLOWED_ORIGINS: ${APP_CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:3001,http://localhost:3002,https://admin.bodh.biz,https://portal.bodh.biz}
       APP_UPLOADS_DIR: /app/uploads
       APP_UPLOADS_BASE_URL: ${APP_UPLOADS_BASE_URL:-http://localhost:4000}
       APP_ADMIN_USERNAME: ${APP_ADMIN_USERNAME:-superadmin@bodh.biz}
