@@ -28,6 +28,11 @@ public class EntityRegistrationDto {
     // Linked respondent ids; admin manages via /admin/entity-registrations.
     @JsonProperty("member_ids")
     private List<String> memberIds;
+    // Access provisioning allow-lists, admin-managed in Entity Management.
+    private List<String> verticals;
+    @JsonProperty("platform_modules")
+    private List<String> platformModules;
+    private List<String> assessments;
     @JsonProperty("created_at")
     private String createdAt;
 
@@ -57,6 +62,12 @@ public class EntityRegistrationDto {
     public void setActive(Boolean active) { this.active = active; }
     public List<String> getMemberIds() { return memberIds; }
     public void setMemberIds(List<String> memberIds) { this.memberIds = memberIds; }
+    public List<String> getVerticals() { return verticals; }
+    public void setVerticals(List<String> verticals) { this.verticals = verticals; }
+    public List<String> getPlatformModules() { return platformModules; }
+    public void setPlatformModules(List<String> platformModules) { this.platformModules = platformModules; }
+    public List<String> getAssessments() { return assessments; }
+    public void setAssessments(List<String> assessments) { this.assessments = assessments; }
     public String getCreatedAt() { return createdAt; }
     public void setCreatedAt(String createdAt) { this.createdAt = createdAt; }
 }

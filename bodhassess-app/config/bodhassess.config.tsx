@@ -4,6 +4,7 @@ import {
   BookOpen,
   Brain,
   Briefcase,
+  Building2,
   ClipboardList,
   FileText,
   FlaskConical,
@@ -61,6 +62,12 @@ export const MENU_SIDEBAR: MenuConfig = [
     title: 'Reports',
     icon: FileText,
     path: '/reports',
+  },
+  { heading: 'Entity Management' },
+  {
+    title: 'Entity Registration',
+    icon: Building2,
+    path: '/admin/entity-registrations',
   },
   { heading: 'Verticals' },
   {
@@ -144,7 +151,6 @@ export const MENU_SIDEBAR: MenuConfig = [
     children: [
       { title: 'Practitioners', path: '/admin/practitioners' },
       { title: 'Respondents', path: '/admin/respondents' },
-      { title: 'Entity Registration', path: '/admin/entity-registrations' },
       { title: 'Groups', path: '/admin/groups' },
     ],
   },

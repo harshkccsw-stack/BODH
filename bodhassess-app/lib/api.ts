@@ -114,6 +114,12 @@ export interface EntityRegistration {
   // Linked respondent ids — the entity's members. Sessions get created
   // for each member when the entity is allotted to an Assessment.
   member_ids?: string[];
+  // Access provisioning allow-lists, admin-managed in Entity Management:
+  // which psychology verticals, platform modules, and specific assessment
+  // group keys this entity is provisioned to use.
+  verticals?: string[];
+  platform_modules?: string[];
+  assessments?: string[];
   created_at?: string;
 }
 
@@ -122,6 +128,9 @@ export interface EntityRegistration {
 export interface EntityRegistrationUpdate {
   active?: boolean;
   member_ids?: string[];
+  verticals?: string[];
+  platform_modules?: string[];
+  assessments?: string[];
 }
 
 export const entityRegistrationsApi = {
@@ -856,6 +865,40 @@ export const publicTokensApi = {
   // <img>/download src — the endpoint streams image/png.
   qrUrl: (token: string, base: string) =>
     `${API_BASE}/public/tokens/${encodeURIComponent(token)}/qr?base=${encodeURIComponent(base)}`,
+};
+
+// ---------- Public entity member self-registration ----------
+// Behind an entity's shareable "member link" (/entity/:id/register). No auth:
+// resolve the entity name to title the form, then register the member into it.
+export interface PublicEntityInfo {
+  id: string;
+  name: string;
+}
+export interface EntityMemberRegistration {
+  name: string;
+  email: string;
+  phone?: string;
+  dob: string;        // ISO yyyy-MM-dd
+  companyId?: string;
+}
+export interface EntityMemberResult {
+  respondentId: string;
+  entityId: string;
+  entityName?: string;
+  email?: string;
+}
+export const publicEntityApi = {
+  // Public name lookup so the form can render "Register to <name>".
+  resolve: (entityId: string) =>
+    jsonFetch<PublicEntityInfo>(`/public/entities/${encodeURIComponent(entityId)}`),
+  // Creates the respondent, links them into the entity, and mirrors them into
+  // the identity table so they can sign in to the portal with email + dob.
+  // Throws [API 409] when the person already has an account.
+  registerMember: (entityId: string, body: EntityMemberRegistration) =>
+    jsonFetch<EntityMemberResult>(`/public/entities/${encodeURIComponent(entityId)}/register`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
 };
 
 // Append-only audit log. Surfaced as tabs on the entity drill-in and

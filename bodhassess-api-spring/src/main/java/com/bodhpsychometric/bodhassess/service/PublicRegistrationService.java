@@ -179,6 +179,72 @@ public class PublicRegistrationService {
     }
 
     /**
+     * Public, unauthenticated lookup for the entity member self-registration
+     * page. Resolves just the display name so the form can title itself
+     * "Register to &lt;name&gt;". 404s when the link points at no entity.
+     */
+    @Transactional(readOnly = true)
+    public PublicRegistrationDto.EntityInfo resolveEntityPublic(String entityId) {
+        EntityRegistration e = entities.findById(entityId)
+                .orElseThrow(() -> new ResourceNotFoundException("Entity", "id", entityId));
+        String name = StringUtils.hasText(e.getCompanyName()) ? e.getCompanyName() : e.getName();
+        return new PublicRegistrationDto.EntityInfo(e.getId(), name);
+    }
+
+    /**
+     * Entity member self-registration — the flow behind an entity's shareable
+     * "member link". Unlike {@link #register} there is no assessment token and
+     * no session: we just create the respondent, link them into the entity's
+     * member set, and mirror them into the unified identity table so they can
+     * sign in to the portal with email + dob (dob is the portal password). The
+     * page then redirects to the portal login.
+     *
+     * A returning person (same dob + email/phone/companyId) is rejected with a
+     * 409 so the page can prompt "log in" instead of creating a duplicate.
+     */
+    public PublicRegistrationDto.EntityMemberResult registerEntityMember(String entityId, PublicRegistrationDto req) {
+        if (req == null
+                || !StringUtils.hasText(req.getName())
+                || !StringUtils.hasText(req.getEmail())
+                || !StringUtils.hasText(req.getDob())) {
+            throw new BadRequestException("name, email, and dob are required");
+        }
+        EntityRegistration e = entities.findById(entityId)
+                .orElseThrow(() -> new ResourceNotFoundException("Entity", "id", entityId));
+
+        if (isExistingRegistrant(req)) {
+            throw new DuplicateResourceException(
+                    "An account with these details already exists. Please log in to continue.");
+        }
+
+        Respondent r = new Respondent();
+        r.setId("R-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase());
+        r.setName(req.getName().trim());
+        r.setEmail(req.getEmail().trim());
+        r.setPhone(blankToNull(req.getPhone()));
+        r.setDob(req.getDob().trim());
+        r.setCompanyId(blankToNull(req.getCompanyId()));
+        r.setConsent("Pending");
+        r.setAccountType("individual");
+        r.setSessionsCount(0);
+        r = respondents.save(r);
+        String respondentId = r.getId();
+
+        if (e.getMemberIds() == null) e.setMemberIds(new HashSet<>());
+        if (!e.getMemberIds().contains(respondentId)) {
+            e.getMemberIds().add(respondentId);
+            entities.save(e);
+        }
+
+        // Mirror into app_users (+ the entity link) so /auth/login works.
+        upsertUser(respondentId, req, entityId);
+
+        String entityName = StringUtils.hasText(e.getCompanyName()) ? e.getCompanyName() : e.getName();
+        return new PublicRegistrationDto.EntityMemberResult(
+                respondentId, entityId, entityName, req.getEmail().trim());
+    }
+
+    /**
      * Existing-account path for a register-kind link (entity / group /
      * standalone). When the person filling the form already has an account, we
      * don't register them again — they confirm their email + dob (the portal

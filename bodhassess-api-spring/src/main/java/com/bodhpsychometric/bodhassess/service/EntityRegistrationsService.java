@@ -70,6 +70,9 @@ public class EntityRegistrationsService {
         e.setAccountType(StringUtils.hasText(dto.getAccountType()) ? dto.getAccountType() : "individual");
         e.setOrgName(dto.getOrgName());
         e.setOrgWebsite(dto.getOrgWebsite());
+        if (dto.getVerticals() != null) e.setVerticals(new HashSet<>(dto.getVerticals()));
+        if (dto.getPlatformModules() != null) e.setPlatformModules(new HashSet<>(dto.getPlatformModules()));
+        if (dto.getAssessments() != null) e.setAssessments(new HashSet<>(dto.getAssessments()));
         return toDto(repo.save(e));
     }
 
@@ -99,6 +102,11 @@ public class EntityRegistrationsService {
             e.setMemberIds(newMembers);
             syncMemberEntities(e.getId(), oldMembers, newMembers);
         }
+        // Access provisioning — an explicit (possibly empty) list replaces
+        // the allow-list; null means "don't touch".
+        if (dto.getVerticals() != null) e.setVerticals(new HashSet<>(dto.getVerticals()));
+        if (dto.getPlatformModules() != null) e.setPlatformModules(new HashSet<>(dto.getPlatformModules()));
+        if (dto.getAssessments() != null) e.setAssessments(new HashSet<>(dto.getAssessments()));
         return toDto(repo.save(e));
     }
 
@@ -144,6 +152,9 @@ public class EntityRegistrationsService {
         d.setMemberIds(e.getMemberIds() == null
                 ? new ArrayList<>()
                 : new ArrayList<>(e.getMemberIds()));
+        d.setVerticals(e.getVerticals() == null ? new ArrayList<>() : new ArrayList<>(e.getVerticals()));
+        d.setPlatformModules(e.getPlatformModules() == null ? new ArrayList<>() : new ArrayList<>(e.getPlatformModules()));
+        d.setAssessments(e.getAssessments() == null ? new ArrayList<>() : new ArrayList<>(e.getAssessments()));
         if (e.getCreatedAt() != null) {
             d.setCreatedAt(e.getCreatedAt().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME));
         }

@@ -70,6 +70,30 @@ public class EntityRegistration {
     @Column(name = "respondent_id", nullable = false, length = 64)
     private Set<String> memberIds = new HashSet<>();
 
+    // ── Access provisioning ────────────────────────────────────────────
+    // What this entity (company) is provisioned to use. Admin-managed via
+    // the Entity Management section. Each set is an allow-list:
+    //  • verticals       — psychology verticals (Clinical, Industrial, …)
+    //  • platformModules — platform features (Assessments, Reports, …)
+    //  • assessments     — specific assessment group keys the entity may run
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "entity_verticals",
+            joinColumns = @JoinColumn(name = "entity_id"))
+    @Column(name = "vertical", nullable = false, length = 128)
+    private Set<String> verticals = new HashSet<>();
+
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "entity_platform_modules",
+            joinColumns = @JoinColumn(name = "entity_id"))
+    @Column(name = "module", nullable = false, length = 128)
+    private Set<String> platformModules = new HashSet<>();
+
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "entity_assessments",
+            joinColumns = @JoinColumn(name = "entity_id"))
+    @Column(name = "assessment_id", nullable = false, length = 128)
+    private Set<String> assessments = new HashSet<>();
+
     @Column(name = "created_at", insertable = false, updatable = false)
     private OffsetDateTime createdAt;
 
@@ -102,6 +126,12 @@ public class EntityRegistration {
     public void setActive(boolean active) { this.active = active; }
     public Set<String> getMemberIds() { return memberIds; }
     public void setMemberIds(Set<String> memberIds) { this.memberIds = memberIds; }
+    public Set<String> getVerticals() { return verticals; }
+    public void setVerticals(Set<String> verticals) { this.verticals = verticals; }
+    public Set<String> getPlatformModules() { return platformModules; }
+    public void setPlatformModules(Set<String> platformModules) { this.platformModules = platformModules; }
+    public Set<String> getAssessments() { return assessments; }
+    public void setAssessments(Set<String> assessments) { this.assessments = assessments; }
     public OffsetDateTime getCreatedAt() { return createdAt; }
     public OffsetDateTime getUpdatedAt() { return updatedAt; }
 }
