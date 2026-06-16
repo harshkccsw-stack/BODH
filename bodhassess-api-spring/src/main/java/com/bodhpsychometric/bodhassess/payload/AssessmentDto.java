@@ -28,6 +28,10 @@ public class AssessmentDto {
     private String language;
     // ACTIVE | CLOSED | PAUSED. All transitions reversible.
     private String status;
+    // Auto-advance to the next question after an option is selected in the
+    // take-flow. Boxed so a partial update (PUT) that omits it leaves the
+    // stored value untouched.
+    @JsonProperty("autoNext")           private Boolean autoNext;
     @JsonProperty("createdAt")          private String createdAt;
     @JsonProperty("createdBy")          private String createdBy;
     @JsonProperty("updatedAt")          private String updatedAt;
@@ -67,6 +71,8 @@ public class AssessmentDto {
     public void setLanguage(String language) { this.language = language; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
+    public Boolean getAutoNext() { return autoNext; }
+    public void setAutoNext(Boolean autoNext) { this.autoNext = autoNext; }
     public String getCreatedAt() { return createdAt; }
     public void setCreatedAt(String createdAt) { this.createdAt = createdAt; }
     public String getCreatedBy() { return createdBy; }

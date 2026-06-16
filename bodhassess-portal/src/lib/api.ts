@@ -138,6 +138,10 @@ export interface Question {
   options: QOption[];
   // Added to the total on any non-empty answer, regardless of option chosen.
   question_scores?: QOptionScore[];
+  // Optional grouping — present when the questionnaire was authored with
+  // sections. Drives the section-wise breakdown in the question index panel.
+  sectionId?: string;
+  sectionTitle?: string;
 }
 export interface Questionnaire {
   id: string;
@@ -187,6 +191,8 @@ export interface Assessment {
   entityName?: string;
   // When true, the take flow shows a numbered question side-panel.
   showQuestionIndex?: boolean;
+  // When true, selecting an option auto-advances to the next question.
+  autoNext?: boolean;
   createdAt?: string;
   completedAt?: string;
   startedAt?: string;

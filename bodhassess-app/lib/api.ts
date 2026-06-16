@@ -669,6 +669,9 @@ export interface AssessmentRecord {
   vertical?: string;
   language?: string;
   status: AssessmentStatus;
+  // Auto-advance to the next question after an option is selected in the
+  // respondent take-flow.
+  autoNext?: boolean;
   createdAt?: string;
   createdBy?: string;
   updatedAt?: string;

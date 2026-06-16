@@ -328,6 +328,11 @@ public class AssessmentsService {
         d.setProctoring(s.isProctoring());
         d.setInvitationSent(s.isInvitationSent());
         d.setShowQuestionIndex(s.isShowQuestionIndex());
+        // Auto-next is configured on the parent Assessment (single source of
+        // truth); surface it to the portal on the session it provisioned.
+        if (StringUtils.hasText(s.getAssessmentId())) {
+            assessmentRepo.findById(s.getAssessmentId()).ifPresent(a -> d.setAutoNext(a.isAutoNext()));
+        }
         if (s.getCreatedAt() != null) d.setCreatedAt(s.getCreatedAt().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME));
         if (s.getCompletedAt() != null) d.setCompletedAt(s.getCompletedAt().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME));
         if (s.getStartedAt() != null) d.setStartedAt(s.getStartedAt().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME));

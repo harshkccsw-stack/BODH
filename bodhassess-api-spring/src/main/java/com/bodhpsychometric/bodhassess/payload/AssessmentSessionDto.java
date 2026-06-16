@@ -40,6 +40,8 @@ public class AssessmentSessionDto {
     private boolean proctoring;
     @JsonProperty("invitationSent")      private boolean invitationSent;
     @JsonProperty("showQuestionIndex")   private boolean showQuestionIndex;
+    // Mirrored from the parent Assessment so the take-flow can auto-advance.
+    @JsonProperty("autoNext")            private boolean autoNext;
     @JsonProperty("createdAt")           private String createdAt;
     @JsonProperty("completedAt")         private String completedAt;
     @JsonProperty("startedAt")           private String startedAt;
@@ -92,6 +94,8 @@ public class AssessmentSessionDto {
     public void setInvitationSent(boolean invitationSent) { this.invitationSent = invitationSent; }
     public boolean isShowQuestionIndex() { return showQuestionIndex; }
     public void setShowQuestionIndex(boolean showQuestionIndex) { this.showQuestionIndex = showQuestionIndex; }
+    public boolean isAutoNext() { return autoNext; }
+    public void setAutoNext(boolean autoNext) { this.autoNext = autoNext; }
     public String getCreatedAt() { return createdAt; }
     public void setCreatedAt(String createdAt) { this.createdAt = createdAt; }
     public String getCompletedAt() { return completedAt; }
