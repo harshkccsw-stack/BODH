@@ -53,6 +53,8 @@ public class PublicRegistrationService {
     @Autowired private RespondentGroupRepository groups;
     @Autowired private PortalSessionRepository sessions;
     @Autowired private AssessmentService assessmentService;
+    @Autowired private SessionProvisioningService sessionProvisioning;
+    @Autowired private com.bodhpsychometric.bodhassess.repository.AssessmentEntityAllotmentRepository entityAllotments;
     @Autowired private com.bodhpsychometric.bodhassess.repository.UserRepository users;
     @Autowired private com.bodhpsychometric.bodhassess.repository.UserMetaRepository userMeta;
     @Autowired private com.bodhpsychometric.bodhassess.security.TokenProvider tokenProvider;
@@ -238,6 +240,14 @@ public class PublicRegistrationService {
 
         // Mirror into app_users (+ the entity link) so /auth/login works.
         upsertUser(respondentId, req, entityId);
+
+        // Catch the new member up on whatever the entity is already assigned:
+        // for each existing entity allotment, materialise their session (cap
+        // permitting). Idempotent — provisionEntity skips members who already
+        // have one.
+        for (var allotment : entityAllotments.findByEntityId(entityId)) {
+            sessionProvisioning.provisionEntity(allotment.getAssessmentId(), entityId);
+        }
 
         String entityName = StringUtils.hasText(e.getCompanyName()) ? e.getCompanyName() : e.getName();
         return new PublicRegistrationDto.EntityMemberResult(

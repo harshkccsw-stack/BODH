@@ -61,7 +61,10 @@ export const MENU_SIDEBAR: MenuConfig = [
   {
     title: 'Reports',
     icon: FileText,
-    path: '/reports',
+    children: [
+      { title: 'All Reports', path: '/reports' },
+      { title: 'Response Sheets', path: '/reports/responses' },
+    ],
   },
   { heading: 'Entity Management' },
   {

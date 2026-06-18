@@ -3,7 +3,7 @@ import {
   AlertTriangle,
   Check,
   ChevronRight,
-  Layers,
+  ClipboardList,
   Link2,
   Mail,
   Phone,
@@ -21,17 +21,13 @@ import { Badge } from '@/components/ui/badge';
 import {
   entityRegistrationsApi,
   respondentsApi,
-  assessmentsApi,
+  assessmentRecordsApi,
   type EntityRegistration,
   type Respondent,
-  type AssessmentGroup,
+  type AssessmentRecord,
 } from '@/lib/api';
 import { autoFormatDdmmyyyy, ddmmyyyyToIso } from '@/lib/helpers';
 import { config } from '@/lib/config';
-import {
-  ENTITY_VERTICALS,
-  ENTITY_PLATFORM_MODULES,
-} from '@/src/pages/admin/entity-provisioning';
 
 // Shareable member-registration link for an entity. Members who open it
 // self-register into the company and are sent to the portal to log in.
@@ -76,11 +72,9 @@ export default function AdminEntityRegistrationsPage() {
   const [memberChecked, setMemberChecked] = useState<Set<string>>(new Set());
   const [membersSaving, setMembersSaving] = useState(false);
 
-  // Access-provisioning dialog state (verticals / platform / assessments)
-  const [assessmentGroups, setAssessmentGroups] = useState<AssessmentGroup[]>([]);
+  // Access dialog state — assign assessments to the entity's members.
+  const [assessmentRecords, setAssessmentRecords] = useState<AssessmentRecord[]>([]);
   const [provisionTarget, setProvisionTarget] = useState<EntityRegistration | null>(null);
-  const [provVerticals, setProvVerticals] = useState<Set<string>>(new Set());
-  const [provModules, setProvModules] = useState<Set<string>>(new Set());
   const [provAssessments, setProvAssessments] = useState<Set<string>>(new Set());
   const [provAssessmentSearch, setProvAssessmentSearch] = useState('');
   const [provisionSaving, setProvisionSaving] = useState(false);
@@ -89,14 +83,14 @@ export default function AdminEntityRegistrationsPage() {
     setLoading(true);
     setError('');
     try {
-      const [ents, reps, groups] = await Promise.all([
+      const [ents, reps, records] = await Promise.all([
         entityRegistrationsApi.list(),
         respondentsApi.list().catch(() => [] as Respondent[]),
-        assessmentsApi.listGroups().catch(() => [] as AssessmentGroup[]),
+        assessmentRecordsApi.list().catch(() => [] as AssessmentRecord[]),
       ]);
       setRows(ents);
       setRespondents(reps);
-      setAssessmentGroups(groups);
+      setAssessmentRecords(records);
     } catch (e: any) {
       setError(e?.message || 'Failed to load entity registrations');
     } finally {
@@ -218,20 +212,16 @@ export default function AdminEntityRegistrationsPage() {
 
   const openProvision = (row: EntityRegistration) => {
     setProvisionTarget(row);
-    setProvVerticals(new Set(row.verticals || []));
-    setProvModules(new Set(row.platform_modules || []));
     setProvAssessments(new Set(row.assessments || []));
     setProvAssessmentSearch('');
+    setError('');
   };
 
-  const toggleInSet = (
-    setter: React.Dispatch<React.SetStateAction<Set<string>>>,
-    value: string,
-  ) => {
-    setter((prev) => {
+  const toggleProvAssessment = (id: string) => {
+    setProvAssessments((prev) => {
       const next = new Set(prev);
-      if (next.has(value)) next.delete(value);
-      else next.add(value);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
   };
@@ -239,34 +229,38 @@ export default function AdminEntityRegistrationsPage() {
   const saveProvision = async () => {
     if (!provisionTarget?.id) return;
     setProvisionSaving(true);
+    setError('');
     try {
-      const verticals = Array.from(provVerticals);
-      const platform_modules = Array.from(provModules);
       const assessments = Array.from(provAssessments);
-      await entityRegistrationsApi.update(provisionTarget.id, {
-        verticals,
-        platform_modules,
-        assessments,
-      });
-      patchRow(provisionTarget.id, { verticals, platform_modules, assessments });
+      // Reconciled server-side: newly-ticked assessments are allotted to the
+      // entity (a session is created for every member); un-ticked ones drop
+      // the allotment and remove members' not-yet-started sessions.
+      const updated = await entityRegistrationsApi.update(provisionTarget.id, { assessments });
+      patchRow(provisionTarget.id, { assessments: updated.assessments ?? assessments });
       setProvisionTarget(null);
     } catch (e: any) {
-      setError(e?.message || 'Failed to save access provisioning');
+      const msg = String(e?.message || '');
+      if (/not active/i.test(msg)) {
+        setError('Activate the entity before assigning assessments to its members.');
+      } else {
+        setError(msg || 'Failed to save assessment assignments');
+      }
     } finally {
       setProvisionSaving(false);
     }
   };
 
-  const filteredAssessmentGroups = useMemo(() => {
+  const filteredAssessmentRecords = useMemo(() => {
     const q = provAssessmentSearch.trim().toLowerCase();
-    if (!q) return assessmentGroups;
-    return assessmentGroups.filter(
-      (g) =>
-        (g.name || '').toLowerCase().includes(q) ||
-        (g.instrument || '').toLowerCase().includes(q) ||
-        g.assessmentId.toLowerCase().includes(q),
+    if (!q) return assessmentRecords;
+    return assessmentRecords.filter(
+      (a) =>
+        (a.name || '').toLowerCase().includes(q) ||
+        (a.questionnaireName || '').toLowerCase().includes(q) ||
+        (a.vertical || '').toLowerCase().includes(q) ||
+        a.id.toLowerCase().includes(q),
     );
-  }, [assessmentGroups, provAssessmentSearch]);
+  }, [assessmentRecords, provAssessmentSearch]);
 
   const filteredRespondentsForMembers = useMemo(() => {
     const q = memberSearch.trim().toLowerCase();
@@ -338,8 +332,6 @@ export default function AdminEntityRegistrationsPage() {
                 <tbody className="divide-y divide-border">
                   {rows.map((r) => {
                     const memberCount = (r.member_ids || []).length;
-                    const verticalCount = (r.verticals || []).length;
-                    const moduleCount = (r.platform_modules || []).length;
                     const assessmentCount = (r.assessments || []).length;
                     return (
                       <tr key={r.id} className="hover:bg-muted/30 align-top">
@@ -384,17 +376,9 @@ export default function AdminEntityRegistrationsPage() {
                           </Badge>
                         </td>
                         <td className="px-4 py-3 text-xs">
-                          <div className="flex flex-wrap gap-1">
-                            <Badge size="sm" shape="circle" variant={verticalCount > 0 ? 'info' : 'secondary'} appearance="light" title="Verticals">
-                              {verticalCount} vert
-                            </Badge>
-                            <Badge size="sm" shape="circle" variant={moduleCount > 0 ? 'info' : 'secondary'} appearance="light" title="Platform modules">
-                              {moduleCount} mod
-                            </Badge>
-                            <Badge size="sm" shape="circle" variant={assessmentCount > 0 ? 'info' : 'secondary'} appearance="light" title="Assessments">
-                              {assessmentCount} asmt
-                            </Badge>
-                          </div>
+                          <Badge size="sm" shape="circle" variant={assessmentCount > 0 ? 'info' : 'secondary'} appearance="light" title="Assessments assigned to this entity's members">
+                            {assessmentCount} assessment{assessmentCount === 1 ? '' : 's'}
+                          </Badge>
                         </td>
                         <td className="px-4 py-3">
                           <Button
@@ -573,117 +557,77 @@ export default function AdminEntityRegistrationsPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={() => !provisionSaving && setProvisionTarget(null)}>
           <Card className="w-full max-w-2xl max-h-[88vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
             <CardHeader>
-              <CardTitle className="text-base">Access — {provisionTarget.companyName || provisionTarget.name}</CardTitle>
+              <CardTitle className="text-base">Assign Assessments — {provisionTarget.companyName || provisionTarget.name}</CardTitle>
               <p className="text-xs text-muted-foreground mt-1">
-                Provision what this entity may use. Verticals and platform modules are allow-lists;
-                assessments lists the specific assessments the entity is permitted to run.
+                Ticking an assessment assigns it to every member of this entity — each member gets a
+                session in their portal. Un-ticking removes the assignment and any member sessions that
+                haven't been started yet. The entity must be active.
               </p>
             </CardHeader>
-            <CardContent className="space-y-5 flex-1 overflow-y-auto">
-              {/* Verticals */}
-              <div className="space-y-2">
-                <div className="flex items-center gap-1.5 text-[0.6875rem] uppercase tracking-wider text-muted-foreground font-medium">
-                  <Layers className="h-3.5 w-3.5" /> Verticals
-                  <span className="ml-auto normal-case tracking-normal">{provVerticals.size} selected</span>
+            <CardContent className="space-y-3 flex-1 overflow-y-auto">
+              {error && (
+                <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-3 py-2 text-xs text-red-700 dark:text-red-400">
+                  <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  <span>{error}</span>
                 </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {ENTITY_VERTICALS.map((v) => {
-                    const checked = provVerticals.has(v);
+              )}
+              {!provisionTarget.active && (
+                <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+                  <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  <span>This entity is inactive. Activate it on the list before assigning assessments.</span>
+                </div>
+              )}
+              <div className="flex items-center gap-1.5 text-[0.6875rem] uppercase tracking-wider text-muted-foreground font-medium">
+                <ClipboardList className="h-3.5 w-3.5" /> Assessments
+                <span className="ml-auto normal-case tracking-normal">{provAssessments.size} assigned</span>
+              </div>
+              <InputWrapper variant="md" className="w-full">
+                <Search className="size-4" />
+                <Input placeholder="Search assessments by name, questionnaire, or vertical…" value={provAssessmentSearch} onChange={(e) => setProvAssessmentSearch(e.target.value)} />
+              </InputWrapper>
+              <div className="border border-border rounded-lg max-h-72 overflow-y-auto">
+                {filteredAssessmentRecords.length === 0 ? (
+                  <div className="p-6 text-sm text-muted-foreground text-center">
+                    {assessmentRecords.length === 0 ? 'No assessments in the system yet.' : 'No assessments match your search.'}
+                  </div>
+                ) : (
+                  filteredAssessmentRecords.map((a) => {
+                    const checked = provAssessments.has(a.id);
                     return (
                       <button
-                        key={v}
+                        key={a.id}
                         type="button"
-                        onClick={() => toggleInSet(setProvVerticals, v)}
-                        className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition-colors ${
-                          checked ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:bg-muted/50'
+                        onClick={() => toggleProvAssessment(a.id)}
+                        className={`w-full flex items-center justify-between gap-3 px-4 py-2.5 text-sm text-left border-b border-border last:border-0 transition-colors ${
+                          checked ? 'bg-primary/5 text-primary' : 'hover:bg-muted/50'
                         }`}
                       >
-                        {checked && <Check className="h-3 w-3" />}
-                        {v}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Platform modules */}
-              <div className="space-y-2">
-                <div className="flex items-center gap-1.5 text-[0.6875rem] uppercase tracking-wider text-muted-foreground font-medium">
-                  <SlidersHorizontal className="h-3.5 w-3.5" /> Platform Modules
-                  <span className="ml-auto normal-case tracking-normal">{provModules.size} selected</span>
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {ENTITY_PLATFORM_MODULES.map((m) => {
-                    const checked = provModules.has(m);
-                    return (
-                      <button
-                        key={m}
-                        type="button"
-                        onClick={() => toggleInSet(setProvModules, m)}
-                        className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition-colors ${
-                          checked ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:bg-muted/50'
-                        }`}
-                      >
-                        {checked && <Check className="h-3 w-3" />}
-                        {m}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Assessments */}
-              <div className="space-y-2">
-                <div className="flex items-center gap-1.5 text-[0.6875rem] uppercase tracking-wider text-muted-foreground font-medium">
-                  <ChevronRight className="h-3.5 w-3.5" /> Assessments
-                  <span className="ml-auto normal-case tracking-normal">{provAssessments.size} selected</span>
-                </div>
-                <InputWrapper variant="md" className="w-full">
-                  <Search className="size-4" />
-                  <Input placeholder="Search assessments by name or instrument…" value={provAssessmentSearch} onChange={(e) => setProvAssessmentSearch(e.target.value)} />
-                </InputWrapper>
-                <div className="border border-border rounded-lg max-h-56 overflow-y-auto">
-                  {filteredAssessmentGroups.length === 0 ? (
-                    <div className="p-6 text-sm text-muted-foreground text-center">
-                      {assessmentGroups.length === 0 ? 'No assessments in the system yet.' : 'No assessments match your search.'}
-                    </div>
-                  ) : (
-                    filteredAssessmentGroups.map((g) => {
-                      const checked = provAssessments.has(g.assessmentId);
-                      return (
-                        <button
-                          key={g.assessmentId}
-                          type="button"
-                          onClick={() => toggleInSet(setProvAssessments, g.assessmentId)}
-                          className={`w-full flex items-center justify-between gap-3 px-4 py-2.5 text-sm text-left border-b border-border last:border-0 transition-colors ${
-                            checked ? 'bg-primary/5 text-primary' : 'hover:bg-muted/50'
-                          }`}
-                        >
-                          <div className="flex items-center gap-3 min-w-0">
-                            <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
-                              checked ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-background'
-                            }`}>
-                              {checked && <Check className="h-3 w-3" />}
-                            </span>
-                            <div className="min-w-0">
-                              <p className="font-medium truncate">{g.name || g.instrument || g.assessmentId}</p>
-                              <p className="text-[0.6875rem] text-muted-foreground truncate">
-                                {g.instrument || '—'}{g.vertical ? ` · ${g.vertical}` : ''}
-                              </p>
-                            </div>
+                        <div className="flex items-center gap-3 min-w-0">
+                          <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
+                            checked ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-background'
+                          }`}>
+                            {checked && <Check className="h-3 w-3" />}
+                          </span>
+                          <div className="min-w-0">
+                            <p className="font-medium truncate">{a.name || a.questionnaireName || a.id}</p>
+                            <p className="text-[0.6875rem] text-muted-foreground truncate">
+                              {a.questionnaireName || '—'}{a.vertical ? ` · ${a.vertical}` : ''}
+                            </p>
                           </div>
-                          <span className="text-[0.6875rem] text-muted-foreground shrink-0">{g.respondentCount} resp.</span>
-                        </button>
-                      );
-                    })
-                  )}
-                </div>
+                        </div>
+                        <Badge size="sm" shape="circle" variant={a.status === 'ACTIVE' ? 'success' : 'secondary'} appearance="light">
+                          {a.status}
+                        </Badge>
+                      </button>
+                    );
+                  })
+                )}
               </div>
             </CardContent>
             <div className="flex justify-end gap-2 p-4 border-t border-border">
               <Button variant="outline" onClick={() => setProvisionTarget(null)} disabled={provisionSaving}>Cancel</Button>
-              <Button variant="primary" onClick={saveProvision} disabled={provisionSaving}>
-                {provisionSaving ? 'Saving…' : 'Save Access'}
+              <Button variant="primary" onClick={saveProvision} disabled={provisionSaving || !provisionTarget.active}>
+                {provisionSaving ? 'Saving…' : 'Save Assignments'}
               </Button>
             </div>
           </Card>
