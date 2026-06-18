@@ -41,6 +41,9 @@ interface Report {
   id: string;
   sessionId: string;
   respondent: string;
+  // Assessment (allotment) name shown in the table; falls back to the
+  // questionnaire name for older sessions that have no assessment name.
+  assessment: string;
   instrument: string;
   vertical: Vertical;
   format: ReportFormat;
@@ -110,6 +113,7 @@ export default function ReportsPage() {
           id: `RPT-${s.id}`,
           sessionId: s.id,
           respondent: s.respondent || '—',
+          assessment: s.name || s.instrumentFullName || s.instrument || '—',
           instrument: s.instrumentFullName || s.instrument || '—',
           vertical: verticalLabel(s.vertical),
           // Format is a UI-only concept — every completed session is browsable as Interactive.
@@ -157,6 +161,7 @@ export default function ReportsPage() {
       ['Session ID', report.sessionId],
       ['Respondent', report.respondent],
       ['Respondent Email', session?.respondentEmail || ''],
+      ['Assessment', report.assessment],
       ['Questionnaire', report.instrument],
       ['Vertical', report.vertical],
       ['Format', report.format],
@@ -202,6 +207,7 @@ export default function ReportsPage() {
         searchQuery === '' ||
         report.respondent.toLowerCase().includes(searchQuery.toLowerCase()) ||
         report.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        report.assessment.toLowerCase().includes(searchQuery.toLowerCase()) ||
         report.instrument.toLowerCase().includes(searchQuery.toLowerCase());
       const matchesStatus = statusFilter === 'all' || report.status === statusFilter;
       const matchesVertical = verticalFilter === 'all' || report.vertical === verticalFilter;
@@ -346,7 +352,7 @@ export default function ReportsPage() {
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Report ID</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Assessment ID</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Respondent</th>
-                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Questionnaire</th>
+                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Assessment</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Vertical</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Format</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Status</th>
@@ -377,7 +383,7 @@ export default function ReportsPage() {
                     <td className="px-5 py-3 font-mono text-xs">{report.id}</td>
                     <td className="px-5 py-3 font-mono text-xs">{report.sessionId}</td>
                     <td className="px-5 py-3 font-medium">{report.respondent}</td>
-                    <td className="px-5 py-3">{report.instrument}</td>
+                    <td className="px-5 py-3">{report.assessment}</td>
                     <td className="px-5 py-3">
                       <Badge size="sm" shape="circle" {...(verticalBadgeProps[report.vertical] || verticalBadgeDefaults)}>
                         {report.vertical}
@@ -457,7 +463,7 @@ export default function ReportsPage() {
               <div className="rounded-lg border border-border bg-muted/40 p-3 space-y-2">
                 <div className="flex justify-between"><span className="text-muted-foreground">Session</span><span className="font-mono text-xs">{viewReport.sessionId}</span></div>
                 <div className="flex justify-between"><span className="text-muted-foreground">Respondent</span><span className="font-medium">{viewReport.respondent}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Questionnaire</span><span className="text-right max-w-[60%]">{viewReport.instrument}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Assessment</span><span className="text-right max-w-[60%]">{viewReport.assessment}</span></div>
                 <div className="flex justify-between"><span className="text-muted-foreground">Vertical</span><span>{viewReport.vertical}</span></div>
                 <div className="flex justify-between"><span className="text-muted-foreground">Status</span><span>{viewReport.status}</span></div>
                 <div className="flex justify-between"><span className="text-muted-foreground">Generated</span><span>{viewReport.generatedAt}</span></div>

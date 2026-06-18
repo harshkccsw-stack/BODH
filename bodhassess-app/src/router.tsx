@@ -119,6 +119,7 @@ const QuestionnairesExperimental = () => lazyPage(() => import('@/src/pages/ques
 const QuestionnairesIndustrial   = () => lazyPage(() => import('@/src/pages/questionnaires/industrial'));
 
 const Reports             = () => lazyPage(() => import('@/src/pages/reports/all-reports'));
+const ReportsResponses    = () => lazyPage(() => import('@/src/pages/reports/response-sheets'));
 const ReportsClinical     = () => lazyPage(() => import('@/src/pages/reports/clinical'));
 const ReportsCounselling  = () => lazyPage(() => import('@/src/pages/reports/counselling'));
 const ReportsIndustrial   = () => lazyPage(() => import('@/src/pages/reports/industrial'));
@@ -277,6 +278,7 @@ const routes: RouteObject[] = [
       { path: '/questionnaires/industrial', element: <QuestionnairesIndustrial /> },
 
       { path: '/reports', element: <Reports /> },
+      { path: '/reports/responses', element: <ReportsResponses /> },
       { path: '/reports/clinical', element: <ReportsClinical /> },
       { path: '/reports/counselling', element: <ReportsCounselling /> },
       { path: '/reports/industrial', element: <ReportsIndustrial /> },
