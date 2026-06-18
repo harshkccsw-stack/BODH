@@ -16,8 +16,10 @@ import org.springframework.util.StringUtils;
 import com.bodhpsychometric.bodhassess.exception.BadRequestException;
 import com.bodhpsychometric.bodhassess.exception.ResourceNotFoundException;
 import com.bodhpsychometric.bodhassess.model.EntityRegistration;
+import com.bodhpsychometric.bodhassess.model.PortalSession;
 import com.bodhpsychometric.bodhassess.payload.EntityRegistrationDto;
 import com.bodhpsychometric.bodhassess.repository.EntityRegistrationRepository;
+import com.bodhpsychometric.bodhassess.repository.PortalSessionRepository;
 import com.bodhpsychometric.bodhassess.repository.UserRepository;
 
 @Service
@@ -29,6 +31,14 @@ public class EntityRegistrationsService {
 
     @Autowired
     private UserRepository users;
+
+    // Assessment assignment from the Entity Management "Access" modal reuses
+    // the allotment machinery so members get real portal sessions.
+    @Autowired
+    private AssessmentAllotmentsService allotments;
+
+    @Autowired
+    private PortalSessionRepository sessions;
 
     @Transactional(readOnly = true)
     public List<EntityRegistrationDto> list() {
@@ -102,12 +112,61 @@ public class EntityRegistrationsService {
             e.setMemberIds(newMembers);
             syncMemberEntities(e.getId(), oldMembers, newMembers);
         }
-        // Access provisioning — an explicit (possibly empty) list replaces
-        // the allow-list; null means "don't touch".
+        // Verticals / platform modules remain plain stored allow-lists; null
+        // means "don't touch".
         if (dto.getVerticals() != null) e.setVerticals(new HashSet<>(dto.getVerticals()));
         if (dto.getPlatformModules() != null) e.setPlatformModules(new HashSet<>(dto.getPlatformModules()));
-        if (dto.getAssessments() != null) e.setAssessments(new HashSet<>(dto.getAssessments()));
+        // Assessments is an active assignment, not just a flag: reconcile the
+        // entity's allotments so members gain/lose real portal sessions.
+        if (dto.getAssessments() != null) {
+            reconcileAssessmentAssignments(e, new HashSet<>(dto.getAssessments()));
+        }
         return toDto(repo.save(e));
+    }
+
+    /**
+     * Make the entity's assessment allotments match {@code next}, the set of
+     * assessment-record ids ticked in the Access modal:
+     *
+     *  • added   → allot the entity to the assessment (this materialises a
+     *              session for every current member, up to the cap). The
+     *              allotment call requires the entity to be active.
+     *  • removed → drop the allotment and delete the entity's pending
+     *              (not-yet-started) sessions for that assessment, leaving any
+     *              started/completed work intact.
+     *
+     * Runs inside adminUpdate's transaction, so a failure (e.g. assigning to
+     * an inactive entity) rolls the whole update back.
+     */
+    private void reconcileAssessmentAssignments(EntityRegistration e, Set<String> next) {
+        Set<String> current = e.getAssessments() == null ? new HashSet<>() : new HashSet<>(e.getAssessments());
+        for (String assessmentId : next) {
+            if (!current.contains(assessmentId)) {
+                // null cap = unlimited, so every member gets a session.
+                allotments.addEntity(assessmentId, e.getId(), null);
+            }
+        }
+        for (String assessmentId : current) {
+            if (!next.contains(assessmentId)) {
+                allotments.removeEntity(assessmentId, e.getId());
+                deletePendingEntitySessions(assessmentId, e.getId());
+            }
+        }
+        e.setAssessments(next);
+    }
+
+    /**
+     * Delete the entity's sessions for an assessment that were never started
+     * (status still "Active" and no startedAt). Started or completed sessions
+     * are preserved so a respondent mid-assessment or with results isn't wiped.
+     */
+    private void deletePendingEntitySessions(String assessmentId, String entityId) {
+        List<PortalSession> rows = sessions.findByAssessmentIdAndEntityId(assessmentId, entityId);
+        List<PortalSession> pending = rows.stream()
+                .filter(s -> s.getStartedAt() == null
+                        && (s.getStatus() == null || "Active".equalsIgnoreCase(s.getStatus())))
+                .collect(Collectors.toList());
+        if (!pending.isEmpty()) sessions.deleteAll(pending);
     }
 
     /**

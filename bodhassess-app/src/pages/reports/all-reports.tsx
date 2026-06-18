@@ -6,6 +6,8 @@ import {
   Briefcase,
   ChevronLeft,
   ChevronRight,
+  ArrowDown,
+  ArrowUp,
   Download,
   Eye,
   FileText,
@@ -44,6 +46,9 @@ interface Report {
   format: ReportFormat;
   status: ReportStatus;
   generatedAt: string;
+  // Raw ISO timestamp kept alongside the display string so the table can sort
+  // chronologically (the formatted DD/MM/YYYY string sorts lexicographically).
+  generatedAtRaw: string;
 }
 
 // Build the vertical label that gets rendered in the table (capitalized).
@@ -89,6 +94,8 @@ export default function ReportsPage() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [verticalFilter, setVerticalFilter] = useState('all');
   const [formatFilter, setFormatFilter] = useState('all');
+  // Sort by generated date; default to latest on top.
+  const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
   const [liveReports, setLiveReports] = useState<Report[]>([]);
   const [sessionsById, setSessionsById] = useState<Record<string, Assessment>>({});
   const [loadError, setLoadError] = useState('');
@@ -110,6 +117,7 @@ export default function ReportsPage() {
           // Status starts at Draft — workflow for Approved/Finalized lives elsewhere.
           status: 'Draft',
           generatedAt: formatDDMMYYYY(s.completedAt || s.createdAt),
+          generatedAtRaw: s.completedAt || s.createdAt || '',
         }));
         const byId: Record<string, Assessment> = {};
         completed.forEach((s) => { byId[s.id] = s; });
@@ -188,17 +196,24 @@ export default function ReportsPage() {
     XLSX.writeFile(wb, `${report.id}-${report.sessionId}.xlsx`);
   };
 
-  const filteredReports = allReports.filter((report) => {
-    const matchesSearch =
-      searchQuery === '' ||
-      report.respondent.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      report.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      report.instrument.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesStatus = statusFilter === 'all' || report.status === statusFilter;
-    const matchesVertical = verticalFilter === 'all' || report.vertical === verticalFilter;
-    const matchesFormat = formatFilter === 'all' || report.format === formatFilter;
-    return matchesSearch && matchesStatus && matchesVertical && matchesFormat;
-  });
+  const filteredReports = allReports
+    .filter((report) => {
+      const matchesSearch =
+        searchQuery === '' ||
+        report.respondent.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        report.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        report.instrument.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesStatus = statusFilter === 'all' || report.status === statusFilter;
+      const matchesVertical = verticalFilter === 'all' || report.vertical === verticalFilter;
+      const matchesFormat = formatFilter === 'all' || report.format === formatFilter;
+      return matchesSearch && matchesStatus && matchesVertical && matchesFormat;
+    })
+    .sort((a, b) => {
+      // Compare on the raw ISO timestamp; missing dates sort to the bottom.
+      const ta = a.generatedAtRaw ? new Date(a.generatedAtRaw).getTime() : 0;
+      const tb = b.generatedAtRaw ? new Date(b.generatedAtRaw).getTime() : 0;
+      return sortOrder === 'desc' ? tb - ta : ta - tb;
+    });
 
   return (
     <div className="p-5 lg:p-7.5 space-y-7">
@@ -335,7 +350,21 @@ export default function ReportsPage() {
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Vertical</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Format</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Status</th>
-                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Generated</th>
+                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">
+                    <button
+                      type="button"
+                      onClick={() => setSortOrder((o) => (o === 'desc' ? 'asc' : 'desc'))}
+                      className="inline-flex items-center gap-1 hover:text-foreground transition-colors"
+                      aria-label={`Sort by generated date, ${sortOrder === 'desc' ? 'newest first' : 'oldest first'}`}
+                    >
+                      Generated
+                      {sortOrder === 'desc' ? (
+                        <ArrowDown className="size-3.5" />
+                      ) : (
+                        <ArrowUp className="size-3.5" />
+                      )}
+                    </button>
+                  </th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Actions</th>
                 </tr>
               </thead>

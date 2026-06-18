@@ -618,23 +618,24 @@ export default function CreateAssessmentPage() {
   // Expected columns (case-insensitive):
   //   stem (required), format, section, risk_flag, risk_rule,
   //   coverage_mqs, coverage_mqts (semicolon-separated names; tags only)
-  //   question_mq, question_mqt, question_submqt, question_subsubmqt,
-  //     question_score (question-level scoring)
-  //   option1..option8
-  //   option{n}_mq, option{n}_mqt, option{n}_submqt, option{n}_subsubmqt,
-  //     option{n}_score (per option)
   //
-  // Scoring uses an explicit four-level trait hierarchy per option/question:
-  //   MQ  ›  MQT  ›  sub-MQT  ›  sub-sub-MQT
+  // Scoring uses NUMBERED MQ BLOCKS per scope — each block is one MQ and its
+  // trait path, one value per cell:
+  //   question_mq1, question_mqt1, question_submqt1, question_subsubmqt1, question_score1
+  //   question_mq2, …  (add _mq2/_mq3… to score the question against more MQs)
+  //   option1..option8
+  //   option{n}_mq1, option{n}_mqt1, option{n}_submqt1, option{n}_subsubmqt1, option{n}_score1
+  //   option{n}_mq2, …  (per option, per MQ block)
+  //
+  // Each block is the four-level trait hierarchy MQ › MQT › sub-MQT › sub-sub-MQT.
   // The score attaches to the DEEPEST level filled in (so leave sub-MQT /
   // sub-sub-MQT blank for a shallow trait). Every level below the MQ that
   // doesn't exist yet is created in the catalog on import; the MQ itself is
   // created too. Filling a sub-level while its parent is blank is flagged.
   //
-  // Power-user extra: each of the _mq / _mqt / _submqt / _subsubmqt / _score
-  // cells may carry a ';'- (or '|'-) separated list whose items pair up
-  // positionally, so one option can score several traits at once; a single
-  // _mq value broadcasts to every entry.
+  // Back-compat: the legacy un-numbered columns (question_mq, option{n}_mq, …)
+  // are still read as an extra block, and each such cell may carry a ';'- (or
+  // '|'-) separated list whose items pair up positionally.
   //
   // Coverage names are resolved against the catalog for tagging only and
   // dropped if they don't match.
@@ -810,15 +811,42 @@ export default function CreateAssessmentPage() {
         }
         return out;
       };
-      // Resolve the trait-hierarchy columns for one scope, accepting a few
-      // header spellings (sub_mqt / sub-sub-mqt etc.).
-      const scoreCellsFor = (row: Record<string, any>, prefix: string) => ({
-        mq: row[`${prefix}_mq`],
-        mqt: row[`${prefix}_mqt`],
-        submqt: row[`${prefix}_submqt`] ?? row[`${prefix}_sub_mqt`],
-        subsubmqt: row[`${prefix}_subsubmqt`] ?? row[`${prefix}_subsub_mqt`] ?? row[`${prefix}_sub_sub_mqt`],
-        score: row[`${prefix}_score`],
+      // Resolve the trait-hierarchy columns for one scope + block suffix,
+      // accepting a few header spellings (sub_mqt / sub-sub-mqt etc.). The
+      // suffix is the numbered block ('1', '2', …) or '' for the legacy
+      // un-numbered columns.
+      const scoreCellsForBlock = (row: Record<string, any>, prefix: string, suffix: string) => ({
+        mq: row[`${prefix}_mq${suffix}`],
+        mqt: row[`${prefix}_mqt${suffix}`],
+        submqt: row[`${prefix}_submqt${suffix}`] ?? row[`${prefix}_sub_mqt${suffix}`],
+        subsubmqt:
+          row[`${prefix}_subsubmqt${suffix}`] ??
+          row[`${prefix}_subsub_mqt${suffix}`] ??
+          row[`${prefix}_sub_sub_mqt${suffix}`],
+        score: row[`${prefix}_score${suffix}`],
       });
+      // Gather every scoring block for one scope. Each MQ gets its own numbered
+      // column group — {prefix}_mq1 / _mqt1 / _submqt1 / _subsubmqt1 / _score1,
+      // then _mq2…, and so on — so one value lives in one cell (no ';' lists
+      // needed). We read block 1, 2, 3… for as long as a {prefix}_mq{n} column
+      // exists, plus the legacy un-numbered {prefix}_mq columns for back-compat.
+      const collectScores = (
+        row: Record<string, any>,
+        prefix: string,
+        label: string,
+        requireScore: boolean,
+        errors: string[],
+      ): ParsedScore[] => {
+        const suffixes: string[] = [];
+        if (`${prefix}_mq` in row) suffixes.push(''); // legacy un-numbered block
+        for (let n = 1; `${prefix}_mq${n}` in row; n++) suffixes.push(String(n));
+        const out: ParsedScore[] = [];
+        for (const suffix of suffixes) {
+          const blockLabel = suffix ? `${label} (mq${suffix})` : label;
+          out.push(...parseScoreCells(scoreCellsForBlock(row, prefix, suffix), blockLabel, requireScore, errors));
+        }
+        return out;
+      };
 
       const parsed: ParsedRow[] = rows.map((row) => {
         const errors: string[] = [];
@@ -834,24 +862,14 @@ export default function CreateAssessmentPage() {
         for (let n = 1; n <= 8; n++) {
           const text = String(row[`option${n}`] ?? '').trim();
           if (!text) continue;
-          const scores = parseScoreCells(
-            scoreCellsFor(row, `option${n}`),
-            `option${n}`,
-            false,
-            errors,
-          );
+          const scores = collectScores(row, `option${n}`, `option${n}`, false, errors);
           options.push({ text, scores });
         }
         if (format !== 'FREE_TEXT' && options.length < 2) {
           errors.push(`format ${format} needs at least 2 options`);
         }
         // Optional question-level scores (applied on any answer).
-        const question_scores = parseScoreCells(
-          scoreCellsFor(row, 'question'),
-          'question_score',
-          true,
-          errors,
-        );
+        const question_scores = collectScores(row, 'question', 'question_score', true, errors);
         const splitNames = (raw: any) =>
           String(raw ?? '')
             .split(/[;|]/)
@@ -1076,35 +1094,45 @@ export default function CreateAssessmentPage() {
   };
 
   const downloadBulkTemplate = () => {
+    // Each MQ gets its own numbered block of columns (block 1, block 2, …) so
+    // one value lives in one cell. Add _mq3 / _mqt3 / … to score a scope
+    // against a third MQ, and so on.
+    const block = (prefix: string, n: number) =>
+      [`${prefix}_mq${n}`, `${prefix}_mqt${n}`, `${prefix}_submqt${n}`, `${prefix}_subsubmqt${n}`, `${prefix}_score${n}`];
     const header = [
       'stem', 'format', 'section', 'risk_flag', 'risk_rule',
       'coverage_mqs', 'coverage_mqts',
-      'question_mq', 'question_mqt', 'question_submqt', 'question_subsubmqt', 'question_score',
-      'option1', 'option1_mq', 'option1_mqt', 'option1_submqt', 'option1_subsubmqt', 'option1_score',
-      'option2', 'option2_mq', 'option2_mqt', 'option2_submqt', 'option2_subsubmqt', 'option2_score',
-      'option3', 'option3_mq', 'option3_mqt', 'option3_submqt', 'option3_subsubmqt', 'option3_score',
-      'option4', 'option4_mq', 'option4_mqt', 'option4_submqt', 'option4_subsubmqt', 'option4_score',
+      ...block('question', 1), ...block('question', 2),
+      'option1', ...block('option1', 1), ...block('option1', 2),
+      'option2', ...block('option2', 1), ...block('option2', 2),
+      'option3', ...block('option3', 1), ...block('option3', 2),
+      'option4', ...block('option4', 1), ...block('option4', 2),
     ];
-    // Scoring uses the explicit MQ › MQT › sub-MQT › sub-sub-MQT columns; the
-    // score lands on the deepest level filled in. Row 1 scores three levels
-    // deep (Wellbeing › Stress › Acute Stress › Panic Episodes); leave the
-    // deeper columns blank for a shallower trait. Row 2 shows the optional
-    // ';'-list shorthand to score one option against two traits at once.
+    // Scoring uses numbered MQ blocks: each block is one MQ and its trait path
+    // (MQ › MQT › sub-MQT › sub-sub-MQT), and the score lands on the DEEPEST
+    // level filled in — leave the deeper columns blank for a shallower trait.
+    // The sample row scores the question against two MQs (block 1 four levels
+    // deep, block 2 only to MQT); option1 also uses two MQs; options 2-4 each
+    // use a single MQ to the MQT level.
     const sample = [
-      ['How often do you feel sudden panic at work?', 'LIKERT', 'Stress', 'false', '',
-        'Wellbeing', 'Stress Level',          // coverage tags
-        '', '', '', '', '',                   // question-level scoring (unused here)
-        'Never',      'Wellbeing', 'Stress', 'Acute Stress', 'Panic Episodes', '0',
-        'Sometimes',  'Wellbeing', 'Stress', 'Acute Stress', 'Panic Episodes', '1',
-        'Often',      'Wellbeing', 'Stress', 'Acute Stress', 'Panic Episodes', '2',
-        'Always',     'Wellbeing', 'Stress', 'Acute Stress', 'Panic Episodes', '3'],
-      ['I keep track of several tasks at once.', 'LIKERT', 'Focus', 'false', '',
-        'Cognitive', 'Attention',             // coverage tags
-        '', '', '', '', '',                   // question-level scoring (unused here)
-        'Strongly disagree', 'Cognitive', 'Attention; Memory', '', '', '0; 0',
-        'Disagree',          'Cognitive', 'Attention; Memory', '', '', '1; 0',
-        'Agree',             'Cognitive', 'Attention; Memory', '', '', '2; 1',
-        'Strongly agree',    'Cognitive', 'Attention; Memory', '', '', '3; 2'],
+      ["My exams are near but I haven't studied much. What would I most likely do?", 'MCQ', 'Coping', 'false', '',
+        'Coping Strategies', 'Coping Style',  // coverage tags
+        // question block 1 (to sub-sub-MQT) + block 2 (to MQT)
+        'Coping Strategies', 'Problem-focused Coping', 'Active problem-focused', 'Planning', '2',
+        'Cognitive Appraisal', 'Challenge', '', '', '1',
+        // option1: block 1 (to sub-sub-MQT) + block 2 (to sub-MQT)
+        'I would plan a schedule, talk to my teacher, and try my best to get good marks.',
+        'Coping Strategies', 'Problem-focused Coping', 'Active problem-focused', 'Instrumental support', '2',
+        'Coping Style', 'Adaptive', 'Engagement', '', '1',
+        // option2: single MQ, to MQT
+        'I would ask a friend or classmate to help me prepare.',
+        'Coping Strategies', 'Social Support', '', '', '1', '', '', '', '', '',
+        // option3: single MQ, to MQT
+        'I would avoid thinking about the exam altogether.',
+        'Coping Strategies', 'Avoidant Coping', '', '', '0', '', '', '', '', '',
+        // option4: single MQ, to MQT
+        'I would panic and assume I will fail.',
+        'Coping Style', 'Maladaptive', '', '', '0', '', '', '', '', ''],
     ];
     const csv = [header, ...sample]
       .map((row) => row.map((cell) => {
@@ -2700,15 +2728,20 @@ export default function CreateAssessmentPage() {
                   <code className="font-mono">risk_flag</code>,{' '}
                   <code className="font-mono">risk_rule</code>,{' '}
                   <code className="font-mono">option1</code>…<code className="font-mono">option8</code>,{' '}
-                  <code className="font-mono">option1_mq</code>,{' '}
-                  <code className="font-mono">option1_mqt</code>,{' '}
-                  <code className="font-mono">option1_score</code> (repeat per option)
+                  <code className="font-mono">option1_mq1</code>,{' '}
+                  <code className="font-mono">option1_mqt1</code>,{' '}
+                  <code className="font-mono">option1_submqt1</code>,{' '}
+                  <code className="font-mono">option1_subsubmqt1</code>,{' '}
+                  <code className="font-mono">option1_score1</code> (repeat per option; add{' '}
+                  <code className="font-mono">_mq2</code>… to score against more than one MQ)
                 </p>
                 <p className="mt-2">
                   Format defaults to <strong>MCQ</strong>. Sections mode must be on for the{' '}
-                  <code className="font-mono">section</code> column to take effect. Each option can map to an MQ / MQT —
-                  missing ones are created in the database on import. If no MQ/MQT is given but a score is, the score is
-                  applied to the first MQT in the catalog (backward-compatible).
+                  <code className="font-mono">section</code> column to take effect. Each numbered MQ block
+                  (<code className="font-mono">_mq1</code>, <code className="font-mono">_mq2</code>, …) maps one MQ ›
+                  MQT › sub-MQT › sub-sub-MQT path; the score lands on the deepest level filled in. Missing MQs/MQTs are
+                  created in the database on import. If no MQ/MQT is given but a score is, it applies to the first MQT in
+                  the catalog (backward-compatible).
                 </p>
                 <div className="mt-2">
                   <button onClick={downloadBulkTemplate} className="text-primary hover:underline text-xs inline-flex items-center gap-1">

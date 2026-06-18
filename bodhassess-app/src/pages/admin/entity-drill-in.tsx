@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useParams } from '@/src/lib/router-helpers';
-import { AlertTriangle, ArrowLeft, Layers, RefreshCcw, SlidersHorizontal, Users as UsersIcon } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, ClipboardList, RefreshCcw, Users as UsersIcon } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -9,11 +9,11 @@ import {
   respondentsApi,
   auditApi,
   assessmentAllotmentsApi,
-  assessmentsApi,
+  assessmentRecordsApi,
   type EntityRegistration,
   type Respondent,
   type AuditLogEntry,
-  type AssessmentGroup,
+  type AssessmentRecord,
 } from '@/lib/api';
 
 export default function EntityDrillInPage() {
@@ -23,7 +23,7 @@ export default function EntityDrillInPage() {
   const [entity, setEntity] = useState<EntityRegistration | null>(null);
   const [members, setMembers] = useState<Respondent[]>([]);
   const [audit, setAudit] = useState<AuditLogEntry[]>([]);
-  const [groups, setGroups] = useState<AssessmentGroup[]>([]);
+  const [records, setRecords] = useState<AssessmentRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [tab, setTab] = useState<'members' | 'access' | 'allotments' | 'audit'>('members');
@@ -33,17 +33,17 @@ export default function EntityDrillInPage() {
     setLoading(true);
     setError('');
     try {
-      const [e, allReps, a, g] = await Promise.all([
+      const [e, allReps, a, recs] = await Promise.all([
         entityRegistrationsApi.get(id),
         respondentsApi.list().catch(() => [] as Respondent[]),
         auditApi.byTarget('entity', id).catch(() => [] as AuditLogEntry[]),
-        assessmentsApi.listGroups().catch(() => [] as AssessmentGroup[]),
+        assessmentRecordsApi.list().catch(() => [] as AssessmentRecord[]),
       ]);
       setEntity(e);
       const memberIds = new Set(e.member_ids || []);
       setMembers(allReps.filter((r) => memberIds.has(r.id)));
       setAudit(a);
-      setGroups(g);
+      setRecords(recs);
     } catch (err: any) {
       setError(err?.message || 'Failed to load entity');
     } finally {
@@ -114,7 +114,7 @@ export default function EntityDrillInPage() {
           ) : tab === 'members' ? (
             <MembersTab members={members} />
           ) : tab === 'access' ? (
-            <AccessTab entity={entity} groups={groups} />
+            <AccessTab entity={entity} records={records} />
           ) : tab === 'allotments' ? (
             <AllotmentsTab entityId={id || ''} />
           ) : (
@@ -162,42 +162,29 @@ function MembersTab({ members }: { members: Respondent[] }) {
   );
 }
 
-function AccessTab({ entity, groups }: { entity: EntityRegistration | null; groups: AssessmentGroup[] }) {
-  const verticals = entity?.verticals || [];
-  const modules = entity?.platform_modules || [];
+function AccessTab({ entity, records }: { entity: EntityRegistration | null; records: AssessmentRecord[] }) {
   const assessmentIds = entity?.assessments || [];
   const nameById = useMemo(() => {
     const m = new Map<string, string>();
-    for (const g of groups) m.set(g.assessmentId, g.name || g.instrument || g.assessmentId);
+    for (const r of records) m.set(r.id, r.name || r.questionnaireName || r.id);
     return m;
-  }, [groups]);
+  }, [records]);
 
-  const empty = verticals.length === 0 && modules.length === 0 && assessmentIds.length === 0;
-  if (empty) {
+  if (assessmentIds.length === 0) {
     return (
       <div className="p-6 text-center space-y-2">
         <div className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-muted/60 text-muted-foreground">
-          <SlidersHorizontal className="h-5 w-5" />
+          <ClipboardList className="h-5 w-5" />
         </div>
-        <p className="text-sm text-muted-foreground">No access provisioned yet.</p>
-        <p className="text-[0.6875rem] text-muted-foreground">Use the Access button on the entity list to grant verticals, platform modules, and assessments.</p>
+        <p className="text-sm text-muted-foreground">No assessments assigned yet.</p>
+        <p className="text-[0.6875rem] text-muted-foreground">Use the Access button on the entity list to assign assessments to this entity's members.</p>
       </div>
     );
   }
   return (
     <div className="space-y-5">
-      <Section icon={<Layers className="h-3.5 w-3.5" />} title="Verticals" count={verticals.length}>
-        {verticals.length === 0 ? <Muted /> : verticals.map((v) => (
-          <Badge key={v} size="sm" shape="circle" variant="info" appearance="light">{v}</Badge>
-        ))}
-      </Section>
-      <Section icon={<SlidersHorizontal className="h-3.5 w-3.5" />} title="Platform Modules" count={modules.length}>
-        {modules.length === 0 ? <Muted /> : modules.map((m) => (
-          <Badge key={m} size="sm" shape="circle" variant="info" appearance="light">{m}</Badge>
-        ))}
-      </Section>
-      <Section icon={<ArrowLeft className="h-3.5 w-3.5 rotate-180" />} title="Assessments" count={assessmentIds.length}>
-        {assessmentIds.length === 0 ? <Muted /> : assessmentIds.map((a) => (
+      <Section icon={<ClipboardList className="h-3.5 w-3.5" />} title="Assigned Assessments" count={assessmentIds.length}>
+        {assessmentIds.map((a) => (
           <Badge key={a} size="sm" shape="circle" variant="success" appearance="light">{nameById.get(a) || a}</Badge>
         ))}
       </Section>
@@ -215,10 +202,6 @@ function Section({ icon, title, count, children }: { icon: React.ReactNode; titl
       <div className="flex flex-wrap gap-1.5">{children}</div>
     </div>
   );
-}
-
-function Muted() {
-  return <span className="text-xs text-muted-foreground italic">None</span>;
 }
 
 function AllotmentsTab({ entityId }: { entityId: string }) {

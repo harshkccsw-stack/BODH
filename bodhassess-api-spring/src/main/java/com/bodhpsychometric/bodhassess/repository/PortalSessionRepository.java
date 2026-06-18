@@ -61,6 +61,12 @@ public interface PortalSessionRepository extends JpaRepository<PortalSession, St
     @Query("SELECT COUNT(s) FROM PortalSession s WHERE s.assessmentId = :aid AND s.entityId = :eid")
     long countByAssessmentIdAndEntityId(@Param("aid") String assessmentId, @Param("eid") String entityId);
 
+    // All sessions an entity allotment materialised for an assessment. Used
+    // to clean up pending (not-yet-started) sessions when an entity is
+    // un-assigned from the assessment in the Entity Management Access modal.
+    @Query("SELECT s FROM PortalSession s WHERE s.assessmentId = :aid AND s.entityId = :eid")
+    List<PortalSession> findByAssessmentIdAndEntityId(@Param("aid") String assessmentId, @Param("eid") String entityId);
+
     // Grouped view: one row per assessmentId, with aggregate counts. Used
     // by the All Assessments table so admins see one row per allotment
     // rather than one row per respondent.
