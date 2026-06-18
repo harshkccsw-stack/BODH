@@ -58,6 +58,12 @@ public class Assessment {
     @Column(nullable = false, length = 16)
     private String status = "ACTIVE";
 
+    // When true, the respondent take-flow advances to the next question
+    // automatically right after an option is selected. Set on the Create/Edit
+    // Assessment form; propagated to the portal via the session DTO.
+    @Column(name = "auto_next", nullable = false)
+    private boolean autoNext = false;
+
     @Column(name = "created_at", insertable = false, updatable = false)
     private OffsetDateTime createdAt;
 
@@ -83,6 +89,8 @@ public class Assessment {
     public void setLanguage(String language) { this.language = language; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
+    public boolean isAutoNext() { return autoNext; }
+    public void setAutoNext(boolean autoNext) { this.autoNext = autoNext; }
     public OffsetDateTime getCreatedAt() { return createdAt; }
     public String getCreatedBy() { return createdBy; }
     public void setCreatedBy(String createdBy) { this.createdBy = createdBy; }

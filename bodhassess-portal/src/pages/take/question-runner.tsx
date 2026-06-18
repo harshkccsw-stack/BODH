@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Check, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -45,7 +45,40 @@ export function QuestionRunner({
     ? typeof selected === 'string' && selected.trim().length > 0
     : selected !== undefined;
   const isLast = index === total - 1;
-  const showIndex = !!session.showQuestionIndex;
+  // The question index panel is always shown in the portal so respondents can
+  // see their progress and jump between questions. (The legacy
+  // session.showQuestionIndex flag is no longer used to gate it.)
+  const showIndex = true;
+  // Per-assessment setting: advance to the next question automatically a beat
+  // after an option is picked (option questions only — never free-text, never
+  // an auto-submit on the last question).
+  const autoNext = !!session.autoNext;
+
+  // Pending auto-advance timer. Cleared on any manual navigation, on a fresh
+  // selection, and on unmount so it can never fire against a stale question.
+  const advanceTimer = useRef<number | null>(null);
+  const clearAdvance = () => {
+    if (advanceTimer.current !== null) {
+      window.clearTimeout(advanceTimer.current);
+      advanceTimer.current = null;
+    }
+  };
+  useEffect(() => clearAdvance, []);
+
+  const goTo = (qi: number) => {
+    clearAdvance();
+    setIndex(Math.max(0, Math.min(total - 1, qi)));
+  };
+
+  const selectOption = (oi: number) => {
+    setAnswers({ ...answers, [q.id]: oi });
+    if (!autoNext || isLast) return;
+    clearAdvance();
+    advanceTimer.current = window.setTimeout(() => {
+      advanceTimer.current = null;
+      setIndex((i) => Math.min(total - 1, i + 1));
+    }, 350);
+  };
 
   const isQuestionAnswered = (qi: number): boolean => {
     const qq = instrument.questions[qi];
@@ -56,6 +89,24 @@ export function QuestionRunner({
     return true;
   };
   const answeredCount = instrument.questions.reduce((n, _, i) => n + (isQuestionAnswered(i) ? 1 : 0), 0);
+
+  // Group questions into ordered sections (preserving first-appearance order),
+  // keeping each question's absolute index so navigation still works. When no
+  // question carries a section, this collapses to a single untitled group and
+  // the panel renders as a flat grid.
+  const sections: { id: string; title: string | null; indices: number[] }[] = [];
+  const sectionByKey = new Map<string, number>();
+  instrument.questions.forEach((qq, qi) => {
+    const key = qq.sectionId || qq.sectionTitle || '__none__';
+    let pos = sectionByKey.get(key);
+    if (pos === undefined) {
+      pos = sections.length;
+      sectionByKey.set(key, pos);
+      sections.push({ id: key, title: qq.sectionTitle?.trim() || null, indices: [] });
+    }
+    sections[pos].indices.push(qi);
+  });
+  const hasSections = sections.some((s) => s.title);
 
   return (
     <div className="flex-1 min-h-screen w-full bg-muted/20">
@@ -83,27 +134,47 @@ export function QuestionRunner({
                     {answeredCount}/{total}
                   </span>
                 </div>
-                <div className="grid grid-cols-5 gap-1.5">
-                  {instrument.questions.map((qq, qi) => {
-                    const isCurrent = qi === index;
-                    const isAnswered = isQuestionAnswered(qi);
+                <div className="space-y-3">
+                  {sections.map((sec) => {
+                    const secAnswered = sec.indices.reduce((n, qi) => n + (isQuestionAnswered(qi) ? 1 : 0), 0);
                     return (
-                      <button
-                        key={qq.id}
-                        type="button"
-                        onClick={() => setIndex(qi)}
-                        title={`Question ${qi + 1}${isAnswered ? ' — answered' : ''}`}
-                        className={cn(
-                          'h-8 w-full rounded-md text-xs font-medium border transition-colors',
-                          isCurrent
-                            ? 'border-primary bg-primary text-primary-foreground'
-                            : isAnswered
-                              ? 'border-green-500/40 bg-green-500/10 text-green-700 dark:text-green-400 hover:bg-green-500/20'
-                              : 'border-border bg-background text-muted-foreground hover:border-primary/40',
+                      <div key={sec.id}>
+                        {hasSections && (
+                          <div className="flex items-center justify-between mb-1.5">
+                            <p className="text-[0.6875rem] font-semibold text-foreground truncate pr-2">
+                              {sec.title || 'Other'}
+                            </p>
+                            <span className="text-[0.625rem] text-muted-foreground shrink-0">
+                              {secAnswered}/{sec.indices.length}
+                            </span>
+                          </div>
                         )}
-                      >
-                        {qi + 1}
-                      </button>
+                        <div className="grid grid-cols-5 gap-1.5">
+                          {sec.indices.map((qi) => {
+                            const qq = instrument.questions[qi];
+                            const isCurrent = qi === index;
+                            const isAnswered = isQuestionAnswered(qi);
+                            return (
+                              <button
+                                key={qq.id}
+                                type="button"
+                                onClick={() => goTo(qi)}
+                                title={`Question ${qi + 1}${isAnswered ? ' — answered' : ''}`}
+                                className={cn(
+                                  'h-8 w-full rounded-md text-xs font-medium border transition-colors',
+                                  isCurrent
+                                    ? 'border-primary bg-primary text-primary-foreground'
+                                    : isAnswered
+                                      ? 'border-green-500/40 bg-green-500/10 text-green-700 dark:text-green-400 hover:bg-green-500/20'
+                                      : 'border-border bg-background text-muted-foreground hover:border-primary/40',
+                                )}
+                              >
+                                {qi + 1}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
                     );
                   })}
                 </div>
@@ -150,7 +221,7 @@ export function QuestionRunner({
                       <button
                         key={oi}
                         type="button"
-                        onClick={() => setAnswers({ ...answers, [q.id]: oi })}
+                        onClick={() => selectOption(oi)}
                         className={cn(
                           'w-full text-left rounded-lg border p-4 transition-colors',
                           on ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40',
@@ -179,7 +250,7 @@ export function QuestionRunner({
           </Card>
 
           <div className="flex items-center justify-between mt-5">
-            <Button variant="outline" onClick={() => setIndex(Math.max(0, index - 1))} disabled={index === 0}>
+            <Button variant="outline" onClick={() => goTo(index - 1)} disabled={index === 0}>
               <ChevronLeft className="h-4 w-4" />
               Previous
             </Button>
@@ -189,7 +260,7 @@ export function QuestionRunner({
                 <Check className="h-4 w-4" />
               </Button>
             ) : (
-              <Button variant="primary" onClick={() => setIndex(index + 1)} disabled={!answered}>
+              <Button variant="primary" onClick={() => goTo(index + 1)} disabled={!answered}>
                 Next
                 <ChevronRight className="h-4 w-4" />
               </Button>

@@ -89,11 +89,12 @@ public class SecurityConfig extends WebSecurityConfigurerAdapter {
                         "/api/v1/questionnaires-catalog/**",
                         "/api/v1/questionnaires/**",
                         "/api/v1/upload",
-                        // Token resolve/consume — the /register page is
-                        // reached anonymously via a link; it needs to look
-                        // up the assessment context and then mark the
-                        // token used once the new respondent is saved.
-                        "/api/v1/public/tokens/**"
+                        // Anonymous public surface reached via shareable links:
+                        //  • tokens/**   — assessment-invite register/resolve
+                        //  • entities/** — entity member self-registration
+                        // Both look up context and create a respondent without
+                        // any auth, so the whole /public prefix is permitAll.
+                        "/api/v1/public/**"
                 ).permitAll()
                 .anyRequest().authenticated();
 

@@ -113,6 +113,7 @@ public class AssessmentService {
         a.setVertical(StringUtils.hasText(dto.getVertical()) ? dto.getVertical() : q.getVertical());
         a.setLanguage(StringUtils.hasText(dto.getLanguage()) ? dto.getLanguage() : "English");
         a.setStatus(StringUtils.hasText(dto.getStatus()) ? normaliseStatus(dto.getStatus()) : "ACTIVE");
+        a.setAutoNext(Boolean.TRUE.equals(dto.getAutoNext()));
         a.setCreatedBy(currentActorId());
         Assessment saved = repo.save(a);
 
@@ -172,6 +173,8 @@ public class AssessmentService {
         // Vertical is normally derived from the questionnaire — allow
         // overriding only if explicitly passed.
         if (StringUtils.hasText(dto.getVertical())) a.setVertical(dto.getVertical());
+        // Boxed: only apply when the client actually sent the field.
+        if (dto.getAutoNext() != null) a.setAutoNext(dto.getAutoNext());
         Assessment saved = repo.save(a);
         audit.record("ASSESSMENT_UPDATED", "assessment", saved.getId(), before, toAuditSnapshot(saved));
         return toDtoWithCounts(saved);
@@ -248,6 +251,7 @@ public class AssessmentService {
         d.setVertical(a.getVertical());
         d.setLanguage(a.getLanguage());
         d.setStatus(a.getStatus());
+        d.setAutoNext(a.isAutoNext());
         d.setCreatedBy(a.getCreatedBy());
         if (a.getCreatedAt() != null) d.setCreatedAt(a.getCreatedAt().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME));
         if (a.getUpdatedAt() != null) d.setUpdatedAt(a.getUpdatedAt().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME));

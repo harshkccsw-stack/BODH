@@ -194,7 +194,9 @@ public class AssessmentTokenService {
         String base = StringUtils.hasText(baseOverride) ? baseOverride.trim()
                 : (StringUtils.hasText(publicBaseUrl) ? publicBaseUrl.trim() : "");
         if (base.endsWith("/")) base = base.substring(0, base.length() - 1);
-        String link = base + "/register?token=" + token;
+        // base is the respondent portal origin (e.g. https://portal.bodh.biz);
+        // its token-registration route is /portal/register.
+        String link = base + "/portal/register?token=" + token;
         byte[] png = qrCodes.pngForText(link);
         t.setQrCode(png);
         tokens.save(t);

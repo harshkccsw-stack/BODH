@@ -12,9 +12,10 @@ const TOKEN_KEY = config.practitionerAuthStorageKey;
 export const LOGIN_PATH = '/login';
 
 // Paths that are always accessible (login, public marketing, the respondent
-// portal which has its own auth, and the legacy register page). The
-// dashboard guard skips authentication checks for these.
-const PUBLIC_PREFIXES = ['/login', '/portal', '/register', '/select-vertical'];
+// portal which has its own auth, the legacy register page, and the entity
+// member self-registration links under /entity/:id/register). The dashboard
+// guard skips authentication checks for these.
+const PUBLIC_PREFIXES = ['/login', '/portal', '/register', '/select-vertical', '/entity'];
 
 export function isPublicPath(pathname: string): boolean {
   return PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + '/'));

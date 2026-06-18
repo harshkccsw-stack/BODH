@@ -618,27 +618,31 @@ export default function CreateAssessmentPage() {
   // Expected columns (case-insensitive):
   //   stem (required), format, section, risk_flag, risk_rule,
   //   coverage_mqs, coverage_mqts (semicolon-separated names; tags only)
-  //   question_mq, question_mqt, question_score (question-level scoring)
+  //   question_mq, question_mqt, question_submqt, question_subsubmqt,
+  //     question_score (question-level scoring)
   //   option1..option8
-  //   option1_mq, option1_mqt, option1_score ... (per option)
-  // MQ/MQT names for scoring are resolved against the catalog; missing ones
-  // (including nested traits) are created in the database on import.
+  //   option{n}_mq, option{n}_mqt, option{n}_submqt, option{n}_subsubmqt,
+  //     option{n}_score (per option)
   //
-  // Two power-user conventions on the scoring cells (option*_/question_*):
-  //   • Multiple scores per scope — the _mq / _mqt / _score cells may each
-  //     carry a ';'- (or '|'-) separated list whose items pair up positionally,
-  //     so one option can score several MQTs at once. A single _mq value
-  //     broadcasts to every entry in that scope.
-  //   • Nested sub-/sub-sub-traits — an _mqt value may be a '>'-separated path
-  //     (e.g. "Stress > Acute > Panic"); each segment below the MQ is created
-  //     as needed and the leaf is the trait that gets scored.
+  // Scoring uses an explicit four-level trait hierarchy per option/question:
+  //   MQ  ›  MQT  ›  sub-MQT  ›  sub-sub-MQT
+  // The score attaches to the DEEPEST level filled in (so leave sub-MQT /
+  // sub-sub-MQT blank for a shallow trait). Every level below the MQ that
+  // doesn't exist yet is created in the catalog on import; the MQ itself is
+  // created too. Filling a sub-level while its parent is blank is flagged.
+  //
+  // Power-user extra: each of the _mq / _mqt / _submqt / _subsubmqt / _score
+  // cells may carry a ';'- (or '|'-) separated list whose items pair up
+  // positionally, so one option can score several traits at once; a single
+  // _mq value broadcasts to every entry.
+  //
   // Coverage names are resolved against the catalog for tagging only and
   // dropped if they don't match.
 
-  // A single scoring entry: an MQ, a (possibly nested) MQT path under it, and
-  // the score. mqtPath holds the trait hierarchy below the MQ — e.g.
-  // ["Stress", "Acute"] for "Stress > Acute". An empty mqtPath with a present
-  // mq defaults to a single trait named after the MQ; an empty mq with only a
+  // A single scoring entry: an MQ and the trait path beneath it
+  // (mqt → submqt → subsubmqt), plus the score. mqtPath holds that hierarchy —
+  // e.g. ["Stress", "Acute", "Panic"]. An empty mqtPath with a present mq
+  // defaults to a single trait named after the MQ; an empty mq with only a
   // score is a bare score that falls back to the first catalog trait.
   interface ParsedScore {
     mq: string;
@@ -745,47 +749,55 @@ export default function CreateAssessmentPage() {
 
       // Split a scoring cell into a list on ';' or '|' (mirrors coverage cols).
       const splitCell = (raw: any) => String(raw ?? '').split(/[;|]/).map((s) => s.trim());
-      // Turn the (mq, mqt, score) cell trio for one scope into scoring entries.
-      // Each cell may hold a ';'-separated list whose items pair up positionally;
-      // a single mq broadcasts to every entry; an mqt value may be a
-      // '>'-separated nesting path. requireScore=true (question scope) flags an
-      // mq with no score as an error rather than silently skipping it.
+      // Build the scoring entries for one scope from its explicit trait-hierarchy
+      // columns (mq → mqt → submqt → subsubmqt) and the score. Each cell may hold
+      // a ';'-separated list whose items pair up positionally (one option can
+      // score several traits); a single mq broadcasts to every entry. The score
+      // attaches to the DEEPEST trait given, and every missing level below the MQ
+      // is created on import. requireScore=true (question scope) flags an mq with
+      // no score as an error rather than silently skipping it.
       const parseScoreCells = (
-        mqRaw: any,
-        mqtRaw: any,
-        scoreRaw: any,
+        cells: { mq: any; mqt: any; submqt: any; subsubmqt: any; score: any },
         label: string,
         requireScore: boolean,
         errors: string[],
       ): ParsedScore[] => {
-        const mqList = splitCell(mqRaw);
-        const mqtList = splitCell(mqtRaw);
-        const scoreList = splitCell(scoreRaw);
+        const mqList = splitCell(cells.mq);
+        const mqtList = splitCell(cells.mqt);
+        const submqtList = splitCell(cells.submqt);
+        const subsubmqtList = splitCell(cells.subsubmqt);
+        const scoreList = splitCell(cells.score);
         const present = (l: string[]) => l.some((s) => s !== '');
-        if (!present(mqList) && !present(mqtList) && !present(scoreList)) return [];
-        const count = Math.max(
-          present(mqList) ? mqList.length : 0,
-          present(mqtList) ? mqtList.length : 0,
-          present(scoreList) ? scoreList.length : 0,
-        );
+        const lists = [mqList, mqtList, submqtList, subsubmqtList, scoreList];
+        if (!lists.some(present)) return [];
+        const count = Math.max(...lists.map((l) => (present(l) ? l.length : 0)));
         const out: ParsedScore[] = [];
         for (let i = 0; i < count; i++) {
           // A single MQ broadcasts across every entry; otherwise pair by index.
           const mq = (mqList.length === 1 ? mqList[0] : mqList[i] ?? '').trim();
-          const mqtSeg = (mqtList[i] ?? '').trim();
-          // Nested path below the MQ. If no MQT is given but an MQ is, default
-          // to a single trait named after the MQ (auto-created on import).
-          const mqtPath = mqtSeg
-            ? mqtSeg.split('>').map((s) => s.trim()).filter(Boolean)
-            : (mq ? [mq] : []);
+          // Trait hierarchy below the MQ, deepest-last. A level may itself use
+          // '>' for extra depth (back-compat with the older path syntax).
+          const rawLevels = [mqtList[i] ?? '', submqtList[i] ?? '', subsubmqtList[i] ?? ''].map((s) => s.trim());
+          let gap = false;
+          for (let k = 1; k < rawLevels.length; k++) {
+            if (!rawLevels[k - 1] && rawLevels[k]) { gap = true; break; }
+          }
+          if (gap) { errors.push(`${label}: a sub-level is filled without its parent trait`); continue; }
+          const mqtPath: string[] = [];
+          for (const lvl of rawLevels) {
+            if (!lvl) break; // stop at the first empty level
+            mqtPath.push(...lvl.split('>').map((s) => s.trim()).filter(Boolean));
+          }
+          // MQ given but no trait → default to a single trait named after the MQ.
+          if (mqtPath.length === 0 && mq) mqtPath.push(mq);
           const sStr = (scoreList[i] ?? '').trim();
           const sNum = sStr === '' ? null : Number(sStr);
           const score = sStr !== '' && Number.isFinite(sNum as number) ? (sNum as number) : null;
           if (sStr !== '' && score === null) {
             errors.push(`${label}: invalid score "${sStr}"`);
           }
-          if (!mq && mqtSeg) {
-            errors.push(`${label}: MQT given without MQ`);
+          if (!mq && rawLevels.some(Boolean)) {
+            errors.push(`${label}: trait given without MQ`);
             continue;
           }
           if (requireScore && mq && score === null) {
@@ -798,6 +810,15 @@ export default function CreateAssessmentPage() {
         }
         return out;
       };
+      // Resolve the trait-hierarchy columns for one scope, accepting a few
+      // header spellings (sub_mqt / sub-sub-mqt etc.).
+      const scoreCellsFor = (row: Record<string, any>, prefix: string) => ({
+        mq: row[`${prefix}_mq`],
+        mqt: row[`${prefix}_mqt`],
+        submqt: row[`${prefix}_submqt`] ?? row[`${prefix}_sub_mqt`],
+        subsubmqt: row[`${prefix}_subsubmqt`] ?? row[`${prefix}_subsub_mqt`] ?? row[`${prefix}_sub_sub_mqt`],
+        score: row[`${prefix}_score`],
+      });
 
       const parsed: ParsedRow[] = rows.map((row) => {
         const errors: string[] = [];
@@ -814,9 +835,7 @@ export default function CreateAssessmentPage() {
           const text = String(row[`option${n}`] ?? '').trim();
           if (!text) continue;
           const scores = parseScoreCells(
-            row[`option${n}_mq`],
-            row[`option${n}_mqt`],
-            row[`option${n}_score`],
+            scoreCellsFor(row, `option${n}`),
             `option${n}`,
             false,
             errors,
@@ -828,9 +847,7 @@ export default function CreateAssessmentPage() {
         }
         // Optional question-level scores (applied on any answer).
         const question_scores = parseScoreCells(
-          row.question_mq,
-          row.question_mqt,
-          row.question_score,
+          scoreCellsFor(row, 'question'),
           'question_score',
           true,
           errors,
@@ -1062,32 +1079,32 @@ export default function CreateAssessmentPage() {
     const header = [
       'stem', 'format', 'section', 'risk_flag', 'risk_rule',
       'coverage_mqs', 'coverage_mqts',
-      'question_mq', 'question_mqt', 'question_score',
-      'option1', 'option1_mq', 'option1_mqt', 'option1_score',
-      'option2', 'option2_mq', 'option2_mqt', 'option2_score',
-      'option3', 'option3_mq', 'option3_mqt', 'option3_score',
-      'option4', 'option4_mq', 'option4_mqt', 'option4_score',
+      'question_mq', 'question_mqt', 'question_submqt', 'question_subsubmqt', 'question_score',
+      'option1', 'option1_mq', 'option1_mqt', 'option1_submqt', 'option1_subsubmqt', 'option1_score',
+      'option2', 'option2_mq', 'option2_mqt', 'option2_submqt', 'option2_subsubmqt', 'option2_score',
+      'option3', 'option3_mq', 'option3_mqt', 'option3_submqt', 'option3_subsubmqt', 'option3_score',
+      'option4', 'option4_mq', 'option4_mqt', 'option4_submqt', 'option4_subsubmqt', 'option4_score',
     ];
-    // The _mqt cells show two power-user conventions: a '>' path creates
-    // nested sub-/sub-sub-traits (row 1 scores under "Stress > Acute Stress"),
-    // and ';'-separated lists in the _mqt / _score cells score one option
-    // against several MQTs at once (row 2's options score both Attention and
-    // Memory). A single _mq value broadcasts across the listed MQTs.
+    // Scoring uses the explicit MQ › MQT › sub-MQT › sub-sub-MQT columns; the
+    // score lands on the deepest level filled in. Row 1 scores three levels
+    // deep (Wellbeing › Stress › Acute Stress › Panic Episodes); leave the
+    // deeper columns blank for a shallower trait. Row 2 shows the optional
+    // ';'-list shorthand to score one option against two traits at once.
     const sample = [
-      ['How often do you feel overwhelmed by work?', 'LIKERT', 'Stress', 'false', '',
-        'Wellbeing', 'Stress Level',
-        '', '', '',
-        'Never',      'Wellbeing', 'Stress > Acute Stress', '0',
-        'Sometimes',  'Wellbeing', 'Stress > Acute Stress', '1',
-        'Often',      'Wellbeing', 'Stress > Acute Stress', '2',
-        'Always',     'Wellbeing', 'Stress > Acute Stress', '3'],
+      ['How often do you feel sudden panic at work?', 'LIKERT', 'Stress', 'false', '',
+        'Wellbeing', 'Stress Level',          // coverage tags
+        '', '', '', '', '',                   // question-level scoring (unused here)
+        'Never',      'Wellbeing', 'Stress', 'Acute Stress', 'Panic Episodes', '0',
+        'Sometimes',  'Wellbeing', 'Stress', 'Acute Stress', 'Panic Episodes', '1',
+        'Often',      'Wellbeing', 'Stress', 'Acute Stress', 'Panic Episodes', '2',
+        'Always',     'Wellbeing', 'Stress', 'Acute Stress', 'Panic Episodes', '3'],
       ['I keep track of several tasks at once.', 'LIKERT', 'Focus', 'false', '',
-        'Cognitive', 'Attention; Memory',
-        '', '', '',
-        'Strongly disagree', 'Cognitive', 'Attention; Memory', '0; 0',
-        'Disagree',          'Cognitive', 'Attention; Memory', '1; 0',
-        'Agree',             'Cognitive', 'Attention; Memory', '2; 1',
-        'Strongly agree',    'Cognitive', 'Attention; Memory', '3; 2'],
+        'Cognitive', 'Attention',             // coverage tags
+        '', '', '', '', '',                   // question-level scoring (unused here)
+        'Strongly disagree', 'Cognitive', 'Attention; Memory', '', '', '0; 0',
+        'Disagree',          'Cognitive', 'Attention; Memory', '', '', '1; 0',
+        'Agree',             'Cognitive', 'Attention; Memory', '', '', '2; 1',
+        'Strongly agree',    'Cognitive', 'Attention; Memory', '', '', '3; 2'],
     ];
     const csv = [header, ...sample]
       .map((row) => row.map((cell) => {

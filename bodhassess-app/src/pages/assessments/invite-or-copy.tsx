@@ -20,17 +20,19 @@ import {
   type Group,
   type Respondent,
 } from '@/lib/api';
+import { config } from '@/lib/config';
 
 // A generated link shown in the "Generated links" list. `kind` decides the
 // URL shape and whether a QR is offered ("login" links carry no token).
 type LinkResult = { target: string; url: string; token: string; kind: 'register' | 'login' };
 
 // Build the shareable URL for a token. Every link — register or login — is a
-// persisted token opened at /register?token=…; the public page branches on the
-// token's kind (form vs "sign in & begin"). One URL shape means QR works for both.
+// persisted token opened at the respondent portal's /portal/register?token=…;
+// that page branches on the token's kind (form vs "sign in & begin"). One URL
+// shape means QR works for both. The portal is a separate app/origin
+// (config.portalUrl), so links point there rather than back into the admin app.
 function urlFor(t: AssessmentToken): string {
-  const origin = typeof window !== 'undefined' ? window.location.origin : '';
-  return `${origin}/register?token=${encodeURIComponent(t.token)}`;
+  return `${config.portalUrl}/portal/register?token=${encodeURIComponent(t.token)}`;
 }
 
 // Human label for a stored token, from its scope ids. Mirrors the labels
@@ -274,7 +276,7 @@ export default function InviteOrCopyPage() {
   const downloadQr = async (token: string, target: string) => {
     setQrBusy(token);
     try {
-      const res = await fetch(publicTokensApi.qrUrl(token, window.location.origin));
+      const res = await fetch(publicTokensApi.qrUrl(token, config.portalUrl));
       if (!res.ok) throw new Error('QR fetch failed');
       const blob = await res.blob();
       const objectUrl = URL.createObjectURL(blob);
@@ -539,7 +541,7 @@ export default function InviteOrCopyPage() {
             </CardHeader>
             <CardContent className="flex flex-col items-center gap-4">
               <img
-                src={publicTokensApi.qrUrl(qrModal.token, window.location.origin)}
+                src={publicTokensApi.qrUrl(qrModal.token, config.portalUrl)}
                 alt="QR code"
                 className="h-56 w-56 rounded-md border border-border bg-white p-2"
               />

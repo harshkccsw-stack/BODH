@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
 import {
   Select,
   SelectContent,
@@ -40,7 +41,7 @@ export default function EditAssessmentPage() {
   const id = params.id as string | undefined;
 
   const [record, setRecord] = useState<AssessmentRecord | null>(null);
-  const [form, setForm] = useState({ name: '', language: 'English' });
+  const [form, setForm] = useState({ name: '', language: 'English', autoNext: false });
   const [allotees, setAllotees] = useState<AssessmentAllotees | null>(null);
   const [audit, setAudit] = useState<AuditLogEntry[]>([]);
 
@@ -70,7 +71,7 @@ export default function EditAssessmentPage() {
         respondentsApi.list().catch(() => [] as Respondent[]),
       ]);
       setRecord(r);
-      setForm({ name: r.name || '', language: r.language || 'English' });
+      setForm({ name: r.name || '', language: r.language || 'English', autoNext: !!r.autoNext });
       setAllotees(a);
       setAudit(log);
       setEntities(ents.filter((e) => e.active));
@@ -90,7 +91,7 @@ export default function EditAssessmentPage() {
     setSaving(true);
     setError('');
     try {
-      const updated = await assessmentRecordsApi.update(id, { name: form.name, language: form.language });
+      const updated = await assessmentRecordsApi.update(id, { name: form.name, language: form.language, autoNext: form.autoNext });
       setRecord(updated);
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
@@ -219,6 +220,16 @@ export default function EditAssessmentPage() {
                     {LANGUAGES.map((l) => <SelectItem key={l} value={l}>{l}</SelectItem>)}
                   </SelectContent>
                 </Select>
+              </div>
+              <div className="flex items-start justify-between gap-4 rounded-lg border border-border px-4 py-3">
+                <div className="min-w-0">
+                  <label htmlFor="auto-next" className="text-sm font-medium block">Auto-advance questions</label>
+                  <p className="text-[0.6875rem] text-muted-foreground mt-0.5">
+                    When on, the respondent moves to the next question automatically as soon as they
+                    select an option. Free-text questions and the last question are never auto-advanced.
+                  </p>
+                </div>
+                <Switch id="auto-next" checked={form.autoNext} onCheckedChange={(v) => setForm({ ...form, autoNext: v })} />
               </div>
               {saved && (
                 <div className="flex items-start gap-2 rounded-lg border border-green-200 bg-green-50 dark:border-green-900 dark:bg-green-950/30 px-3 py-2 text-xs text-green-700 dark:text-green-400">

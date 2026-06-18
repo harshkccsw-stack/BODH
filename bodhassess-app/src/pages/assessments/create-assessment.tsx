@@ -13,6 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input, InputWrapper } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
 import {
   Select,
   SelectContent,
@@ -49,6 +50,9 @@ export default function CreateAssessmentPage() {
   const [versions, setVersions] = useState<QuestionnaireVersionSummary[]>([]);
   const [pickedVersion, setPickedVersion] = useState('');
   const [language, setLanguage] = useState('English');
+  // When on, the respondent take-flow advances to the next question
+  // automatically once an option is selected.
+  const [autoNext, setAutoNext] = useState(false);
 
   const [entities, setEntities] = useState<EntityRegistration[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
@@ -187,6 +191,7 @@ export default function CreateAssessmentPage() {
         vertical: selectedQ?.vertical,
         language,
         status: 'ACTIVE',
+        autoNext,
         entityAllotments,
         groupAllotments: Array.from(groupAllotments),
         respondentAllotments: Array.from(respondentAllotments),
@@ -290,6 +295,16 @@ export default function CreateAssessmentPage() {
                 {LANGUAGES.map((l) => <SelectItem key={l} value={l}>{l}</SelectItem>)}
               </SelectContent>
             </Select>
+          </div>
+          <div className="flex items-start justify-between gap-4 rounded-lg border border-border px-4 py-3">
+            <div className="min-w-0">
+              <label htmlFor="auto-next" className="text-sm font-medium block">Auto-advance questions</label>
+              <p className="text-[0.6875rem] text-muted-foreground mt-0.5">
+                When on, the respondent moves to the next question automatically as soon as they
+                select an option. Free-text questions and the last question are never auto-advanced.
+              </p>
+            </div>
+            <Switch id="auto-next" checked={autoNext} onCheckedChange={setAutoNext} />
           </div>
         </CardContent>
       </Card>

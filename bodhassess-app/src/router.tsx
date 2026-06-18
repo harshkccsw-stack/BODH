@@ -38,6 +38,7 @@ const HomePage           = () => lazyPage(() => import('@/src/pages/home'));
 const LoginPage          = () => lazyPage(() => import('@/src/pages/login'));
 const SelectVerticalPage = () => lazyPage(() => import('@/src/pages/select-vertical'));
 const EntityRegistrationPage = () => lazyPage(() => import('@/src/pages/entity-registration'));
+const EntityMemberRegister   = () => lazyPage(() => import('@/src/pages/entity-member-register'));
 const RegisterWithToken      = () => lazyPage(() => import('@/src/pages/register-with-token'));
 
 // ── Respondent portal (own auth, lives outside dashboard chrome) ──────────
@@ -154,6 +155,11 @@ const routes: RouteObject[] = [
 
       // Entity registration — public form, no auth required
       { path: '/entity-registration', element: <EntityRegistrationPage /> },
+
+      // Entity member self-registration — public form behind an entity's
+      // shareable member link. Resolves the entity by id to title the form,
+      // registers the member into it, then hands off to the portal login.
+      { path: '/entity/:entityId/register', element: <EntityMemberRegister /> },
 
       // Public, no-login questionnaire preview ("test link"). Renders a
       // version's content as a walkthrough; nothing is saved.
