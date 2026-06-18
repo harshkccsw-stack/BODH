@@ -48,6 +48,13 @@ public class AssessmentController {
         return service.listByQuestionnaire(questionnaireId);
     }
 
+    // Assessments allotted to one entity — backs the "filter by entity"
+    // dropdown on the All Assessments page.
+    @GetMapping("/by-entity/{entityId}")
+    public List<AssessmentDto> listByEntity(@PathVariable String entityId) {
+        return service.listByEntity(entityId);
+    }
+
     @PostMapping
     public ResponseEntity<AssessmentDto> create(@RequestBody AssessmentDto dto) {
         return new ResponseEntity<>(service.create(dto), HttpStatus.CREATED);

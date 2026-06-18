@@ -11,7 +11,9 @@ import { formatDDMMYYYY, formatDDMMYYYYTime } from '@/lib/helpers';
 import {
   ArrowDown,
   ArrowUp,
+  Building2,
   CheckCircle2,
+  ClipboardList,
   Download,
   Eye,
   FileText,
@@ -23,6 +25,13 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input, InputWrapper } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 
 // A flat row for the list — one per completed session, mirroring the Reports page.
@@ -34,6 +43,12 @@ interface SheetRow {
   // Assessment (allotment) name; falls back to the questionnaire name when a
   // session has no assessment name.
   assessment: string;
+  // Stable key for the "filter by assessment" dropdown — the assessment record
+  // id when present, else the display name (older sessions may have a null id).
+  assessmentKey: string;
+  // Entity the session came from (only set for entity-allotment sessions).
+  entityId?: string;
+  entityName?: string;
   instrument: string;
   generatedAt: string;
   // Raw ISO timestamp kept for chronological sorting (the display string sorts
@@ -82,6 +97,9 @@ function responseMqtScores(
 export default function ResponseSheetsPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
+  // 'all' = no constraint; otherwise an entityId / assessmentKey to narrow to.
+  const [entityFilter, setEntityFilter] = useState('all');
+  const [assessmentFilter, setAssessmentFilter] = useState('all');
   const [rows, setRows] = useState<SheetRow[]>([]);
   const [sessionsById, setSessionsById] = useState<Record<string, Assessment>>({});
   const [loadError, setLoadError] = useState('');
@@ -102,16 +120,22 @@ export default function ResponseSheetsPage() {
         const completed = list.filter(
           (s) => String(s.status || '').toLowerCase() === 'completed',
         );
-        const built: SheetRow[] = completed.map((s) => ({
-          id: `RPT-${s.id}`,
-          sessionId: s.id,
-          respondent: s.respondent || '—',
-          respondentEmail: s.respondentEmail,
-          assessment: s.name || s.instrumentFullName || s.instrument || '—',
-          instrument: s.instrumentFullName || s.instrument || '—',
-          generatedAt: formatDDMMYYYY(s.completedAt || s.createdAt),
-          generatedAtRaw: s.completedAt || s.createdAt || '',
-        }));
+        const built: SheetRow[] = completed.map((s) => {
+          const assessment = s.name || s.instrumentFullName || s.instrument || '—';
+          return {
+            id: `RPT-${s.id}`,
+            sessionId: s.id,
+            respondent: s.respondent || '—',
+            respondentEmail: s.respondentEmail,
+            assessment,
+            assessmentKey: s.assessmentId || `name:${assessment}`,
+            entityId: s.entityId,
+            entityName: s.entityName,
+            instrument: s.instrumentFullName || s.instrument || '—',
+            generatedAt: formatDDMMYYYY(s.completedAt || s.createdAt),
+            generatedAtRaw: s.completedAt || s.createdAt || '',
+          };
+        });
         const byId: Record<string, Assessment> = {};
         completed.forEach((s) => {
           byId[s.id] = s;
@@ -124,9 +148,31 @@ export default function ResponseSheetsPage() {
     })();
   }, []);
 
+  // Dropdown options derived from the loaded rows, so every option is
+  // guaranteed to have at least one matching response sheet.
+  const entityOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const r of rows) {
+      if (r.entityId) map.set(r.entityId, r.entityName || r.entityId);
+    }
+    return [...map.entries()]
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+  }, [rows]);
+
+  const assessmentOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const r of rows) map.set(r.assessmentKey, r.assessment);
+    return [...map.entries()]
+      .map(([key, name]) => ({ key, name }))
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+  }, [rows]);
+
   const filteredRows = useMemo(() => {
     return rows
       .filter((r) => {
+        if (entityFilter !== 'all' && r.entityId !== entityFilter) return false;
+        if (assessmentFilter !== 'all' && r.assessmentKey !== assessmentFilter) return false;
         const q = searchQuery.toLowerCase();
         return (
           q === '' ||
@@ -142,7 +188,7 @@ export default function ResponseSheetsPage() {
         const tb = b.generatedAtRaw ? new Date(b.generatedAtRaw).getTime() : 0;
         return sortOrder === 'desc' ? tb - ta : ta - tb;
       });
-  }, [rows, searchQuery, sortOrder]);
+  }, [rows, searchQuery, sortOrder, entityFilter, assessmentFilter]);
 
   // Resolve a session's questionnaire content (preferring the pinned version,
   // falling back to by-name lookup — the same resolution the take page uses).
@@ -321,14 +367,40 @@ export default function ResponseSheetsPage() {
       {/* Filter Bar */}
       <Card>
         <CardContent className="p-4">
-          <InputWrapper variant="md" className="w-full sm:w-80">
-            <Search className="size-4" />
-            <Input
-              placeholder="Search respondent, questionnaire, session…"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-          </InputWrapper>
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+            <InputWrapper variant="md" className="w-full sm:w-80">
+              <Search className="size-4" />
+              <Input
+                placeholder="Search respondent, questionnaire, session…"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+            </InputWrapper>
+            <Select value={entityFilter} onValueChange={setEntityFilter}>
+              <SelectTrigger className="w-56" size="md">
+                <Building2 className="size-3.5 opacity-60" />
+                <SelectValue placeholder="Entity" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Entities</SelectItem>
+                {entityOptions.map((e) => (
+                  <SelectItem key={e.id} value={e.id}>{e.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={assessmentFilter} onValueChange={setAssessmentFilter}>
+              <SelectTrigger className="w-56" size="md">
+                <ClipboardList className="size-3.5 opacity-60" />
+                <SelectValue placeholder="Assessment" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Assessments</SelectItem>
+                {assessmentOptions.map((a) => (
+                  <SelectItem key={a.key} value={a.key}>{a.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </CardContent>
       </Card>
 

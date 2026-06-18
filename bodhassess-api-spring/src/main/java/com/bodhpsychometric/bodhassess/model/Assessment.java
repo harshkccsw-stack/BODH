@@ -7,6 +7,9 @@ import javax.persistence.Entity;
 import javax.persistence.Id;
 import javax.persistence.Table;
 
+import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.UpdateTimestamp;
+
 /**
  * First-class Assessment — a reusable allotment of a Questionnaire to a
  * set of Allotees (entities, groups, individual respondents). One row per
@@ -64,13 +67,15 @@ public class Assessment {
     @Column(name = "auto_next", nullable = false)
     private boolean autoNext = false;
 
-    @Column(name = "created_at", insertable = false, updatable = false)
+    @CreationTimestamp
+    @Column(name = "created_at", updatable = false)
     private OffsetDateTime createdAt;
 
     @Column(name = "created_by")
     private String createdBy;
 
-    @Column(name = "updated_at", insertable = false, updatable = false)
+    @UpdateTimestamp
+    @Column(name = "updated_at")
     private OffsetDateTime updatedAt;
 
     public String getId() { return id; }

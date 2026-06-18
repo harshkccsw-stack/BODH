@@ -703,6 +703,10 @@ export const assessmentRecordsApi = {
   // "connected assessments" popup on the versions page.
   listByQuestionnaire: (questionnaireId: string) =>
     jsonFetch<AssessmentRecord[]>(`/assessment-records/by-questionnaire/${encodeURIComponent(questionnaireId)}`),
+  // Assessments allotted to one entity — powers the "filter by entity"
+  // dropdown on the All Assessments page.
+  listByEntity: (entityId: string) =>
+    jsonFetch<AssessmentRecord[]>(`/assessment-records/by-entity/${encodeURIComponent(entityId)}`),
   get: (id: string) => jsonFetch<AssessmentRecord>(`/assessment-records/${encodeURIComponent(id)}`),
   create: (a: Partial<AssessmentRecord>) =>
     jsonFetch<AssessmentRecord>('/assessment-records', { method: 'POST', body: JSON.stringify(a) }),
