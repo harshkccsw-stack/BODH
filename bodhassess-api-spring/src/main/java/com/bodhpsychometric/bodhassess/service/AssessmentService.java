@@ -76,6 +76,23 @@ public class AssessmentService {
                 .map(this::toDtoWithCounts).collect(Collectors.toList());
     }
 
+    /** Assessments allotted to a given entity — drives the "filter by
+     *  entity" dropdown on the All Assessments page. Reads the authoritative
+     *  assessment_entity_allotment join (not the EntityRegistration.assessments
+     *  allow-list, which is only kept in sync from the Entity Management side). */
+    @Transactional(readOnly = true)
+    public List<AssessmentDto> listByEntity(String entityId) {
+        if (!StringUtils.hasText(entityId)) return new ArrayList<>();
+        return entityAllotments.findByEntityId(entityId).stream()
+                .map(AssessmentEntityAllotment::getAssessmentId)
+                .distinct()
+                .map(repo::findById)
+                .filter(java.util.Optional::isPresent)
+                .map(java.util.Optional::get)
+                .map(this::toDtoWithCounts)
+                .collect(Collectors.toList());
+    }
+
     @Transactional(readOnly = true)
     public AssessmentDto get(String id) {
         return toDtoWithCounts(loadOrThrow(id));

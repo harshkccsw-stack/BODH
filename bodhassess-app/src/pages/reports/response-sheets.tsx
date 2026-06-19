@@ -11,7 +11,9 @@ import { formatDDMMYYYY, formatDDMMYYYYTime } from '@/lib/helpers';
 import {
   ArrowDown,
   ArrowUp,
+  Building2,
   CheckCircle2,
+  ClipboardList,
   Download,
   Eye,
   FileText,
@@ -23,6 +25,13 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input, InputWrapper } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 
 // A flat row for the list — one per completed session, mirroring the Reports page.
@@ -34,6 +43,12 @@ interface SheetRow {
   // Assessment (allotment) name; falls back to the questionnaire name when a
   // session has no assessment name.
   assessment: string;
+  // Stable key for the "filter by assessment" dropdown — the assessment record
+  // id when present, else the display name (older sessions may have a null id).
+  assessmentKey: string;
+  // Entity the session came from (only set for entity-allotment sessions).
+  entityId?: string;
+  entityName?: string;
   instrument: string;
   generatedAt: string;
   // Raw ISO timestamp kept for chronological sorting (the display string sorts
@@ -82,6 +97,9 @@ function responseMqtScores(
 export default function ResponseSheetsPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
+  // 'all' = no constraint; otherwise an entityId / assessmentKey to narrow to.
+  const [entityFilter, setEntityFilter] = useState('all');
+  const [assessmentFilter, setAssessmentFilter] = useState('all');
   const [rows, setRows] = useState<SheetRow[]>([]);
   const [sessionsById, setSessionsById] = useState<Record<string, Assessment>>({});
   const [loadError, setLoadError] = useState('');
@@ -94,6 +112,8 @@ export default function ResponseSheetsPage() {
   const [detailError, setDetailError] = useState('');
   // Session id currently being exported (disables its download buttons).
   const [downloadingId, setDownloadingId] = useState('');
+  // True while the "Download All" (filtered) export is being built.
+  const [downloadingAll, setDownloadingAll] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -102,16 +122,22 @@ export default function ResponseSheetsPage() {
         const completed = list.filter(
           (s) => String(s.status || '').toLowerCase() === 'completed',
         );
-        const built: SheetRow[] = completed.map((s) => ({
-          id: `RPT-${s.id}`,
-          sessionId: s.id,
-          respondent: s.respondent || '—',
-          respondentEmail: s.respondentEmail,
-          assessment: s.name || s.instrumentFullName || s.instrument || '—',
-          instrument: s.instrumentFullName || s.instrument || '—',
-          generatedAt: formatDDMMYYYY(s.completedAt || s.createdAt),
-          generatedAtRaw: s.completedAt || s.createdAt || '',
-        }));
+        const built: SheetRow[] = completed.map((s) => {
+          const assessment = s.name || s.instrumentFullName || s.instrument || '—';
+          return {
+            id: `RPT-${s.id}`,
+            sessionId: s.id,
+            respondent: s.respondent || '—',
+            respondentEmail: s.respondentEmail,
+            assessment,
+            assessmentKey: s.assessmentId || `name:${assessment}`,
+            entityId: s.entityId,
+            entityName: s.entityName,
+            instrument: s.instrumentFullName || s.instrument || '—',
+            generatedAt: formatDDMMYYYY(s.completedAt || s.createdAt),
+            generatedAtRaw: s.completedAt || s.createdAt || '',
+          };
+        });
         const byId: Record<string, Assessment> = {};
         completed.forEach((s) => {
           byId[s.id] = s;
@@ -124,9 +150,31 @@ export default function ResponseSheetsPage() {
     })();
   }, []);
 
+  // Dropdown options derived from the loaded rows, so every option is
+  // guaranteed to have at least one matching response sheet.
+  const entityOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const r of rows) {
+      if (r.entityId) map.set(r.entityId, r.entityName || r.entityId);
+    }
+    return [...map.entries()]
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+  }, [rows]);
+
+  const assessmentOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const r of rows) map.set(r.assessmentKey, r.assessment);
+    return [...map.entries()]
+      .map(([key, name]) => ({ key, name }))
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+  }, [rows]);
+
   const filteredRows = useMemo(() => {
     return rows
       .filter((r) => {
+        if (entityFilter !== 'all' && r.entityId !== entityFilter) return false;
+        if (assessmentFilter !== 'all' && r.assessmentKey !== assessmentFilter) return false;
         const q = searchQuery.toLowerCase();
         return (
           q === '' ||
@@ -142,7 +190,7 @@ export default function ResponseSheetsPage() {
         const tb = b.generatedAtRaw ? new Date(b.generatedAtRaw).getTime() : 0;
         return sortOrder === 'desc' ? tb - ta : ta - tb;
       });
-  }, [rows, searchQuery, sortOrder]);
+  }, [rows, searchQuery, sortOrder, entityFilter, assessmentFilter]);
 
   // Resolve a session's questionnaire content (preferring the pinned version,
   // falling back to by-name lookup — the same resolution the take page uses).
@@ -280,6 +328,99 @@ export default function ResponseSheetsPage() {
     }
   };
 
+  // Export every currently-shown (filtered) response sheet into one workbook:
+  // a summary row per session, a combined MQT-scores sheet, and a combined
+  // per-question responses sheet. Honours the active entity/assessment/search
+  // filters via `filteredRows`.
+  const downloadAllShowing = async () => {
+    const sessions = filteredRows
+      .map((r) => sessionsById[r.sessionId])
+      .filter((s): s is Assessment => Boolean(s));
+    if (sessions.length === 0) return;
+    setDownloadingAll(true);
+    try {
+      const XLSX = await import('xlsx');
+      const nameOf = (s: Assessment) =>
+        s.name || s.instrumentFullName || s.instrument || '';
+
+      // Sheet 1 — one summary row per session.
+      const summarySheet = XLSX.utils.aoa_to_sheet([
+        ['Report ID', 'Session ID', 'Respondent', 'Email', 'Assessment', 'Questionnaire', 'Entity', 'Status', 'Completed At', 'Score Summary'],
+        ...sessions.map((s) => [
+          `RPT-${s.id}`,
+          s.id,
+          s.respondent || '',
+          s.respondentEmail || '',
+          nameOf(s),
+          s.instrumentFullName || s.instrument || '',
+          s.entityName || '',
+          s.status || '',
+          formatDDMMYYYYTime(s.completedAt || s.createdAt),
+          s.score || '',
+        ]),
+      ]);
+      summarySheet['!cols'] = [{ wch: 16 }, { wch: 16 }, { wch: 22 }, { wch: 26 }, { wch: 28 }, { wch: 28 }, { wch: 22 }, { wch: 12 }, { wch: 20 }, { wch: 40 }];
+
+      // Sheet 2 — one row per (session, MQT). Uses scores already on the
+      // session, so no extra round-trips.
+      const scoreRows: Array<Array<string | number>> = [];
+      for (const s of sessions) {
+        for (const m of readMqtScores(s.mqtScores)) {
+          scoreRows.push([s.id, s.respondent || '', nameOf(s), m.key, m.name, m.score]);
+        }
+      }
+      const scoresSheet = XLSX.utils.aoa_to_sheet([
+        ['Session ID', 'Respondent', 'Assessment', 'MQT ID', 'MQT Name', 'Score'],
+        ...scoreRows,
+      ]);
+      scoresSheet['!cols'] = [{ wch: 16 }, { wch: 22 }, { wch: 28 }, { wch: 24 }, { wch: 28 }, { wch: 10 }];
+
+      // Sheet 3 — one row per (session, question). Resolve each session's
+      // questionnaire once and cache it (most sessions share versions).
+      const qCache = new Map<string, PublishedQuestionnaire | null>();
+      const respRows: Array<Array<string | number>> = [];
+      for (const s of sessions) {
+        const cacheKey = s.questionnaireVersionId || s.instrumentFullName || s.instrument || s.id;
+        let q = qCache.get(cacheKey);
+        if (q === undefined) {
+          q = await resolveQuestionnaire(s);
+          qCache.set(cacheKey, q);
+        }
+        const nameMap = buildMqtNameMap(q);
+        (q?.questions || []).forEach((question, i) => {
+          const ans = s.answers?.[question.id];
+          let answerText: string;
+          if (typeof ans === 'number') {
+            answerText = question.options?.[ans]?.text ?? `Option ${ans + 1}`;
+          } else if (typeof ans === 'string' && ans.trim() !== '') {
+            answerText = ans;
+          } else {
+            answerText = '(not answered)';
+          }
+          const scoreText = responseMqtScores(question, ans, nameMap)
+            .map((x) => `${x.name}=${x.score}`)
+            .join(', ');
+          respRows.push([s.id, s.respondent || '', nameOf(s), i + 1, question.stem, answerText, scoreText]);
+        });
+      }
+      const respSheet = XLSX.utils.aoa_to_sheet([
+        ['Session ID', 'Respondent', 'Assessment', '#', 'Question', 'Answer', 'MQ/MQT Scores'],
+        ...respRows,
+      ]);
+      respSheet['!cols'] = [{ wch: 16 }, { wch: 22 }, { wch: 24 }, { wch: 5 }, { wch: 60 }, { wch: 40 }, { wch: 36 }];
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, summarySheet, 'Response Sheets');
+      XLSX.utils.book_append_sheet(wb, scoresSheet, 'MQT Scores');
+      XLSX.utils.book_append_sheet(wb, respSheet, 'Responses');
+      XLSX.writeFile(wb, `response-sheets-${sessions.length}.xlsx`);
+    } catch (e: any) {
+      setLoadError(e?.message || 'Failed to download all reports');
+    } finally {
+      setDownloadingAll(false);
+    }
+  };
+
   const closeDetail = () => {
     setOpenSession(null);
     setOpenQuestionnaire(null);
@@ -321,25 +462,62 @@ export default function ResponseSheetsPage() {
       {/* Filter Bar */}
       <Card>
         <CardContent className="p-4">
-          <InputWrapper variant="md" className="w-full sm:w-80">
-            <Search className="size-4" />
-            <Input
-              placeholder="Search respondent, questionnaire, session…"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-          </InputWrapper>
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+            <InputWrapper variant="md" className="w-full sm:w-80">
+              <Search className="size-4" />
+              <Input
+                placeholder="Search respondent, questionnaire, session…"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+            </InputWrapper>
+            <Select value={entityFilter} onValueChange={setEntityFilter}>
+              <SelectTrigger className="w-56" size="md">
+                <Building2 className="size-3.5 opacity-60" />
+                <SelectValue placeholder="Entity" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Entities</SelectItem>
+                {entityOptions.map((e) => (
+                  <SelectItem key={e.id} value={e.id}>{e.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={assessmentFilter} onValueChange={setAssessmentFilter}>
+              <SelectTrigger className="w-56" size="md">
+                <ClipboardList className="size-3.5 opacity-60" />
+                <SelectValue placeholder="Assessment" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Assessments</SelectItem>
+                {assessmentOptions.map((a) => (
+                  <SelectItem key={a.key} value={a.key}>{a.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </CardContent>
       </Card>
 
       {/* Table */}
       <Card>
         <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
             <CardTitle className="text-base">Response Sheets</CardTitle>
-            <span className="text-sm text-muted-foreground">
-              Showing {filteredRows.length} of {rows.length}
-            </span>
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-muted-foreground">
+                Showing {filteredRows.length} of {rows.length}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={downloadingAll || filteredRows.length === 0}
+                onClick={downloadAllShowing}
+              >
+                <Download className="size-3.5" />
+                {downloadingAll ? 'Preparing…' : `Download All (${filteredRows.length})`}
+              </Button>
+            </div>
           </div>
         </CardHeader>
         <CardContent className="p-0">

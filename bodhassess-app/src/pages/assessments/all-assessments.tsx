@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   ArrowUpDown,
+  Building2,
   ChevronRight,
   Copy as CopyIcon,
   Edit3,
@@ -36,9 +37,11 @@ import {
 import {
   assessmentRecordsApi,
   assessmentAllotmentsApi,
+  entityRegistrationsApi,
   type AssessmentRecord,
   type AssessmentStatus,
   type AssessmentAllotees,
+  type EntityRegistration,
 } from '@/lib/api';
 import { formatDDMMYYYY } from '@/lib/helpers';
 
@@ -59,6 +62,14 @@ export default function AllAssessmentsPage() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [sortBy, setSortBy] = useState<string>('created-desc');
+
+  // Entity filter — 'all' shows every assessment; selecting an entity narrows
+  // the list to assessments allotted to that entity (resolved server-side from
+  // the assessment_entity_allotment join, see assessmentRecordsApi.listByEntity).
+  const [entities, setEntities] = useState<EntityRegistration[]>([]);
+  const [entityFilter, setEntityFilter] = useState<string>('all');
+  const [entityAssessmentIds, setEntityAssessmentIds] = useState<Set<string> | null>(null);
+  const [entityLoading, setEntityLoading] = useState(false);
 
   const [allotteesOpen, setAllotteesOpen] = useState<AssessmentRecord | null>(null);
   const [allotteesData, setAllotteesData] = useState<AssessmentAllotees | null>(null);
@@ -81,10 +92,49 @@ export default function AllAssessmentsPage() {
   };
   useEffect(() => { load(); }, []);
 
+  // Entities for the filter dropdown. Only active ones can hold allotments,
+  // so the rest would never match anything — hide them from the dropdown.
+  useEffect(() => {
+    (async () => {
+      try {
+        const list = await entityRegistrationsApi.list();
+        setEntities(list.filter((e) => e.active && e.id));
+      } catch {
+        // Non-fatal: the page still works without the entity filter.
+      }
+    })();
+  }, []);
+
+  // Resolve which assessments belong to the selected entity (server-side,
+  // from the authoritative allotment join). 'all' clears the constraint.
+  useEffect(() => {
+    if (entityFilter === 'all') {
+      setEntityAssessmentIds(null);
+      return;
+    }
+    let cancelled = false;
+    setEntityLoading(true);
+    (async () => {
+      try {
+        const list = await assessmentRecordsApi.listByEntity(entityFilter);
+        if (!cancelled) setEntityAssessmentIds(new Set(list.map((a) => a.id)));
+      } catch (e: any) {
+        if (!cancelled) {
+          setError(e?.message || 'Failed to filter by entity');
+          setEntityAssessmentIds(new Set());
+        }
+      } finally {
+        if (!cancelled) setEntityLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [entityFilter]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return rows.filter((r) => {
       if (statusFilter !== 'all' && r.status !== statusFilter) return false;
+      if (entityAssessmentIds && !entityAssessmentIds.has(r.id)) return false;
       if (!q) return true;
       return (
         (r.name || '').toLowerCase().includes(q) ||
@@ -93,7 +143,7 @@ export default function AllAssessmentsPage() {
         r.id.toLowerCase().includes(q)
       );
     });
-  }, [rows, search, statusFilter]);
+  }, [rows, search, statusFilter, entityAssessmentIds]);
 
   const sorted = useMemo(() => {
     const arr = [...filtered];
@@ -185,6 +235,20 @@ export default function AllAssessmentsPage() {
                 onChange={(e) => setSearch(e.target.value)}
               />
             </InputWrapper>
+            <Select value={entityFilter} onValueChange={setEntityFilter}>
+              <SelectTrigger className="w-56" size="md">
+                <Building2 className="size-3.5 opacity-60" />
+                <SelectValue placeholder="Entity" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Entities</SelectItem>
+                {entities.map((e) => (
+                  <SelectItem key={e.id} value={e.id!}>
+                    {e.companyName || e.name || e.id}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger className="w-40" size="md">
                 <Filter className="size-3.5 opacity-60" />
@@ -235,7 +299,7 @@ export default function AllAssessmentsPage() {
                 </tr>
               </thead>
               <tbody>
-                {loading ? (
+                {loading || entityLoading ? (
                   <tr><td colSpan={8} className="px-5 py-8 text-center text-muted-foreground">Loading…</td></tr>
                 ) : sorted.length === 0 ? (
                   <tr><td colSpan={8} className="px-5 py-12 text-center text-muted-foreground">No assessments yet.</td></tr>
