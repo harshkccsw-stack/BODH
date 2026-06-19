@@ -112,6 +112,8 @@ export default function ResponseSheetsPage() {
   const [detailError, setDetailError] = useState('');
   // Session id currently being exported (disables its download buttons).
   const [downloadingId, setDownloadingId] = useState('');
+  // True while the "Download All" (filtered) export is being built.
+  const [downloadingAll, setDownloadingAll] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -326,6 +328,99 @@ export default function ResponseSheetsPage() {
     }
   };
 
+  // Export every currently-shown (filtered) response sheet into one workbook:
+  // a summary row per session, a combined MQT-scores sheet, and a combined
+  // per-question responses sheet. Honours the active entity/assessment/search
+  // filters via `filteredRows`.
+  const downloadAllShowing = async () => {
+    const sessions = filteredRows
+      .map((r) => sessionsById[r.sessionId])
+      .filter((s): s is Assessment => Boolean(s));
+    if (sessions.length === 0) return;
+    setDownloadingAll(true);
+    try {
+      const XLSX = await import('xlsx');
+      const nameOf = (s: Assessment) =>
+        s.name || s.instrumentFullName || s.instrument || '';
+
+      // Sheet 1 — one summary row per session.
+      const summarySheet = XLSX.utils.aoa_to_sheet([
+        ['Report ID', 'Session ID', 'Respondent', 'Email', 'Assessment', 'Questionnaire', 'Entity', 'Status', 'Completed At', 'Score Summary'],
+        ...sessions.map((s) => [
+          `RPT-${s.id}`,
+          s.id,
+          s.respondent || '',
+          s.respondentEmail || '',
+          nameOf(s),
+          s.instrumentFullName || s.instrument || '',
+          s.entityName || '',
+          s.status || '',
+          formatDDMMYYYYTime(s.completedAt || s.createdAt),
+          s.score || '',
+        ]),
+      ]);
+      summarySheet['!cols'] = [{ wch: 16 }, { wch: 16 }, { wch: 22 }, { wch: 26 }, { wch: 28 }, { wch: 28 }, { wch: 22 }, { wch: 12 }, { wch: 20 }, { wch: 40 }];
+
+      // Sheet 2 — one row per (session, MQT). Uses scores already on the
+      // session, so no extra round-trips.
+      const scoreRows: Array<Array<string | number>> = [];
+      for (const s of sessions) {
+        for (const m of readMqtScores(s.mqtScores)) {
+          scoreRows.push([s.id, s.respondent || '', nameOf(s), m.key, m.name, m.score]);
+        }
+      }
+      const scoresSheet = XLSX.utils.aoa_to_sheet([
+        ['Session ID', 'Respondent', 'Assessment', 'MQT ID', 'MQT Name', 'Score'],
+        ...scoreRows,
+      ]);
+      scoresSheet['!cols'] = [{ wch: 16 }, { wch: 22 }, { wch: 28 }, { wch: 24 }, { wch: 28 }, { wch: 10 }];
+
+      // Sheet 3 — one row per (session, question). Resolve each session's
+      // questionnaire once and cache it (most sessions share versions).
+      const qCache = new Map<string, PublishedQuestionnaire | null>();
+      const respRows: Array<Array<string | number>> = [];
+      for (const s of sessions) {
+        const cacheKey = s.questionnaireVersionId || s.instrumentFullName || s.instrument || s.id;
+        let q = qCache.get(cacheKey);
+        if (q === undefined) {
+          q = await resolveQuestionnaire(s);
+          qCache.set(cacheKey, q);
+        }
+        const nameMap = buildMqtNameMap(q);
+        (q?.questions || []).forEach((question, i) => {
+          const ans = s.answers?.[question.id];
+          let answerText: string;
+          if (typeof ans === 'number') {
+            answerText = question.options?.[ans]?.text ?? `Option ${ans + 1}`;
+          } else if (typeof ans === 'string' && ans.trim() !== '') {
+            answerText = ans;
+          } else {
+            answerText = '(not answered)';
+          }
+          const scoreText = responseMqtScores(question, ans, nameMap)
+            .map((x) => `${x.name}=${x.score}`)
+            .join(', ');
+          respRows.push([s.id, s.respondent || '', nameOf(s), i + 1, question.stem, answerText, scoreText]);
+        });
+      }
+      const respSheet = XLSX.utils.aoa_to_sheet([
+        ['Session ID', 'Respondent', 'Assessment', '#', 'Question', 'Answer', 'MQ/MQT Scores'],
+        ...respRows,
+      ]);
+      respSheet['!cols'] = [{ wch: 16 }, { wch: 22 }, { wch: 24 }, { wch: 5 }, { wch: 60 }, { wch: 40 }, { wch: 36 }];
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, summarySheet, 'Response Sheets');
+      XLSX.utils.book_append_sheet(wb, scoresSheet, 'MQT Scores');
+      XLSX.utils.book_append_sheet(wb, respSheet, 'Responses');
+      XLSX.writeFile(wb, `response-sheets-${sessions.length}.xlsx`);
+    } catch (e: any) {
+      setLoadError(e?.message || 'Failed to download all reports');
+    } finally {
+      setDownloadingAll(false);
+    }
+  };
+
   const closeDetail = () => {
     setOpenSession(null);
     setOpenQuestionnaire(null);
@@ -407,11 +502,22 @@ export default function ResponseSheetsPage() {
       {/* Table */}
       <Card>
         <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
             <CardTitle className="text-base">Response Sheets</CardTitle>
-            <span className="text-sm text-muted-foreground">
-              Showing {filteredRows.length} of {rows.length}
-            </span>
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-muted-foreground">
+                Showing {filteredRows.length} of {rows.length}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={downloadingAll || filteredRows.length === 0}
+                onClick={downloadAllShowing}
+              >
+                <Download className="size-3.5" />
+                {downloadingAll ? 'Preparing…' : `Download All (${filteredRows.length})`}
+              </Button>
+            </div>
           </div>
         </CardHeader>
         <CardContent className="p-0">
