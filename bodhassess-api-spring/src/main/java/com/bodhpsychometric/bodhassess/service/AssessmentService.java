@@ -30,6 +30,7 @@ import com.bodhpsychometric.bodhassess.repository.AssessmentEntityAllotmentRepos
 import com.bodhpsychometric.bodhassess.repository.AssessmentGroupAllotmentRepository;
 import com.bodhpsychometric.bodhassess.repository.AssessmentRepository;
 import com.bodhpsychometric.bodhassess.repository.AssessmentRespondentAllotmentRepository;
+import com.bodhpsychometric.bodhassess.repository.EntityRegistrationRepository;
 import com.bodhpsychometric.bodhassess.repository.PortalSessionRepository;
 import com.bodhpsychometric.bodhassess.repository.PublishedQuestionnaireRepository;
 import com.bodhpsychometric.bodhassess.security.UserPrincipal;
@@ -52,6 +53,7 @@ public class AssessmentService {
             "ACTIVE", "CLOSED", "PAUSED", "TEST"));
 
     @Autowired private AssessmentRepository repo;
+    @Autowired private EntityRegistrationRepository entityRegistrations;
     @Autowired private AssessmentEntityAllotmentRepository entityAllotments;
     @Autowired private AssessmentGroupAllotmentRepository groupAllotments;
     @Autowired private AssessmentRespondentAllotmentRepository respondentAllotments;
@@ -229,6 +231,15 @@ public class AssessmentService {
         entityAllotments.findByAssessmentId(id).forEach(entityAllotments::delete);
         groupAllotments.findByAssessmentId(id).forEach(groupAllotments::delete);
         respondentAllotments.findByAssessmentId(id).forEach(respondentAllotments::delete);
+        // Also scrub the denormalised entity_assessments allow-list. It's a
+        // separate store from the allotment join above and drives the entity
+        // registration page's access count — left untouched, a deleted
+        // assessment keeps counting toward an entity's access.
+        entityRegistrations.findByAssessmentId(id).forEach(e -> {
+            if (e.getAssessments() != null && e.getAssessments().remove(id)) {
+                entityRegistrations.save(e);
+            }
+        });
         repo.delete(a);
         audit.record("ASSESSMENT_DELETED", "assessment", id, toAuditSnapshot(a), null);
     }

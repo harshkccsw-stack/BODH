@@ -15,9 +15,11 @@ import org.springframework.util.StringUtils;
 
 import com.bodhpsychometric.bodhassess.exception.BadRequestException;
 import com.bodhpsychometric.bodhassess.exception.ResourceNotFoundException;
+import com.bodhpsychometric.bodhassess.model.AssessmentEntityAllotment;
 import com.bodhpsychometric.bodhassess.model.EntityRegistration;
 import com.bodhpsychometric.bodhassess.model.PortalSession;
 import com.bodhpsychometric.bodhassess.payload.EntityRegistrationDto;
+import com.bodhpsychometric.bodhassess.repository.AssessmentEntityAllotmentRepository;
 import com.bodhpsychometric.bodhassess.repository.EntityRegistrationRepository;
 import com.bodhpsychometric.bodhassess.repository.PortalSessionRepository;
 import com.bodhpsychometric.bodhassess.repository.UserRepository;
@@ -39,6 +41,13 @@ public class EntityRegistrationsService {
 
     @Autowired
     private PortalSessionRepository sessions;
+
+    // The authoritative entity↔assessment link. The page count and the Access
+    // modal's tick state are derived from this join (not the denormalised
+    // entity_assessments allow-list) so they reflect access however it was
+    // granted — and drop automatically when an assessment is deleted.
+    @Autowired
+    private AssessmentEntityAllotmentRepository entityAllotments;
 
     @Transactional(readOnly = true)
     public List<EntityRegistrationDto> list() {
@@ -139,7 +148,10 @@ public class EntityRegistrationsService {
      * an inactive entity) rolls the whole update back.
      */
     private void reconcileAssessmentAssignments(EntityRegistration e, Set<String> next) {
-        Set<String> current = e.getAssessments() == null ? new HashSet<>() : new HashSet<>(e.getAssessments());
+        // Diff against the authoritative allotment join, not the stored set —
+        // otherwise an allotment created elsewhere (e.g. the assessment create
+        // form) would be re-added or missed.
+        Set<String> current = currentAssessmentIds(e.getId());
         for (String assessmentId : next) {
             if (!current.contains(assessmentId)) {
                 // null cap = unlimited, so every member gets a session.
@@ -153,6 +165,14 @@ public class EntityRegistrationsService {
             }
         }
         e.setAssessments(next);
+    }
+
+    /** The assessment ids this entity is actually allotted to — the
+     *  authoritative source for both the page count and the Access modal. */
+    private Set<String> currentAssessmentIds(String entityId) {
+        return entityAllotments.findByEntityId(entityId).stream()
+                .map(AssessmentEntityAllotment::getAssessmentId)
+                .collect(Collectors.toCollection(HashSet::new));
     }
 
     /**
@@ -213,7 +233,11 @@ public class EntityRegistrationsService {
                 : new ArrayList<>(e.getMemberIds()));
         d.setVerticals(e.getVerticals() == null ? new ArrayList<>() : new ArrayList<>(e.getVerticals()));
         d.setPlatformModules(e.getPlatformModules() == null ? new ArrayList<>() : new ArrayList<>(e.getPlatformModules()));
-        d.setAssessments(e.getAssessments() == null ? new ArrayList<>() : new ArrayList<>(e.getAssessments()));
+        // Derive the assessment access list from the authoritative allotment
+        // join rather than the stored entity_assessments set, so it reflects
+        // every allotment (create form, All Assessments page, or Access modal)
+        // and excludes assessments that have since been deleted.
+        d.setAssessments(new ArrayList<>(currentAssessmentIds(e.getId())));
         if (e.getCreatedAt() != null) {
             d.setCreatedAt(e.getCreatedAt().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME));
         }
