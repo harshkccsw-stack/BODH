@@ -17,6 +17,7 @@ import {
   X,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Loading } from '@/components/loading';
 import { Button } from '@/components/ui/button';
 import { Input, InputWrapper } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -300,7 +301,7 @@ export default function AllAssessmentsPage() {
               </thead>
               <tbody>
                 {loading || entityLoading ? (
-                  <tr><td colSpan={8} className="px-5 py-8 text-center text-muted-foreground">Loading…</td></tr>
+                  <tr><td colSpan={8} className="p-0"><Loading /></td></tr>
                 ) : sorted.length === 0 ? (
                   <tr><td colSpan={8} className="px-5 py-12 text-center text-muted-foreground">No assessments yet.</td></tr>
                 ) : sorted.map((r) => (

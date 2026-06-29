@@ -22,6 +22,7 @@ import { Button } from '@/components/ui/button';
 import { Input, InputWrapper } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
+import { Loading } from '@/components/loading';
 import {
   Select,
   SelectContent,
@@ -102,10 +103,12 @@ export default function ReportsPage() {
   const [liveReports, setLiveReports] = useState<Report[]>([]);
   const [sessionsById, setSessionsById] = useState<Record<string, Assessment>>({});
   const [loadError, setLoadError] = useState('');
+  const [loading, setLoading] = useState(true);
   const [viewReport, setViewReport] = useState<Report | null>(null);
 
   useEffect(() => {
     (async () => {
+      setLoading(true);
       try {
         const list = await assessmentsApi.list();
         const completed = list.filter((s) => String(s.status || '').toLowerCase() === 'completed');
@@ -129,6 +132,8 @@ export default function ReportsPage() {
         setSessionsById(byId);
       } catch (e: any) {
         setLoadError(e?.message || 'Failed to load assessments');
+      } finally {
+        setLoading(false);
       }
     })();
   }, []);
@@ -345,6 +350,9 @@ export default function ReportsPage() {
           </div>
         </CardHeader>
         <CardContent className="p-0">
+          {loading ? (
+            <Loading />
+          ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -428,6 +436,7 @@ export default function ReportsPage() {
               </tbody>
             </table>
           </div>
+          )}
         </CardContent>
       </Card>
 

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Brain, ClipboardCheck, Clock, LogOut, Play, CheckCircle2 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Loading } from '@/components/loading';
 
 import { portalSessionsApi, respondentsApi, type PortalSession, type Respondent } from '@/lib/api';
 import { formatDDMMYYYY } from '@/lib/helpers';
@@ -13,26 +14,32 @@ export default function PortalAssessmentsPage() {
   const [user, setUser] = useState<Respondent | null>(null);
   const [sessions, setSessions] = useState<PortalSession[]>([]);
   const [checked, setChecked] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     (async () => {
-      const token = localStorage.getItem(AUTH_KEY);
-      if (!token) { window.location.href = '/portal/login'; return; }
+      setLoading(true);
       try {
-        const me = await respondentsApi.me(token);
-        setUser(me);
+        const token = localStorage.getItem(AUTH_KEY);
+        if (!token) { window.location.href = '/portal/login'; return; }
         try {
-          const list = await portalSessionsApi.list(me.id);
-          setSessions(list);
+          const me = await respondentsApi.me(token);
+          setUser(me);
+          try {
+            const list = await portalSessionsApi.list(me.id);
+            setSessions(list);
+          } catch {
+            setSessions([]);
+          }
         } catch {
-          setSessions([]);
+          // Token invalid/expired
+          localStorage.removeItem(AUTH_KEY);
+          window.location.href = '/portal/login';
         }
-      } catch {
-        // Token invalid/expired
-        localStorage.removeItem(AUTH_KEY);
-        window.location.href = '/portal/login';
+        setChecked(true);
+      } finally {
+        setLoading(false);
       }
-      setChecked(true);
     })();
   }, []);
 
@@ -45,10 +52,10 @@ export default function PortalAssessmentsPage() {
     window.location.href = '/portal/login';
   };
 
-  if (!checked || !user) {
+  if (loading || !checked || !user) {
     return (
       <div className="flex-1 min-h-screen flex items-center justify-center bg-muted/20">
-        <p className="text-sm text-muted-foreground">Loading...</p>
+        <Loading />
       </div>
     );
   }

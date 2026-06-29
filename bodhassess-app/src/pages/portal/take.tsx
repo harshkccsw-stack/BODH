@@ -3,6 +3,7 @@ import { Brain, Check, ChevronLeft, ChevronRight, AlertTriangle, ListChecks } fr
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { Loading } from '@/components/loading';
 import { portalSessionsApi, questionnairesApi, respondentsApi, demographicFieldsApi, type PortalSession, type Respondent, type DemographicField } from '@/lib/api';
 import { config } from '@/lib/config';
 
@@ -73,6 +74,7 @@ export default function PortalTakePage() {
   // Number for selected-option indexes (MCQ/Likert/etc), string for FREE_TEXT answers
   const [answers, setAnswers] = useState<Record<string, number | string>>({});
   const [loadError, setLoadError] = useState('');
+  const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [agreedToDisclaimer, setAgreedToDisclaimer] = useState(false);
   const [disclaimerChecked, setDisclaimerChecked] = useState(false);
@@ -134,6 +136,7 @@ export default function PortalTakePage() {
 
   useEffect(() => {
     (async () => {
+      setLoading(true);
       try {
         const token = localStorage.getItem(AUTH_KEY);
         if (!token) { window.location.href = '/portal/login'; return; }
@@ -190,6 +193,8 @@ export default function PortalTakePage() {
         setQuestionnaire(inst);
       } catch (e) {
         setLoadError('Failed to load the assessment.');
+      } finally {
+        setLoading(false);
       }
     })();
   }, []);
@@ -268,6 +273,14 @@ export default function PortalTakePage() {
             </Button>
           </CardContent>
         </Card>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="flex-1 min-h-screen w-full flex items-center justify-center">
+        <Loading label="Loading assessment…" />
       </div>
     );
   }

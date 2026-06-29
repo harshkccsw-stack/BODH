@@ -509,6 +509,62 @@ export default function CreateAssessmentPage() {
     return map;
   }, [mqs]);
 
+  // Traits grouped under their parent MQ, each carrying an outline number
+  // (1, 1.1, 1.1.1 …) and depth so the coverage UI can render the
+  // MQ › MQT › sub-MQT hierarchy instead of a flat wall of full-path pills.
+  type MqtRow = { mqt: MQT; path: string; label: string; number: string; depth: number };
+  const mqtsByMq = useMemo(() => {
+    const map: Record<string, MqtRow[]> = {};
+    mqs.forEach((mq) => {
+      const rows: MqtRow[] = [];
+      const walk = (nodes: MQT[], parentLabels: string[], parentNumber: string, depth: number) => {
+        nodes.forEach((n, i) => {
+          const number = parentNumber ? `${parentNumber}.${i + 1}` : `${i + 1}`;
+          // The MQ-level single trait (same name as its MQ, no children) is
+          // represented by the MQ chip itself, so label it "Overall".
+          const isMqLevel =
+            depth === 0 && mq.mqts.length === 1 &&
+            n.name.toLowerCase() === mq.name.toLowerCase() && !n.children?.length;
+          const path = isMqLevel ? mq.name : [mq.name, ...parentLabels, n.name].join(' > ');
+          rows.push({ mqt: n, path, label: isMqLevel ? 'Overall' : n.name, number, depth });
+          if (n.children?.length) walk(n.children, [...parentLabels, n.name], number, depth + 1);
+        });
+      };
+      walk(mq.mqts, [], '', 0);
+      map[mq.id] = rows;
+    });
+    return map;
+  }, [mqs]);
+
+  // Which MQ groups are collapsed in the coverage UI (shared across every
+  // question's selector and the Coverage Map so the view stays consistent).
+  const [collapsedMqs, setCollapsedMqs] = useState<Set<string>>(new Set());
+  const toggleMqCollapse = (id: string) =>
+    setCollapsedMqs((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+
+  // Per-question accordion: which question cards are expanded. Empty by
+  // default so every card starts collapsed; the side navigator and the card
+  // header chevron toggle membership.
+  const [expandedQs, setExpandedQs] = useState<Set<string>>(new Set());
+  const toggleQuestionExpand = (id: string) =>
+    setExpandedQs((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  // Expand a question (if collapsed) and scroll its card into view.
+  const goToQuestion = (id: string) => {
+    setExpandedQs((prev) => new Set(prev).add(id));
+    // Defer so the body is mounted before we scroll to it.
+    requestAnimationFrame(() => {
+      document.getElementById(`question-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  };
+
   // Coverage summary: how many questions tag each MQ and each MQT.
   const coverageSummary = useMemo(() => {
     const mqCounts: Record<string, number> = {};
@@ -1152,10 +1208,11 @@ export default function CreateAssessmentPage() {
   // ---- Question handlers ----
 
   const addQuestion = (sectionId?: string, sectionTitle?: string) => {
+    const id = crypto.randomUUID();
     setQuestions((prev) => [
       ...prev,
       {
-        id: crypto.randomUUID(),
+        id,
         stem: '',
         format: 'MCQ',
         media_url: '',
@@ -1174,6 +1231,8 @@ export default function CreateAssessmentPage() {
         sectionTitle,
       },
     ]);
+    // Open the freshly added question so it's ready to edit.
+    setExpandedQs((prev) => new Set(prev).add(id));
   };
 
   const addSection = () => {
@@ -1201,15 +1260,34 @@ export default function CreateAssessmentPage() {
 
   // renderQuestionCard is reused by both the flat list and the per-section groups.
   const renderQuestionCard = (q: Question, idx: number) => {
+    const expanded = expandedQs.has(q.id);
     return (
-      <Card key={q.id}>
+      <Card key={q.id} id={`question-${q.id}`} className="scroll-mt-24">
         <CardContent className="p-5 space-y-4">
           <div className="flex items-start justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <GripVertical className="h-4 w-4 text-muted-foreground cursor-grab" />
-              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-primary text-xs font-semibold">{idx + 1}</span>
+            <div className="flex items-center gap-3 min-w-0 flex-1">
+              <button
+                type="button"
+                onClick={() => toggleQuestionExpand(q.id)}
+                className="text-muted-foreground hover:text-foreground shrink-0"
+                title={expanded ? 'Collapse question' : 'Expand question'}
+              >
+                <ChevronRight className={cn('h-4 w-4 transition-transform', expanded && 'rotate-90')} />
+              </button>
+              <GripVertical className="h-4 w-4 text-muted-foreground cursor-grab shrink-0" />
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary text-xs font-semibold">{idx + 1}</span>
+              {!expanded && (
+                <button
+                  type="button"
+                  onClick={() => toggleQuestionExpand(q.id)}
+                  className="truncate text-left text-sm text-muted-foreground hover:text-foreground"
+                  title="Expand question"
+                >
+                  {q.stem?.trim() || <span className="italic">Untitled question</span>}
+                </button>
+              )}
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 shrink-0">
               {useSections && sections.length > 0 && (
                 <select
                   value={q.sectionId || ''}
@@ -1234,6 +1312,8 @@ export default function CreateAssessmentPage() {
             </div>
           </div>
 
+          {expanded && (
+          <>
           <textarea
             value={q.stem}
             onChange={(e) => updateQuestion(q.id, { stem: e.target.value })}
@@ -1332,54 +1412,78 @@ export default function CreateAssessmentPage() {
                 Coverage &mdash; which MQs/MQTs this question measures. Used for filtering and reporting; not scored.
               </p>
               {mqs.length > 0 && (
-                <div className="space-y-1">
-                  <p className="text-[0.625rem] uppercase tracking-wide text-muted-foreground">Measured Qualities</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {mqs.map((m) => {
-                      const on = q.coverage.mqs.includes(m.id);
-                      return (
-                        <button
-                          type="button"
-                          key={m.id}
-                          onClick={() => toggleCoverageMq(q.id, m.id)}
-                          className={cn(
-                            'px-2 py-0.5 text-[0.6875rem] rounded-full border',
-                            on
-                              ? 'bg-primary text-primary-foreground border-primary'
-                              : 'bg-background text-muted-foreground border-border hover:border-primary',
+                <div className="space-y-1.5">
+                  {mqs.map((m) => {
+                    const mqOn = q.coverage.mqs.includes(m.id);
+                    const traits = mqtsByMq[m.id] || [];
+                    const collapsed = collapsedMqs.has(m.id);
+                    const selectedCount = traits.filter((t) => q.coverage.mqts.includes(t.mqt.id)).length;
+                    return (
+                      <div key={m.id} className="rounded-md border border-border bg-background/50 px-2 py-1.5">
+                        <div className="flex items-center gap-1.5">
+                          {/* Collapse toggle for the trait list */}
+                          {traits.length > 0 ? (
+                            <button
+                              type="button"
+                              onClick={() => toggleMqCollapse(m.id)}
+                              className="text-muted-foreground hover:text-foreground shrink-0"
+                              title={collapsed ? 'Expand traits' : 'Collapse traits'}
+                            >
+                              <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', !collapsed && 'rotate-90')} />
+                            </button>
+                          ) : (
+                            <span className="w-3.5 shrink-0" />
                           )}
-                        >
-                          {m.name}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-              {allMqts.length > 0 && (
-                <div className="space-y-1">
-                  <p className="text-[0.625rem] uppercase tracking-wide text-muted-foreground">Traits (MQTs)</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {allMqts.map(({ mqt, path }) => {
-                      const on = q.coverage.mqts.includes(mqt.id);
-                      return (
-                        <button
-                          type="button"
-                          key={mqt.id}
-                          onClick={() => toggleCoverageMqt(q.id, mqt.id)}
-                          className={cn(
-                            'px-2 py-0.5 text-[0.6875rem] rounded-full border',
-                            on
-                              ? 'bg-primary text-primary-foreground border-primary'
-                              : 'bg-background text-muted-foreground border-border hover:border-primary',
+                          {/* Measured Quality — the group header chip */}
+                          <button
+                            type="button"
+                            onClick={() => toggleCoverageMq(q.id, m.id)}
+                            className={cn(
+                              'inline-flex items-center gap-1 px-2 py-0.5 text-[0.6875rem] font-medium rounded-full border transition-colors',
+                              mqOn
+                                ? 'bg-primary text-primary-foreground border-primary'
+                                : 'bg-background text-foreground border-border hover:border-primary',
+                            )}
+                          >
+                            {mqOn && <Check className="h-3 w-3" />}
+                            {m.name}
+                          </button>
+                          {traits.length > 0 && (
+                            <span className="text-[0.625rem] text-muted-foreground/70">
+                              {selectedCount}/{traits.length} traits
+                            </span>
                           )}
-                          title={path}
-                        >
-                          {path}
-                        </button>
-                      );
-                    })}
-                  </div>
+                        </div>
+                        {/* Traits (MQTs / sub-MQTs) — outline-numbered, indented by depth */}
+                        {traits.length > 0 && !collapsed && (
+                          <div className="mt-1.5 flex flex-wrap gap-1 pl-5">
+                            {traits.map(({ mqt, path, label, number, depth }) => {
+                              const on = q.coverage.mqts.includes(mqt.id);
+                              return (
+                                <button
+                                  type="button"
+                                  key={mqt.id}
+                                  onClick={() => toggleCoverageMqt(q.id, mqt.id)}
+                                  title={path}
+                                  style={{ marginLeft: depth * 12 }}
+                                  className={cn(
+                                    'inline-flex items-center gap-1 px-2 py-0.5 text-[0.6875rem] rounded-full border transition-colors',
+                                    on
+                                      ? 'bg-primary/15 text-primary border-primary/40'
+                                      : 'bg-muted/40 text-muted-foreground border-transparent hover:border-primary/40',
+                                  )}
+                                >
+                                  {on && <Check className="h-2.5 w-2.5" />}
+                                  <span className="font-mono text-[0.625rem] opacity-70">{number}</span>
+                                  {label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -1493,6 +1597,8 @@ export default function CreateAssessmentPage() {
                 <Plus className="h-3 w-3" /> Add option
               </button>
             </div>
+          )}
+          </>
           )}
         </CardContent>
       </Card>
@@ -2133,7 +2239,30 @@ export default function CreateAssessmentPage() {
 
       {/* ===== STEP 2 ===== */}
       {step === 2 && (
-        <>
+        <div className="flex gap-6 items-start">
+          {/* Question navigator — click a question to jump to its card */}
+          {questions.length > 0 && (
+            <aside className="hidden lg:block w-56 shrink-0 sticky top-6 self-start max-h-[calc(100vh-3rem)] overflow-auto rounded-xl border border-border bg-card">
+              <div className="px-3 py-2.5 border-b border-border">
+                <p className="text-xs font-semibold">Questions</p>
+                <p className="text-[0.625rem] text-muted-foreground">{questions.length} total · click to jump</p>
+              </div>
+              <nav className="p-1.5 space-y-0.5">
+                {questions.map((q, idx) => (
+                  <button
+                    key={q.id}
+                    type="button"
+                    onClick={() => goToQuestion(q.id)}
+                    className="w-full flex items-start gap-2 rounded-md px-2 py-1.5 text-left hover:bg-muted transition-colors"
+                  >
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary text-[0.625rem] font-semibold">{idx + 1}</span>
+                    <span className="text-xs text-muted-foreground break-words whitespace-normal">{q.stem?.trim() || 'Untitled question'}</span>
+                  </button>
+                ))}
+              </nav>
+            </aside>
+          )}
+          <div className="min-w-0 flex-1 space-y-7">
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-lg font-semibold">{instName}</h2>
@@ -2162,50 +2291,63 @@ export default function CreateAssessmentPage() {
                   {coverageSummary.taggedCount} of {questions.length} question{questions.length !== 1 ? 's' : ''} tagged with coverage.
                 </p>
               </CardHeader>
-              <CardContent className="pt-0 space-y-3">
-                {mqs.length > 0 && (
-                  <div className="space-y-1">
-                    <p className="text-[0.625rem] uppercase tracking-wide text-muted-foreground">Measured Qualities</p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {mqs.map((m) => {
-                        const n = coverageSummary.mqCounts[m.id] || 0;
-                        return (
-                          <span
-                            key={m.id}
-                            className={cn(
-                              'px-2 py-0.5 text-[0.6875rem] rounded-full border',
-                              n > 0 ? 'bg-primary/10 text-primary border-primary/30' : 'bg-muted text-muted-foreground border-border',
-                            )}
+              <CardContent className="pt-0 space-y-1.5">
+                {mqs.map((m) => {
+                  const mqN = coverageSummary.mqCounts[m.id] || 0;
+                  const traits = mqtsByMq[m.id] || [];
+                  const collapsed = collapsedMqs.has(m.id);
+                  return (
+                    <div key={m.id} className="rounded-md border border-border px-2 py-1.5">
+                      <div className="flex items-center gap-2">
+                        {/* Collapse toggle for the trait list */}
+                        {traits.length > 0 ? (
+                          <button
+                            type="button"
+                            onClick={() => toggleMqCollapse(m.id)}
+                            className="text-muted-foreground hover:text-foreground shrink-0"
+                            title={collapsed ? 'Expand traits' : 'Collapse traits'}
                           >
-                            {m.name} · {n}
-                          </span>
-                        );
-                      })}
+                            <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', !collapsed && 'rotate-90')} />
+                          </button>
+                        ) : (
+                          <span className="w-3.5 shrink-0" />
+                        )}
+                        <span
+                          className={cn(
+                            'inline-flex items-center px-2 py-0.5 text-[0.6875rem] font-medium rounded-full border',
+                            mqN > 0 ? 'bg-primary/10 text-primary border-primary/30' : 'bg-muted text-muted-foreground border-border',
+                          )}
+                        >
+                          {m.name}
+                        </span>
+                        <span className="text-[0.625rem] text-muted-foreground">
+                          {mqN} question{mqN !== 1 ? 's' : ''}
+                        </span>
+                      </div>
+                      {traits.length > 0 && !collapsed && (
+                        <div className="mt-1.5 flex flex-wrap gap-1 pl-5">
+                          {traits.map(({ mqt, path, label, number, depth }) => {
+                            const n = coverageSummary.mqtCounts[mqt.id] || 0;
+                            return (
+                              <span
+                                key={mqt.id}
+                                title={path}
+                                style={{ marginLeft: depth * 12 }}
+                                className={cn(
+                                  'inline-flex items-center gap-1 px-2 py-0.5 text-[0.6875rem] rounded-full border',
+                                  n > 0 ? 'bg-primary/10 text-primary border-primary/30' : 'bg-muted/60 text-muted-foreground border-border',
+                                )}
+                              >
+                                <span className="font-mono text-[0.625rem] opacity-70">{number}</span>
+                                {label} · {n}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
-                  </div>
-                )}
-                {allMqts.length > 0 && (
-                  <div className="space-y-1">
-                    <p className="text-[0.625rem] uppercase tracking-wide text-muted-foreground">Traits (MQTs)</p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {allMqts.map(({ mqt, path }) => {
-                        const n = coverageSummary.mqtCounts[mqt.id] || 0;
-                        return (
-                          <span
-                            key={mqt.id}
-                            title={path}
-                            className={cn(
-                              'px-2 py-0.5 text-[0.6875rem] rounded-full border',
-                              n > 0 ? 'bg-primary/10 text-primary border-primary/30' : 'bg-muted text-muted-foreground border-border',
-                            )}
-                          >
-                            {path} · {n}
-                          </span>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
+                  );
+                })}
               </CardContent>
             </Card>
           )}
@@ -2326,7 +2468,8 @@ export default function CreateAssessmentPage() {
               <Save className="h-4 w-4" /> {saving ? (editMode ? 'Saving...' : 'Publishing...') : editMode ? `Save ${questions.length} Questions` : `Publish ${questions.length} Questions`}
             </Button>
           </div>
-        </>
+          </div>
+        </div>
       )}
 
       {/* ===== Create new vertical modal ===== */}

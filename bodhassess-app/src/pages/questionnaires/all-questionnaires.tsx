@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
+import { Loading } from '@/components/loading';
 import { getQuestionnairesCatalog, API_BASE, type Questionnaire as ApiQuestionnaire } from '@/lib/api';
 import {
   AlertTriangle,
@@ -92,6 +93,7 @@ export default function QuestionnairesPage() {
   const [activeType, setActiveType] = useState<QuestionnaireType>('all');
   const [search, setSearch] = useState('');
   const [apiQuestionnaires, setApiQuestionnaires] = useState<Questionnaire[]>([]);
+  const [loading, setLoading] = useState(true);
   const [apiSource, setApiSource] = useState<'api' | 'mock'>('mock');
   const [overrides, setOverrides] = useState<Record<string, QuestionnaireOverride>>({});
   const [editing, setEditing] = useState<Questionnaire | null>(null);
@@ -145,6 +147,7 @@ export default function QuestionnairesPage() {
   }, []);
 
   const loadApiQuestionnaires = async () => {
+    setLoading(true);
     try {
       const data = await getQuestionnairesCatalog();
       const mapped: Questionnaire[] = data.map((i: ApiQuestionnaire) => ({
@@ -164,6 +167,8 @@ export default function QuestionnairesPage() {
       setApiSource('api');
     } catch {
       setApiSource('mock');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -451,7 +456,9 @@ export default function QuestionnairesPage() {
           </p>
 
           {/* Questionnaire grid */}
-          {filtered.length === 0 ? (
+          {loading ? (
+            <Loading label="Loading questionnaires…" />
+          ) : filtered.length === 0 ? (
             <Card>
               <CardContent className="p-10 text-center">
                 <Brain className="h-10 w-10 text-muted-foreground/40 mx-auto mb-3" />
@@ -530,7 +537,14 @@ export default function QuestionnairesPage() {
                         <Play className="h-3.5 w-3.5" />
                         Allot Assessment
                       </Button>
-                      <Button variant="outline" size="sm" onClick={() => openEdit(inst)} title="Edit questionnaire">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          window.location.href = `/question-bank/create?edit=${encodeURIComponent(inst.id || inst.name)}`;
+                        }}
+                        title="Edit questionnaire"
+                      >
                         <Pencil className="h-3.5 w-3.5" />
                         Edit
                       </Button>

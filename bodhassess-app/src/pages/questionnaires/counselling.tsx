@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Loading } from '@/components/loading';
 import { cn } from '@/lib/utils';
 import {
   GraduationCap,
@@ -68,6 +69,7 @@ export default function CounsellingQuestionnairesPage() {
   const [search, setSearch] = useState('');
   const [overrides, setOverrides] = useState<Record<string, QuestionnaireOverride>>({});
   const [userQuestionnaires, setUserQuestionnaires] = useState<CounsQuestionnaire[]>([]);
+  const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<CounsQuestionnaire | null>(null);
   const [editForm, setEditForm] = useState({
     name: '', category: '', ageRange: '', items: 0, duration: '',
@@ -76,7 +78,11 @@ export default function CounsellingQuestionnairesPage() {
 
   useEffect(() => {
     setOverrides(loadOverrides());
-    loadUserQuestionnairesForVertical('COUNSELLING').then(setUserQuestionnaires).catch(() => setUserQuestionnaires([]));
+    setLoading(true);
+    loadUserQuestionnairesForVertical('COUNSELLING')
+      .then(setUserQuestionnaires)
+      .catch(() => setUserQuestionnaires([]))
+      .finally(() => setLoading(false));
   }, []);
 
   const mergedQuestionnaires = useMemo(() => {
@@ -168,6 +174,9 @@ export default function CounsellingQuestionnairesPage() {
         )}
       </div>
 
+      {loading ? (
+        <Loading label="Loading counselling questionnaires…" />
+      ) : (
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
         {filtered.map((inst, idx) => (
           <Card key={`${inst.id}-${inst.name}-${idx}`} className="hover:shadow-md transition-shadow">
@@ -227,6 +236,7 @@ export default function CounsellingQuestionnairesPage() {
           </Card>
         ))}
       </div>
+      )}
 
       {editing && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={() => setEditing(null)}>

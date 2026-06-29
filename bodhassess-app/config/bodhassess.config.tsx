@@ -72,46 +72,6 @@ export const MENU_SIDEBAR: MenuConfig = [
     icon: Building2,
     path: '/admin/entity-registrations',
   },
-  { heading: 'Verticals' },
-  {
-    title: 'Clinical Psychology',
-    icon: Stethoscope,
-    children: [
-      { title: 'Client Records', path: '/clinical/clients' },
-      { title: 'MSE Upload', path: '/clinical/mse-upload' },
-      { title: 'Longitudinal Tracking', path: '/clinical/tracking' },
-      { title: 'Risk Alerts', path: '/clinical/risk-alerts' },
-    ],
-  },
-  {
-    title: 'Industrial Psychology',
-    icon: Briefcase,
-    children: [
-      { title: 'Candidate Cohorts', path: '/industrial/cohorts' },
-      { title: 'Competency Frameworks', path: '/industrial/competency' },
-      { title: 'AI Adaptability Index', path: '/industrial/ai-adaptability' },
-      { title: 'Proctoring Dashboard', path: '/industrial/proctoring' },
-    ],
-  },
-  {
-    title: 'Counselling & Child',
-    icon: GraduationCap,
-    children: [
-      { title: 'Student Records', path: '/counselling/students' },
-      { title: 'Multi-Informant Assessments', path: '/counselling/multi-informant' },
-      { title: 'Parent Consent', path: '/counselling/consent' },
-      { title: 'Developmental Tracking', path: '/counselling/developmental' },
-    ],
-  },
-  {
-    title: 'Designing Experiments',
-    icon: FlaskConical,
-    children: [
-      { title: 'Experiment Builder', path: '/experiments/builder' },
-      { title: 'Paradigm Library', path: '/experiments/paradigms' },
-      { title: 'Trial Data Export', path: '/experiments/export' },
-    ],
-  },
   { heading: 'Platform' },
   {
     title: 'BodhLens Analytics',

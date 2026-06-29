@@ -26,6 +26,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { Loading } from '@/components/loading';
 import { cn } from '@/lib/utils';
 
 // ---------------------------------------------------------------------------
@@ -437,6 +438,7 @@ export default function QuestionBankPage() {
   const [userItems, setUserItems] = useState<QuestionItem[]>([]);
   const [overrides, setOverrides] = useState<Record<string, ItemOverride>>({});
   const [deletedIds, setDeletedIds] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
 
   // Verticals catalog, loaded from the API so user-created verticals show up
   // in the filter pills automatically. Falls back to the built-ins on error.
@@ -678,7 +680,11 @@ export default function QuestionBankPage() {
   };
 
   useEffect(() => {
-    loadUserItems().then(setUserItems).catch(() => setUserItems([]));
+    setLoading(true);
+    loadUserItems()
+      .then(setUserItems)
+      .catch(() => setUserItems([]))
+      .finally(() => setLoading(false));
     loadItemDisplayState().then(({ overrides: o, deletedIds: d }) => {
       setOverrides(o);
       setDeletedIds(d);
@@ -807,6 +813,20 @@ export default function QuestionBankPage() {
   const calibratedItems = allItems.filter((i) => i.status === 'Calibrated' || i.status === 'Validated').length;
   const indianNormItems = allItems.filter((i) => i.normSets.length > 0).length;
   const riskFlaggedItems = allItems.filter((i) => i.riskFlag).length;
+  const distinctLanguages = useMemo(() => {
+    const s = new Set<Language>();
+    allItems.forEach((i) => i.languages.forEach((l) => s.add(l)));
+    return s.size;
+  }, [allItems]);
+  const calibratedPct = totalItems ? Math.round((calibratedItems / totalItems) * 100) : 0;
+  const fmt = (n: number) => n.toLocaleString('en-IN');
+
+  const stats = [
+    { label: 'Total Items', value: fmt(totalItems), icon: Database, change: `${fmt(filtered.length)} matching filters` },
+    { label: 'Calibrated Items', value: fmt(calibratedItems), icon: FlaskConical, change: `${calibratedPct}% of total` },
+    { label: 'Items with Indian Norms', value: fmt(indianNormItems), icon: Globe, change: `Across ${distinctLanguages} language${distinctLanguages === 1 ? '' : 's'}` },
+    { label: 'Risk-Flagged Items', value: fmt(riskFlaggedItems), icon: AlertTriangle, change: riskFlaggedItems > 0 ? 'Requires clinical review' : 'None flagged' },
+  ];
 
   const hasActiveFilters = selectedVerticals.size > 0 || selectedFormats.size > 0 || selectedStatuses.size > 0 || selectedLanguages.size > 0 || selectedCoverage.size > 0 || searchQuery;
 
@@ -835,12 +855,7 @@ export default function QuestionBankPage() {
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-        {[
-          { label: 'Total Items', value: '1,00,847', icon: Database, change: '+1,204 this month' },
-          { label: 'Calibrated Items', value: '68,312', icon: FlaskConical, change: '67.7% of total' },
-          { label: 'Items with Indian Norms', value: '42,580', icon: Globe, change: 'Across 11 languages' },
-          { label: 'Risk-Flagged Items', value: '1,247', icon: AlertTriangle, change: '312 pending review' },
-        ].map((stat) => (
+        {stats.map((stat) => (
           <Card key={stat.label}>
             <CardContent className="p-5">
               <div className="flex items-center justify-between">
@@ -955,6 +970,9 @@ export default function QuestionBankPage() {
           </div>
         </CardHeader>
         <CardContent className="p-0">
+          {loading ? (
+            <Loading />
+          ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -1120,6 +1138,7 @@ export default function QuestionBankPage() {
               </tbody>
             </table>
           </div>
+          )}
         </CardContent>
       </Card>
 

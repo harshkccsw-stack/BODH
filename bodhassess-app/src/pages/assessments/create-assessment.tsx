@@ -21,6 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Loading } from '@/components/loading';
 import {
   assessmentRecordsApi,
   entityRegistrationsApi,
@@ -71,13 +72,19 @@ export default function CreateAssessmentPage() {
 
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     (async () => {
-      try { setQuestionnaires(await questionnaireRecordsApi.list()); } catch {}
-      try { setEntities((await entityRegistrationsApi.list()).filter((e) => e.active)); } catch {}
-      try { setGroups(await groupsApi.list()); } catch {}
-      try { setRespondents(await respondentsApi.list()); } catch {}
+      setLoading(true);
+      try {
+        try { setQuestionnaires(await questionnaireRecordsApi.list()); } catch {}
+        try { setEntities((await entityRegistrationsApi.list()).filter((e) => e.active)); } catch {}
+        try { setGroups(await groupsApi.list()); } catch {}
+        try { setRespondents(await respondentsApi.list()); } catch {}
+      } finally {
+        setLoading(false);
+      }
     })();
   }, []);
 
@@ -225,6 +232,10 @@ export default function CreateAssessmentPage() {
         </div>
       )}
 
+      {loading ? (
+        <Loading />
+      ) : (
+      <>
       <Card>
         <CardHeader className="pb-3"><CardTitle className="text-base">Details</CardTitle></CardHeader>
         <CardContent className="space-y-4">
@@ -442,6 +453,8 @@ export default function CreateAssessmentPage() {
           {saving ? 'Creating…' : `Create Assessment (${totalAllotees} allotee${totalAllotees === 1 ? '' : 's'})`}
         </Button>
       </div>
+      </>
+      )}
     </div>
   );
 }
