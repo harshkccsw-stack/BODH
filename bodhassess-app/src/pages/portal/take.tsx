@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Brain, Check, ChevronLeft, ChevronRight, AlertTriangle, ListChecks } from 'lucide-react';
+import { Brain, Check, ChevronLeft, ChevronRight, AlertTriangle } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { Loading } from '@/components/loading';
 import { portalSessionsApi, questionnairesApi, respondentsApi, demographicFieldsApi, type PortalSession, type Respondent, type DemographicField } from '@/lib/api';
 import { config } from '@/lib/config';
 
@@ -39,8 +38,6 @@ interface StoredQuestionnaire {
   mqs: MQ[];
   questions: Question[];
   disclaimer?: string;
-  instructions?: string;
-  showInstructions?: boolean;
   demographicFieldKeys?: string[];
 }
 type StoredSession = PortalSession;
@@ -74,11 +71,9 @@ export default function PortalTakePage() {
   // Number for selected-option indexes (MCQ/Likert/etc), string for FREE_TEXT answers
   const [answers, setAnswers] = useState<Record<string, number | string>>({});
   const [loadError, setLoadError] = useState('');
-  const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [agreedToDisclaimer, setAgreedToDisclaimer] = useState(false);
   const [disclaimerChecked, setDisclaimerChecked] = useState(false);
-  const [instructionsAcknowledged, setInstructionsAcknowledged] = useState(false);
 
   // Demographics gate — fields come from the admin-managed catalog, filtered per-questionnaire.
   const [demographicsSubmitted, setDemographicsSubmitted] = useState(false);
@@ -136,15 +131,14 @@ export default function PortalTakePage() {
 
   useEffect(() => {
     (async () => {
-      setLoading(true);
       try {
-        const token = localStorage.getItem(AUTH_KEY);
+        const token = sessionStorage.getItem(AUTH_KEY);
         if (!token) { window.location.href = '/portal/login'; return; }
         let u: AuthUser;
         try {
           u = await respondentsApi.me(token);
         } catch {
-          localStorage.removeItem(AUTH_KEY);
+          sessionStorage.removeItem(AUTH_KEY);
           window.location.href = '/portal/login';
           return;
         }
@@ -168,23 +162,12 @@ export default function PortalTakePage() {
       const target = (s.instrumentFullName || s.instrument || '').trim();
       const shortTarget = (s.instrument || '').trim();
       let inst: StoredQuestionnaire | null = null;
-      // Prefer the exact pinned version so a later re-publish of the
-      // questionnaire never changes what this respondent sees. Fall back to
-      // the by-name lookup for legacy sessions with no pinned version.
-      if (s.questionnaireVersionId) {
+      for (const candidate of [target, shortTarget]) {
+        if (!candidate) continue;
         try {
-          const res = await questionnairesApi.get(s.questionnaireVersionId);
-          if (res) inst = res as any;
+          const res = await questionnairesApi.getByName(candidate);
+          if (res) { inst = res as any; break; }
         } catch {}
-      }
-      if (!inst) {
-        for (const candidate of [target, shortTarget]) {
-          if (!candidate) continue;
-          try {
-            const res = await questionnairesApi.getByName(candidate);
-            if (res) { inst = res as any; break; }
-          } catch {}
-        }
       }
       if (!inst) {
         setLoadError(`The assessment "${target}" isn't available in the database. Ask your administrator to publish it via Question Bank → Create Questionnaire.`);
@@ -193,8 +176,6 @@ export default function PortalTakePage() {
         setQuestionnaire(inst);
       } catch (e) {
         setLoadError('Failed to load the assessment.');
-      } finally {
-        setLoading(false);
       }
     })();
   }, []);
@@ -277,14 +258,6 @@ export default function PortalTakePage() {
     );
   }
 
-  if (loading) {
-    return (
-      <div className="flex-1 min-h-screen w-full flex items-center justify-center">
-        <Loading label="Loading assessment…" />
-      </div>
-    );
-  }
-
   if (!session || !instrument) {
     return <div className="flex-1 min-h-screen w-full flex items-center justify-center text-sm text-muted-foreground">Loading assessment...</div>;
   }
@@ -338,57 +311,6 @@ export default function PortalTakePage() {
                 >
                   <Check className="h-4 w-4" />
                   Agree &amp; Continue
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </main>
-      </div>
-    );
-  }
-
-  // Instructions gate — shown after disclaimer (if any) when the author
-  // enabled showInstructions and provided non-empty text. No checkbox here:
-  // it's informational, the respondent just clicks Continue.
-  const hasInstructions = !!(instrument.showInstructions
-      && instrument.instructions
-      && instrument.instructions.trim().length > 0);
-  if (hasInstructions && !instructionsAcknowledged) {
-    return (
-      <div className="flex-1 min-h-screen w-full bg-linear-to-b from-muted/30 via-background to-background">
-        <header className="border-b border-border bg-background">
-          <div className="max-w-3xl mx-auto px-5 py-4 flex items-center gap-3">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-              <Brain className="h-4 w-4" />
-            </div>
-            <div>
-              <p className="text-sm font-semibold">{instrument.name}</p>
-              <p className="text-xs text-muted-foreground">{user?.name} · Assessment {session.id}</p>
-            </div>
-          </div>
-        </header>
-        <main className="max-w-3xl mx-auto px-5 py-8">
-          <Card>
-            <CardContent className="p-6 space-y-5">
-              <div className="flex items-center gap-3">
-                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                  <ListChecks className="h-5 w-5" />
-                </div>
-                <div>
-                  <p className="text-[0.6875rem] font-medium uppercase tracking-wider text-primary">Before you begin</p>
-                  <h2 className="text-xl font-semibold tracking-tight">Instructions</h2>
-                </div>
-              </div>
-              <div className="rounded-lg border border-border bg-muted/30 p-4 whitespace-pre-wrap text-sm leading-relaxed max-h-[60vh] overflow-y-auto">
-                {instrument.instructions}
-              </div>
-              <div className="flex items-center justify-between gap-3 pt-1">
-                <Button variant="outline" onClick={() => window.location.href = '/portal/assessments'}>
-                  Cancel
-                </Button>
-                <Button variant="primary" onClick={() => setInstructionsAcknowledged(true)}>
-                  <Check className="h-4 w-4" />
-                  Continue
                 </Button>
               </div>
             </CardContent>

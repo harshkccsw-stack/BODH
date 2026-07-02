@@ -321,11 +321,8 @@ export default function DemographicFieldsPage() {
                   <label className="text-sm font-medium">Sort order</label>
                   <input
                     type="number"
-                    min={1}
-                    step={1}
                     value={form.sortOrder}
-                    onKeyDown={(e) => { if (e.key === '-' || e.key === 'e') e.preventDefault(); }}
-                    onChange={(e) => setForm({ ...form, sortOrder: Math.max(1, Math.floor(Number(e.target.value)) || 1) })}
+                    onChange={(e) => setForm({ ...form, sortOrder: Number(e.target.value) || 0 })}
                     className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
                   />
                 </div>

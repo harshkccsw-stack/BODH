@@ -1,7 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Loading } from '@/components/loading';
 import { cn } from '@/lib/utils';
 import {
   Briefcase,
@@ -60,7 +59,6 @@ export default function IndustrialQuestionnairesPage() {
   const [search, setSearch] = useState('');
   const [overrides, setOverrides] = useState<Record<string, QuestionnaireOverride>>({});
   const [userQuestionnaires, setUserQuestionnaires] = useState<IndQuestionnaire[]>([]);
-  const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<IndQuestionnaire | null>(null);
   const [editForm, setEditForm] = useState({
     name: '', category: '', items: 0, duration: '',
@@ -69,11 +67,7 @@ export default function IndustrialQuestionnairesPage() {
 
   useEffect(() => {
     setOverrides(loadOverrides());
-    setLoading(true);
-    loadUserQuestionnairesForVertical('INDUSTRIAL')
-      .then(setUserQuestionnaires)
-      .catch(() => setUserQuestionnaires([]))
-      .finally(() => setLoading(false));
+    loadUserQuestionnairesForVertical('INDUSTRIAL').then(setUserQuestionnaires).catch(() => setUserQuestionnaires([]));
   }, []);
 
   const mergedQuestionnaires = useMemo(() => {
@@ -163,9 +157,6 @@ export default function IndustrialQuestionnairesPage() {
         )}
       </div>
 
-      {loading ? (
-        <Loading label="Loading industrial questionnaires…" />
-      ) : (
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
         {filtered.map((inst, idx) => (
           <Card key={`${inst.id}-${inst.name}-${idx}`} className="hover:shadow-md transition-shadow">
@@ -213,7 +204,6 @@ export default function IndustrialQuestionnairesPage() {
           </Card>
         ))}
       </div>
-      )}
 
       {editing && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={() => setEditing(null)}>

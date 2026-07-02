@@ -25,43 +25,11 @@ export function SidebarMenu() {
   const pathname = usePathname();
   const auth = usePractitionerAuth();
 
-  // Every menu path, flattened, so matchPath can resolve overlaps.
-  const allMenuPaths = useMemo(() => {
-    const out: string[] = [];
-    const walk = (items: MenuConfig) => {
-      for (const it of items) {
-        if (it.path) out.push(it.path);
-        if (it.children) walk(it.children);
-      }
-    };
-    walk(MENU_SIDEBAR);
-    return out;
-  }, []);
-
-  // A menu path "covers" the URL when it matches exactly or is a parent
-  // segment of it (boundary-checked so /reports can't match /reports-archive).
-  const covers = useCallback(
-    (path: string): boolean =>
-      path !== '/layout-1' &&
-      (path === pathname || (path.length > 1 && pathname.startsWith(path + '/'))),
-    [pathname],
-  );
-
-  // The single most-specific (longest) menu path that covers the current URL.
-  // Marking only this one active stops a parent like /reports from staying
-  // highlighted alongside its child /reports/responses.
-  const bestMatch = useMemo(() => {
-    let best = '';
-    for (const p of allMenuPaths) {
-      if (covers(p) && p.length > best.length) best = p;
-    }
-    return best;
-  }, [allMenuPaths, covers]);
-
   // Memoize matchPath to prevent unnecessary re-renders
   const matchPath = useCallback(
-    (path: string): boolean => path !== '' && path === bestMatch,
-    [bestMatch],
+    (path: string): boolean =>
+      path === pathname || (path.length > 1 && pathname.startsWith(path) && path !== '/layout-1'),
+    [pathname],
   );
 
   // Trim the menu so practitioners only see entries their role url_paths

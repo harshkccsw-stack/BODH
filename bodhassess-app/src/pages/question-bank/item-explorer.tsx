@@ -26,7 +26,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Loading } from '@/components/loading';
 import { cn } from '@/lib/utils';
 
 // ---------------------------------------------------------------------------
@@ -64,9 +63,6 @@ interface QuestionItem {
   reliabilityAlpha: number;
   instrumentName?: string;
   instrumentShortName?: string;
-  // MQ/MQT coverage tags, resolved to display names at load time.
-  coverageMqs: string[];
-  coverageMqts: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -193,17 +189,9 @@ async function loadUserItems(): Promise<QuestionItem[]> {
       const vertical = normalizeStoredVertical(inst.vertical);
       if (!vertical) return;
       const mqtNameById: Record<string, string> = {};
-      const mqNameById: Record<string, string> = {};
       if (Array.isArray(inst.mqs)) {
         inst.mqs.forEach((mq) => {
-          mqNameById[mq.id] = mq.name;
-          const walkMqts = (nodes: any[]) => {
-            nodes.forEach((t) => {
-              mqtNameById[t.id] = t.name;
-              if (Array.isArray(t.children)) walkMqts(t.children);
-            });
-          };
-          if (Array.isArray(mq.mqts)) walkMqts(mq.mqts);
+          if (Array.isArray(mq.mqts)) mq.mqts.forEach((t) => { mqtNameById[t.id] = t.name; });
         });
       }
       const instLangs = normalizeLanguageCodes(inst.languages);
@@ -218,12 +206,6 @@ async function loadUserItems(): Promise<QuestionItem[]> {
         const options = Array.isArray(q.options)
           ? q.options.map((o: any) => String(o?.text || '')).filter((t: string) => t.length > 0)
           : undefined;
-        const coverageMqs = Array.isArray(q.coverage?.mqs)
-          ? q.coverage.mqs.map((id: string) => mqNameById[id]).filter(Boolean)
-          : [];
-        const coverageMqts = Array.isArray(q.coverage?.mqts)
-          ? q.coverage.mqts.map((id: string) => mqtNameById[id]).filter(Boolean)
-          : [];
         items.push({
           id: q.id || `${inst.id || shortName}-q${idx + 1}`,
           subDomain: `${shortName}:${mqtName}`,
@@ -241,8 +223,6 @@ async function loadUserItems(): Promise<QuestionItem[]> {
           reliabilityAlpha: 0,
           instrumentName: inst.name || shortName,
           instrumentShortName: shortName,
-          coverageMqs,
-          coverageMqts,
         });
       });
     });
@@ -434,11 +414,9 @@ export default function QuestionBankPage() {
   const [selectedFormats, setSelectedFormats] = useState<Set<ItemFormat>>(new Set());
   const [selectedStatuses, setSelectedStatuses] = useState<Set<ValidationStatus>>(new Set());
   const [selectedLanguages, setSelectedLanguages] = useState<Set<Language>>(new Set());
-  const [selectedCoverage, setSelectedCoverage] = useState<Set<string>>(new Set());
   const [userItems, setUserItems] = useState<QuestionItem[]>([]);
   const [overrides, setOverrides] = useState<Record<string, ItemOverride>>({});
   const [deletedIds, setDeletedIds] = useState<string[]>([]);
-  const [loading, setLoading] = useState(true);
 
   // Verticals catalog, loaded from the API so user-created verticals show up
   // in the filter pills automatically. Falls back to the built-ins on error.
@@ -499,7 +477,6 @@ export default function QuestionBankPage() {
       clinical_risk_flag: boolean;
       risk_flag_rule: string;
       options: EditQuestionOption[];
-      coverage: { mqs: string[]; mqts: string[] };
     };
   }
   const [editQuestion, setEditQuestion] = useState<EditQuestionState | null>(null);
@@ -522,19 +499,9 @@ export default function QuestionBankPage() {
         return;
       }
       const q = (qn.questions || [])[idx];
-      // Flatten MQTs at any depth into rows for the score/coverage pickers.
-      const flattenMqts = (mq: any): Array<{ mqId: string; mqName: string; mqtId: string; mqtName: string }> => {
-        const out: Array<{ mqId: string; mqName: string; mqtId: string; mqtName: string }> = [];
-        const walk = (nodes: any[]) => {
-          (nodes || []).forEach((t) => {
-            out.push({ mqId: mq.id, mqName: mq.name, mqtId: t.id, mqtName: t.name });
-            if (Array.isArray(t.children)) walk(t.children);
-          });
-        };
-        walk(mq.mqts || []);
-        return out;
-      };
-      const allMqts = (qn.mqs || []).flatMap(flattenMqts);
+      const allMqts = (qn.mqs || []).flatMap((mq: any) =>
+        (mq.mqts || []).map((t: any) => ({ mqId: mq.id, mqName: mq.name, mqtId: t.id, mqtName: t.name })),
+      );
       setEditQuestion({
         item,
         questionnaireId: qn.id,
@@ -556,10 +523,6 @@ export default function QuestionBankPage() {
                 media_type: o.media_type,
               }))
             : [],
-          coverage: {
-            mqs: Array.isArray(q.coverage?.mqs) ? q.coverage.mqs.map(String) : [],
-            mqts: Array.isArray(q.coverage?.mqts) ? q.coverage.mqts.map(String) : [],
-          },
         },
       });
     } catch (e: any) {
@@ -605,39 +568,6 @@ export default function QuestionBankPage() {
     });
   };
 
-  const toggleEditCoverageMq = (mqId: string) => {
-    setEditQuestion((prev) => {
-      if (!prev) return prev;
-      const has = prev.form.coverage.mqs.includes(mqId);
-      return {
-        ...prev,
-        form: {
-          ...prev.form,
-          coverage: {
-            ...prev.form.coverage,
-            mqs: has ? prev.form.coverage.mqs.filter((id) => id !== mqId) : [...prev.form.coverage.mqs, mqId],
-          },
-        },
-      };
-    });
-  };
-  const toggleEditCoverageMqt = (mqtId: string) => {
-    setEditQuestion((prev) => {
-      if (!prev) return prev;
-      const has = prev.form.coverage.mqts.includes(mqtId);
-      return {
-        ...prev,
-        form: {
-          ...prev.form,
-          coverage: {
-            ...prev.form.coverage,
-            mqts: has ? prev.form.coverage.mqts.filter((id) => id !== mqtId) : [...prev.form.coverage.mqts, mqtId],
-          },
-        },
-      };
-    });
-  };
-
   const saveEditQuestion = async () => {
     if (!editQuestion) return;
     setEditQuestionSaving(true);
@@ -664,10 +594,6 @@ export default function QuestionBankPage() {
           media_url: o.media_url,
           media_type: o.media_type,
         })),
-        coverage: {
-          mqs: [...editQuestion.form.coverage.mqs],
-          mqts: [...editQuestion.form.coverage.mqts],
-        },
       };
       await questionnairesApi.upsert({ ...qn, questions });
       setEditQuestion(null);
@@ -680,11 +606,7 @@ export default function QuestionBankPage() {
   };
 
   useEffect(() => {
-    setLoading(true);
-    loadUserItems()
-      .then(setUserItems)
-      .catch(() => setUserItems([]))
-      .finally(() => setLoading(false));
+    loadUserItems().then(setUserItems).catch(() => setUserItems([]));
     loadItemDisplayState().then(({ overrides: o, deletedIds: d }) => {
       setOverrides(o);
       setDeletedIds(d);
@@ -716,16 +638,6 @@ export default function QuestionBankPage() {
     });
     return out;
   }, [userItems, overrides, deletedIds]);
-
-  // Distinct coverage tag names (MQs + MQTs) across all items, for the filter.
-  const allCoverageTags = useMemo(() => {
-    const set = new Set<string>();
-    allItems.forEach((i) => {
-      i.coverageMqs.forEach((n) => set.add(n));
-      i.coverageMqts.forEach((n) => set.add(n));
-    });
-    return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [allItems]);
 
   const openEditItem = (item: QuestionItem) => {
     setEditItem(item);
@@ -789,10 +701,6 @@ export default function QuestionBankPage() {
     if (selectedFormats.size > 0 && !selectedFormats.has(item.format)) return false;
     if (selectedStatuses.size > 0 && !selectedStatuses.has(item.status)) return false;
     if (selectedLanguages.size > 0 && !item.languages.some((l) => selectedLanguages.has(l))) return false;
-    if (selectedCoverage.size > 0) {
-      const tags = [...item.coverageMqs, ...item.coverageMqts];
-      if (!tags.some((t) => selectedCoverage.has(t))) return false;
-    }
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       return (
@@ -800,9 +708,7 @@ export default function QuestionBankPage() {
         item.id.toLowerCase().includes(q) ||
         item.stem.toLowerCase().includes(q) ||
         (item.instrumentName || '').toLowerCase().includes(q) ||
-        (item.instrumentShortName || '').toLowerCase().includes(q) ||
-        item.coverageMqs.some((n) => n.toLowerCase().includes(q)) ||
-        item.coverageMqts.some((n) => n.toLowerCase().includes(q))
+        (item.instrumentShortName || '').toLowerCase().includes(q)
       );
     }
     return true;
@@ -813,22 +719,8 @@ export default function QuestionBankPage() {
   const calibratedItems = allItems.filter((i) => i.status === 'Calibrated' || i.status === 'Validated').length;
   const indianNormItems = allItems.filter((i) => i.normSets.length > 0).length;
   const riskFlaggedItems = allItems.filter((i) => i.riskFlag).length;
-  const distinctLanguages = useMemo(() => {
-    const s = new Set<Language>();
-    allItems.forEach((i) => i.languages.forEach((l) => s.add(l)));
-    return s.size;
-  }, [allItems]);
-  const calibratedPct = totalItems ? Math.round((calibratedItems / totalItems) * 100) : 0;
-  const fmt = (n: number) => n.toLocaleString('en-IN');
 
-  const stats = [
-    { label: 'Total Items', value: fmt(totalItems), icon: Database, change: `${fmt(filtered.length)} matching filters` },
-    { label: 'Calibrated Items', value: fmt(calibratedItems), icon: FlaskConical, change: `${calibratedPct}% of total` },
-    { label: 'Items with Indian Norms', value: fmt(indianNormItems), icon: Globe, change: `Across ${distinctLanguages} language${distinctLanguages === 1 ? '' : 's'}` },
-    { label: 'Risk-Flagged Items', value: fmt(riskFlaggedItems), icon: AlertTriangle, change: riskFlaggedItems > 0 ? 'Requires clinical review' : 'None flagged' },
-  ];
-
-  const hasActiveFilters = selectedVerticals.size > 0 || selectedFormats.size > 0 || selectedStatuses.size > 0 || selectedLanguages.size > 0 || selectedCoverage.size > 0 || searchQuery;
+  const hasActiveFilters = selectedVerticals.size > 0 || selectedFormats.size > 0 || selectedStatuses.size > 0 || selectedLanguages.size > 0 || searchQuery;
 
   return (
     <div className="p-5 lg:p-7.5 space-y-7">
@@ -855,7 +747,12 @@ export default function QuestionBankPage() {
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-        {stats.map((stat) => (
+        {[
+          { label: 'Total Items', value: '1,00,847', icon: Database, change: '+1,204 this month' },
+          { label: 'Calibrated Items', value: '68,312', icon: FlaskConical, change: '67.7% of total' },
+          { label: 'Items with Indian Norms', value: '42,580', icon: Globe, change: 'Across 11 languages' },
+          { label: 'Risk-Flagged Items', value: '1,247', icon: AlertTriangle, change: '312 pending review' },
+        ].map((stat) => (
           <Card key={stat.label}>
             <CardContent className="p-5">
               <div className="flex items-center justify-between">
@@ -927,14 +824,6 @@ export default function QuestionBankPage() {
               onToggle={(v) => setSelectedLanguages(toggleSet(selectedLanguages, v))}
               renderLabel={(v) => LANG_LABELS[v]}
             />
-            {allCoverageTags.length > 0 && (
-              <DropdownFilter
-                label="Coverage"
-                options={allCoverageTags}
-                selected={selectedCoverage}
-                onToggle={(v) => setSelectedCoverage(toggleSet(selectedCoverage, v))}
-              />
-            )}
 
             {/* Clear all */}
             {hasActiveFilters && (
@@ -944,7 +833,6 @@ export default function QuestionBankPage() {
                   setSelectedFormats(new Set());
                   setSelectedStatuses(new Set());
                   setSelectedLanguages(new Set());
-                  setSelectedCoverage(new Set());
                   setSearchQuery('');
                 }}
                 className="inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10 transition-colors"
@@ -970,9 +858,6 @@ export default function QuestionBankPage() {
           </div>
         </CardHeader>
         <CardContent className="p-0">
-          {loading ? (
-            <Loading />
-          ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -1027,20 +912,6 @@ export default function QuestionBankPage() {
                           <p className="line-clamp-2" title={item.stem}>
                             {item.stem || '—'}
                           </p>
-                          {(item.coverageMqs.length > 0 || item.coverageMqts.length > 0) && (
-                            <div className="mt-1 flex flex-wrap gap-1">
-                              {item.coverageMqs.map((n) => (
-                                <span key={`mq-${n}`} className="inline-flex items-center rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary" title={`MQ: ${n}`}>
-                                  {n}
-                                </span>
-                              ))}
-                              {item.coverageMqts.map((n) => (
-                                <span key={`mqt-${n}`} className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground" title={`MQT: ${n}`}>
-                                  {n}
-                                </span>
-                              ))}
-                            </div>
-                          )}
                         </td>
 
                         {/* Sub-domain */}
@@ -1138,7 +1009,6 @@ export default function QuestionBankPage() {
               </tbody>
             </table>
           </div>
-          )}
         </CardContent>
       </Card>
 
@@ -1293,65 +1163,6 @@ export default function QuestionBankPage() {
                       className="w-full rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/20 px-3 py-2 text-xs outline-none focus:border-red-500"
                     />
                   )}
-
-                  {editQuestion.allMqts.length > 0 && (() => {
-                    const seenMq = new Set<string>();
-                    const mqList = editQuestion.allMqts.filter((r) => {
-                      if (seenMq.has(r.mqId)) return false;
-                      seenMq.add(r.mqId);
-                      return true;
-                    });
-                    return (
-                      <div className="rounded-md border border-border bg-muted/30 px-3 py-2 space-y-2">
-                        <p className="text-[0.6875rem] font-medium text-muted-foreground">
-                          Coverage &mdash; which MQs/MQTs this question measures. Used for filtering and reporting; not scored.
-                        </p>
-                        <div className="space-y-1">
-                          <p className="text-[0.625rem] uppercase tracking-wide text-muted-foreground">Measured Qualities</p>
-                          <div className="flex flex-wrap gap-1.5">
-                            {mqList.map((r) => {
-                              const on = editQuestion.form.coverage.mqs.includes(r.mqId);
-                              return (
-                                <button
-                                  type="button"
-                                  key={r.mqId}
-                                  onClick={() => toggleEditCoverageMq(r.mqId)}
-                                  className={cn(
-                                    'px-2 py-0.5 text-[0.6875rem] rounded-full border',
-                                    on ? 'bg-primary text-primary-foreground border-primary' : 'bg-background text-muted-foreground border-border hover:border-primary',
-                                  )}
-                                >
-                                  {r.mqName}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                        <div className="space-y-1">
-                          <p className="text-[0.625rem] uppercase tracking-wide text-muted-foreground">Traits (MQTs)</p>
-                          <div className="flex flex-wrap gap-1.5">
-                            {editQuestion.allMqts.map((r) => {
-                              const on = editQuestion.form.coverage.mqts.includes(r.mqtId);
-                              return (
-                                <button
-                                  type="button"
-                                  key={r.mqtId}
-                                  onClick={() => toggleEditCoverageMqt(r.mqtId)}
-                                  className={cn(
-                                    'px-2 py-0.5 text-[0.6875rem] rounded-full border',
-                                    on ? 'bg-primary text-primary-foreground border-primary' : 'bg-background text-muted-foreground border-border hover:border-primary',
-                                  )}
-                                  title={`${r.mqName} > ${r.mqtName}`}
-                                >
-                                  {r.mqName} &gt; {r.mqtName}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })()}
 
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">

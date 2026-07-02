@@ -3,19 +3,17 @@
 // "incompatible exports" warnings.
 
 import { config } from '@/lib/config';
-import type { AuthUser, PractitionerMe } from '@/lib/api';
+import type { PractitionerMe } from '@/lib/api';
 
-// One dashboard session token. Both super admins and practitioners now
-// authenticate through /auth, so there is a single token slot.
 const TOKEN_KEY = config.practitionerAuthStorageKey;
+const ADMIN_TOKEN_KEY = config.adminAuthStorageKey;
 
 export const LOGIN_PATH = '/login';
 
 // Paths that are always accessible (login, public marketing, the respondent
-// portal which has its own auth, the legacy register page, and the entity
-// member self-registration links under /entity/:id/register). The dashboard
-// guard skips authentication checks for these.
-const PUBLIC_PREFIXES = ['/login', '/portal', '/register', '/select-vertical', '/entity'];
+// portal which has its own auth, and the legacy register page). The
+// dashboard guard skips authentication checks for these.
+const PUBLIC_PREFIXES = ['/login', '/portal', '/register', '/select-vertical'];
 
 export function isPublicPath(pathname: string): boolean {
   return PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + '/'));
@@ -42,32 +40,49 @@ export function canAccess(pathname: string, urlPaths: string[]): boolean {
 
 // ---- Token helpers (safe in SSR — guard window) -------------------------
 
-export function getDashboardToken(): string | null {
+export function getPractitionerToken(): string | null {
   if (typeof window === 'undefined') return null;
-  return localStorage.getItem(TOKEN_KEY);
+  return sessionStorage.getItem(TOKEN_KEY);
 }
 
-export function setDashboardToken(token: string) {
+export function setPractitionerToken(token: string) {
   if (typeof window === 'undefined') return;
-  localStorage.setItem(TOKEN_KEY, token);
+  sessionStorage.setItem(TOKEN_KEY, token);
 }
 
-export function clearDashboardToken() {
+export function clearPractitionerToken() {
   if (typeof window === 'undefined') return;
-  localStorage.removeItem(TOKEN_KEY);
+  sessionStorage.removeItem(TOKEN_KEY);
 }
 
-// Adapt the unified /auth identity onto the PractitionerMe shape the dashboard
-// is built around. RBAC (roles + url_paths) comes straight from /auth; a super
-// admin carries `url_paths: ['/*']` which grants every route via canAccess().
-export function authUserToPractitionerMe(user: AuthUser): PractitionerMe {
+// Admin uses the same dashboard shell. Stored under a distinct key so we
+// can support practitioner ↔ admin re-login without one stomping the other.
+export function getAdminToken(): string | null {
+  if (typeof window === 'undefined') return null;
+  return sessionStorage.getItem(ADMIN_TOKEN_KEY);
+}
+
+export function setAdminToken(token: string) {
+  if (typeof window === 'undefined') return;
+  sessionStorage.setItem(ADMIN_TOKEN_KEY, token);
+}
+
+export function clearAdminToken() {
+  if (typeof window === 'undefined') return;
+  sessionStorage.removeItem(ADMIN_TOKEN_KEY);
+}
+
+// Synthesize a PractitionerMe-shaped object for an admin so the rest of
+// the dashboard (which is built around PractitionerMe) "just works".
+// `url_paths: ['/*']` grants access to every route via canAccess().
+export function adminAsPractitionerMe(username: string): PractitionerMe {
   return {
-    id: user.id,
-    name: user.name || (user.isSuperAdmin ? 'Administrator' : user.email),
-    email: user.email,
-    roles: user.roles ?? (user.isSuperAdmin ? ['SUPER_ADMIN'] : []),
+    id: username,
+    name: 'Administrator',
+    email: `${username}@admin.local`,
+    roles: ['Admin'],
     verticals: [],
     status: 'Active',
-    url_paths: user.url_paths ?? (user.isSuperAdmin ? ['/*'] : []),
+    url_paths: ['/*'],
   };
 }

@@ -31,41 +31,23 @@ public class QuestionnairesCatalogService {
 
     @Transactional(readOnly = true)
     public QuestionnaireCatalogDtos.QuestionnaireCatalogListResponse list(String vertical) {
-        // item_count was historically a denormalized counter on `instruments`,
-        // populated by ItemsService.bulkCreateItems when items are written.
-        // Two real-world cases leave it at 0 even when questions exist:
-        //   1. The publish flow's Call 3 (bulk items) silently failed or was
-        //      skipped, so the `items` table stayed empty for that instrument.
-        //   2. Questions were only ever written to the `published_questionnaires`
-        //      snapshot (Call 1), not the `items` table.
-        // Derive the count live from the two real sources and take the larger,
-        // so the UI matches what the user can actually see/answer. Matching
-        // `published_questionnaire_questions` by name mirrors the dual-write
-        // convention used elsewhere (e.g. delete() below).
         StringBuilder sql = new StringBuilder(
-            "SELECT i.id, i.name, i.short_name, i.vertical, i.category," +
-            " GREATEST(" +
-            "   (SELECT COUNT(*) FROM items WHERE instrument_id = i.id)," +
-            "   COALESCE((SELECT COUNT(*) FROM published_questionnaire_questions pqq" +
-            "             JOIN published_questionnaires pq ON pq.id = pqq.questionnaire_id" +
-            "             WHERE LOWER(TRIM(pq.name)) = LOWER(TRIM(i.name))), 0)" +
-            " ) AS item_count," +
-            " i.duration_minutes, i.tier_required, i.is_adaptive, i.is_fixed_sequence," +
-            " i.norm_status, i.age_range, i.is_published, i.created_at" +
-            " FROM instruments i WHERE i.is_published = TRUE"
+            "SELECT id, name, short_name, vertical, category, item_count, duration_minutes," +
+            " languages, tier_required, is_adaptive, is_fixed_sequence, norm_status, age_range," +
+            " is_published, created_at" +
+            " FROM instruments WHERE is_published = TRUE"
         );
         javax.persistence.Query q;
         if (StringUtils.hasText(vertical)) {
-            sql.append(" AND i.vertical = ?1 ORDER BY i.vertical, i.name");
+            sql.append(" AND vertical = ?1 ORDER BY vertical, name");
             q = em.createNativeQuery(sql.toString()).setParameter(1, vertical);
         } else {
-            sql.append(" ORDER BY i.vertical, i.name");
+            sql.append(" ORDER BY vertical, name");
             q = em.createNativeQuery(sql.toString());
         }
         @SuppressWarnings("unchecked")
         List<Object[]> rows = q.getResultList();
         List<QuestionnaireCatalogDtos.QuestionnaireCatalogRow> data = new ArrayList<>();
-        List<String> ids = new ArrayList<>();
         for (Object[] r : rows) {
             QuestionnaireCatalogDtos.QuestionnaireCatalogRow row = new QuestionnaireCatalogDtos.QuestionnaireCatalogRow();
             row.setId((String) r[0]);
@@ -75,37 +57,17 @@ public class QuestionnairesCatalogService {
             row.setCategory((String) r[4]);
             row.setItemCount(r[5] == null ? null : ((Number) r[5]).intValue());
             row.setDurationMinutes(r[6] == null ? null : ((Number) r[6]).intValue());
-            row.setTierRequired((String) r[7]);
-            row.setAdaptive(asBoolean(r[8]));
-            row.setFixedSequence(asBoolean(r[9]));
-            row.setNormStatus((String) r[10]);
-            row.setAgeRange((String) r[11]);
-            row.setPublished(asBoolean(r[12]));
-            row.setCreatedAt(formatDate(r[13]));
-            row.setLanguages(new ArrayList<>());
+            row.setLanguages(parseStringList(r[7]));
+            row.setTierRequired((String) r[8]);
+            row.setAdaptive(asBoolean(r[9]));
+            row.setFixedSequence(asBoolean(r[10]));
+            row.setNormStatus((String) r[11]);
+            row.setAgeRange((String) r[12]);
+            row.setPublished(asBoolean(r[13]));
+            row.setCreatedAt(formatDate(r[14]));
             data.add(row);
-            ids.add(row.getId());
         }
-        attachLanguages(data, ids);
         return new QuestionnaireCatalogDtos.QuestionnaireCatalogListResponse(data, data.size());
-    }
-
-    /** Bulk-load languages from the join table and stamp them onto each row. */
-    @SuppressWarnings("unchecked")
-    private void attachLanguages(List<QuestionnaireCatalogDtos.QuestionnaireCatalogRow> rows, List<String> ids) {
-        if (rows.isEmpty() || ids.isEmpty()) return;
-        List<Object[]> langRows = em.createNativeQuery(
-                "SELECT instrument_id, language FROM instrument_languages WHERE instrument_id IN (:ids)")
-                .setParameter("ids", ids)
-                .getResultList();
-        Map<String, List<String>> byId = new LinkedHashMap<>();
-        for (Object[] lr : langRows) {
-            byId.computeIfAbsent((String) lr[0], k -> new ArrayList<>()).add((String) lr[1]);
-        }
-        for (QuestionnaireCatalogDtos.QuestionnaireCatalogRow row : rows) {
-            List<String> langs = byId.get(row.getId());
-            if (langs != null) row.setLanguages(langs);
-        }
     }
 
     // Hard delete — removes the instrument row plus its child items and any
@@ -122,128 +84,26 @@ public class QuestionnairesCatalogService {
             "SELECT name FROM instruments WHERE id = ?1")
             .setParameter(1, id)
             .getResultList();
-        // Items first (FK to instruments), and every child table they own:
-        // option_scores -> options, question_scores, languages.
-        em.createNativeQuery(
-            "DELETE ios FROM item_option_scores ios" +
-            " JOIN item_options io ON io.id = ios.option_id" +
-            " JOIN items i ON i.id = io.item_id WHERE i.instrument_id = ?1")
-            .setParameter(1, id).executeUpdate();
-        em.createNativeQuery(
-            "DELETE io FROM item_options io" +
-            " JOIN items i ON i.id = io.item_id WHERE i.instrument_id = ?1")
-            .setParameter(1, id).executeUpdate();
-        em.createNativeQuery(
-            "DELETE iqs FROM item_question_scores iqs" +
-            " JOIN items i ON i.id = iqs.item_id WHERE i.instrument_id = ?1")
-            .setParameter(1, id).executeUpdate();
-        em.createNativeQuery(
-            "DELETE il FROM item_languages il" +
-            " JOIN items i ON i.id = il.item_id WHERE i.instrument_id = ?1")
-            .setParameter(1, id).executeUpdate();
         em.createNativeQuery("DELETE FROM items WHERE instrument_id = ?1")
-            .setParameter(1, id).executeUpdate();
-        // Then the instrument's own language rows, then the instrument itself.
-        em.createNativeQuery("DELETE FROM instrument_languages WHERE instrument_id = ?1")
             .setParameter(1, id)
             .executeUpdate();
         em.createNativeQuery("DELETE FROM instruments WHERE id = ?1")
             .setParameter(1, id)
             .executeUpdate();
         if (!names.isEmpty() && names.get(0) != null) {
-            String pqName = names.get(0).toString();
-            // published_questionnaires owns a nested subtree, all referencing
-            // it (directly or transitively) by FK. They must be deleted
-            // deepest-first, otherwise the parent delete fails with a foreign
-            // key constraint violation (MySQL error 1451 -> HTTP 500). Tree:
-            //   pq
-            //   ├─ demographic_keys / languages            (leaves)
-            //   ├─ mqs -> mqts (-> mqts via parent_id, self-ref)
-            //   └─ questions ├─ question_scores            (leaf)
-            //                └─ question_options -> question_option_scores
-            // Every statement is scoped to the matching pq by name.
-
-            // --- questions subtree ---
-            deleteByPqName(
-                "DELETE s FROM published_questionnaire_question_option_scores s" +
-                " JOIN published_questionnaire_question_options o ON o.id = s.pq_option_id" +
-                " JOIN published_questionnaire_questions q ON q.id = o.pq_question_id" +
-                " JOIN published_questionnaires pq ON pq.id = q.questionnaire_id" +
-                " WHERE LOWER(pq.name) = LOWER(?1)", pqName);
-            deleteByPqName(
-                "DELETE o FROM published_questionnaire_question_options o" +
-                " JOIN published_questionnaire_questions q ON q.id = o.pq_question_id" +
-                " JOIN published_questionnaires pq ON pq.id = q.questionnaire_id" +
-                " WHERE LOWER(pq.name) = LOWER(?1)", pqName);
-            deleteByPqName(
-                "DELETE sc FROM published_questionnaire_question_scores sc" +
-                " JOIN published_questionnaire_questions q ON q.id = sc.pq_question_id" +
-                " JOIN published_questionnaires pq ON pq.id = q.questionnaire_id" +
-                " WHERE LOWER(pq.name) = LOWER(?1)", pqName);
-            deleteByPqName(
-                "DELETE q FROM published_questionnaire_questions q" +
-                " JOIN published_questionnaires pq ON pq.id = q.questionnaire_id" +
-                " WHERE LOWER(pq.name) = LOWER(?1)", pqName);
-
-            // --- mqs subtree (mqts self-references via parent_id; break the
-            // link first so the rows can be removed in one delete) ---
-            em.createNativeQuery(
-                "UPDATE published_questionnaire_mqts t" +
-                " JOIN published_questionnaire_mqs m ON m.id = t.pq_mq_id" +
-                " JOIN published_questionnaires pq ON pq.id = m.questionnaire_id" +
-                " SET t.parent_id = NULL WHERE LOWER(pq.name) = LOWER(?1)")
-                .setParameter(1, pqName)
-                .executeUpdate();
-            deleteByPqName(
-                "DELETE t FROM published_questionnaire_mqts t" +
-                " JOIN published_questionnaire_mqs m ON m.id = t.pq_mq_id" +
-                " JOIN published_questionnaires pq ON pq.id = m.questionnaire_id" +
-                " WHERE LOWER(pq.name) = LOWER(?1)", pqName);
-            deleteByPqName(
-                "DELETE m FROM published_questionnaire_mqs m" +
-                " JOIN published_questionnaires pq ON pq.id = m.questionnaire_id" +
-                " WHERE LOWER(pq.name) = LOWER(?1)", pqName);
-
-            // --- leaves ---
-            deleteByPqName(
-                "DELETE l FROM published_questionnaire_languages l" +
-                " JOIN published_questionnaires pq ON pq.id = l.questionnaire_id" +
-                " WHERE LOWER(pq.name) = LOWER(?1)", pqName);
-            deleteByPqName(
-                "DELETE d FROM published_questionnaire_demographic_keys d" +
-                " JOIN published_questionnaires pq ON pq.id = d.questionnaire_id" +
-                " WHERE LOWER(pq.name) = LOWER(?1)", pqName);
-
-            // --- the parent row itself ---
             em.createNativeQuery("DELETE FROM published_questionnaires WHERE LOWER(name) = LOWER(?1)")
-                .setParameter(1, pqName)
+                .setParameter(1, names.get(0).toString())
                 .executeUpdate();
         }
     }
 
-    /** Runs a single-parameter native DELETE scoped to a published_questionnaire
-     *  name. Keeps the subtree teardown in {@link #delete(String)} readable. */
-    private void deleteByPqName(String sql, String pqName) {
-        em.createNativeQuery(sql).setParameter(1, pqName).executeUpdate();
-    }
-
     @Transactional(readOnly = true)
     public Map<String, Object> get(String id) {
-        // See list() above for the same item_count derivation rationale —
-        // prefer the live items count, fall back to the name-matched
-        // published_questionnaires snapshot.
         @SuppressWarnings("unchecked")
         List<Object[]> rows = em.createNativeQuery(
-            "SELECT i.name, i.short_name, i.vertical, i.category," +
-            " GREATEST(" +
-            "   (SELECT COUNT(*) FROM items WHERE instrument_id = i.id)," +
-            "   COALESCE((SELECT COUNT(*) FROM published_questionnaire_questions pqq" +
-            "             JOIN published_questionnaires pq ON pq.id = pqq.questionnaire_id" +
-            "             WHERE LOWER(TRIM(pq.name)) = LOWER(TRIM(i.name))), 0)" +
-            " ) AS item_count," +
-            " i.duration_minutes, i.tier_required, i.is_adaptive, i.is_fixed_sequence," +
-            " i.norm_status, i.age_range, i.created_at" +
-            " FROM instruments i WHERE i.id = ?1")
+            "SELECT name, short_name, vertical, category, item_count, duration_minutes," +
+            " languages, tier_required, is_adaptive, is_fixed_sequence, norm_status, age_range, created_at" +
+            " FROM instruments WHERE id = ?1")
             .setParameter(1, id)
             .getResultList();
         if (rows.isEmpty()) throw new ResourceNotFoundException("Questionnaire", "id", id);
@@ -256,19 +116,13 @@ public class QuestionnairesCatalogService {
         out.put("category", r[3]);
         out.put("item_count", r[4]);
         out.put("duration_minutes", r[5]);
-        out.put("tier_required", r[6]);
-        out.put("is_adaptive", asBoolean(r[7]));
-        out.put("is_fixed_sequence", asBoolean(r[8]));
-        out.put("norm_status", r[9]);
-        out.put("age_range", r[10]);
-        out.put("created_at", formatDate(r[11]));
-        // Per-instrument languages now live in their own table.
-        @SuppressWarnings("unchecked")
-        List<String> langs = em.createNativeQuery(
-                "SELECT language FROM instrument_languages WHERE instrument_id = ?1 ORDER BY language")
-                .setParameter(1, id)
-                .getResultList();
-        out.put("languages", langs);
+        out.put("languages", parseStringList(r[6]));
+        out.put("tier_required", r[7]);
+        out.put("is_adaptive", asBoolean(r[8]));
+        out.put("is_fixed_sequence", asBoolean(r[9]));
+        out.put("norm_status", r[10]);
+        out.put("age_range", r[11]);
+        out.put("created_at", formatDate(r[12]));
         return out;
     }
 

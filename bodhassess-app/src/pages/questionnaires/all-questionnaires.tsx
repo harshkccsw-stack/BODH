@@ -1,5 +1,4 @@
 import { useState, useMemo, useEffect } from 'react';
-import { Loading } from '@/components/loading';
 import { getQuestionnairesCatalog, API_BASE, type Questionnaire as ApiQuestionnaire } from '@/lib/api';
 import {
   AlertTriangle,
@@ -93,7 +92,6 @@ export default function QuestionnairesPage() {
   const [activeType, setActiveType] = useState<QuestionnaireType>('all');
   const [search, setSearch] = useState('');
   const [apiQuestionnaires, setApiQuestionnaires] = useState<Questionnaire[]>([]);
-  const [loading, setLoading] = useState(true);
   const [apiSource, setApiSource] = useState<'api' | 'mock'>('mock');
   const [overrides, setOverrides] = useState<Record<string, QuestionnaireOverride>>({});
   const [editing, setEditing] = useState<Questionnaire | null>(null);
@@ -147,7 +145,6 @@ export default function QuestionnairesPage() {
   }, []);
 
   const loadApiQuestionnaires = async () => {
-    setLoading(true);
     try {
       const data = await getQuestionnairesCatalog();
       const mapped: Questionnaire[] = data.map((i: ApiQuestionnaire) => ({
@@ -167,8 +164,6 @@ export default function QuestionnairesPage() {
       setApiSource('api');
     } catch {
       setApiSource('mock');
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -341,22 +336,6 @@ export default function QuestionnairesPage() {
         </Button>
       </div>
 
-      {/* Pointer to the versioned (Git-style) parent list. The legacy
-          grid below keeps working for browsing; admins use the new
-          page to manage versions/drafts and commit changes. */}
-      <div className="rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm flex items-start gap-3 flex-wrap">
-        <div className="flex-1 min-w-0">
-          <p className="font-medium">Versioned questionnaires</p>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            Each questionnaire now has a Git-style history. Commit drafts,
-            switch the current version, and audit every change.
-          </p>
-        </div>
-        <Button variant="outline" size="sm" onClick={() => { window.location.href = '/questionnaires/parents'; }}>
-          Open Versioned View →
-        </Button>
-      </div>
-
       <div className="flex flex-col lg:flex-row gap-5">
         {/* Vertical sidebar — built-ins + any user-created verticals */}
         <aside className="lg:w-56 shrink-0">
@@ -456,9 +435,7 @@ export default function QuestionnairesPage() {
           </p>
 
           {/* Questionnaire grid */}
-          {loading ? (
-            <Loading label="Loading questionnaires…" />
-          ) : filtered.length === 0 ? (
+          {filtered.length === 0 ? (
             <Card>
               <CardContent className="p-10 text-center">
                 <Brain className="h-10 w-10 text-muted-foreground/40 mx-auto mb-3" />
@@ -537,14 +514,7 @@ export default function QuestionnairesPage() {
                         <Play className="h-3.5 w-3.5" />
                         Allot Assessment
                       </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          window.location.href = `/question-bank/create?edit=${encodeURIComponent(inst.id || inst.name)}`;
-                        }}
-                        title="Edit questionnaire"
-                      >
+                      <Button variant="outline" size="sm" onClick={() => openEdit(inst)} title="Edit questionnaire">
                         <Pencil className="h-3.5 w-3.5" />
                         Edit
                       </Button>

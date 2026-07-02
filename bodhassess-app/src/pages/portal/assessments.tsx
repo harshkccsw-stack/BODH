@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { Brain, ClipboardCheck, Clock, LogOut, Play, CheckCircle2 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Loading } from '@/components/loading';
 
 import { portalSessionsApi, respondentsApi, type PortalSession, type Respondent } from '@/lib/api';
 import { formatDDMMYYYY } from '@/lib/helpers';
@@ -14,48 +13,42 @@ export default function PortalAssessmentsPage() {
   const [user, setUser] = useState<Respondent | null>(null);
   const [sessions, setSessions] = useState<PortalSession[]>([]);
   const [checked, setChecked] = useState(false);
-  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     (async () => {
-      setLoading(true);
+      const token = sessionStorage.getItem(AUTH_KEY);
+      if (!token) { window.location.href = '/portal/login'; return; }
       try {
-        const token = localStorage.getItem(AUTH_KEY);
-        if (!token) { window.location.href = '/portal/login'; return; }
+        const me = await respondentsApi.me(token);
+        setUser(me);
         try {
-          const me = await respondentsApi.me(token);
-          setUser(me);
-          try {
-            const list = await portalSessionsApi.list(me.id);
-            setSessions(list);
-          } catch {
-            setSessions([]);
-          }
+          const list = await portalSessionsApi.list(me.id);
+          setSessions(list);
         } catch {
-          // Token invalid/expired
-          localStorage.removeItem(AUTH_KEY);
-          window.location.href = '/portal/login';
+          setSessions([]);
         }
-        setChecked(true);
-      } finally {
-        setLoading(false);
+      } catch {
+        // Token invalid/expired
+        sessionStorage.removeItem(AUTH_KEY);
+        window.location.href = '/portal/login';
       }
+      setChecked(true);
     })();
   }, []);
 
   const logout = async () => {
-    const token = localStorage.getItem(AUTH_KEY);
+    const token = sessionStorage.getItem(AUTH_KEY);
     if (token) {
       try { await respondentsApi.logout(token); } catch {}
     }
-    localStorage.removeItem(AUTH_KEY);
+    sessionStorage.removeItem(AUTH_KEY);
     window.location.href = '/portal/login';
   };
 
-  if (loading || !checked || !user) {
+  if (!checked || !user) {
     return (
       <div className="flex-1 min-h-screen flex items-center justify-center bg-muted/20">
-        <Loading />
+        <p className="text-sm text-muted-foreground">Loading...</p>
       </div>
     );
   }
@@ -145,7 +138,7 @@ export default function PortalAssessmentsPage() {
                         )}
                       </div>
                       <div className="space-y-1.5">
-                        <p className="font-semibold leading-snug text-[0.9375rem]">{s.name || s.instrumentFullName || s.instrument}</p>
+                        <p className="font-semibold leading-snug text-[0.9375rem]">{s.instrumentFullName || s.instrument}</p>
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                           <span className="font-mono">{s.id}</span>
                           <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{formatDDMMYYYY(s.createdAt)}</span>
@@ -185,7 +178,7 @@ export default function PortalAssessmentsPage() {
                     <CheckCircle2 className="h-5 w-5" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="font-medium truncate">{s.name || s.instrumentFullName || s.instrument}</p>
+                    <p className="font-medium truncate">{s.instrumentFullName || s.instrument}</p>
                     <p className="text-xs text-muted-foreground mt-0.5 font-mono">{s.id}</p>
                   </div>
                   <span className="text-xs font-semibold text-green-700 dark:text-green-400">Submitted</span>

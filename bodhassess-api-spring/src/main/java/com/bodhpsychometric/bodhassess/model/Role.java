@@ -1,20 +1,22 @@
 package com.bodhpsychometric.bodhassess.model;
 
 import java.time.OffsetDateTime;
-import java.util.HashSet;
-import java.util.Set;
+import java.util.ArrayList;
+import java.util.List;
 
-import javax.persistence.CollectionTable;
 import javax.persistence.Column;
-import javax.persistence.ElementCollection;
 import javax.persistence.Entity;
-import javax.persistence.FetchType;
 import javax.persistence.Id;
-import javax.persistence.JoinColumn;
 import javax.persistence.Table;
+
+import org.hibernate.annotations.Type;
+import org.hibernate.annotations.TypeDef;
+
+import com.vladmihalcea.hibernate.type.json.JsonStringType;
 
 @Entity
 @Table(name = "roles")
+@TypeDef(name = "json", typeClass = JsonStringType.class)
 public class Role {
 
     @Id
@@ -25,11 +27,9 @@ public class Role {
     @Column(columnDefinition = "text")
     private String description;
 
-    @ElementCollection(fetch = FetchType.EAGER)
-    @CollectionTable(name = "role_url_paths",
-            joinColumns = @JoinColumn(name = "role_id"))
-    @Column(name = "url_path", nullable = false, length = 255)
-    private Set<String> urlPaths = new HashSet<>();
+    @Type(type = "json")
+    @Column(name = "url_paths", columnDefinition = "json")
+    private List<String> urlPaths = new ArrayList<>();
 
     @Column(name = "created_at", insertable = false, updatable = false)
     private OffsetDateTime createdAt;
@@ -43,8 +43,8 @@ public class Role {
     public void setName(String name) { this.name = name; }
     public String getDescription() { return description; }
     public void setDescription(String description) { this.description = description; }
-    public Set<String> getUrlPaths() { return urlPaths; }
-    public void setUrlPaths(Set<String> urlPaths) { this.urlPaths = urlPaths; }
+    public List<String> getUrlPaths() { return urlPaths; }
+    public void setUrlPaths(List<String> urlPaths) { this.urlPaths = urlPaths; }
     public OffsetDateTime getCreatedAt() { return createdAt; }
     public OffsetDateTime getUpdatedAt() { return updatedAt; }
 }

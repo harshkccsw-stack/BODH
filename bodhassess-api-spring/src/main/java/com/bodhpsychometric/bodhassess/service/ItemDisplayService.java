@@ -26,9 +26,7 @@ public class ItemDisplayService {
         return repo.findAll().stream().map(s -> {
             ItemDisplayDtos.ItemDisplayRow r = new ItemDisplayDtos.ItemDisplayRow();
             r.setItemId(s.getItemId());
-            // `override` no longer persists — column dropped in the JSON
-            // cleanup. Return an empty map so the API shape is unchanged.
-            r.setOverride(new HashMap<>());
+            r.setOverride(s.getOverride() == null ? new HashMap<>() : s.getOverride());
             r.setDeleted(s.isDeleted());
             return r;
         }).collect(Collectors.toList());
@@ -40,8 +38,7 @@ public class ItemDisplayService {
         }
         ItemDisplayState s = repo.findById(req.getItemId()).orElseGet(ItemDisplayState::new);
         s.setItemId(req.getItemId());
-        // override map is discarded — kept in the request signature for
-        // backward compat but not persisted anywhere.
+        s.setOverride(req.getOverride() == null ? new HashMap<>() : req.getOverride());
         repo.save(s);
         return req;
     }
