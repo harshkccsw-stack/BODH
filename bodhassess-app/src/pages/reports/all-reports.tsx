@@ -6,6 +6,8 @@ import {
   Briefcase,
   ChevronLeft,
   ChevronRight,
+  ArrowDown,
+  ArrowUp,
   Download,
   Eye,
   FileText,
@@ -20,6 +22,7 @@ import { Button } from '@/components/ui/button';
 import { Input, InputWrapper } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
+import { Loading } from '@/components/loading';
 import {
   Select,
   SelectContent,
@@ -39,11 +42,17 @@ interface Report {
   id: string;
   sessionId: string;
   respondent: string;
+  // Assessment (allotment) name shown in the table; falls back to the
+  // questionnaire name for older sessions that have no assessment name.
+  assessment: string;
   instrument: string;
   vertical: Vertical;
   format: ReportFormat;
   status: ReportStatus;
   generatedAt: string;
+  // Raw ISO timestamp kept alongside the display string so the table can sort
+  // chronologically (the formatted DD/MM/YYYY string sorts lexicographically).
+  generatedAtRaw: string;
 }
 
 // Build the vertical label that gets rendered in the table (capitalized).
@@ -89,13 +98,17 @@ export default function ReportsPage() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [verticalFilter, setVerticalFilter] = useState('all');
   const [formatFilter, setFormatFilter] = useState('all');
+  // Sort by generated date; default to latest on top.
+  const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
   const [liveReports, setLiveReports] = useState<Report[]>([]);
   const [sessionsById, setSessionsById] = useState<Record<string, Assessment>>({});
   const [loadError, setLoadError] = useState('');
+  const [loading, setLoading] = useState(true);
   const [viewReport, setViewReport] = useState<Report | null>(null);
 
   useEffect(() => {
     (async () => {
+      setLoading(true);
       try {
         const list = await assessmentsApi.list();
         const completed = list.filter((s) => String(s.status || '').toLowerCase() === 'completed');
@@ -103,6 +116,7 @@ export default function ReportsPage() {
           id: `RPT-${s.id}`,
           sessionId: s.id,
           respondent: s.respondent || '—',
+          assessment: s.name || s.instrumentFullName || s.instrument || '—',
           instrument: s.instrumentFullName || s.instrument || '—',
           vertical: verticalLabel(s.vertical),
           // Format is a UI-only concept — every completed session is browsable as Interactive.
@@ -110,6 +124,7 @@ export default function ReportsPage() {
           // Status starts at Draft — workflow for Approved/Finalized lives elsewhere.
           status: 'Draft',
           generatedAt: formatDDMMYYYY(s.completedAt || s.createdAt),
+          generatedAtRaw: s.completedAt || s.createdAt || '',
         }));
         const byId: Record<string, Assessment> = {};
         completed.forEach((s) => { byId[s.id] = s; });
@@ -117,6 +132,8 @@ export default function ReportsPage() {
         setSessionsById(byId);
       } catch (e: any) {
         setLoadError(e?.message || 'Failed to load assessments');
+      } finally {
+        setLoading(false);
       }
     })();
   }, []);
@@ -149,6 +166,7 @@ export default function ReportsPage() {
       ['Session ID', report.sessionId],
       ['Respondent', report.respondent],
       ['Respondent Email', session?.respondentEmail || ''],
+      ['Assessment', report.assessment],
       ['Questionnaire', report.instrument],
       ['Vertical', report.vertical],
       ['Format', report.format],
@@ -188,17 +206,25 @@ export default function ReportsPage() {
     XLSX.writeFile(wb, `${report.id}-${report.sessionId}.xlsx`);
   };
 
-  const filteredReports = allReports.filter((report) => {
-    const matchesSearch =
-      searchQuery === '' ||
-      report.respondent.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      report.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      report.instrument.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesStatus = statusFilter === 'all' || report.status === statusFilter;
-    const matchesVertical = verticalFilter === 'all' || report.vertical === verticalFilter;
-    const matchesFormat = formatFilter === 'all' || report.format === formatFilter;
-    return matchesSearch && matchesStatus && matchesVertical && matchesFormat;
-  });
+  const filteredReports = allReports
+    .filter((report) => {
+      const matchesSearch =
+        searchQuery === '' ||
+        report.respondent.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        report.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        report.assessment.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        report.instrument.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesStatus = statusFilter === 'all' || report.status === statusFilter;
+      const matchesVertical = verticalFilter === 'all' || report.vertical === verticalFilter;
+      const matchesFormat = formatFilter === 'all' || report.format === formatFilter;
+      return matchesSearch && matchesStatus && matchesVertical && matchesFormat;
+    })
+    .sort((a, b) => {
+      // Compare on the raw ISO timestamp; missing dates sort to the bottom.
+      const ta = a.generatedAtRaw ? new Date(a.generatedAtRaw).getTime() : 0;
+      const tb = b.generatedAtRaw ? new Date(b.generatedAtRaw).getTime() : 0;
+      return sortOrder === 'desc' ? tb - ta : ta - tb;
+    });
 
   return (
     <div className="p-5 lg:p-7.5 space-y-7">
@@ -324,6 +350,9 @@ export default function ReportsPage() {
           </div>
         </CardHeader>
         <CardContent className="p-0">
+          {loading ? (
+            <Loading />
+          ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -331,11 +360,25 @@ export default function ReportsPage() {
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Report ID</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Assessment ID</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Respondent</th>
-                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Questionnaire</th>
+                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Assessment</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Vertical</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Format</th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Status</th>
-                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Generated</th>
+                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">
+                    <button
+                      type="button"
+                      onClick={() => setSortOrder((o) => (o === 'desc' ? 'asc' : 'desc'))}
+                      className="inline-flex items-center gap-1 hover:text-foreground transition-colors"
+                      aria-label={`Sort by generated date, ${sortOrder === 'desc' ? 'newest first' : 'oldest first'}`}
+                    >
+                      Generated
+                      {sortOrder === 'desc' ? (
+                        <ArrowDown className="size-3.5" />
+                      ) : (
+                        <ArrowUp className="size-3.5" />
+                      )}
+                    </button>
+                  </th>
                   <th className="px-5 py-3 text-left font-medium text-muted-foreground">Actions</th>
                 </tr>
               </thead>
@@ -348,7 +391,7 @@ export default function ReportsPage() {
                     <td className="px-5 py-3 font-mono text-xs">{report.id}</td>
                     <td className="px-5 py-3 font-mono text-xs">{report.sessionId}</td>
                     <td className="px-5 py-3 font-medium">{report.respondent}</td>
-                    <td className="px-5 py-3">{report.instrument}</td>
+                    <td className="px-5 py-3">{report.assessment}</td>
                     <td className="px-5 py-3">
                       <Badge size="sm" shape="circle" {...(verticalBadgeProps[report.vertical] || verticalBadgeDefaults)}>
                         {report.vertical}
@@ -393,6 +436,7 @@ export default function ReportsPage() {
               </tbody>
             </table>
           </div>
+          )}
         </CardContent>
       </Card>
 
@@ -428,7 +472,7 @@ export default function ReportsPage() {
               <div className="rounded-lg border border-border bg-muted/40 p-3 space-y-2">
                 <div className="flex justify-between"><span className="text-muted-foreground">Session</span><span className="font-mono text-xs">{viewReport.sessionId}</span></div>
                 <div className="flex justify-between"><span className="text-muted-foreground">Respondent</span><span className="font-medium">{viewReport.respondent}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Questionnaire</span><span className="text-right max-w-[60%]">{viewReport.instrument}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Assessment</span><span className="text-right max-w-[60%]">{viewReport.assessment}</span></div>
                 <div className="flex justify-between"><span className="text-muted-foreground">Vertical</span><span>{viewReport.vertical}</span></div>
                 <div className="flex justify-between"><span className="text-muted-foreground">Status</span><span>{viewReport.status}</span></div>
                 <div className="flex justify-between"><span className="text-muted-foreground">Generated</span><span>{viewReport.generatedAt}</span></div>

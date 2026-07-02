@@ -3,9 +3,10 @@
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { API_BASE, assessmentsApi, type Assessment } from '@/lib/api';
-import { createRespondent, deleteRespondent, getRespondents, type StoredRespondent } from '@/lib/data-store';
+import { config } from '@/lib/config';
+import { createRespondent, deleteRespondent, getRespondents, updateRespondent, type StoredRespondent } from '@/lib/data-store';
 import { autoFormatDdmmyyyy, ddmmyyyyToIso, formatDDMMYYYY } from '@/lib/helpers';
-import { Bell, ClipboardCheck, Plus, ShieldCheck, Trash2, Upload, Users, X } from 'lucide-react';
+import { Bell, ClipboardCheck, Pencil, Plus, ShieldCheck, Trash2, Upload, Users, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import BulkUploadModal from './bulk-upload-modal';
 
@@ -55,6 +56,7 @@ export default function RespondentsPage() {
   const [overdueFilter, setOverdueFilter] = useState<OverdueBucket | null>(null);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
+  const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState({ name: '', email: '', phone: '', dob: '', consent: 'Granted' as Consent });
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -142,7 +144,22 @@ export default function RespondentsPage() {
   }, [respondents]);
 
   const openModal = () => {
+    setEditId(null);
     setForm({ name: '', email: '', phone: '', dob: '', consent: 'Granted' });
+    setError('');
+    setCreatedCred(null);
+    setModalOpen(true);
+  };
+
+  const openEdit = (r: StoredRespondent) => {
+    setEditId(r.id);
+    setForm({
+      name: r.name || '',
+      email: r.email || '',
+      phone: r.phone || '',
+      dob: formatDDMMYYYY(r.dob) || '',
+      consent: (r.consent as Consent) || 'Granted',
+    });
     setError('');
     setCreatedCred(null);
     setModalOpen(true);
@@ -157,10 +174,26 @@ export default function RespondentsPage() {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setError('Enter a valid email address'); return; }
     const isoDob = ddmmyyyyToIso(dobInput);
     if (!isoDob) { setError('Date of birth must be in DD/MM/YYYY format'); return; }
-    if (respondents.some((r) => r.email.toLowerCase() === email.toLowerCase())) {
+    if (respondents.some((r) => r.id !== editId && r.email.toLowerCase() === email.toLowerCase())) {
       setError('A respondent with this email already exists');
       return;
     }
+
+    if (editId) {
+      setSaving(true);
+      const updated = await updateRespondent(editId, {
+        name, email,
+        phone: phone || undefined,
+        dob: isoDob,
+        consent: form.consent,
+      });
+      setSaving(false);
+      if (!updated) { setError('Failed to save — check that the API is running'); return; }
+      await refresh();
+      setModalOpen(false);
+      return;
+    }
+
     const nums = respondents.map((r) => parseInt(r.id.replace(/^R-/, ''), 10)).filter((n) => !Number.isNaN(n));
     const nextNum = (nums.length ? Math.max(...nums) : 0) + 1;
     const id = `R-${String(nextNum).padStart(3, '0')}`;
@@ -369,13 +402,22 @@ export default function RespondentsPage() {
                       )}
                     </td>
                     <td className="px-5 py-3 text-right">
-                      <button
-                        onClick={() => setConfirmDelete(r)}
-                        className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/30 transition-colors"
-                        title={`Delete ${r.name}`}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" /> Delete
-                      </button>
+                      <div className="inline-flex items-center justify-end gap-1">
+                        <button
+                          onClick={() => openEdit(r)}
+                          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-primary/10 hover:text-primary transition-colors"
+                          title={`Edit ${r.name}`}
+                        >
+                          <Pencil className="h-3.5 w-3.5" /> Edit
+                        </button>
+                        <button
+                          onClick={() => setConfirmDelete(r)}
+                          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/30 transition-colors"
+                          title={`Delete ${r.name}`}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" /> Delete
+                        </button>
+                      </div>
                     </td>
                   </tr>
                   );
@@ -420,7 +462,7 @@ export default function RespondentsPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={() => setModalOpen(false)}>
           <Card className="w-full max-w-md" onClick={(e) => e.stopPropagation()}>
             <CardHeader className="flex flex-row items-center justify-between pb-3">
-              <CardTitle className="text-base">Add Respondent</CardTitle>
+              <CardTitle className="text-base">{editId ? 'Edit Respondent' : 'Add Respondent'}</CardTitle>
               <button onClick={() => setModalOpen(false)} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -431,7 +473,7 @@ export default function RespondentsPage() {
                     <p className="mt-1 text-xs">Share these login credentials with the respondent:</p>
                   </div>
                   <div className="rounded-lg border border-border bg-muted/40 p-3 space-y-2 font-mono text-xs">
-                    <div className="flex items-center justify-between"><span className="text-muted-foreground">Portal URL</span><span>/portal/login</span></div>
+                    <div className="flex items-center justify-between"><span className="text-muted-foreground">Portal URL</span><span className="truncate ml-2">{`${config.portalUrl}/portal/login`}</span></div>
                     <div className="flex items-center justify-between"><span className="text-muted-foreground">Email (login)</span><span className="font-semibold truncate ml-2">{form.email.trim()}</span></div>
                     {form.phone.trim() && (
                       <div className="flex items-center justify-between"><span className="text-muted-foreground">Phone (also accepted)</span><span className="font-semibold">{form.phone.trim()}</span></div>
@@ -441,7 +483,7 @@ export default function RespondentsPage() {
                   </div>
                   <div className="flex justify-end gap-2 pt-2">
                     <Button variant="outline" onClick={() => setModalOpen(false)}>Close</Button>
-                    <Button variant="primary" onClick={() => window.open('/portal/login', '_blank')}>Open Portal</Button>
+                    <Button variant="primary" onClick={() => window.open(`${config.portalUrl}/portal/login`, '_blank')}>Open Portal</Button>
                   </div>
                 </div>
               ) : (
@@ -484,7 +526,7 @@ export default function RespondentsPage() {
                   </div>
                   <div className="flex justify-end gap-2 pt-2">
                     <Button variant="outline" onClick={() => setModalOpen(false)}>Cancel</Button>
-                    <Button variant="primary" onClick={submit} disabled={saving}>{saving ? 'Saving…' : 'Add Respondent'}</Button>
+                    <Button variant="primary" onClick={submit} disabled={saving}>{saving ? 'Saving…' : editId ? 'Save Changes' : 'Add Respondent'}</Button>
                   </div>
                 </>
               )}

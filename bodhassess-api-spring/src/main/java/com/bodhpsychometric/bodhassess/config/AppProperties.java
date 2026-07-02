@@ -8,14 +8,14 @@ public class AppProperties {
     private final Auth auth = new Auth();
     private final Cors cors = new Cors();
     private final Uploads uploads = new Uploads();
-    private final Admin admin = new Admin();
     private final Heartbeat heartbeat = new Heartbeat();
+    private final Bootstrap bootstrap = new Bootstrap();
 
     public Auth getAuth() { return auth; }
     public Cors getCors() { return cors; }
     public Uploads getUploads() { return uploads; }
-    public Admin getAdmin() { return admin; }
     public Heartbeat getHeartbeat() { return heartbeat; }
+    public Bootstrap getBootstrap() { return bootstrap; }
 
     public static class Auth {
         private String tokenSecret;
@@ -46,15 +46,20 @@ public class AppProperties {
         public void setBaseUrl(String baseUrl) { this.baseUrl = baseUrl; }
     }
 
-    public static class Admin {
-        private String username;
-        private String password;
+    /**
+     * Seed account created on startup (create-if-absent) so the very first
+     * super admin can log in. This is the only privileged-access seam now that
+     * the env username/password path is retired — all auth flows through /auth.
+     */
+    public static class Bootstrap {
+        private String superAdminEmail;
+        private String superAdminDob;
 
-        public String getUsername() { return username; }
-        public void setUsername(String username) { this.username = username; }
+        public String getSuperAdminEmail() { return superAdminEmail; }
+        public void setSuperAdminEmail(String superAdminEmail) { this.superAdminEmail = superAdminEmail; }
 
-        public String getPassword() { return password; }
-        public void setPassword(String password) { this.password = password; }
+        public String getSuperAdminDob() { return superAdminDob; }
+        public void setSuperAdminDob(String superAdminDob) { this.superAdminDob = superAdminDob; }
     }
 
     public static class Heartbeat {

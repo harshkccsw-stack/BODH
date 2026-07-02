@@ -74,6 +74,20 @@ interface OptionMqtScore {
   score: number;
 }
 
+// Stable, case-insensitive map key for a nested trait path under an MQ —
+// e.g. ("Wellbeing", ["Stress", "Acute"]). Used by the bulk importer to match
+// a parsed scoring entry to the leaf-trait id created while walking the tree.
+function scorePathKey(mq: string, path: string[]): string {
+  return [mq, ...path].map((s) => s.toLowerCase()).join('›');
+}
+
+// MQ/MQT coverage tags for a question. Which qualities/traits the question
+// measures, independent of the option/question scoring above.
+interface Coverage {
+  mqs: string[];
+  mqts: string[];
+}
+
 interface QuestionOption {
   text: string;
   scores: OptionMqtScore[];
@@ -92,10 +106,19 @@ interface Question {
   // (or free-text response) was given. Stored at the same shape as option
   // scores so the picker UI and resolver can be reused.
   question_scores: OptionMqtScore[];
+  coverage: Coverage;
   clinical_risk_flag: boolean;
   risk_flag_rule: string;
   sectionId?: string;
   sectionTitle?: string;
+}
+
+// Normalize a possibly-missing coverage object from stored/imported data.
+function normalizeCoverage(c: any): Coverage {
+  return {
+    mqs: Array.isArray(c?.mqs) ? c.mqs.map(String) : [],
+    mqts: Array.isArray(c?.mqts) ? c.mqts.map(String) : [],
+  };
 }
 
 const FORMATS = ['MCQ', 'RATING_SCALE', 'LIKERT', 'SJT', 'FREE_TEXT', 'IMAGE_CHOICE', 'RANKING', 'MATRIX'];
@@ -244,6 +267,8 @@ export default function CreateAssessmentPage() {
   const [instCategory, setInstCategory] = useState('');
   const [instDescription, setInstDescription] = useState('');
   const [instDisclaimer, setInstDisclaimer] = useState('');
+  const [instShowInstructions, setInstShowInstructions] = useState(false);
+  const [instInstructions, setInstInstructions] = useState('');
   const [instDuration, setInstDuration] = useState(10);
   const [instTier, setInstTier] = useState('T1');
   const [instLanguages, setInstLanguages] = useState<string[]>(['en']);
@@ -302,6 +327,8 @@ export default function CreateAssessmentPage() {
         setInstCategory(match.category || '');
         setInstDescription(match.description || '');
         setInstDisclaimer(match.disclaimer || '');
+        setInstInstructions(match.instructions || '');
+        setInstShowInstructions(!!match.showInstructions);
         if (Array.isArray(match.demographicFieldKeys)) {
           setDemoFieldKeys(match.demographicFieldKeys);
         }
@@ -327,6 +354,7 @@ export default function CreateAssessmentPage() {
             question_scores: Array.isArray(q.question_scores)
               ? q.question_scores.map((s: any) => ({ mqt_id: s.mqt_id, score: Number(s.score) || 0 }))
               : [],
+            coverage: normalizeCoverage(q.coverage),
             clinical_risk_flag: !!q.clinical_risk_flag,
             risk_flag_rule: String(q.risk_flag_rule || ''),
             sectionId: q.sectionId || undefined,
@@ -475,6 +503,80 @@ export default function CreateAssessmentPage() {
     return map;
   }, [allMqts]);
 
+  const mqNameById = useMemo(() => {
+    const map: Record<string, string> = {};
+    mqs.forEach((m) => { map[m.id] = m.name; });
+    return map;
+  }, [mqs]);
+
+  // Traits grouped under their parent MQ, each carrying an outline number
+  // (1, 1.1, 1.1.1 …) and depth so the coverage UI can render the
+  // MQ › MQT › sub-MQT hierarchy instead of a flat wall of full-path pills.
+  type MqtRow = { mqt: MQT; path: string; label: string; number: string; depth: number };
+  const mqtsByMq = useMemo(() => {
+    const map: Record<string, MqtRow[]> = {};
+    mqs.forEach((mq) => {
+      const rows: MqtRow[] = [];
+      const walk = (nodes: MQT[], parentLabels: string[], parentNumber: string, depth: number) => {
+        nodes.forEach((n, i) => {
+          const number = parentNumber ? `${parentNumber}.${i + 1}` : `${i + 1}`;
+          // The MQ-level single trait (same name as its MQ, no children) is
+          // represented by the MQ chip itself, so label it "Overall".
+          const isMqLevel =
+            depth === 0 && mq.mqts.length === 1 &&
+            n.name.toLowerCase() === mq.name.toLowerCase() && !n.children?.length;
+          const path = isMqLevel ? mq.name : [mq.name, ...parentLabels, n.name].join(' > ');
+          rows.push({ mqt: n, path, label: isMqLevel ? 'Overall' : n.name, number, depth });
+          if (n.children?.length) walk(n.children, [...parentLabels, n.name], number, depth + 1);
+        });
+      };
+      walk(mq.mqts, [], '', 0);
+      map[mq.id] = rows;
+    });
+    return map;
+  }, [mqs]);
+
+  // Which MQ groups are collapsed in the coverage UI (shared across every
+  // question's selector and the Coverage Map so the view stays consistent).
+  const [collapsedMqs, setCollapsedMqs] = useState<Set<string>>(new Set());
+  const toggleMqCollapse = (id: string) =>
+    setCollapsedMqs((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+
+  // Per-question accordion: which question cards are expanded. Empty by
+  // default so every card starts collapsed; the side navigator and the card
+  // header chevron toggle membership.
+  const [expandedQs, setExpandedQs] = useState<Set<string>>(new Set());
+  const toggleQuestionExpand = (id: string) =>
+    setExpandedQs((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  // Expand a question (if collapsed) and scroll its card into view.
+  const goToQuestion = (id: string) => {
+    setExpandedQs((prev) => new Set(prev).add(id));
+    // Defer so the body is mounted before we scroll to it.
+    requestAnimationFrame(() => {
+      document.getElementById(`question-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  };
+
+  // Coverage summary: how many questions tag each MQ and each MQT.
+  const coverageSummary = useMemo(() => {
+    const mqCounts: Record<string, number> = {};
+    const mqtCounts: Record<string, number> = {};
+    questions.forEach((q) => {
+      q.coverage.mqs.forEach((id) => { mqCounts[id] = (mqCounts[id] || 0) + 1; });
+      q.coverage.mqts.forEach((id) => { mqtCounts[id] = (mqtCounts[id] || 0) + 1; });
+    });
+    const taggedCount = questions.filter((q) => q.coverage.mqs.length > 0 || q.coverage.mqts.length > 0).length;
+    return { mqCounts, mqtCounts, taggedCount };
+  }, [questions]);
+
   // ---- Preview (whole questionnaire review) ----
 
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -560,6 +662,7 @@ export default function CreateAssessmentPage() {
       question_scores: Array.isArray(q.question_scores)
         ? q.question_scores.map((s: any) => ({ mqt_id: s.mqt_id, score: Number(s.score) || 0 }))
         : [],
+      coverage: normalizeCoverage(q.coverage),
       clinical_risk_flag: !!q.clinical_risk_flag,
       risk_flag_rule: String(q.risk_flag_rule || ''),
     }));
@@ -570,15 +673,44 @@ export default function CreateAssessmentPage() {
   // ---- Bulk import from CSV / XLSX ----
   // Expected columns (case-insensitive):
   //   stem (required), format, section, risk_flag, risk_rule,
+  //   coverage_mqs, coverage_mqts (semicolon-separated names; tags only)
+  //
+  // Scoring uses NUMBERED MQ BLOCKS per scope — each block is one MQ and its
+  // trait path, one value per cell:
+  //   question_mq1, question_mqt1, question_submqt1, question_subsubmqt1, question_score1
+  //   question_mq2, …  (add _mq2/_mq3… to score the question against more MQs)
   //   option1..option8
-  //   option1_mq, option1_mqt, option1_score ... (per option)
-  // MQ/MQT names are resolved against the catalog; missing ones are
-  // created in the database on import.
+  //   option{n}_mq1, option{n}_mqt1, option{n}_submqt1, option{n}_subsubmqt1, option{n}_score1
+  //   option{n}_mq2, …  (per option, per MQ block)
+  //
+  // Each block is the four-level trait hierarchy MQ › MQT › sub-MQT › sub-sub-MQT.
+  // The score attaches to the DEEPEST level filled in (so leave sub-MQT /
+  // sub-sub-MQT blank for a shallow trait). Every level below the MQ that
+  // doesn't exist yet is created in the catalog on import; the MQ itself is
+  // created too. Filling a sub-level while its parent is blank is flagged.
+  //
+  // Back-compat: the legacy un-numbered columns (question_mq, option{n}_mq, …)
+  // are still read as an extra block, and each such cell may carry a ';'- (or
+  // '|'-) separated list whose items pair up positionally.
+  //
+  // Coverage names are resolved against the catalog for tagging only and
+  // dropped if they don't match.
+
+  // A single scoring entry: an MQ and the trait path beneath it
+  // (mqt → submqt → subsubmqt), plus the score. mqtPath holds that hierarchy —
+  // e.g. ["Stress", "Acute", "Panic"]. An empty mqtPath with a present mq
+  // defaults to a single trait named after the MQ; an empty mq with only a
+  // score is a bare score that falls back to the first catalog trait.
+  interface ParsedScore {
+    mq: string;
+    mqtPath: string[];
+    score: number | null;
+  }
   interface ParsedOption {
     text: string;
-    mq: string;
-    mqt: string;
-    score: number | null;
+    // One option can score against several MQTs at once — the source cells
+    // option{n}_mq / _mqt / _score may each carry a ';'-separated list.
+    scores: ParsedScore[];
   }
   interface ParsedRow {
     stem: string;
@@ -587,9 +719,14 @@ export default function CreateAssessmentPage() {
     risk_flag: boolean;
     risk_rule: string;
     options: ParsedOption[];
-    // Question-level (mq, mqt, score) — applied to the MQT total whenever
-    // the question is answered, regardless of which option was picked.
-    question_score: ParsedOption | null;
+    // Question-level scores — applied to the MQT totals whenever the question
+    // is answered, regardless of which option was picked. Like options, the
+    // question_mq / _mqt / _score columns may carry ';'-separated lists.
+    question_scores: ParsedScore[];
+    // Coverage tags (names; resolved to ids on import). Semicolon-separated
+    // in the source columns coverage_mqs / coverage_mqts.
+    coverage_mqs: string[];
+    coverage_mqts: string[];
     errors: string[];
   }
 
@@ -667,6 +804,106 @@ export default function CreateAssessmentPage() {
         // empty rows, and we don't want to flag each one as "stem is empty".
         .filter((row) => Object.values(row).some((v) => v !== '' && v !== undefined && v !== null));
 
+      // Split a scoring cell into a list on ';' or '|' (mirrors coverage cols).
+      const splitCell = (raw: any) => String(raw ?? '').split(/[;|]/).map((s) => s.trim());
+      // Build the scoring entries for one scope from its explicit trait-hierarchy
+      // columns (mq → mqt → submqt → subsubmqt) and the score. Each cell may hold
+      // a ';'-separated list whose items pair up positionally (one option can
+      // score several traits); a single mq broadcasts to every entry. The score
+      // attaches to the DEEPEST trait given, and every missing level below the MQ
+      // is created on import. requireScore=true (question scope) flags an mq with
+      // no score as an error rather than silently skipping it.
+      const parseScoreCells = (
+        cells: { mq: any; mqt: any; submqt: any; subsubmqt: any; score: any },
+        label: string,
+        requireScore: boolean,
+        errors: string[],
+      ): ParsedScore[] => {
+        const mqList = splitCell(cells.mq);
+        const mqtList = splitCell(cells.mqt);
+        const submqtList = splitCell(cells.submqt);
+        const subsubmqtList = splitCell(cells.subsubmqt);
+        const scoreList = splitCell(cells.score);
+        const present = (l: string[]) => l.some((s) => s !== '');
+        const lists = [mqList, mqtList, submqtList, subsubmqtList, scoreList];
+        if (!lists.some(present)) return [];
+        const count = Math.max(...lists.map((l) => (present(l) ? l.length : 0)));
+        const out: ParsedScore[] = [];
+        for (let i = 0; i < count; i++) {
+          // A single MQ broadcasts across every entry; otherwise pair by index.
+          const mq = (mqList.length === 1 ? mqList[0] : mqList[i] ?? '').trim();
+          // Trait hierarchy below the MQ, deepest-last. A level may itself use
+          // '>' for extra depth (back-compat with the older path syntax).
+          const rawLevels = [mqtList[i] ?? '', submqtList[i] ?? '', subsubmqtList[i] ?? ''].map((s) => s.trim());
+          let gap = false;
+          for (let k = 1; k < rawLevels.length; k++) {
+            if (!rawLevels[k - 1] && rawLevels[k]) { gap = true; break; }
+          }
+          if (gap) { errors.push(`${label}: a sub-level is filled without its parent trait`); continue; }
+          const mqtPath: string[] = [];
+          for (const lvl of rawLevels) {
+            if (!lvl) break; // stop at the first empty level
+            mqtPath.push(...lvl.split('>').map((s) => s.trim()).filter(Boolean));
+          }
+          // MQ given but no trait → default to a single trait named after the MQ.
+          if (mqtPath.length === 0 && mq) mqtPath.push(mq);
+          const sStr = (scoreList[i] ?? '').trim();
+          const sNum = sStr === '' ? null : Number(sStr);
+          const score = sStr !== '' && Number.isFinite(sNum as number) ? (sNum as number) : null;
+          if (sStr !== '' && score === null) {
+            errors.push(`${label}: invalid score "${sStr}"`);
+          }
+          if (!mq && rawLevels.some(Boolean)) {
+            errors.push(`${label}: trait given without MQ`);
+            continue;
+          }
+          if (requireScore && mq && score === null) {
+            errors.push(`${label}: MQ given without score`);
+            continue;
+          }
+          // Skip an entirely-empty positional slot (e.g. from a trailing ';').
+          if (!mq && mqtPath.length === 0 && score === null) continue;
+          out.push({ mq, mqtPath, score });
+        }
+        return out;
+      };
+      // Resolve the trait-hierarchy columns for one scope + block suffix,
+      // accepting a few header spellings (sub_mqt / sub-sub-mqt etc.). The
+      // suffix is the numbered block ('1', '2', …) or '' for the legacy
+      // un-numbered columns.
+      const scoreCellsForBlock = (row: Record<string, any>, prefix: string, suffix: string) => ({
+        mq: row[`${prefix}_mq${suffix}`],
+        mqt: row[`${prefix}_mqt${suffix}`],
+        submqt: row[`${prefix}_submqt${suffix}`] ?? row[`${prefix}_sub_mqt${suffix}`],
+        subsubmqt:
+          row[`${prefix}_subsubmqt${suffix}`] ??
+          row[`${prefix}_subsub_mqt${suffix}`] ??
+          row[`${prefix}_sub_sub_mqt${suffix}`],
+        score: row[`${prefix}_score${suffix}`],
+      });
+      // Gather every scoring block for one scope. Each MQ gets its own numbered
+      // column group — {prefix}_mq1 / _mqt1 / _submqt1 / _subsubmqt1 / _score1,
+      // then _mq2…, and so on — so one value lives in one cell (no ';' lists
+      // needed). We read block 1, 2, 3… for as long as a {prefix}_mq{n} column
+      // exists, plus the legacy un-numbered {prefix}_mq columns for back-compat.
+      const collectScores = (
+        row: Record<string, any>,
+        prefix: string,
+        label: string,
+        requireScore: boolean,
+        errors: string[],
+      ): ParsedScore[] => {
+        const suffixes: string[] = [];
+        if (`${prefix}_mq` in row) suffixes.push(''); // legacy un-numbered block
+        for (let n = 1; `${prefix}_mq${n}` in row; n++) suffixes.push(String(n));
+        const out: ParsedScore[] = [];
+        for (const suffix of suffixes) {
+          const blockLabel = suffix ? `${label} (mq${suffix})` : label;
+          out.push(...parseScoreCells(scoreCellsForBlock(row, prefix, suffix), blockLabel, requireScore, errors));
+        }
+        return out;
+      };
+
       const parsed: ParsedRow[] = rows.map((row) => {
         const errors: string[] = [];
         const stem = String(row.stem ?? row.question ?? row.text ?? '').trim();
@@ -680,39 +917,23 @@ export default function CreateAssessmentPage() {
         const options: ParsedOption[] = [];
         for (let n = 1; n <= 8; n++) {
           const text = String(row[`option${n}`] ?? '').trim();
-          const mq = String(row[`option${n}_mq`] ?? '').trim();
-          // If only MQ is given, default MQT to the same name — we auto-create
-          // a single trait under that quality during import.
-          const mqt = String(row[`option${n}_mqt`] ?? '').trim() || mq;
-          const scoreRaw = row[`option${n}_score`];
-          const scoreStr = scoreRaw === '' || scoreRaw === undefined || scoreRaw === null ? '' : String(scoreRaw).trim();
-          const score = scoreStr === '' ? null : Number(scoreStr);
           if (!text) continue;
-          if (!mq && mqt) {
-            errors.push(`option${n}: MQT given without MQ`);
-          }
-          options.push({ text, mq, mqt, score: Number.isFinite(score as number) ? (score as number) : null });
+          const scores = collectScores(row, `option${n}`, `option${n}`, false, errors);
+          options.push({ text, scores });
         }
         if (format !== 'FREE_TEXT' && options.length < 2) {
           errors.push(`format ${format} needs at least 2 options`);
         }
-        // Optional question-level score (applied on any answer).
-        const qMq = String(row.question_mq ?? '').trim();
-        const qMqt = String(row.question_mqt ?? '').trim() || qMq;
-        const qScoreRaw = row.question_score;
-        const qScoreStr = qScoreRaw === '' || qScoreRaw === undefined || qScoreRaw === null ? '' : String(qScoreRaw).trim();
-        const qScoreNum = qScoreStr === '' ? null : Number(qScoreStr);
-        let question_score: ParsedOption | null = null;
-        if (qMq || qScoreStr !== '') {
-          if (!qMq && qMqt) {
-            errors.push('question_score: MQT given without MQ');
-          } else if (qMq && qScoreStr === '') {
-            errors.push('question_score: MQ given without score');
-          } else if (qMq && qScoreNum !== null && Number.isFinite(qScoreNum)) {
-            question_score = { text: '', mq: qMq, mqt: qMqt, score: qScoreNum };
-          }
-        }
-        return { stem, format, section, risk_flag, risk_rule, options, question_score, errors };
+        // Optional question-level scores (applied on any answer).
+        const question_scores = collectScores(row, 'question', 'question_score', true, errors);
+        const splitNames = (raw: any) =>
+          String(raw ?? '')
+            .split(/[;|]/)
+            .map((s) => s.trim())
+            .filter(Boolean);
+        const coverage_mqs = splitNames(row.coverage_mqs ?? row.coverage_mq);
+        const coverage_mqts = splitNames(row.coverage_mqts ?? row.coverage_mqt);
+        return { stem, format, section, risk_flag, risk_rule, options, question_scores, coverage_mqs, coverage_mqts, errors };
       });
 
       setBulkRows(parsed);
@@ -724,29 +945,35 @@ export default function CreateAssessmentPage() {
     }
   };
 
-  // Collect every distinct (MQ name, MQT name) pair from valid rows.
+  // Collect every distinct (MQ, nested MQT path) reference from valid rows.
+  // `mqt` is the path rendered as a breadcrumb for display; `path` drives
+  // resolution/creation; `isNew` is true when the full path doesn't yet exist.
   const bulkPendingPairs = useMemo(() => {
-    const pairs = new Map<string, { mq: string; mqt: string; isNew: boolean }>();
-    const addPair = (mq: string, mqt: string) => {
-      if (!mq || !mqt) return;
-      const key = `${mq.toLowerCase()}|${mqt.toLowerCase()}`;
+    const pairs = new Map<string, { mq: string; mqt: string; path: string[]; isNew: boolean }>();
+    // Walk the catalog tree to see if a nested trait path already resolves.
+    const pathExists = (mqName: string, path: string[]): boolean => {
+      const mq = mqs.find((m) => m.name.toLowerCase() === mqName.toLowerCase());
+      if (!mq) return false;
+      let level: MQT[] | undefined = mq.mqts;
+      let node: MQT | undefined;
+      for (const seg of path) {
+        node = level?.find((t) => t.name.toLowerCase() === seg.toLowerCase());
+        if (!node) return false;
+        level = node.children;
+      }
+      return !!node;
+    };
+    const addEntry = (mq: string, path: string[]) => {
+      if (!mq || path.length === 0) return;
+      const key = scorePathKey(mq, path);
       if (pairs.has(key)) return;
-      const existingMq = mqs.find((m) => m.name.toLowerCase() === mq.toLowerCase());
-      const existingMqt = existingMq?.mqts.find((t) => t.name.toLowerCase() === mqt.toLowerCase());
-      pairs.set(key, { mq, mqt, isNew: !existingMqt });
+      pairs.set(key, { mq, mqt: path.join(' › '), path, isNew: !pathExists(mq, path) });
     };
     bulkRows
       .filter((r) => r.errors.length === 0)
       .forEach((r) => {
-        if (r.question_score) addPair(r.question_score.mq, r.question_score.mqt);
-        r.options.forEach((o) => {
-          if (!o.mq || !o.mqt) return;
-          const key = `${o.mq.toLowerCase()}|${o.mqt.toLowerCase()}`;
-          if (pairs.has(key)) return;
-          const existingMq = mqs.find((m) => m.name.toLowerCase() === o.mq.toLowerCase());
-          const existingMqt = existingMq?.mqts.find((t) => t.name.toLowerCase() === o.mqt.toLowerCase());
-          pairs.set(key, { mq: o.mq, mqt: o.mqt, isNew: !existingMqt });
-        });
+        r.question_scores.forEach((s) => addEntry(s.mq, s.mqtPath));
+        r.options.forEach((o) => o.scores.forEach((s) => addEntry(s.mq, s.mqtPath)));
       });
     return Array.from(pairs.values());
   }, [bulkRows, mqs]);
@@ -757,41 +984,60 @@ export default function CreateAssessmentPage() {
     setBulkImporting(true);
     setBulkError('');
     try {
-      // Resolve / create MQs and MQTs against the database before building questions.
-      // Working copy of the catalog that we mutate as we create things so later
-      // pairs can find them without another API round-trip.
-      let catalogCopy: StoredMQ[] = catalog.map((m) => ({ ...m, mqts: m.mqts.map((t) => ({ ...t })) }));
+      // Resolve / create MQs and nested MQTs against the database before
+      // building questions. Deep-clone the catalog so we can grow trait trees
+      // in place; later paths then find the nodes earlier ones created.
+      const cloneMqt = (t: any): any => ({
+        id: t.id,
+        name: t.name,
+        ...(Array.isArray(t.children) ? { children: t.children.map(cloneMqt) } : {}),
+      });
+      let catalogCopy: StoredMQ[] = catalog.map((m) => ({ ...m, mqts: m.mqts.map(cloneMqt) }));
       const findMq = (name: string) => catalogCopy.find((m) => m.name.toLowerCase() === name.toLowerCase());
-      const findMqt = (mq: StoredMQ, name: string) => mq.mqts.find((t) => t.name.toLowerCase() === name.toLowerCase());
+      const genMqtId = () => `mqt-${Math.random().toString(36).slice(2, 10)}`;
 
-      // Track resolved mqt_id for each (mq,mqt) key.
+      // resolved: scorePathKey -> leaf-trait id. created/changed track which MQs
+      // need a create vs. an update call so we persist each MQ exactly once.
       const resolved = new Map<string, string>();
+      const createdMqIds = new Set<string>();
+      const changedMqIds = new Set<string>();
       const { qualitiesApi } = await import('@/lib/api');
 
-      for (const pair of bulkPendingPairs) {
-        const key = `${pair.mq.toLowerCase()}|${pair.mqt.toLowerCase()}`;
-        let mq = findMq(pair.mq);
+      for (const pending of bulkPendingPairs) {
+        let mq = findMq(pending.mq);
         if (!mq) {
-          const newMqtId = `mqt-${Math.random().toString(36).slice(2, 10)}`;
-          const newMq: StoredMQ = {
-            id: `mq-${Math.random().toString(36).slice(2, 10)}`,
-            name: pair.mq,
-            mqts: [{ id: newMqtId, name: pair.mqt }],
-          };
-          await qualitiesApi.create(newMq);
-          catalogCopy = [...catalogCopy, newMq];
-          resolved.set(key, newMqtId);
-          continue;
+          mq = { id: `mq-${Math.random().toString(36).slice(2, 10)}`, name: pending.mq, mqts: [] };
+          catalogCopy = [...catalogCopy, mq];
+          createdMqIds.add(mq.id);
         }
-        let mqt = findMqt(mq, pair.mqt);
-        if (!mqt) {
-          const newMqtId = `mqt-${Math.random().toString(36).slice(2, 10)}`;
-          mqt = { id: newMqtId, name: pair.mqt };
-          const updated: StoredMQ = { ...mq, mqts: [...mq.mqts, mqt] };
-          await qualitiesApi.update(mq.id, { mqts: updated.mqts });
-          catalogCopy = catalogCopy.map((m) => (m.id === mq!.id ? updated : m));
-        }
-        resolved.set(key, mqt.id);
+        // Walk the path under the MQ, creating each missing segment. The last
+        // segment is the leaf trait that scores actually attach to.
+        let level: any[] = mq.mqts;
+        let leafId = '';
+        pending.path.forEach((seg, d) => {
+          let node = level.find((t: any) => t.name.toLowerCase() === seg.toLowerCase());
+          if (!node) {
+            node = { id: genMqtId(), name: seg };
+            level.push(node);
+            if (!createdMqIds.has(mq!.id)) changedMqIds.add(mq!.id);
+          }
+          leafId = node.id;
+          if (d < pending.path.length - 1) {
+            if (!node.children) node.children = [];
+            level = node.children;
+          }
+        });
+        if (leafId) resolved.set(scorePathKey(pending.mq, pending.path), leafId);
+      }
+
+      // Persist: brand-new MQs via create, existing MQs that gained traits via update.
+      for (const id of createdMqIds) {
+        const mq = catalogCopy.find((m) => m.id === id);
+        if (mq) await qualitiesApi.create(mq);
+      }
+      for (const id of changedMqIds) {
+        const mq = catalogCopy.find((m) => m.id === id);
+        if (mq) await qualitiesApi.update(mq.id, mq);
       }
       // Push the updated catalog into state so downstream code (MQT pickers,
       // upsert payload) sees the newly-created MQs/MQTs without a round-trip.
@@ -805,6 +1051,30 @@ export default function CreateAssessmentPage() {
       // Fallback: if a row has a score but no MQ/MQT, we default to the first
       // MQT in the resolved catalog so the score isn't silently dropped.
       const firstMqtInCatalog = catalogCopy[0]?.mqts[0];
+
+      // Resolve coverage tag names against the (post-creation) catalog.
+      // Coverage-only names that don't match anything are dropped — coverage
+      // is metadata, so we don't auto-create phantom qualities for it.
+      const resolveCoverageMqId = (name: string): string | null =>
+        catalogCopy.find((m) => m.name.toLowerCase() === name.toLowerCase())?.id ?? null;
+      const resolveCoverageMqtId = (name: string): string | null => {
+        const lower = name.toLowerCase();
+        const walk = (nodes: Array<{ id: string; name: string; children?: any[] }>): string | null => {
+          for (const n of nodes) {
+            if (n.name.toLowerCase() === lower) return n.id;
+            if (Array.isArray(n.children)) {
+              const hit = walk(n.children);
+              if (hit) return hit;
+            }
+          }
+          return null;
+        };
+        for (const m of catalogCopy) {
+          const hit = walk(m.mqts as any[]);
+          if (hit) return hit;
+        }
+        return null;
+      };
 
       const newQuestions: Question[] = valid.map((r) => {
         let sectionId: string | undefined;
@@ -828,25 +1098,40 @@ export default function CreateAssessmentPage() {
           media_type: 'none',
           options: r.options.map((o) => {
             const scores: Array<{ mqt_id: string; score: number }> = [];
-            if (o.mq && o.mqt && o.score !== null) {
-              const key = `${o.mq.toLowerCase()}|${o.mqt.toLowerCase()}`;
-              const mqtId = resolved.get(key);
-              if (mqtId) scores.push({ mqt_id: mqtId, score: o.score });
-            } else if (!o.mq && !o.mqt && o.score !== null && firstMqtInCatalog) {
-              scores.push({ mqt_id: firstMqtInCatalog.id, score: o.score });
-            }
+            const seen = new Set<string>();
+            o.scores.forEach((s) => {
+              if (s.score === null) return;
+              let mqtId: string | undefined;
+              if (s.mq && s.mqtPath.length) {
+                mqtId = resolved.get(scorePathKey(s.mq, s.mqtPath));
+              } else if (!s.mq && s.mqtPath.length === 0 && firstMqtInCatalog) {
+                // Bare score with no MQ/MQT — fall back to the first trait.
+                mqtId = firstMqtInCatalog.id;
+              }
+              if (mqtId && !seen.has(mqtId)) {
+                seen.add(mqtId);
+                scores.push({ mqt_id: mqtId, score: s.score });
+              }
+            });
             return { text: o.text, scores };
           }),
           question_scores: (() => {
             const out: Array<{ mqt_id: string; score: number }> = [];
-            const qs = r.question_score;
-            if (qs && qs.mq && qs.mqt && qs.score !== null) {
-              const key = `${qs.mq.toLowerCase()}|${qs.mqt.toLowerCase()}`;
-              const mqtId = resolved.get(key);
-              if (mqtId) out.push({ mqt_id: mqtId, score: qs.score });
-            }
+            const seen = new Set<string>();
+            r.question_scores.forEach((s) => {
+              if (s.score === null || !s.mq || !s.mqtPath.length) return;
+              const mqtId = resolved.get(scorePathKey(s.mq, s.mqtPath));
+              if (mqtId && !seen.has(mqtId)) {
+                seen.add(mqtId);
+                out.push({ mqt_id: mqtId, score: s.score });
+              }
+            });
             return out;
           })(),
+          coverage: {
+            mqs: Array.from(new Set(r.coverage_mqs.map(resolveCoverageMqId).filter((id): id is string => !!id))),
+            mqts: Array.from(new Set(r.coverage_mqts.map(resolveCoverageMqtId).filter((id): id is string => !!id))),
+          },
           clinical_risk_flag: r.risk_flag,
           risk_flag_rule: r.risk_rule,
           sectionId,
@@ -865,27 +1150,45 @@ export default function CreateAssessmentPage() {
   };
 
   const downloadBulkTemplate = () => {
+    // Each MQ gets its own numbered block of columns (block 1, block 2, …) so
+    // one value lives in one cell. Add _mq3 / _mqt3 / … to score a scope
+    // against a third MQ, and so on.
+    const block = (prefix: string, n: number) =>
+      [`${prefix}_mq${n}`, `${prefix}_mqt${n}`, `${prefix}_submqt${n}`, `${prefix}_subsubmqt${n}`, `${prefix}_score${n}`];
     const header = [
       'stem', 'format', 'section', 'risk_flag', 'risk_rule',
-      'question_mq', 'question_mqt', 'question_score',
-      'option1', 'option1_mq', 'option1_mqt', 'option1_score',
-      'option2', 'option2_mq', 'option2_mqt', 'option2_score',
-      'option3', 'option3_mq', 'option3_mqt', 'option3_score',
-      'option4', 'option4_mq', 'option4_mqt', 'option4_score',
+      'coverage_mqs', 'coverage_mqts',
+      ...block('question', 1), ...block('question', 2),
+      'option1', ...block('option1', 1), ...block('option1', 2),
+      'option2', ...block('option2', 1), ...block('option2', 2),
+      'option3', ...block('option3', 1), ...block('option3', 2),
+      'option4', ...block('option4', 1), ...block('option4', 2),
     ];
+    // Scoring uses numbered MQ blocks: each block is one MQ and its trait path
+    // (MQ › MQT › sub-MQT › sub-sub-MQT), and the score lands on the DEEPEST
+    // level filled in — leave the deeper columns blank for a shallower trait.
+    // The sample row scores the question against two MQs (block 1 four levels
+    // deep, block 2 only to MQT); option1 also uses two MQs; options 2-4 each
+    // use a single MQ to the MQT level.
     const sample = [
-      ['How often do you feel overwhelmed by work?', 'LIKERT', 'Stress', 'false', '',
-        '', '', '',
-        'Never',      'Wellbeing', 'Stress Level', '0',
-        'Sometimes',  'Wellbeing', 'Stress Level', '1',
-        'Often',      'Wellbeing', 'Stress Level', '2',
-        'Always',     'Wellbeing', 'Stress Level', '3'],
-      ['I find it easy to focus for long periods.', 'LIKERT', 'Focus', 'false', '',
-        'Cognitive', '', '1',
-        'Strongly disagree', 'Cognitive', 'Attention', '0',
-        'Disagree',          'Cognitive', 'Attention', '1',
-        'Agree',             'Cognitive', 'Attention', '2',
-        'Strongly agree',    'Cognitive', 'Attention', '3'],
+      ["My exams are near but I haven't studied much. What would I most likely do?", 'MCQ', 'Coping', 'false', '',
+        'Coping Strategies', 'Coping Style',  // coverage tags
+        // question block 1 (to sub-sub-MQT) + block 2 (to MQT)
+        'Coping Strategies', 'Problem-focused Coping', 'Active problem-focused', 'Planning', '2',
+        'Cognitive Appraisal', 'Challenge', '', '', '1',
+        // option1: block 1 (to sub-sub-MQT) + block 2 (to sub-MQT)
+        'I would plan a schedule, talk to my teacher, and try my best to get good marks.',
+        'Coping Strategies', 'Problem-focused Coping', 'Active problem-focused', 'Instrumental support', '2',
+        'Coping Style', 'Adaptive', 'Engagement', '', '1',
+        // option2: single MQ, to MQT
+        'I would ask a friend or classmate to help me prepare.',
+        'Coping Strategies', 'Social Support', '', '', '1', '', '', '', '', '',
+        // option3: single MQ, to MQT
+        'I would avoid thinking about the exam altogether.',
+        'Coping Strategies', 'Avoidant Coping', '', '', '0', '', '', '', '', '',
+        // option4: single MQ, to MQT
+        'I would panic and assume I will fail.',
+        'Coping Style', 'Maladaptive', '', '', '0', '', '', '', '', ''],
     ];
     const csv = [header, ...sample]
       .map((row) => row.map((cell) => {
@@ -905,10 +1208,11 @@ export default function CreateAssessmentPage() {
   // ---- Question handlers ----
 
   const addQuestion = (sectionId?: string, sectionTitle?: string) => {
+    const id = crypto.randomUUID();
     setQuestions((prev) => [
       ...prev,
       {
-        id: crypto.randomUUID(),
+        id,
         stem: '',
         format: 'MCQ',
         media_url: '',
@@ -920,12 +1224,15 @@ export default function CreateAssessmentPage() {
           { text: '', scores: [] },
         ],
         question_scores: [],
+        coverage: { mqs: [], mqts: [] },
         clinical_risk_flag: false,
         risk_flag_rule: '',
         sectionId,
         sectionTitle,
       },
     ]);
+    // Open the freshly added question so it's ready to edit.
+    setExpandedQs((prev) => new Set(prev).add(id));
   };
 
   const addSection = () => {
@@ -953,15 +1260,34 @@ export default function CreateAssessmentPage() {
 
   // renderQuestionCard is reused by both the flat list and the per-section groups.
   const renderQuestionCard = (q: Question, idx: number) => {
+    const expanded = expandedQs.has(q.id);
     return (
-      <Card key={q.id}>
+      <Card key={q.id} id={`question-${q.id}`} className="scroll-mt-24">
         <CardContent className="p-5 space-y-4">
           <div className="flex items-start justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <GripVertical className="h-4 w-4 text-muted-foreground cursor-grab" />
-              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-primary text-xs font-semibold">{idx + 1}</span>
+            <div className="flex items-center gap-3 min-w-0 flex-1">
+              <button
+                type="button"
+                onClick={() => toggleQuestionExpand(q.id)}
+                className="text-muted-foreground hover:text-foreground shrink-0"
+                title={expanded ? 'Collapse question' : 'Expand question'}
+              >
+                <ChevronRight className={cn('h-4 w-4 transition-transform', expanded && 'rotate-90')} />
+              </button>
+              <GripVertical className="h-4 w-4 text-muted-foreground cursor-grab shrink-0" />
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary text-xs font-semibold">{idx + 1}</span>
+              {!expanded && (
+                <button
+                  type="button"
+                  onClick={() => toggleQuestionExpand(q.id)}
+                  className="truncate text-left text-sm text-muted-foreground hover:text-foreground"
+                  title="Expand question"
+                >
+                  {q.stem?.trim() || <span className="italic">Untitled question</span>}
+                </button>
+              )}
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 shrink-0">
               {useSections && sections.length > 0 && (
                 <select
                   value={q.sectionId || ''}
@@ -986,6 +1312,8 @@ export default function CreateAssessmentPage() {
             </div>
           </div>
 
+          {expanded && (
+          <>
           <textarea
             value={q.stem}
             onChange={(e) => updateQuestion(q.id, { stem: e.target.value })}
@@ -1075,6 +1403,89 @@ export default function CreateAssessmentPage() {
                   </button>
                 );
               })()}
+            </div>
+          )}
+
+          {(mqs.length > 0 || allMqts.length > 0) && (
+            <div className="rounded-md border border-border bg-muted/30 px-3 py-2 space-y-2">
+              <p className="text-[0.6875rem] font-medium text-muted-foreground">
+                Coverage &mdash; which MQs/MQTs this question measures. Used for filtering and reporting; not scored.
+              </p>
+              {mqs.length > 0 && (
+                <div className="space-y-1.5">
+                  {mqs.map((m) => {
+                    const mqOn = q.coverage.mqs.includes(m.id);
+                    const traits = mqtsByMq[m.id] || [];
+                    const collapsed = collapsedMqs.has(m.id);
+                    const selectedCount = traits.filter((t) => q.coverage.mqts.includes(t.mqt.id)).length;
+                    return (
+                      <div key={m.id} className="rounded-md border border-border bg-background/50 px-2 py-1.5">
+                        <div className="flex items-center gap-1.5">
+                          {/* Collapse toggle for the trait list */}
+                          {traits.length > 0 ? (
+                            <button
+                              type="button"
+                              onClick={() => toggleMqCollapse(m.id)}
+                              className="text-muted-foreground hover:text-foreground shrink-0"
+                              title={collapsed ? 'Expand traits' : 'Collapse traits'}
+                            >
+                              <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', !collapsed && 'rotate-90')} />
+                            </button>
+                          ) : (
+                            <span className="w-3.5 shrink-0" />
+                          )}
+                          {/* Measured Quality — the group header chip */}
+                          <button
+                            type="button"
+                            onClick={() => toggleCoverageMq(q.id, m.id)}
+                            className={cn(
+                              'inline-flex items-center gap-1 px-2 py-0.5 text-[0.6875rem] font-medium rounded-full border transition-colors',
+                              mqOn
+                                ? 'bg-primary text-primary-foreground border-primary'
+                                : 'bg-background text-foreground border-border hover:border-primary',
+                            )}
+                          >
+                            {mqOn && <Check className="h-3 w-3" />}
+                            {m.name}
+                          </button>
+                          {traits.length > 0 && (
+                            <span className="text-[0.625rem] text-muted-foreground/70">
+                              {selectedCount}/{traits.length} traits
+                            </span>
+                          )}
+                        </div>
+                        {/* Traits (MQTs / sub-MQTs) — outline-numbered, indented by depth */}
+                        {traits.length > 0 && !collapsed && (
+                          <div className="mt-1.5 flex flex-wrap gap-1 pl-5">
+                            {traits.map(({ mqt, path, label, number, depth }) => {
+                              const on = q.coverage.mqts.includes(mqt.id);
+                              return (
+                                <button
+                                  type="button"
+                                  key={mqt.id}
+                                  onClick={() => toggleCoverageMqt(q.id, mqt.id)}
+                                  title={path}
+                                  style={{ marginLeft: depth * 12 }}
+                                  className={cn(
+                                    'inline-flex items-center gap-1 px-2 py-0.5 text-[0.6875rem] rounded-full border transition-colors',
+                                    on
+                                      ? 'bg-primary/15 text-primary border-primary/40'
+                                      : 'bg-muted/40 text-muted-foreground border-transparent hover:border-primary/40',
+                                  )}
+                                >
+                                  {on && <Check className="h-2.5 w-2.5" />}
+                                  <span className="font-mono text-[0.625rem] opacity-70">{number}</span>
+                                  {label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
 
@@ -1187,6 +1598,8 @@ export default function CreateAssessmentPage() {
               </button>
             </div>
           )}
+          </>
+          )}
         </CardContent>
       </Card>
     );
@@ -1271,6 +1684,39 @@ export default function CreateAssessmentPage() {
     );
   };
 
+  // Coverage tags: which MQs/MQTs the question measures (independent of scoring).
+  const toggleCoverageMq = (qId: string, mqId: string) => {
+    setQuestions(
+      questions.map((q) => {
+        if (q.id !== qId) return q;
+        const has = q.coverage.mqs.includes(mqId);
+        return {
+          ...q,
+          coverage: {
+            ...q.coverage,
+            mqs: has ? q.coverage.mqs.filter((id) => id !== mqId) : [...q.coverage.mqs, mqId],
+          },
+        };
+      }),
+    );
+  };
+
+  const toggleCoverageMqt = (qId: string, mqtId: string) => {
+    setQuestions(
+      questions.map((q) => {
+        if (q.id !== qId) return q;
+        const has = q.coverage.mqts.includes(mqtId);
+        return {
+          ...q,
+          coverage: {
+            ...q.coverage,
+            mqts: has ? q.coverage.mqts.filter((id) => id !== mqtId) : [...q.coverage.mqts, mqtId],
+          },
+        };
+      }),
+    );
+  };
+
   const addOption = (qId: string) => {
     setQuestions(questions.map((q) => (q.id === qId ? { ...q, options: [...q.options, { text: '', scores: [] }] } : q)));
   };
@@ -1310,6 +1756,10 @@ export default function CreateAssessmentPage() {
       setError('Add at least one question');
       return;
     }
+    if (!instShortName.trim()) {
+      setError('Short name is required — set one in Step 1 before publishing');
+      return;
+    }
     const empty = questions.find((q) => !q.stem.trim() && q.media_type === 'none');
     if (empty) {
       setError('Every question needs either text or media');
@@ -1330,6 +1780,8 @@ export default function CreateAssessmentPage() {
         category: instCategory,
         description: instDescription,
         disclaimer: instDisclaimer,
+        instructions: instShowInstructions ? instInstructions : '',
+        showInstructions: instShowInstructions,
         duration: Number(instDuration) || 0,
         tier: instTier,
         languages: instLanguages,
@@ -1353,6 +1805,7 @@ export default function CreateAssessmentPage() {
               media_type: o.media_type,
             })),
           question_scores: q.question_scores.map((s) => ({ mqt_id: s.mqt_id, score: Number(s.score) || 0 })),
+          coverage: { mqs: [...q.coverage.mqs], mqts: [...q.coverage.mqts] },
           clinical_risk_flag: q.clinical_risk_flag,
           risk_flag_rule: q.risk_flag_rule,
           ...(useSections && q.sectionId ? { sectionId: q.sectionId, sectionTitle: q.sectionTitle || '' } : {}),
@@ -1362,9 +1815,10 @@ export default function CreateAssessmentPage() {
       });
 
       // Also register the instrument in the /instruments catalog so it shows
-      // up in the Questionnaire Library. Failure here is non-fatal (the
-      // published questionnaire write above already succeeded), but we surface
-      // a warning so the user knows to retry if the library is missing it.
+      // up in the Questionnaire Library, then bulk-insert the questions into
+      // the items table so they're queryable per-row (not only as JSON inside
+      // published_questionnaires). Both failures are non-fatal — the published
+      // questionnaire write above already succeeded — but we surface warnings.
       let catalogWarning = '';
       try {
         const scoring_config = {
@@ -1375,6 +1829,9 @@ export default function CreateAssessmentPage() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            // Passing the same id every republish makes the backend upsert
+            // instead of inserting a new instrument row each time.
+            id: qid,
             name: instName,
             short_name: instShortName,
             vertical: instVertical,
@@ -1392,6 +1849,44 @@ export default function CreateAssessmentPage() {
         if (!res.ok && res.status !== 204) {
           const text = await res.text().catch(() => res.statusText);
           catalogWarning = `but catalog registration failed (${res.status}: ${text}). It may not show in the Questionnaire Library — try republishing.`;
+        } else {
+          const catalogBody = await res.json().catch(() => null as any);
+          const instrumentDbId: string | undefined = catalogBody?.id;
+          if (instrumentDbId) {
+            const itemsPayload = {
+              items: questions.map((q, idx) => ({
+                stem: q.stem,
+                format: q.format,
+                media_url: q.media_type === 'none' ? '' : q.media_url,
+                media_type: q.media_type === 'none' ? 'none' : q.media_type,
+                options: q.options
+                  .filter((o) => o.text.trim() || o.media_url || o.scores.length > 0)
+                  .map((o) => ({
+                    text: o.text,
+                    scores: o.scores.map((s) => ({ mqt_id: s.mqt_id, score: Number(s.score) || 0 })),
+                    media_url: o.media_url,
+                    media_type: o.media_type,
+                  })),
+                sub_domains: q.question_scores.map((s) => ({ domain: s.mqt_id, weight: Number(s.score) || 0 })),
+                clinical_risk_flag: q.clinical_risk_flag,
+                risk_flag_rule: q.risk_flag_rule,
+                sequence_order: idx + 1,
+                languages: instLanguages,
+              })),
+            };
+            const itemsRes = await fetch(
+              `${API_BASE}/questionnaires-catalog/${encodeURIComponent(instrumentDbId)}/items/bulk`,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(itemsPayload),
+              },
+            );
+            if (!itemsRes.ok) {
+              const text = await itemsRes.text().catch(() => itemsRes.statusText);
+              catalogWarning = `but items table population failed (${itemsRes.status}: ${text}). The questionnaire is published, but per-row item queries will be empty for this instrument.`;
+            }
+          }
         }
       } catch (e: any) {
         catalogWarning = `but catalog registration failed (${e?.message || 'network error'}). It may not show in the Questionnaire Library — try republishing.`;
@@ -1443,6 +1938,8 @@ export default function CreateAssessmentPage() {
             : 'Define your instrument with Measured Qualities (MQ) and their MQTs, then score each option against one or more MQTs.'}
         </p>
       </div>
+
+      <DraftBanner />
 
       {/* Step indicator */}
       <div className="flex items-center gap-3">
@@ -1599,6 +2096,35 @@ export default function CreateAssessmentPage() {
 
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between gap-3">
+                  <label className="flex items-center gap-2 text-sm font-medium">
+                    <input
+                      type="checkbox"
+                      checked={instShowInstructions}
+                      onChange={(e) => setInstShowInstructions(e.target.checked)}
+                      className="rounded"
+                    />
+                    Show Instructions to respondents
+                  </label>
+                  <span className="text-[0.6875rem] text-muted-foreground">Optional — guide respondents on how to take the assessment</span>
+                </div>
+                {instShowInstructions && (
+                  <>
+                    <textarea
+                      value={instInstructions}
+                      onChange={(e) => setInstInstructions(e.target.value)}
+                      rows={6}
+                      placeholder="e.g. Read each question carefully. Answer honestly — there are no right or wrong answers. Allow about 15 minutes to complete."
+                      className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                    />
+                    <p className="text-[0.6875rem] text-muted-foreground">
+                      Shown on the portal between the disclaimer (if any) and the first question.
+                    </p>
+                  </>
+                )}
+              </div>
+
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between gap-3">
                   <label className="text-sm font-medium">Pre-Assessment Demographic Fields</label>
                   <div className="flex items-center gap-2">
                     <span className="text-[0.6875rem] text-muted-foreground">
@@ -1713,7 +2239,30 @@ export default function CreateAssessmentPage() {
 
       {/* ===== STEP 2 ===== */}
       {step === 2 && (
-        <>
+        <div className="flex gap-6 items-start">
+          {/* Question navigator — click a question to jump to its card */}
+          {questions.length > 0 && (
+            <aside className="hidden lg:block w-56 shrink-0 sticky top-6 self-start max-h-[calc(100vh-3rem)] overflow-auto rounded-xl border border-border bg-card">
+              <div className="px-3 py-2.5 border-b border-border">
+                <p className="text-xs font-semibold">Questions</p>
+                <p className="text-[0.625rem] text-muted-foreground">{questions.length} total · click to jump</p>
+              </div>
+              <nav className="p-1.5 space-y-0.5">
+                {questions.map((q, idx) => (
+                  <button
+                    key={q.id}
+                    type="button"
+                    onClick={() => goToQuestion(q.id)}
+                    className="w-full flex items-start gap-2 rounded-md px-2 py-1.5 text-left hover:bg-muted transition-colors"
+                  >
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary text-[0.625rem] font-semibold">{idx + 1}</span>
+                    <span className="text-xs text-muted-foreground break-words whitespace-normal">{q.stem?.trim() || 'Untitled question'}</span>
+                  </button>
+                ))}
+              </nav>
+            </aside>
+          )}
+          <div className="min-w-0 flex-1 space-y-7">
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-lg font-semibold">{instName}</h2>
@@ -1730,6 +2279,78 @@ export default function CreateAssessmentPage() {
               </Button>
             </div>
           </div>
+
+          {/* Coverage map — which MQs/MQTs the questions measure */}
+          {questions.length > 0 && (mqs.length > 0 || allMqts.length > 0) && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <Layers className="h-4 w-4 text-primary" /> Coverage Map
+                </CardTitle>
+                <p className="text-xs text-muted-foreground">
+                  {coverageSummary.taggedCount} of {questions.length} question{questions.length !== 1 ? 's' : ''} tagged with coverage.
+                </p>
+              </CardHeader>
+              <CardContent className="pt-0 space-y-1.5">
+                {mqs.map((m) => {
+                  const mqN = coverageSummary.mqCounts[m.id] || 0;
+                  const traits = mqtsByMq[m.id] || [];
+                  const collapsed = collapsedMqs.has(m.id);
+                  return (
+                    <div key={m.id} className="rounded-md border border-border px-2 py-1.5">
+                      <div className="flex items-center gap-2">
+                        {/* Collapse toggle for the trait list */}
+                        {traits.length > 0 ? (
+                          <button
+                            type="button"
+                            onClick={() => toggleMqCollapse(m.id)}
+                            className="text-muted-foreground hover:text-foreground shrink-0"
+                            title={collapsed ? 'Expand traits' : 'Collapse traits'}
+                          >
+                            <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', !collapsed && 'rotate-90')} />
+                          </button>
+                        ) : (
+                          <span className="w-3.5 shrink-0" />
+                        )}
+                        <span
+                          className={cn(
+                            'inline-flex items-center px-2 py-0.5 text-[0.6875rem] font-medium rounded-full border',
+                            mqN > 0 ? 'bg-primary/10 text-primary border-primary/30' : 'bg-muted text-muted-foreground border-border',
+                          )}
+                        >
+                          {m.name}
+                        </span>
+                        <span className="text-[0.625rem] text-muted-foreground">
+                          {mqN} question{mqN !== 1 ? 's' : ''}
+                        </span>
+                      </div>
+                      {traits.length > 0 && !collapsed && (
+                        <div className="mt-1.5 flex flex-wrap gap-1 pl-5">
+                          {traits.map(({ mqt, path, label, number, depth }) => {
+                            const n = coverageSummary.mqtCounts[mqt.id] || 0;
+                            return (
+                              <span
+                                key={mqt.id}
+                                title={path}
+                                style={{ marginLeft: depth * 12 }}
+                                className={cn(
+                                  'inline-flex items-center gap-1 px-2 py-0.5 text-[0.6875rem] rounded-full border',
+                                  n > 0 ? 'bg-primary/10 text-primary border-primary/30' : 'bg-muted/60 text-muted-foreground border-border',
+                                )}
+                              >
+                                <span className="font-mono text-[0.625rem] opacity-70">{number}</span>
+                                {label} · {n}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </CardContent>
+            </Card>
+          )}
 
           {/* Empty state — varies based on sections mode */}
           {!useSections && questions.length === 0 && (
@@ -1847,7 +2468,8 @@ export default function CreateAssessmentPage() {
               <Save className="h-4 w-4" /> {saving ? (editMode ? 'Saving...' : 'Publishing...') : editMode ? `Save ${questions.length} Questions` : `Publish ${questions.length} Questions`}
             </Button>
           </div>
-        </>
+          </div>
+        </div>
       )}
 
       {/* ===== Create new vertical modal ===== */}
@@ -1941,6 +2563,13 @@ export default function CreateAssessmentPage() {
                   <p className="text-sm text-muted-foreground leading-relaxed border-l-2 border-primary/40 pl-3">
                     {instDescription}
                   </p>
+                )}
+
+                {instShowInstructions && instInstructions.trim() && (
+                  <div className="rounded-lg border border-border bg-muted/30 p-4">
+                    <p className="text-[0.6875rem] font-medium uppercase tracking-wider text-primary mb-2">Instructions</p>
+                    <p className="text-sm whitespace-pre-wrap leading-relaxed">{instInstructions}</p>
+                  </div>
                 )}
 
                 {questions.map((q, idx) => (
@@ -2213,6 +2842,9 @@ export default function CreateAssessmentPage() {
             </p>
             <div className="flex justify-center gap-3 pt-4">
               <Button variant="outline" onClick={() => window.location.href = '/questionnaires'}>View in Library</Button>
+              <Button variant="outline" onClick={openPreview} disabled={questions.length === 0}>
+                <Eye className="h-4 w-4" /> Preview
+              </Button>
               <Button variant="primary" onClick={() => window.location.href = '/assessments/create'}>Create Assessment</Button>
             </div>
           </CardContent>
@@ -2239,15 +2871,20 @@ export default function CreateAssessmentPage() {
                   <code className="font-mono">risk_flag</code>,{' '}
                   <code className="font-mono">risk_rule</code>,{' '}
                   <code className="font-mono">option1</code>…<code className="font-mono">option8</code>,{' '}
-                  <code className="font-mono">option1_mq</code>,{' '}
-                  <code className="font-mono">option1_mqt</code>,{' '}
-                  <code className="font-mono">option1_score</code> (repeat per option)
+                  <code className="font-mono">option1_mq1</code>,{' '}
+                  <code className="font-mono">option1_mqt1</code>,{' '}
+                  <code className="font-mono">option1_submqt1</code>,{' '}
+                  <code className="font-mono">option1_subsubmqt1</code>,{' '}
+                  <code className="font-mono">option1_score1</code> (repeat per option; add{' '}
+                  <code className="font-mono">_mq2</code>… to score against more than one MQ)
                 </p>
                 <p className="mt-2">
                   Format defaults to <strong>MCQ</strong>. Sections mode must be on for the{' '}
-                  <code className="font-mono">section</code> column to take effect. Each option can map to an MQ / MQT —
-                  missing ones are created in the database on import. If no MQ/MQT is given but a score is, the score is
-                  applied to the first MQT in the catalog (backward-compatible).
+                  <code className="font-mono">section</code> column to take effect. Each numbered MQ block
+                  (<code className="font-mono">_mq1</code>, <code className="font-mono">_mq2</code>, …) maps one MQ ›
+                  MQT › sub-MQT › sub-sub-MQT path; the score lands on the deepest level filled in. Missing MQs/MQTs are
+                  created in the database on import. If no MQ/MQT is given but a score is, it applies to the first MQT in
+                  the catalog (backward-compatible).
                 </p>
                 <div className="mt-2">
                   <button onClick={downloadBulkTemplate} className="text-primary hover:underline text-xs inline-flex items-center gap-1">
@@ -2380,6 +3017,44 @@ export default function CreateAssessmentPage() {
           </Card>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Inline banner that surfaces the Git-style versioning model whenever
+ * the editor was opened from the new Versions page. Reads
+ *   ?draftMode=1&parentId=<pid>
+ * (set by the Edit button on /questionnaires/:id/versions) and tells
+ * the admin that saves go to a draft and a commit is required before
+ * the change is available to assessments.
+ *
+ * Renders nothing when those params are absent, so the legacy edit
+ * flow is unchanged.
+ */
+function DraftBanner() {
+  if (typeof window === 'undefined') return null;
+  const params = new URLSearchParams(window.location.search);
+  const draftMode = params.get('draftMode') === '1';
+  const parentId = params.get('parentId') || '';
+  if (!draftMode || !parentId) return null;
+  return (
+    <div className="rounded-lg border border-amber-300 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30 px-4 py-3 text-sm flex items-start gap-3 flex-wrap">
+      <div className="flex-1 min-w-0">
+        <p className="font-medium text-amber-900 dark:text-amber-300">You're editing a draft.</p>
+        <p className="text-xs text-amber-800/80 dark:text-amber-400/80 mt-0.5">
+          Saves stay on this draft. When you're done, head back to the version history
+          and use <strong>Commit</strong> to materialize a new committed version.
+          Committed versions are locked — admins can't edit them, only branch new
+          drafts from them.
+        </p>
+      </div>
+      <a
+        href={`/questionnaires/${encodeURIComponent(parentId)}/versions`}
+        className="inline-flex items-center gap-1 rounded-md border border-amber-400 px-3 py-1.5 text-xs font-medium text-amber-900 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors"
+      >
+        Back to Versions →
+      </a>
     </div>
   );
 }

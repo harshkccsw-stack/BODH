@@ -5,8 +5,24 @@ bodhassess-app/.env
 bodhassess-app/.env.local
 bodhassess-app/.env.development.local
 bodhassess-app/.env.test.local
-bodhassess-app/.env.production.local
+bodhassess-app/.env.production
+
+
+bodhassess-portal/.env
+bodhassess-portal/.env.local
+bodhassess-portal/.env.development.local
+bodhassess-portal/.env.test.local
+bodhassess-portal/.env.production
+
+
 
 target/
 
 bodhassess-api-spring/target
+.envss
+.env.production
+.env.development
+docker-compose.yml
+docker-compose.prod.yml
+docker-compose.dev.yml
+docker-compose.override.yml

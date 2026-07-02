@@ -45,7 +45,7 @@ public class DemographicFieldsService {
         f.setType(type);
         f.setRequired(dto.isRequired());
         f.setPlaceholder(dto.getPlaceholder());
-        f.setOptions(dto.getOptions() == null ? new ArrayList<>() : new ArrayList<>(dto.getOptions()));
+        f.setOptions(dto.getOptions() == null ? new java.util.HashSet<>() : new java.util.HashSet<>(dto.getOptions()));
         f.setSortOrder(dto.getSortOrder());
         f.setActive(dto.isActive());
         return toDto(repo.save(f));

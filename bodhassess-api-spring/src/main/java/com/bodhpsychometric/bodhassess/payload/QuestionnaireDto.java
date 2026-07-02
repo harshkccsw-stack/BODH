@@ -19,6 +19,8 @@ public class QuestionnaireDto {
     private JsonNode questions;
     private boolean isDemo;
     private String disclaimer;
+    private String instructions;
+    private boolean showInstructions;
     private List<String> demographicFieldKeys = new ArrayList<>();
     private String createdAt;
 
@@ -48,6 +50,10 @@ public class QuestionnaireDto {
     public void setDemo(boolean demo) { isDemo = demo; }
     public String getDisclaimer() { return disclaimer; }
     public void setDisclaimer(String disclaimer) { this.disclaimer = disclaimer; }
+    public String getInstructions() { return instructions; }
+    public void setInstructions(String instructions) { this.instructions = instructions; }
+    public boolean isShowInstructions() { return showInstructions; }
+    public void setShowInstructions(boolean showInstructions) { this.showInstructions = showInstructions; }
     public List<String> getDemographicFieldKeys() { return demographicFieldKeys; }
     public void setDemographicFieldKeys(List<String> demographicFieldKeys) { this.demographicFieldKeys = demographicFieldKeys; }
     public String getCreatedAt() { return createdAt; }

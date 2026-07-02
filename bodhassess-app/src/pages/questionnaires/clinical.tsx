@@ -15,6 +15,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Loading } from '@/components/loading';
 import { cn } from '@/lib/utils';
 import { loadOverrides, saveOverride, applyOverride, type QuestionnaireOverride } from '@/lib/instrument-overrides';
 
@@ -76,6 +77,7 @@ export default function ClinicalQuestionnairesPage() {
   const [search, setSearch] = useState('');
   const [overrides, setOverrides] = useState<Record<string, QuestionnaireOverride>>({});
   const [userQuestionnaires, setUserQuestionnaires] = useState<ClinicalQuestionnaire[]>([]);
+  const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<ClinicalQuestionnaire | null>(null);
   const [editForm, setEditForm] = useState({
     name: '', category: '', items: 0, duration: '',
@@ -84,7 +86,11 @@ export default function ClinicalQuestionnairesPage() {
 
   useEffect(() => {
     setOverrides(loadOverrides());
-    loadUserQuestionnairesForVertical('CLINICAL').then(setUserQuestionnaires).catch(() => setUserQuestionnaires([]));
+    setLoading(true);
+    loadUserQuestionnairesForVertical('CLINICAL')
+      .then(setUserQuestionnaires)
+      .catch(() => setUserQuestionnaires([]))
+      .finally(() => setLoading(false));
   }, []);
 
   const mergedQuestionnaires = useMemo(() => {
@@ -213,7 +219,9 @@ export default function ClinicalQuestionnairesPage() {
       </p>
 
       {/* Questionnaire Grid */}
-      {filtered.length === 0 ? (
+      {loading ? (
+        <Loading label="Loading clinical questionnaires…" />
+      ) : filtered.length === 0 ? (
         <Card>
           <CardContent className="p-10 text-center">
             <Stethoscope className="h-10 w-10 text-muted-foreground/40 mx-auto mb-3" />

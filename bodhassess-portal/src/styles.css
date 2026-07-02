@@ -1,0 +1,115 @@
+/* Tailwind v4 core */
+@import 'tailwindcss';
+
+/* Dark-mode variant kept defined (tokens reference it) even though the
+   portal ships light-only — no theme toggle, so `.dark` is never applied. */
+@custom-variant dark (&:is(.dark *));
+
+/* Design tokens — trimmed from the admin app's globals.css to only what the
+   respondent pages use. Colour names map to Tailwind v4's built-in palette. */
+:root {
+  --background: var(--color-white);
+  --foreground: var(--color-zinc-950);
+  --card: var(--color-white);
+  --card-foreground: var(--color-zinc-950);
+  --popover: var(--color-white);
+  --popover-foreground: var(--color-zinc-950);
+  --primary: var(--color-indigo-500);
+  --primary-foreground: var(--color-white);
+  --secondary: var(--color-zinc-100);
+  --secondary-foreground: var(--color-zinc-900);
+  --muted: var(--color-zinc-100);
+  --muted-foreground: var(--color-zinc-500);
+  --accent: var(--color-indigo-50);
+  --accent-foreground: var(--color-indigo-600);
+  --destructive: var(--color-red-600);
+  --destructive-foreground: var(--color-white);
+  --border: oklch(94% 0.004 286.32);
+  --input: var(--color-zinc-200);
+  --ring: var(--color-zinc-400);
+  --radius: 0.5rem;
+}
+
+.dark {
+  --background: var(--color-zinc-950);
+  --foreground: var(--color-zinc-50);
+  --card: var(--color-zinc-950);
+  --card-foreground: var(--color-zinc-50);
+  --popover: var(--color-zinc-950);
+  --popover-foreground: var(--color-zinc-50);
+  --primary: var(--color-indigo-400);
+  --primary-foreground: var(--color-zinc-950);
+  --secondary: var(--color-zinc-800);
+  --secondary-foreground: var(--color-zinc-50);
+  --muted: var(--color-zinc-900);
+  --muted-foreground: var(--color-zinc-500);
+  --accent: var(--color-zinc-900);
+  --accent-foreground: var(--color-indigo-400);
+  --destructive: var(--color-red-600);
+  --destructive-foreground: var(--color-white);
+  --border: var(--color-zinc-800);
+  --input: var(--color-zinc-800);
+  --ring: var(--color-zinc-600);
+}
+
+/* Expose tokens to Tailwind utilities (bg-primary, text-muted-foreground, …) */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  *:focus-visible {
+    @apply outline-ring rounded-xs shadow-none outline-2 outline-offset-3 transition-none!;
+  }
+  body {
+    font-family: var(--font-sans);
+  }
+}
+
+/* Thin custom scrollbar */
+@layer base {
+  ::-webkit-scrollbar {
+    width: 5px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--input);
+    border-radius: 5px;
+  }
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--input) transparent;
+  }
+}
+
+html {
+  scroll-behavior: smooth;
+}

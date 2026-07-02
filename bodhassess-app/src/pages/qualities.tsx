@@ -4,6 +4,7 @@ import {
   ChevronDown,
   ChevronRight,
   Layers,
+  Loader2,
   Pencil,
   Plus,
   Search,
@@ -52,10 +53,15 @@ function subtreeMatches(nodes: MQT[] = [], q: string): boolean {
 
 export default function QualitiesPage() {
   const [mqs, setMqs] = useState<MQ[]>([]);
+  const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [search, setSearch] = useState('');
 
+  // "Add MQ" creation modal (name + description only).
   const [mqModalOpen, setMqModalOpen] = useState(false);
+  // Combined edit popup for an existing MQ — edits its name/description AND
+  // manages (add/rename/delete) its MQTs. Holds the id of the MQ being edited.
+  const [editMqId, setEditMqId] = useState<string | null>(null);
   const [mqForm, setMqForm] = useState<{ id: string | null; name: string; description: string }>({
     id: null, name: '', description: '',
   });
@@ -74,8 +80,9 @@ export default function QualitiesPage() {
   const [confirmDeleteMq, setConfirmDeleteMq] = useState<MQ | null>(null);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
-  const refresh = async () => {
+  const refresh = async (showLoading = false) => {
     setLoadError('');
+    if (showLoading) setLoading(true);
     try {
       const list = await qualitiesApi.list();
       setMqs(list.map((m) => ({
@@ -86,9 +93,15 @@ export default function QualitiesPage() {
       })));
     } catch (e: any) {
       setLoadError(e?.message || 'Failed to load qualities');
+    } finally {
+      if (showLoading) setLoading(false);
     }
   };
-  useEffect(() => { refresh(); }, []);
+  useEffect(() => { refresh(true); }, []);
+
+  // The MQ currently open in the combined edit popup, derived live from `mqs`
+  // so its MQT tree stays in sync after each save/refresh.
+  const editingMq = editMqId ? mqs.find((m) => m.id === editMqId) ?? null : null;
 
   const filteredMqs = useMemo(() => {
     if (!search) return mqs;
@@ -112,7 +125,7 @@ export default function QualitiesPage() {
   const openEditMq = (mq: MQ) => {
     setMqForm({ id: mq.id, name: mq.name, description: mq.description || '' });
     setMqError('');
-    setMqModalOpen(true);
+    setEditMqId(mq.id);
   };
   const submitMq = async () => {
     const name = mqForm.name.trim();
@@ -123,11 +136,13 @@ export default function QualitiesPage() {
       if (mqForm.id) {
         const existing = mqs.find((m) => m.id === mqForm.id)!;
         await qualitiesApi.update(mqForm.id, { ...existing, name, description: mqForm.description.trim() });
+        await refresh();
+        setEditMqId(null);
       } else {
         await qualitiesApi.create({ id: newId('mq'), name, description: mqForm.description.trim(), mqts: [] });
+        await refresh();
+        setMqModalOpen(false);
       }
-      await refresh();
-      setMqModalOpen(false);
     } catch (e: any) {
       setMqError(e?.message || 'Failed to save');
     }
@@ -276,7 +291,14 @@ export default function QualitiesPage() {
         />
       </div>
 
-      {filteredMqs.length === 0 ? (
+      {loading ? (
+        <Card>
+          <CardContent className="p-14 flex flex-col items-center justify-center text-center">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <p className="text-sm text-muted-foreground mt-3">Loading Measured Qualities…</p>
+          </CardContent>
+        </Card>
+      ) : filteredMqs.length === 0 ? (
         <Card className="border-dashed">
           <CardContent className="p-14 text-center">
             <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-muted">
@@ -298,73 +320,58 @@ export default function QualitiesPage() {
           </CardContent>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-          {filteredMqs.map((mq) => {
-            const total = flattenMqts(mq.mqts).length;
-            return (
-              <Card key={mq.id} className="flex flex-col">
-                <CardHeader className="pb-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <CardTitle className="text-base">{mq.name}</CardTitle>
-                      {mq.description && (
-                        <p className="text-xs text-muted-foreground mt-1">{mq.description}</p>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-1 shrink-0">
-                      <Button variant="ghost" size="sm" mode="icon" onClick={() => openEditMq(mq)} title="Rename MQ">
-                        <Pencil className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button variant="ghost" size="sm" mode="icon" onClick={() => setConfirmDeleteMq(mq)} title="Delete MQ">
-                        <Trash2 className="h-3.5 w-3.5 text-red-600" />
-                      </Button>
-                    </div>
+        <Card className="overflow-hidden">
+          <ul className="divide-y divide-border">
+            {filteredMqs.map((mq) => {
+              const total = flattenMqts(mq.mqts).length;
+              return (
+                <li
+                  key={mq.id}
+                  className="flex items-center justify-between gap-4 px-4 py-3 hover:bg-muted/40 transition-colors cursor-pointer"
+                  onClick={() => openEditMq(mq)}
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium truncate">{mq.name}</p>
+                    {mq.description && (
+                      <p className="text-xs text-muted-foreground truncate mt-0.5">{mq.description}</p>
+                    )}
                   </div>
-                </CardHeader>
-                <CardContent className="flex-1 flex flex-col gap-3">
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="inline-flex items-center rounded-full border border-border bg-muted/40 px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
                       {total} MQT{total !== 1 ? 's' : ''}
-                    </p>
-                    <Button variant="outline" size="sm" onClick={() => openAddMqtAtRoot(mq.id)}>
-                      <Plus className="h-3 w-3" />
-                      Add MQT
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      mode="icon"
+                      onClick={(e) => { e.stopPropagation(); openEditMq(mq); }}
+                      title="Edit MQ & its MQTs"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      mode="icon"
+                      onClick={(e) => { e.stopPropagation(); setConfirmDeleteMq(mq); }}
+                      title="Delete MQ"
+                    >
+                      <Trash2 className="h-3.5 w-3.5 text-red-600" />
                     </Button>
                   </div>
-
-                  {mq.mqts.length === 0 ? (
-                    <p className="text-xs text-muted-foreground italic">
-                      No MQTs defined. Add at least one so this MQ is usable in assessments.
-                    </p>
-                  ) : (
-                    <div className="space-y-1">
-                      {mq.mqts.map((node) => (
-                        <MqtNode
-                          key={node.id}
-                          node={node}
-                          depth={0}
-                          collapsed={collapsed}
-                          onToggleCollapse={(id) => setCollapsed((c) => ({ ...c, [id]: !c[id] }))}
-                          onAddChild={(pid) => openAddMqtChild(mq.id, pid)}
-                          onRename={(n) => openRenameMqt(mq.id, n)}
-                          onRemove={(id) => removeMqt(mq.id, id)}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
+                </li>
+              );
+            })}
+          </ul>
+        </Card>
       )}
 
-      {/* MQ modal */}
+      {/* Add MQ modal */}
       {mqModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={() => setMqModalOpen(false)}>
           <Card className="w-full max-w-md" onClick={(e) => e.stopPropagation()}>
             <CardHeader className="flex flex-row items-center justify-between pb-3">
-              <CardTitle className="text-base">{mqForm.id ? 'Rename MQ' : 'Add Measured Quality'}</CardTitle>
+              <CardTitle className="text-base">Add Measured Quality</CardTitle>
               <button onClick={() => setMqModalOpen(false)} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -395,9 +402,84 @@ export default function QualitiesPage() {
               </div>
               <div className="flex justify-end gap-2 pt-1">
                 <Button variant="outline" onClick={() => setMqModalOpen(false)}>Cancel</Button>
-                <Button variant="primary" onClick={submitMq}>{mqForm.id ? 'Save' : 'Add MQ'}</Button>
+                <Button variant="primary" onClick={submitMq}>Add MQ</Button>
               </div>
             </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Edit MQ popup — edit name/description AND manage its MQTs */}
+      {editingMq && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={() => setEditMqId(null)}>
+          <Card className="w-full max-w-lg max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <CardHeader className="flex flex-row items-center justify-between pb-3 shrink-0">
+              <CardTitle className="text-base">Edit Measured Quality</CardTitle>
+              <button onClick={() => setEditMqId(null)} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+            </CardHeader>
+            <CardContent className="space-y-4 overflow-y-auto">
+              {mqError && (
+                <div className="rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-3 py-2 text-xs text-red-700 dark:text-red-400 flex items-start gap-2">
+                  <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  <span>{mqError}</span>
+                </div>
+              )}
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Name *</label>
+                <input
+                  value={mqForm.name}
+                  onChange={(e) => setMqForm({ ...mqForm, name: e.target.value })}
+                  placeholder="e.g., Personality"
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Description</label>
+                <textarea
+                  rows={2}
+                  value={mqForm.description}
+                  onChange={(e) => setMqForm({ ...mqForm, description: e.target.value })}
+                  placeholder="Optional — what does this MQ capture?"
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                />
+              </div>
+
+              <div className="border-t border-border pt-4">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                    {flattenMqts(editingMq.mqts).length} MQT{flattenMqts(editingMq.mqts).length !== 1 ? 's' : ''}
+                  </p>
+                  <Button variant="outline" size="sm" onClick={() => openAddMqtAtRoot(editingMq.id)}>
+                    <Plus className="h-3 w-3" />
+                    Add MQT
+                  </Button>
+                </div>
+                {editingMq.mqts.length === 0 ? (
+                  <p className="text-xs text-muted-foreground italic">
+                    No MQTs defined. Add at least one so this MQ is usable in assessments.
+                  </p>
+                ) : (
+                  <div className="space-y-1">
+                    {editingMq.mqts.map((node) => (
+                      <MqtNode
+                        key={node.id}
+                        node={node}
+                        depth={0}
+                        collapsed={collapsed}
+                        onToggleCollapse={(id) => setCollapsed((c) => ({ ...c, [id]: !c[id] }))}
+                        onAddChild={(pid) => openAddMqtChild(editingMq.id, pid)}
+                        onRename={(n) => openRenameMqt(editingMq.id, n)}
+                        onRemove={(id) => removeMqt(editingMq.id, id)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            </CardContent>
+            <div className="flex justify-end gap-2 p-4 border-t border-border shrink-0">
+              <Button variant="outline" onClick={() => setEditMqId(null)}>Cancel</Button>
+              <Button variant="primary" onClick={submitMq}>Save</Button>
+            </div>
           </Card>
         </div>
       )}

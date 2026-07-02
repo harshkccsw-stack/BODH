@@ -25,7 +25,7 @@ public class Respondent {
     private String consent;
 
     @Column(name = "sessions_count")
-    private Integer sessionsCount;
+    private Integer sessionsCount = 0;
 
     @Column(name = "last_assessment")
     private String lastAssessment;
@@ -38,6 +38,11 @@ public class Respondent {
 
     @Column(name = "org_website")
     private String orgWebsite;
+
+    // Company identification number captured at registration. Optional;
+    // participates (with email/phone + dob) in returning-registrant dedup.
+    @Column(name = "company_id")
+    private String companyId;
 
     @Column(name = "created_at", insertable = false, updatable = false)
     private OffsetDateTime createdAt;
@@ -67,6 +72,8 @@ public class Respondent {
     public void setOrgName(String orgName) { this.orgName = orgName; }
     public String getOrgWebsite() { return orgWebsite; }
     public void setOrgWebsite(String orgWebsite) { this.orgWebsite = orgWebsite; }
+    public String getCompanyId() { return companyId; }
+    public void setCompanyId(String companyId) { this.companyId = companyId; }
     public OffsetDateTime getCreatedAt() { return createdAt; }
     public OffsetDateTime getUpdatedAt() { return updatedAt; }
 }

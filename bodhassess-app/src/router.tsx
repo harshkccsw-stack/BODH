@@ -36,31 +36,47 @@ function lazyPage(loader: () => Promise<{ default: ComponentType }>) {
 // ── Public pages (no auth) ─────────────────────────────────────────────────
 const HomePage           = () => lazyPage(() => import('@/src/pages/home'));
 const LoginPage          = () => lazyPage(() => import('@/src/pages/login'));
-const RegisterPage       = () => lazyPage(() => import('@/src/pages/register'));
 const SelectVerticalPage = () => lazyPage(() => import('@/src/pages/select-vertical'));
+const EntityRegistrationPage = () => lazyPage(() => import('@/src/pages/entity-registration'));
+const EntityMemberRegister   = () => lazyPage(() => import('@/src/pages/entity-member-register'));
+const RegisterWithToken      = () => lazyPage(() => import('@/src/pages/register-with-token'));
 
 // ── Respondent portal (own auth, lives outside dashboard chrome) ──────────
-const PortalLogin       = () => lazyPage(() => import('@/src/pages/portal/login'));
-const PortalAssessments = () => lazyPage(() => import('@/src/pages/portal/assessments'));
-const PortalTake        = () => lazyPage(() => import('@/src/pages/portal/take'));
-const PortalComplete    = () => lazyPage(() => import('@/src/pages/portal/complete'));
+// MOVED to the standalone bodhassess-portal app (served at portal.bodh.biz).
+// Commented out (not deleted) so the cutover stays reversible. The take flow's
+// gates now live inside that app's /portal/assessment/:sessionId route.
+// const PortalLogin       = () => lazyPage(() => import('@/src/pages/portal/login'));
+// const PortalAssessments = () => lazyPage(() => import('@/src/pages/portal/assessments'));
+// const PortalTake        = () => lazyPage(() => import('@/src/pages/portal/take'));
+// const PortalComplete    = () => lazyPage(() => import('@/src/pages/portal/complete'));
+// /preview is the public questionnaire test-link (authoring tool) — kept here.
+const PreviewQuestionnaire = () => lazyPage(() => import('@/src/pages/portal/preview'));
 
 // ── Private pages (practitioner dashboard) ────────────────────────────────
 const Dashboard          = () => lazyPage(() => import('@/src/pages/dashboard'));
 const Analytics          = () => lazyPage(() => import('@/src/pages/analytics'));
+const DataStudioHome     = () => lazyPage(() => import('@/src/pages/data-studio/index'));
+const DataStudioWorkbook = () => lazyPage(() => import('@/src/pages/data-studio/workbook'));
 const Survey             = () => lazyPage(() => import('@/src/pages/survey'));
 const Qualities          = () => lazyPage(() => import('@/src/pages/qualities'));
 
 const AdminGroups        = () => lazyPage(() => import('@/src/pages/admin/groups'));
 const AdminPermissions   = () => lazyPage(() => import('@/src/pages/admin/permissions'));
 const AdminPractitioners = () => lazyPage(() => import('@/src/pages/admin/practitioners'));
-const AdminRespondents   = () => lazyPage(() => import('@/src/pages/admin/respondents'));
+const AdminRespondents          = () => lazyPage(() => import('@/src/pages/admin/respondents'));
+const AdminEntityRegistrations  = () => lazyPage(() => import('@/src/pages/admin/entity-registrations'));
+const AdminEntityDrillIn        = () => lazyPage(() => import('@/src/pages/admin/entity-drill-in'));
 const AdminRoles         = () => lazyPage(() => import('@/src/pages/admin/roles'));
 const AdminLiveTracking  = () => lazyPage(() => import('@/src/pages/admin/live-tracking'));
+const AdminDataGrid      = () => lazyPage(() => import('@/src/pages/admin/data-grid'));
 
-const Assessments       = () => lazyPage(() => import('@/src/pages/assessments/all-assessments'));
-const AssessmentsCreate = () => lazyPage(() => import('@/src/pages/assessments/create-assessment'));
-const AssessmentsBatch  = () => lazyPage(() => import('@/src/pages/assessments/batch-upload'));
+const Assessments              = () => lazyPage(() => import('@/src/pages/assessments/all-assessments'));
+const AssessmentsCreate        = () => lazyPage(() => import('@/src/pages/assessments/create-assessment'));
+const AssessmentsEdit          = () => lazyPage(() => import('@/src/pages/assessments/edit-assessment'));
+const AssessmentsBatch         = () => lazyPage(() => import('@/src/pages/assessments/batch-upload'));
+const AssessmentsBrowse        = () => lazyPage(() => import('@/src/pages/assessments/browse-assessments'));
+const AssessmentRespondents    = () => lazyPage(() => import('@/src/pages/assessments/assessment-respondents'));
+const AssessmentInviteOrCopy   = () => lazyPage(() => import('@/src/pages/assessments/invite-or-copy'));
 // Special — uses its own minimal layout, not the dashboard chrome.
 const AssessmentTake    = () => lazyPage(() => import('@/src/pages/assessments/take-assessment'));
 
@@ -94,6 +110,8 @@ const QuestionBankCreate       = () => lazyPage(() => import('@/src/pages/questi
 const QuestionBankNorms        = () => lazyPage(() => import('@/src/pages/question-bank/norms'));
 
 const Questionnaires             = () => lazyPage(() => import('@/src/pages/questionnaires/all-questionnaires'));
+const QuestionnaireParents       = () => lazyPage(() => import('@/src/pages/questionnaires/parents'));
+const QuestionnaireVersions      = () => lazyPage(() => import('@/src/pages/questionnaires/versions'));
 const QuestionnairesClinical     = () => lazyPage(() => import('@/src/pages/questionnaires/clinical'));
 const QuestionnairesCounselling  = () => lazyPage(() => import('@/src/pages/questionnaires/counselling'));
 const QuestionnairesDemographics = () => lazyPage(() => import('@/src/pages/questionnaires/demographics'));
@@ -101,6 +119,7 @@ const QuestionnairesExperimental = () => lazyPage(() => import('@/src/pages/ques
 const QuestionnairesIndustrial   = () => lazyPage(() => import('@/src/pages/questionnaires/industrial'));
 
 const Reports             = () => lazyPage(() => import('@/src/pages/reports/all-reports'));
+const ReportsResponses    = () => lazyPage(() => import('@/src/pages/reports/response-sheets'));
 const ReportsClinical     = () => lazyPage(() => import('@/src/pages/reports/clinical'));
 const ReportsCounselling  = () => lazyPage(() => import('@/src/pages/reports/counselling'));
 const ReportsIndustrial   = () => lazyPage(() => import('@/src/pages/reports/industrial'));
@@ -131,16 +150,38 @@ const routes: RouteObject[] = [
         element: <PublicRoute />,
         children: [
           { path: '/login', element: <LoginPage /> },
-          { path: '/register', element: <RegisterPage /> },
           { path: '/select-vertical', element: <SelectVerticalPage /> },
         ],
       },
 
-      // Respondent portal — handles its own auth via portal-specific tokens
-      { path: '/portal/login', element: <PortalLogin /> },
-      { path: '/portal/assessments', element: <PortalAssessments /> },
-      { path: '/portal/take', element: <PortalTake /> },
-      { path: '/portal/complete', element: <PortalComplete /> },
+      // Entity registration — public form, no auth required
+      { path: '/entity-registration', element: <EntityRegistrationPage /> },
+
+      // Entity member self-registration — public form behind an entity's
+      // shareable member link. Resolves the entity by id to title the form,
+      // registers the member into it, then hands off to the portal login.
+      { path: '/entity/:entityId/register', element: <EntityMemberRegister /> },
+
+      // Public, no-login questionnaire preview ("test link"). Renders a
+      // version's content as a walkthrough; nothing is saved.
+      { path: '/preview/:versionId', element: <PreviewQuestionnaire /> },
+
+      // Registration entry point. With ?token=… it resolves the admin's
+      // invite, skips the account-type picker, links the registrant to the
+      // token's entity/group, and drops them into the assessment. Without a
+      // token it falls back to ordinary self-signup.
+      { path: '/register', element: <RegisterWithToken /> },
+
+      // Respondent portal — MOVED to the standalone bodhassess-portal app
+      // (served at portal.bodh.biz). Commented out here, not deleted, so the
+      // cutover is reversible. NOTE: in-app redirects to /portal/* (login.tsx,
+      // register-with-token.tsx, admin/respondents.tsx "Portal URL") now fall
+      // through to the catch-all → /dashboard; retarget them to the portal
+      // origin when finishing the decommission.
+      // { path: '/portal/login', element: <PortalLogin /> },
+      // { path: '/portal/assessments', element: <PortalAssessments /> },
+      // { path: '/portal/take', element: <PortalTake /> },
+      // { path: '/portal/complete', element: <PortalComplete /> },
 
   // Take-assessment view — private but uses its own minimal full-screen layout
   {
@@ -164,6 +205,8 @@ const routes: RouteObject[] = [
     children: [
       { path: '/dashboard', element: <Dashboard /> },
       { path: '/analytics', element: <Analytics /> },
+      { path: '/data-studio', element: <DataStudioHome /> },
+      { path: '/data-studio/wb/:wid', element: <DataStudioWorkbook /> },
       { path: '/survey', element: <Survey /> },
       { path: '/question-bank/qualities', element: <Qualities /> },
 
@@ -171,12 +214,26 @@ const routes: RouteObject[] = [
       { path: '/admin/permissions', element: <AdminPermissions /> },
       { path: '/admin/practitioners', element: <AdminPractitioners /> },
       { path: '/admin/respondents', element: <AdminRespondents /> },
+      { path: '/admin/entity-registrations', element: <AdminEntityRegistrations /> },
+      { path: '/admin/entity-registrations/:id', element: <AdminEntityDrillIn /> },
       { path: '/admin/roles', element: <AdminRoles /> },
       { path: '/admin/live-tracking', element: <AdminLiveTracking /> },
+      { path: '/admin/data-grid', element: <AdminDataGrid /> },
 
       { path: '/assessments', element: <Assessments /> },
       { path: '/assessments/create', element: <AssessmentsCreate /> },
+      { path: '/assessments/edit/:id', element: <AssessmentsEdit /> },
       { path: '/assessments/batch', element: <AssessmentsBatch /> },
+      // Browse assessments grouped by the bulk-create group key + drill in
+      // to that assessment's respondents. /respondents (literal) must come
+      // before the /:assessmentId/respondents route so the literal wins.
+      { path: '/assessments/respondents', element: <AssessmentsBrowse /> },
+      { path: '/assessments/:assessmentId/respondents', element: <AssessmentRespondents /> },
+      // Both modes use the same page; the component reads the path
+      // suffix (/invite vs /copy-link) to pick its label and submit
+      // behaviour.
+      { path: '/assessments/:id/invite', element: <AssessmentInviteOrCopy /> },
+      { path: '/assessments/:id/copy-link', element: <AssessmentInviteOrCopy /> },
 
       { path: '/clinical/clients', element: <ClinicalClients /> },
       { path: '/clinical/mse-upload', element: <ClinicalMseUpload /> },
@@ -208,6 +265,12 @@ const routes: RouteObject[] = [
       { path: '/question-bank/norms', element: <QuestionBankNorms /> },
 
       { path: '/questionnaires', element: <Questionnaires /> },
+      // Git-style version history for a single questionnaire parent.
+      // Parent-centric list (one row per questionnaire family). The
+      // /:id/versions route below must stay registered after this so
+      // the literal /parents wins matching.
+      { path: '/questionnaires/parents', element: <QuestionnaireParents /> },
+      { path: '/questionnaires/:id/versions', element: <QuestionnaireVersions /> },
       { path: '/questionnaires/clinical', element: <QuestionnairesClinical /> },
       { path: '/questionnaires/counselling', element: <QuestionnairesCounselling /> },
       { path: '/questionnaires/demographics', element: <QuestionnairesDemographics /> },
@@ -215,6 +278,7 @@ const routes: RouteObject[] = [
       { path: '/questionnaires/industrial', element: <QuestionnairesIndustrial /> },
 
       { path: '/reports', element: <Reports /> },
+      { path: '/reports/responses', element: <ReportsResponses /> },
       { path: '/reports/clinical', element: <ReportsClinical /> },
       { path: '/reports/counselling', element: <ReportsCounselling /> },
       { path: '/reports/industrial', element: <ReportsIndustrial /> },

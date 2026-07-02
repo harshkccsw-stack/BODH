@@ -10,7 +10,8 @@ import com.bodhpsychometric.bodhassess.config.AppProperties;
 @EnableConfigurationProperties(AppProperties.class)
 public class BodhassessApplication {
 
-    public static void main(String[] args) {
+    public 
+    static void main(String[] args) {
         SpringApplication.run(BodhassessApplication.class, args);
     }
 }

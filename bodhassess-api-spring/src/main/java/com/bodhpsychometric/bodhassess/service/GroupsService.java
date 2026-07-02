@@ -2,6 +2,7 @@ package com.bodhpsychometric.bodhassess.service;
 
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -42,8 +43,8 @@ public class GroupsService {
         g.setName(dto.getName().trim());
         g.setDescription(dto.getDescription());
         g.setParentId(dto.getParentId());
-        g.setMemberIds(dto.getMemberIds() == null ? new ArrayList<>() : new ArrayList<>(dto.getMemberIds()));
-        g.setAssignedInstruments(dto.getAssignedInstruments() == null ? new ArrayList<>() : new ArrayList<>(dto.getAssignedInstruments()));
+        g.setMemberIds(dto.getMemberIds() == null ? new HashSet<>() : new HashSet<>(dto.getMemberIds()));
+        g.setAssignedInstruments(dto.getAssignedInstruments() == null ? new HashSet<>() : new HashSet<>(dto.getAssignedInstruments()));
         return toDto(repo.save(g));
     }
 
@@ -52,8 +53,8 @@ public class GroupsService {
         if (StringUtils.hasText(dto.getName())) g.setName(dto.getName());
         g.setDescription(dto.getDescription());
         g.setParentId(dto.getParentId());
-        g.setMemberIds(dto.getMemberIds() == null ? new ArrayList<>() : new ArrayList<>(dto.getMemberIds()));
-        g.setAssignedInstruments(dto.getAssignedInstruments() == null ? new ArrayList<>() : new ArrayList<>(dto.getAssignedInstruments()));
+        g.setMemberIds(dto.getMemberIds() == null ? new HashSet<>() : new HashSet<>(dto.getMemberIds()));
+        g.setAssignedInstruments(dto.getAssignedInstruments() == null ? new HashSet<>() : new HashSet<>(dto.getAssignedInstruments()));
         return toDto(repo.save(g));
     }
 

@@ -17,17 +17,27 @@ export const config = {
   /** Brand name shown in page titles, headers, and toast messages. */
   appName: read('VITE_APP_NAME', 'BodhAssess'),
 
-  /** sessionStorage key used to persist the respondent's auth token. */
+  /** localStorage key used to persist the respondent's auth token. */
   authStorageKey: read('VITE_AUTH_STORAGE_KEY', 'bodhassess.auth.token'),
 
-  /** sessionStorage key used to persist the practitioner dashboard auth token. */
+  /** localStorage key used to persist the practitioner dashboard auth token. */
   practitionerAuthStorageKey: read('VITE_PRACTITIONER_AUTH_STORAGE_KEY', 'bodhassess.practitioner.token'),
 
-  /** sessionStorage key used to persist the admin dashboard auth token. */
+  /** localStorage key used to persist the admin dashboard auth token. */
   adminAuthStorageKey: read('VITE_ADMIN_AUTH_STORAGE_KEY', 'bodhassess.admin.token'),
 
   /** Optional sub-path mount, e.g. "/bodh". Empty string means served at root. */
   basePath: read('VITE_BASE_PATH', ''),
+
+  /**
+   * Origin of the standalone respondent portal app (bodhassess-portal),
+   * e.g. https://portal.bodh.biz in production. Respondent-facing links
+   * (copy-link, QR, login redirects) are built against this so they leave
+   * the admin app and land in the portal. Defaults to the portal's local
+   * dev server (http://localhost:3002) so local stays working unchanged;
+   * production sets VITE_PORTAL_URL. No trailing slash.
+   */
+  portalUrl: read('VITE_PORTAL_URL', 'http://localhost:3002'),
 } as const;
 
 export type AppConfig = typeof config;

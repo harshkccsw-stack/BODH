@@ -15,7 +15,11 @@
             "name": "BodhassessApplication",
             "request": "launch",
             "mainClass": "com.bodhpsychometric.bodhassess.BodhassessApplication",
-            "projectName": "bodhassess-api"
+            "projectName": "bodhassess-api",
+            // Load APP_CORS_ALLOWED_ORIGINS / APP_UPLOADS_BASE_URL from the repo
+            // .env so the debugged app uses the same origins as docker/run.sh
+            // (and picks up edits on restart instead of a stale shell value).
+            "envFile": "${workspaceFolder}/.env"
         }
     ]
 }
