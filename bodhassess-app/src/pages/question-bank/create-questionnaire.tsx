@@ -74,13 +74,6 @@ interface OptionMqtScore {
   score: number;
 }
 
-// MQ/MQT coverage tags for a question. Which qualities/traits the question
-// measures, independent of the option/question scoring above.
-interface Coverage {
-  mqs: string[];
-  mqts: string[];
-}
-
 interface QuestionOption {
   text: string;
   scores: OptionMqtScore[];
@@ -99,19 +92,10 @@ interface Question {
   // (or free-text response) was given. Stored at the same shape as option
   // scores so the picker UI and resolver can be reused.
   question_scores: OptionMqtScore[];
-  coverage: Coverage;
   clinical_risk_flag: boolean;
   risk_flag_rule: string;
   sectionId?: string;
   sectionTitle?: string;
-}
-
-// Normalize a possibly-missing coverage object from stored/imported data.
-function normalizeCoverage(c: any): Coverage {
-  return {
-    mqs: Array.isArray(c?.mqs) ? c.mqs.map(String) : [],
-    mqts: Array.isArray(c?.mqts) ? c.mqts.map(String) : [],
-  };
 }
 
 const FORMATS = ['MCQ', 'RATING_SCALE', 'LIKERT', 'SJT', 'FREE_TEXT', 'IMAGE_CHOICE', 'RANKING', 'MATRIX'];
@@ -260,8 +244,6 @@ export default function CreateAssessmentPage() {
   const [instCategory, setInstCategory] = useState('');
   const [instDescription, setInstDescription] = useState('');
   const [instDisclaimer, setInstDisclaimer] = useState('');
-  const [instShowInstructions, setInstShowInstructions] = useState(false);
-  const [instInstructions, setInstInstructions] = useState('');
   const [instDuration, setInstDuration] = useState(10);
   const [instTier, setInstTier] = useState('T1');
   const [instLanguages, setInstLanguages] = useState<string[]>(['en']);
@@ -320,8 +302,6 @@ export default function CreateAssessmentPage() {
         setInstCategory(match.category || '');
         setInstDescription(match.description || '');
         setInstDisclaimer(match.disclaimer || '');
-        setInstInstructions(match.instructions || '');
-        setInstShowInstructions(!!match.showInstructions);
         if (Array.isArray(match.demographicFieldKeys)) {
           setDemoFieldKeys(match.demographicFieldKeys);
         }
@@ -347,7 +327,6 @@ export default function CreateAssessmentPage() {
             question_scores: Array.isArray(q.question_scores)
               ? q.question_scores.map((s: any) => ({ mqt_id: s.mqt_id, score: Number(s.score) || 0 }))
               : [],
-            coverage: normalizeCoverage(q.coverage),
             clinical_risk_flag: !!q.clinical_risk_flag,
             risk_flag_rule: String(q.risk_flag_rule || ''),
             sectionId: q.sectionId || undefined,
@@ -496,24 +475,6 @@ export default function CreateAssessmentPage() {
     return map;
   }, [allMqts]);
 
-  const mqNameById = useMemo(() => {
-    const map: Record<string, string> = {};
-    mqs.forEach((m) => { map[m.id] = m.name; });
-    return map;
-  }, [mqs]);
-
-  // Coverage summary: how many questions tag each MQ and each MQT.
-  const coverageSummary = useMemo(() => {
-    const mqCounts: Record<string, number> = {};
-    const mqtCounts: Record<string, number> = {};
-    questions.forEach((q) => {
-      q.coverage.mqs.forEach((id) => { mqCounts[id] = (mqCounts[id] || 0) + 1; });
-      q.coverage.mqts.forEach((id) => { mqtCounts[id] = (mqtCounts[id] || 0) + 1; });
-    });
-    const taggedCount = questions.filter((q) => q.coverage.mqs.length > 0 || q.coverage.mqts.length > 0).length;
-    return { mqCounts, mqtCounts, taggedCount };
-  }, [questions]);
-
   // ---- Preview (whole questionnaire review) ----
 
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -599,7 +560,6 @@ export default function CreateAssessmentPage() {
       question_scores: Array.isArray(q.question_scores)
         ? q.question_scores.map((s: any) => ({ mqt_id: s.mqt_id, score: Number(s.score) || 0 }))
         : [],
-      coverage: normalizeCoverage(q.coverage),
       clinical_risk_flag: !!q.clinical_risk_flag,
       risk_flag_rule: String(q.risk_flag_rule || ''),
     }));
@@ -610,12 +570,10 @@ export default function CreateAssessmentPage() {
   // ---- Bulk import from CSV / XLSX ----
   // Expected columns (case-insensitive):
   //   stem (required), format, section, risk_flag, risk_rule,
-  //   coverage_mqs, coverage_mqts (semicolon-separated names; tags only)
   //   option1..option8
   //   option1_mq, option1_mqt, option1_score ... (per option)
-  // MQ/MQT names for scoring are resolved against the catalog; missing ones
-  // are created in the database on import. Coverage names are resolved against
-  // the catalog for tagging only and dropped if they don't match.
+  // MQ/MQT names are resolved against the catalog; missing ones are
+  // created in the database on import.
   interface ParsedOption {
     text: string;
     mq: string;
@@ -632,10 +590,6 @@ export default function CreateAssessmentPage() {
     // Question-level (mq, mqt, score) — applied to the MQT total whenever
     // the question is answered, regardless of which option was picked.
     question_score: ParsedOption | null;
-    // Coverage tags (names; resolved to ids on import). Semicolon-separated
-    // in the source columns coverage_mqs / coverage_mqts.
-    coverage_mqs: string[];
-    coverage_mqts: string[];
     errors: string[];
   }
 
@@ -758,14 +712,7 @@ export default function CreateAssessmentPage() {
             question_score = { text: '', mq: qMq, mqt: qMqt, score: qScoreNum };
           }
         }
-        const splitNames = (raw: any) =>
-          String(raw ?? '')
-            .split(/[;|]/)
-            .map((s) => s.trim())
-            .filter(Boolean);
-        const coverage_mqs = splitNames(row.coverage_mqs ?? row.coverage_mq);
-        const coverage_mqts = splitNames(row.coverage_mqts ?? row.coverage_mqt);
-        return { stem, format, section, risk_flag, risk_rule, options, question_score, coverage_mqs, coverage_mqts, errors };
+        return { stem, format, section, risk_flag, risk_rule, options, question_score, errors };
       });
 
       setBulkRows(parsed);
@@ -841,7 +788,7 @@ export default function CreateAssessmentPage() {
           const newMqtId = `mqt-${Math.random().toString(36).slice(2, 10)}`;
           mqt = { id: newMqtId, name: pair.mqt };
           const updated: StoredMQ = { ...mq, mqts: [...mq.mqts, mqt] };
-          await qualitiesApi.update(mq.id, updated);
+          await qualitiesApi.update(mq.id, { mqts: updated.mqts });
           catalogCopy = catalogCopy.map((m) => (m.id === mq!.id ? updated : m));
         }
         resolved.set(key, mqt.id);
@@ -858,30 +805,6 @@ export default function CreateAssessmentPage() {
       // Fallback: if a row has a score but no MQ/MQT, we default to the first
       // MQT in the resolved catalog so the score isn't silently dropped.
       const firstMqtInCatalog = catalogCopy[0]?.mqts[0];
-
-      // Resolve coverage tag names against the (post-creation) catalog.
-      // Coverage-only names that don't match anything are dropped — coverage
-      // is metadata, so we don't auto-create phantom qualities for it.
-      const resolveCoverageMqId = (name: string): string | null =>
-        catalogCopy.find((m) => m.name.toLowerCase() === name.toLowerCase())?.id ?? null;
-      const resolveCoverageMqtId = (name: string): string | null => {
-        const lower = name.toLowerCase();
-        const walk = (nodes: Array<{ id: string; name: string; children?: any[] }>): string | null => {
-          for (const n of nodes) {
-            if (n.name.toLowerCase() === lower) return n.id;
-            if (Array.isArray(n.children)) {
-              const hit = walk(n.children);
-              if (hit) return hit;
-            }
-          }
-          return null;
-        };
-        for (const m of catalogCopy) {
-          const hit = walk(m.mqts as any[]);
-          if (hit) return hit;
-        }
-        return null;
-      };
 
       const newQuestions: Question[] = valid.map((r) => {
         let sectionId: string | undefined;
@@ -924,10 +847,6 @@ export default function CreateAssessmentPage() {
             }
             return out;
           })(),
-          coverage: {
-            mqs: Array.from(new Set(r.coverage_mqs.map(resolveCoverageMqId).filter((id): id is string => !!id))),
-            mqts: Array.from(new Set(r.coverage_mqts.map(resolveCoverageMqtId).filter((id): id is string => !!id))),
-          },
           clinical_risk_flag: r.risk_flag,
           risk_flag_rule: r.risk_rule,
           sectionId,
@@ -948,7 +867,6 @@ export default function CreateAssessmentPage() {
   const downloadBulkTemplate = () => {
     const header = [
       'stem', 'format', 'section', 'risk_flag', 'risk_rule',
-      'coverage_mqs', 'coverage_mqts',
       'question_mq', 'question_mqt', 'question_score',
       'option1', 'option1_mq', 'option1_mqt', 'option1_score',
       'option2', 'option2_mq', 'option2_mqt', 'option2_score',
@@ -957,14 +875,12 @@ export default function CreateAssessmentPage() {
     ];
     const sample = [
       ['How often do you feel overwhelmed by work?', 'LIKERT', 'Stress', 'false', '',
-        'Wellbeing', 'Stress Level',
         '', '', '',
         'Never',      'Wellbeing', 'Stress Level', '0',
         'Sometimes',  'Wellbeing', 'Stress Level', '1',
         'Often',      'Wellbeing', 'Stress Level', '2',
         'Always',     'Wellbeing', 'Stress Level', '3'],
       ['I find it easy to focus for long periods.', 'LIKERT', 'Focus', 'false', '',
-        'Cognitive', 'Attention',
         'Cognitive', '', '1',
         'Strongly disagree', 'Cognitive', 'Attention', '0',
         'Disagree',          'Cognitive', 'Attention', '1',
@@ -1004,7 +920,6 @@ export default function CreateAssessmentPage() {
           { text: '', scores: [] },
         ],
         question_scores: [],
-        coverage: { mqs: [], mqts: [] },
         clinical_risk_flag: false,
         risk_flag_rule: '',
         sectionId,
@@ -1160,65 +1075,6 @@ export default function CreateAssessmentPage() {
                   </button>
                 );
               })()}
-            </div>
-          )}
-
-          {(mqs.length > 0 || allMqts.length > 0) && (
-            <div className="rounded-md border border-border bg-muted/30 px-3 py-2 space-y-2">
-              <p className="text-[0.6875rem] font-medium text-muted-foreground">
-                Coverage &mdash; which MQs/MQTs this question measures. Used for filtering and reporting; not scored.
-              </p>
-              {mqs.length > 0 && (
-                <div className="space-y-1">
-                  <p className="text-[0.625rem] uppercase tracking-wide text-muted-foreground">Measured Qualities</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {mqs.map((m) => {
-                      const on = q.coverage.mqs.includes(m.id);
-                      return (
-                        <button
-                          type="button"
-                          key={m.id}
-                          onClick={() => toggleCoverageMq(q.id, m.id)}
-                          className={cn(
-                            'px-2 py-0.5 text-[0.6875rem] rounded-full border',
-                            on
-                              ? 'bg-primary text-primary-foreground border-primary'
-                              : 'bg-background text-muted-foreground border-border hover:border-primary',
-                          )}
-                        >
-                          {m.name}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-              {allMqts.length > 0 && (
-                <div className="space-y-1">
-                  <p className="text-[0.625rem] uppercase tracking-wide text-muted-foreground">Traits (MQTs)</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {allMqts.map(({ mqt, path }) => {
-                      const on = q.coverage.mqts.includes(mqt.id);
-                      return (
-                        <button
-                          type="button"
-                          key={mqt.id}
-                          onClick={() => toggleCoverageMqt(q.id, mqt.id)}
-                          className={cn(
-                            'px-2 py-0.5 text-[0.6875rem] rounded-full border',
-                            on
-                              ? 'bg-primary text-primary-foreground border-primary'
-                              : 'bg-background text-muted-foreground border-border hover:border-primary',
-                          )}
-                          title={path}
-                        >
-                          {path}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
             </div>
           )}
 
@@ -1415,39 +1271,6 @@ export default function CreateAssessmentPage() {
     );
   };
 
-  // Coverage tags: which MQs/MQTs the question measures (independent of scoring).
-  const toggleCoverageMq = (qId: string, mqId: string) => {
-    setQuestions(
-      questions.map((q) => {
-        if (q.id !== qId) return q;
-        const has = q.coverage.mqs.includes(mqId);
-        return {
-          ...q,
-          coverage: {
-            ...q.coverage,
-            mqs: has ? q.coverage.mqs.filter((id) => id !== mqId) : [...q.coverage.mqs, mqId],
-          },
-        };
-      }),
-    );
-  };
-
-  const toggleCoverageMqt = (qId: string, mqtId: string) => {
-    setQuestions(
-      questions.map((q) => {
-        if (q.id !== qId) return q;
-        const has = q.coverage.mqts.includes(mqtId);
-        return {
-          ...q,
-          coverage: {
-            ...q.coverage,
-            mqts: has ? q.coverage.mqts.filter((id) => id !== mqtId) : [...q.coverage.mqts, mqtId],
-          },
-        };
-      }),
-    );
-  };
-
   const addOption = (qId: string) => {
     setQuestions(questions.map((q) => (q.id === qId ? { ...q, options: [...q.options, { text: '', scores: [] }] } : q)));
   };
@@ -1487,10 +1310,6 @@ export default function CreateAssessmentPage() {
       setError('Add at least one question');
       return;
     }
-    if (!instShortName.trim()) {
-      setError('Short name is required — set one in Step 1 before publishing');
-      return;
-    }
     const empty = questions.find((q) => !q.stem.trim() && q.media_type === 'none');
     if (empty) {
       setError('Every question needs either text or media');
@@ -1511,8 +1330,6 @@ export default function CreateAssessmentPage() {
         category: instCategory,
         description: instDescription,
         disclaimer: instDisclaimer,
-        instructions: instShowInstructions ? instInstructions : '',
-        showInstructions: instShowInstructions,
         duration: Number(instDuration) || 0,
         tier: instTier,
         languages: instLanguages,
@@ -1536,7 +1353,6 @@ export default function CreateAssessmentPage() {
               media_type: o.media_type,
             })),
           question_scores: q.question_scores.map((s) => ({ mqt_id: s.mqt_id, score: Number(s.score) || 0 })),
-          coverage: { mqs: [...q.coverage.mqs], mqts: [...q.coverage.mqts] },
           clinical_risk_flag: q.clinical_risk_flag,
           risk_flag_rule: q.risk_flag_rule,
           ...(useSections && q.sectionId ? { sectionId: q.sectionId, sectionTitle: q.sectionTitle || '' } : {}),
@@ -1546,10 +1362,9 @@ export default function CreateAssessmentPage() {
       });
 
       // Also register the instrument in the /instruments catalog so it shows
-      // up in the Questionnaire Library, then bulk-insert the questions into
-      // the items table so they're queryable per-row (not only as JSON inside
-      // published_questionnaires). Both failures are non-fatal — the published
-      // questionnaire write above already succeeded — but we surface warnings.
+      // up in the Questionnaire Library. Failure here is non-fatal (the
+      // published questionnaire write above already succeeded), but we surface
+      // a warning so the user knows to retry if the library is missing it.
       let catalogWarning = '';
       try {
         const scoring_config = {
@@ -1560,9 +1375,6 @@ export default function CreateAssessmentPage() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            // Passing the same id every republish makes the backend upsert
-            // instead of inserting a new instrument row each time.
-            id: qid,
             name: instName,
             short_name: instShortName,
             vertical: instVertical,
@@ -1580,44 +1392,6 @@ export default function CreateAssessmentPage() {
         if (!res.ok && res.status !== 204) {
           const text = await res.text().catch(() => res.statusText);
           catalogWarning = `but catalog registration failed (${res.status}: ${text}). It may not show in the Questionnaire Library — try republishing.`;
-        } else {
-          const catalogBody = await res.json().catch(() => null as any);
-          const instrumentDbId: string | undefined = catalogBody?.id;
-          if (instrumentDbId) {
-            const itemsPayload = {
-              items: questions.map((q, idx) => ({
-                stem: q.stem,
-                format: q.format,
-                media_url: q.media_type === 'none' ? '' : q.media_url,
-                media_type: q.media_type === 'none' ? 'none' : q.media_type,
-                options: q.options
-                  .filter((o) => o.text.trim() || o.media_url || o.scores.length > 0)
-                  .map((o) => ({
-                    text: o.text,
-                    scores: o.scores.map((s) => ({ mqt_id: s.mqt_id, score: Number(s.score) || 0 })),
-                    media_url: o.media_url,
-                    media_type: o.media_type,
-                  })),
-                sub_domains: q.question_scores.map((s) => ({ domain: s.mqt_id, weight: Number(s.score) || 0 })),
-                clinical_risk_flag: q.clinical_risk_flag,
-                risk_flag_rule: q.risk_flag_rule,
-                sequence_order: idx + 1,
-                languages: instLanguages,
-              })),
-            };
-            const itemsRes = await fetch(
-              `${API_BASE}/questionnaires-catalog/${encodeURIComponent(instrumentDbId)}/items/bulk`,
-              {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(itemsPayload),
-              },
-            );
-            if (!itemsRes.ok) {
-              const text = await itemsRes.text().catch(() => itemsRes.statusText);
-              catalogWarning = `but items table population failed (${itemsRes.status}: ${text}). The questionnaire is published, but per-row item queries will be empty for this instrument.`;
-            }
-          }
         }
       } catch (e: any) {
         catalogWarning = `but catalog registration failed (${e?.message || 'network error'}). It may not show in the Questionnaire Library — try republishing.`;
@@ -1669,8 +1443,6 @@ export default function CreateAssessmentPage() {
             : 'Define your instrument with Measured Qualities (MQ) and their MQTs, then score each option against one or more MQTs.'}
         </p>
       </div>
-
-      <DraftBanner />
 
       {/* Step indicator */}
       <div className="flex items-center gap-3">
@@ -1827,35 +1599,6 @@ export default function CreateAssessmentPage() {
 
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between gap-3">
-                  <label className="flex items-center gap-2 text-sm font-medium">
-                    <input
-                      type="checkbox"
-                      checked={instShowInstructions}
-                      onChange={(e) => setInstShowInstructions(e.target.checked)}
-                      className="rounded"
-                    />
-                    Show Instructions to respondents
-                  </label>
-                  <span className="text-[0.6875rem] text-muted-foreground">Optional — guide respondents on how to take the assessment</span>
-                </div>
-                {instShowInstructions && (
-                  <>
-                    <textarea
-                      value={instInstructions}
-                      onChange={(e) => setInstInstructions(e.target.value)}
-                      rows={6}
-                      placeholder="e.g. Read each question carefully. Answer honestly — there are no right or wrong answers. Allow about 15 minutes to complete."
-                      className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-                    />
-                    <p className="text-[0.6875rem] text-muted-foreground">
-                      Shown on the portal between the disclaimer (if any) and the first question.
-                    </p>
-                  </>
-                )}
-              </div>
-
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between gap-3">
                   <label className="text-sm font-medium">Pre-Assessment Demographic Fields</label>
                   <div className="flex items-center gap-2">
                     <span className="text-[0.6875rem] text-muted-foreground">
@@ -1987,65 +1730,6 @@ export default function CreateAssessmentPage() {
               </Button>
             </div>
           </div>
-
-          {/* Coverage map — which MQs/MQTs the questions measure */}
-          {questions.length > 0 && (mqs.length > 0 || allMqts.length > 0) && (
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm flex items-center gap-2">
-                  <Layers className="h-4 w-4 text-primary" /> Coverage Map
-                </CardTitle>
-                <p className="text-xs text-muted-foreground">
-                  {coverageSummary.taggedCount} of {questions.length} question{questions.length !== 1 ? 's' : ''} tagged with coverage.
-                </p>
-              </CardHeader>
-              <CardContent className="pt-0 space-y-3">
-                {mqs.length > 0 && (
-                  <div className="space-y-1">
-                    <p className="text-[0.625rem] uppercase tracking-wide text-muted-foreground">Measured Qualities</p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {mqs.map((m) => {
-                        const n = coverageSummary.mqCounts[m.id] || 0;
-                        return (
-                          <span
-                            key={m.id}
-                            className={cn(
-                              'px-2 py-0.5 text-[0.6875rem] rounded-full border',
-                              n > 0 ? 'bg-primary/10 text-primary border-primary/30' : 'bg-muted text-muted-foreground border-border',
-                            )}
-                          >
-                            {m.name} · {n}
-                          </span>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-                {allMqts.length > 0 && (
-                  <div className="space-y-1">
-                    <p className="text-[0.625rem] uppercase tracking-wide text-muted-foreground">Traits (MQTs)</p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {allMqts.map(({ mqt, path }) => {
-                        const n = coverageSummary.mqtCounts[mqt.id] || 0;
-                        return (
-                          <span
-                            key={mqt.id}
-                            title={path}
-                            className={cn(
-                              'px-2 py-0.5 text-[0.6875rem] rounded-full border',
-                              n > 0 ? 'bg-primary/10 text-primary border-primary/30' : 'bg-muted text-muted-foreground border-border',
-                            )}
-                          >
-                            {path} · {n}
-                          </span>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          )}
 
           {/* Empty state — varies based on sections mode */}
           {!useSections && questions.length === 0 && (
@@ -2257,13 +1941,6 @@ export default function CreateAssessmentPage() {
                   <p className="text-sm text-muted-foreground leading-relaxed border-l-2 border-primary/40 pl-3">
                     {instDescription}
                   </p>
-                )}
-
-                {instShowInstructions && instInstructions.trim() && (
-                  <div className="rounded-lg border border-border bg-muted/30 p-4">
-                    <p className="text-[0.6875rem] font-medium uppercase tracking-wider text-primary mb-2">Instructions</p>
-                    <p className="text-sm whitespace-pre-wrap leading-relaxed">{instInstructions}</p>
-                  </div>
                 )}
 
                 {questions.map((q, idx) => (
@@ -2536,9 +2213,6 @@ export default function CreateAssessmentPage() {
             </p>
             <div className="flex justify-center gap-3 pt-4">
               <Button variant="outline" onClick={() => window.location.href = '/questionnaires'}>View in Library</Button>
-              <Button variant="outline" onClick={openPreview} disabled={questions.length === 0}>
-                <Eye className="h-4 w-4" /> Preview
-              </Button>
               <Button variant="primary" onClick={() => window.location.href = '/assessments/create'}>Create Assessment</Button>
             </div>
           </CardContent>
@@ -2706,44 +2380,6 @@ export default function CreateAssessmentPage() {
           </Card>
         </div>
       )}
-    </div>
-  );
-}
-
-/**
- * Inline banner that surfaces the Git-style versioning model whenever
- * the editor was opened from the new Versions page. Reads
- *   ?draftMode=1&parentId=<pid>
- * (set by the Edit button on /questionnaires/:id/versions) and tells
- * the admin that saves go to a draft and a commit is required before
- * the change is available to assessments.
- *
- * Renders nothing when those params are absent, so the legacy edit
- * flow is unchanged.
- */
-function DraftBanner() {
-  if (typeof window === 'undefined') return null;
-  const params = new URLSearchParams(window.location.search);
-  const draftMode = params.get('draftMode') === '1';
-  const parentId = params.get('parentId') || '';
-  if (!draftMode || !parentId) return null;
-  return (
-    <div className="rounded-lg border border-amber-300 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30 px-4 py-3 text-sm flex items-start gap-3 flex-wrap">
-      <div className="flex-1 min-w-0">
-        <p className="font-medium text-amber-900 dark:text-amber-300">You're editing a draft.</p>
-        <p className="text-xs text-amber-800/80 dark:text-amber-400/80 mt-0.5">
-          Saves stay on this draft. When you're done, head back to the version history
-          and use <strong>Commit</strong> to materialize a new committed version.
-          Committed versions are locked — admins can't edit them, only branch new
-          drafts from them.
-        </p>
-      </div>
-      <a
-        href={`/questionnaires/${encodeURIComponent(parentId)}/versions`}
-        className="inline-flex items-center gap-1 rounded-md border border-amber-400 px-3 py-1.5 text-xs font-medium text-amber-900 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors"
-      >
-        Back to Versions →
-      </a>
     </div>
   );
 }

@@ -1,27 +1,28 @@
 package com.bodhpsychometric.bodhassess.model;
 
 import java.time.OffsetDateTime;
-import java.util.HashSet;
-import java.util.Set;
+import java.util.ArrayList;
+import java.util.List;
 
-import javax.persistence.CollectionTable;
 import javax.persistence.Column;
-import javax.persistence.ElementCollection;
 import javax.persistence.Entity;
-import javax.persistence.FetchType;
 import javax.persistence.Id;
-import javax.persistence.JoinColumn;
 import javax.persistence.Table;
 
 import org.hibernate.annotations.Type;
 import org.hibernate.annotations.TypeDef;
+import org.hibernate.annotations.TypeDefs;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.vladmihalcea.hibernate.type.json.JsonNodeStringType;
+import com.vladmihalcea.hibernate.type.json.JsonStringType;
 
 @Entity
 @Table(name = "instruments")
-@TypeDef(name = "json-node", typeClass = JsonNodeStringType.class)
+@TypeDefs({
+    @TypeDef(name = "json", typeClass = JsonStringType.class),
+    @TypeDef(name = "json-node", typeClass = JsonNodeStringType.class)
+})
 public class QuestionnaireCatalog {
 
     @Id
@@ -49,11 +50,9 @@ public class QuestionnaireCatalog {
     @Column(name = "duration_minutes")
     private Integer durationMinutes;
 
-    @ElementCollection(fetch = FetchType.EAGER)
-    @CollectionTable(name = "instrument_languages",
-            joinColumns = @JoinColumn(name = "instrument_id"))
-    @Column(name = "language", nullable = false, length = 8)
-    private Set<String> languages = new HashSet<>();
+    @Type(type = "json")
+    @Column(columnDefinition = "json")
+    private List<String> languages = new ArrayList<>();
 
     @Column(name = "tier_required")
     private String tierRequired;
@@ -76,11 +75,9 @@ public class QuestionnaireCatalog {
     @Column(name = "uses_weighted_scoring")
     private boolean usesWeightedScoring;
 
-    // The scoring algorithm flavour ("MQ_MQT", "IRT_3PL", ...). Replaces the
-    // legacy scoring_config JSON, whose `mqs` payload was redundant with the
-    // live measured_qualities/mqts relations.
-    @Column(name = "scoring_model", length = 32)
-    private String scoringModel;
+    @Type(type = "json-node")
+    @Column(name = "scoring_config", columnDefinition = "json")
+    private JsonNode scoringConfig;
 
     @Column(name = "created_at", insertable = false, updatable = false)
     private OffsetDateTime createdAt;
@@ -106,8 +103,8 @@ public class QuestionnaireCatalog {
     public void setItemCount(Integer itemCount) { this.itemCount = itemCount; }
     public Integer getDurationMinutes() { return durationMinutes; }
     public void setDurationMinutes(Integer durationMinutes) { this.durationMinutes = durationMinutes; }
-    public Set<String> getLanguages() { return languages; }
-    public void setLanguages(Set<String> languages) { this.languages = languages; }
+    public List<String> getLanguages() { return languages; }
+    public void setLanguages(List<String> languages) { this.languages = languages; }
     public String getTierRequired() { return tierRequired; }
     public void setTierRequired(String tierRequired) { this.tierRequired = tierRequired; }
     public boolean isAdaptive() { return isAdaptive; }
@@ -122,8 +119,8 @@ public class QuestionnaireCatalog {
     public void setPublished(boolean published) { isPublished = published; }
     public boolean isUsesWeightedScoring() { return usesWeightedScoring; }
     public void setUsesWeightedScoring(boolean usesWeightedScoring) { this.usesWeightedScoring = usesWeightedScoring; }
-    public String getScoringModel() { return scoringModel; }
-    public void setScoringModel(String scoringModel) { this.scoringModel = scoringModel; }
+    public JsonNode getScoringConfig() { return scoringConfig; }
+    public void setScoringConfig(JsonNode scoringConfig) { this.scoringConfig = scoringConfig; }
     public OffsetDateTime getCreatedAt() { return createdAt; }
     public OffsetDateTime getUpdatedAt() { return updatedAt; }
 }

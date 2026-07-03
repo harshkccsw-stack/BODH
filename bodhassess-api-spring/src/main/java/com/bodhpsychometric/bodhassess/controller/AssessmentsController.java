@@ -15,9 +15,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.bodhpsychometric.bodhassess.payload.AssessmentSessionDto;
-import com.bodhpsychometric.bodhassess.payload.AssessmentGroupDto;
-import com.bodhpsychometric.bodhassess.payload.AssessmentSummaryDto;
+import com.bodhpsychometric.bodhassess.payload.AssessmentDto;
 import com.bodhpsychometric.bodhassess.payload.HeartbeatRequest;
 import com.bodhpsychometric.bodhassess.security.CurrentUser;
 import com.bodhpsychometric.bodhassess.security.UserPrincipal;
@@ -31,54 +29,25 @@ public class AssessmentsController {
     private AssessmentsService service;
 
     @GetMapping
-    public List<AssessmentSessionDto> list(@RequestParam(value = "respondentId", required = false) String respondentId) {
+    public List<AssessmentDto> list(@RequestParam(value = "respondentId", required = false) String respondentId) {
         return service.list(respondentId);
     }
 
-    // Lightweight projection for list views — id, name, respondent name,
-    // instrument, vertical, status, score, createdAt. Skips the answers,
-    // mqtScores, and demographics child collections that the full list
-    // pulls. Use for the dashboard's Recent Assessments and any other
-    // read-only table view; ?limit= keeps response size predictable.
-    @GetMapping("/summaries")
-    public List<AssessmentSummaryDto> listSummaries(
-            @RequestParam(value = "respondentId", required = false) String respondentId,
-            @RequestParam(value = "limit", required = false) Integer limit) {
-        return service.listSummaries(respondentId, limit);
-    }
-
-    // Grouped — one row per assessmentId (the bulk-create group key) with
-    // aggregate respondent and status counts. Drives the All Assessments
-    // table once admins start grouping rather than viewing one row per
-    // respondent.
-    @GetMapping("/groups")
-    public List<AssessmentGroupDto> listGroups() {
-        return service.listGroups();
-    }
-
-    // Slim list filtered to a single assessmentId — drives the
-    // /assessments/:assessmentId/respondents page (list of respondents +
-    // status for one allotment).
-    @GetMapping("/by-assessment")
-    public List<AssessmentSummaryDto> listByAssessment(@RequestParam("assessmentId") String assessmentId) {
-        return service.listSummariesByAssessment(assessmentId);
-    }
-
     @GetMapping("/{id}")
-    public AssessmentSessionDto get(@PathVariable String id) { return service.get(id); }
+    public AssessmentDto get(@PathVariable String id) { return service.get(id); }
 
     @PostMapping
-    public ResponseEntity<AssessmentSessionDto> create(@RequestBody AssessmentSessionDto dto) {
+    public ResponseEntity<AssessmentDto> create(@RequestBody AssessmentDto dto) {
         return new ResponseEntity<>(service.create(dto), HttpStatus.CREATED);
     }
 
     @PostMapping("/bulk")
-    public ResponseEntity<AssessmentSessionDto.BulkAssessmentResponse> bulkCreate(@RequestBody AssessmentSessionDto.BulkAssessmentRequest req) {
+    public ResponseEntity<AssessmentDto.BulkAssessmentResponse> bulkCreate(@RequestBody AssessmentDto.BulkAssessmentRequest req) {
         return new ResponseEntity<>(service.bulkCreate(req.getAssessments()), HttpStatus.CREATED);
     }
 
     @PutMapping("/{id}")
-    public AssessmentSessionDto update(@PathVariable String id, @RequestBody AssessmentSessionDto dto) {
+    public AssessmentDto update(@PathVariable String id, @RequestBody AssessmentDto dto) {
         return service.update(id, dto);
     }
 
