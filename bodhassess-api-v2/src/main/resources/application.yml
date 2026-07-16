@@ -8,9 +8,9 @@ spring:
     password: ${DB_PASSWORD:}
   jpa:
     hibernate:
-      # Schema is owned by migrations at cutover (Flyway). For a first local
-      # run against an empty database, start once with DDL_AUTO=create or
-      # apply bodhassess-domain/target/generated-schema.sql by hand.
+      # Flyway owns the schema (V1 baseline + V2 legacy data migration);
+      # Hibernate never writes DDL. target/generated-schema.sql (from
+      # SchemaGenerationTest) is the reference copy of what V1 contains.
       ddl-auto: ${DDL_AUTO:none}
       naming:
         # Respect the model's explicit PascalCase @Table/@Column names verbatim —

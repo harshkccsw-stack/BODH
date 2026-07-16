@@ -43,7 +43,9 @@
       "Bash(echo \"EXIT: $?\")",
       "Bash(mvn -version)",
       "Bash(java -version)",
-      "Bash(unzip -l ~/.m2/repository/org/hibernate/orm/hibernate-core/6.2.13.Final/hibernate-core-6.2.13.Final.jar)"
+      "Bash(unzip -l ~/.m2/repository/org/hibernate/orm/hibernate-core/6.2.13.Final/hibernate-core-6.2.13.Final.jar)",
+      "Bash(awk '{print $1}')",
+      "Bash(git add *)"
     ]
   }
 }

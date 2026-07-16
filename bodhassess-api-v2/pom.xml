@@ -9,9 +9,10 @@
     <version>1.0.0</version>
     <packaging>jar</packaging>
     <name>bodhassess-api-v2</name>
-    <description>BodhAssess REST API on the rebuilt model — Boot 3 / jakarta. Runs beside
-        the legacy API (port 8081) during migration and replaces it at cutover.
-        Requires `mvn install` of bodhassess-domain first.</description>
+    <description>BodhAssess REST API on the rebuilt model — Boot 3 / jakarta. Contains the
+        full new backend (domain model, repositories, services, security, Flyway
+        migrations, REST controllers). Runs beside the legacy API (port 8081)
+        during migration and replaces it at cutover.</description>
 
     <parent>
         <groupId>org.springframework.boot</groupId>
@@ -26,11 +27,6 @@
     </properties>
 
     <dependencies>
-        <dependency>
-            <groupId>com.bodhpsychometric</groupId>
-            <artifactId>bodhassess-domain</artifactId>
-            <version>1.0.0</version>
-        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
@@ -81,6 +77,13 @@
         <dependency>
             <groupId>com.h2database</groupId>
             <artifactId>h2</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- SchemaGenerationTest: Hibernate's annotation reader resolves
+             @Configurable on AuditingEntityListener via this. -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-aspects</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>
