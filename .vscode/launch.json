@@ -6,6 +6,14 @@
     "configurations": [
         {
             "type": "java",
+            "name": "ApiV2Application",
+            "request": "launch",
+            "mainClass": "com.bodhpsychometric.bodhassess.v2.ApiV2Application",
+            "projectName": "bodhassess-api-v2",
+            "cwd": "${workspaceFolder}/bodhassess-api-v2"
+        },
+        {
+            "type": "java",
             "name": "Current File",
             "request": "launch",
             "mainClass": "${file}"
@@ -16,9 +24,6 @@
             "request": "launch",
             "mainClass": "com.bodhpsychometric.bodhassess.BodhassessApplication",
             "projectName": "bodhassess-api",
-            // Load APP_CORS_ALLOWED_ORIGINS / APP_UPLOADS_BASE_URL from the repo
-            // .env so the debugged app uses the same origins as docker/run.sh
-            // (and picks up edits on restart instead of a stale shell value).
             "envFile": "${workspaceFolder}/.env"
         }
     ]

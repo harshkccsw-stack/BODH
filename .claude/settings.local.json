@@ -33,7 +33,17 @@
       "Bash(python3 -c \"import acme_tiny; print\\('acme_tiny version:', acme_tiny.__name__\\)\")",
       "Bash(curl -sS -o /dev/null -w \"HTTPS status: %{http_code}\\\\nSSL verify: %{ssl_verify_result}\\\\n\" https://api.bodh.biz/ --max-time 10)",
       "Bash(curl -sSIv https://api.bodh.biz/ --max-time 10)",
-      "Bash(xargs -n1 basename)"
+      "Bash(xargs -n1 basename)",
+      "Bash(grep -v \"^$\")",
+      "Skill(artifact-design)",
+      "Artifact",
+      "Bash(grep -rhoE '\"\\(MCQ|LIKERT|RANKING|MATRIX|SJT|TEXT|FREE_TEXT|TRUE_FALSE|SLIDER|[A-Z_]{3,20}\\)\"' /home/babayaga/Projects/bodh/bodhassess-api-spring/src/main/java --include=\"*.java\")",
+      "mcp__plugin_claude-mem_mcp-search__get_observations",
+      "Bash(mvn -q compile -DskipTests)",
+      "Bash(echo \"EXIT: $?\")",
+      "Bash(mvn -version)",
+      "Bash(java -version)",
+      "Bash(unzip -l ~/.m2/repository/org/hibernate/orm/hibernate-core/6.2.13.Final/hibernate-core-6.2.13.Final.jar)"
     ]
   }
 }

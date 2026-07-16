@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<persistence xmlns="https://jakarta.ee/xml/ns/persistence"
+             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+             xsi:schemaLocation="https://jakarta.ee/xml/ns/persistence
+                 https://jakarta.ee/xml/ns/persistence/persistence_3_0.xsd"
+             version="3.0">
+    <!-- Test-only unit for offline schema generation (SchemaGenerationTest).
+         The runtime persistence unit is Boot-managed at cutover. -->
+    <persistence-unit name="bodh-domain" transaction-type="RESOURCE_LOCAL">
+        <provider>org.hibernate.jpa.HibernatePersistenceProvider</provider>
+        <class>com.bodhpsychometric.bodhassess.domain.taxonomy.MeasuredQuality</class>
+        <class>com.bodhpsychometric.bodhassess.domain.taxonomy.MeasuredQualityTrait</class>
+        <class>com.bodhpsychometric.bodhassess.domain.taxonomy.TraitPlacement</class>
+        <class>com.bodhpsychometric.bodhassess.domain.item.Item</class>
+        <class>com.bodhpsychometric.bodhassess.domain.item.AnswerOption</class>
+        <class>com.bodhpsychometric.bodhassess.domain.questionnaire.Questionnaire</class>
+        <class>com.bodhpsychometric.bodhassess.domain.questionnaire.QuestionnaireSection</class>
+        <class>com.bodhpsychometric.bodhassess.domain.questionnaire.QuestionnaireItem</class>
+        <class>com.bodhpsychometric.bodhassess.domain.questionnaire.ItemUsageTraitScore</class>
+        <class>com.bodhpsychometric.bodhassess.domain.questionnaire.QuestionnaireItemOption</class>
+        <class>com.bodhpsychometric.bodhassess.domain.questionnaire.OptionUsageTraitScore</class>
+        <class>com.bodhpsychometric.bodhassess.domain.questionnaire.QuestionnaireChangeLog</class>
+        <class>com.bodhpsychometric.bodhassess.domain.questionnaire.QuestionnaireDemographicField</class>
+        <class>com.bodhpsychometric.bodhassess.domain.people.User</class>
+        <class>com.bodhpsychometric.bodhassess.domain.people.Role</class>
+        <class>com.bodhpsychometric.bodhassess.domain.people.UserRole</class>
+        <class>com.bodhpsychometric.bodhassess.domain.people.Organization</class>
+        <class>com.bodhpsychometric.bodhassess.domain.people.OrganizationMember</class>
+        <class>com.bodhpsychometric.bodhassess.domain.people.RespondentGroup</class>
+        <class>com.bodhpsychometric.bodhassess.domain.people.RespondentGroupMember</class>
+        <class>com.bodhpsychometric.bodhassess.domain.assessment.Assessment</class>
+        <class>com.bodhpsychometric.bodhassess.domain.assessment.AssessmentOrganizationAllotment</class>
+        <class>com.bodhpsychometric.bodhassess.domain.assessment.AssessmentGroupAllotment</class>
+        <class>com.bodhpsychometric.bodhassess.domain.assessment.AssessmentRespondentAllotment</class>
+        <class>com.bodhpsychometric.bodhassess.domain.assessment.DemographicField</class>
+        <class>com.bodhpsychometric.bodhassess.domain.assessment.DemographicFieldOption</class>
+        <class>com.bodhpsychometric.bodhassess.domain.delivery.AssessmentSession</class>
+        <class>com.bodhpsychometric.bodhassess.domain.delivery.AssessmentAttempt</class>
+        <class>com.bodhpsychometric.bodhassess.domain.delivery.SessionAnswer</class>
+        <class>com.bodhpsychometric.bodhassess.domain.delivery.SessionAnswerOption</class>
+        <class>com.bodhpsychometric.bodhassess.domain.delivery.SessionTraitScore</class>
+        <class>com.bodhpsychometric.bodhassess.domain.delivery.SessionDemographic</class>
+        <exclude-unlisted-classes>true</exclude-unlisted-classes>
+    </persistence-unit>
+</persistence>

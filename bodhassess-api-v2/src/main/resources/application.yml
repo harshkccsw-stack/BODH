@@ -1,0 +1,36 @@
+server:
+  port: 8081   # legacy API keeps 8080 during migration
+
+spring:
+  datasource:
+    url: ${DB_URL:jdbc:mysql://localhost:3306/bodhassess_v2}
+    username: ${DB_USER:root}
+    password: ${DB_PASSWORD:}
+  jpa:
+    hibernate:
+      # Schema is owned by migrations at cutover (Flyway). For a first local
+      # run against an empty database, start once with DDL_AUTO=create or
+      # apply bodhassess-domain/target/generated-schema.sql by hand.
+      ddl-auto: ${DDL_AUTO:none}
+      naming:
+        # Respect the model's explicit PascalCase @Table/@Column names verbatim —
+        # Boot's default strategy would silently snake_case them.
+        physical-strategy: org.hibernate.boot.model.naming.PhysicalNamingStrategyStandardImpl
+    open-in-view: true
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    placeholders:
+      # Schema holding the legacy tables, on the same MySQL server. Empty or
+      # absent schema → the data migration (V2) skips itself gracefully.
+      legacyDb: ${LEGACY_DB:bodhassess}
+
+bodh:
+  security:
+    # HS256 needs >= 32 bytes. The default is for local dev ONLY — set JWT_SECRET in any real environment.
+    jwt-secret: ${JWT_SECRET:bodh-dev-only-secret-change-me-0123456789abcdef}
+    jwt-expiry-hours: ${JWT_EXPIRY_HOURS:12}
+    # First-run bootstrap: creates a superAdmin user if this email doesn't exist yet.
+    bootstrap-admin-email: ${BOOTSTRAP_ADMIN_EMAIL:}
+    bootstrap-admin-dob: ${BOOTSTRAP_ADMIN_DOB:}
+    bootstrap-admin-name: ${BOOTSTRAP_ADMIN_NAME:Platform Admin}
