@@ -45,7 +45,22 @@
       "Bash(java -version)",
       "Bash(unzip -l ~/.m2/repository/org/hibernate/orm/hibernate-core/6.2.13.Final/hibernate-core-6.2.13.Final.jar)",
       "Bash(awk '{print $1}')",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "Bash(docker stop *)",
+      "Bash(docker volume *)",
+      "Bash(docker exec *)",
+      "Bash(grep -oP '\\\\$\\\\{[A-Z_]+' /home/babayaga/Projects/bodh/bodhassess-api-v2/src/main/resources/application.yml)",
+      "Bash(mysql -h127.0.0.1 -P3307 -uroot -prootpw -e \"SELECT @@hostname, @@version;\")",
+      "Bash(mysql -h127.0.0.1 -P3307 -uroot -prootpw -e \"SELECT COUNT\\(*\\) AS tables_in_bodhassess FROM information_schema.tables WHERE table_schema='bodhassess'; SELECT table_name, table_rows FROM information_schema.tables WHERE table_schema='bodhassess' ORDER BY table_rows DESC LIMIT 8;\")",
+      "Bash(timeout 8 ssh -o BatchMode=yes -o ConnectTimeout=5 kccsw@192.168.27.80 'echo SSH_OK')",
+      "Bash(timeout 5 bash -c 'echo > /dev/tcp/192.168.27.80/3306')",
+      "Bash(timeout 4 bash -c 'exec 3<>/dev/tcp/127.0.0.1/3308 && head -c 40 <&3 | xxd')",
+      "Bash(echo \"exit=$?\")",
+      "Bash(docker start *)",
+      "Bash(timeout 60 bash -c 'until docker inspect --format \"{{.State.Health.Status}}\" bodhassess-mysql 2>/dev/null | grep -q healthy; do sleep 2; done')",
+      "Bash(timeout 90 bash -c 'until grep -qE \"Started ApiV2Application|APPLICATION FAILED|Application run failed|BUILD FAILURE\" /tmp/claude-1000/-home-babayaga-Projects-bodh/2daf3a5e-de24-47ed-9719-1ab779d882e6/scratchpad/v2boot.log 2>/dev/null; do sleep 3; done')",
+      "Bash(timeout 150 bash -c 'until grep -qE \"Started ApiV2Application|Application run failed|BUILD FAILURE\" /tmp/claude-1000/-home-babayaga-Projects-bodh/2daf3a5e-de24-47ed-9719-1ab779d882e6/scratchpad/v2boot2.log 2>/dev/null; do sleep 3; done')",
+      "Bash(pkill -f 'com.bodhpsychometric.bodhassess.v2.ApiV2Application')"
     ]
   }
 }

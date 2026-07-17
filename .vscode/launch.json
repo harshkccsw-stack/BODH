@@ -10,7 +10,14 @@
             "request": "launch",
             "mainClass": "com.bodhpsychometric.bodhassess.v2.ApiV2Application",
             "projectName": "bodhassess-api-v2",
-            "cwd": "${workspaceFolder}/bodhassess-api-v2"
+            "cwd": "${workspaceFolder}/bodhassess-api-v2",
+            "env": {
+                "DB_URL": "jdbc:mysql://localhost:3307/bodhassess_v2?createDatabaseIfNotExist=true",
+                "DB_USER": "root",
+                "DB_PASSWORD": "rootpw",
+                "BOOTSTRAP_ADMIN_EMAIL": "superadmin@bodh.biz",
+                "BOOTSTRAP_ADMIN_DOB": "1990-01-01"
+            }
         },
         {
             "type": "java",
