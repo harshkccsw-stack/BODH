@@ -68,7 +68,8 @@ export default function PractitionersPage() {
 
   const openCreate = () => {
     setEditing(null);
-    setForm({ ...emptyForm, roles: roleNames.includes('Practitioner') ? ['Practitioner'] : [] });
+    // Role names are seeded lowercase server-side ('practitioner').
+    setForm({ ...emptyForm, roles: roleNames.filter((r) => r === 'practitioner') });
     setError('');
     setModalOpen(true);
   };
@@ -128,18 +129,14 @@ export default function PractitionersPage() {
       if (practitioners.some((p) => p.email.toLowerCase() === email.toLowerCase())) {
         setSaving(false); setError('A practitioner with this email already exists'); return;
       }
-      const nums = practitioners.map((p) => parseInt(p.id.replace(/^P-/, ''), 10)).filter((n) => !Number.isNaN(n));
-      const nextNum = (nums.length ? Math.max(...nums) : 0) + 1;
-      const id = `P-${String(nextNum).padStart(3, '0')}`;
-      const today = new Date().toISOString().slice(0, 16).replace('T', ' ');
+      // id and last-login are the server's to assign.
       const created = await createPractitioner({
-        id, name, email,
+        name, email,
         phone: phone || undefined,
         dob: isoDob,
         roles: form.roles,
         verticals: form.verticals,
         status: form.status,
-        last_login: today,
       });
       setSaving(false);
       if (!created) { setError('Failed to save — check that the API is running'); return; }
@@ -235,7 +232,7 @@ export default function PractitionersPage() {
                   <tr><td colSpan={8} className="px-5 py-10 text-center text-sm text-muted-foreground">No practitioners yet.</td></tr>
                 ) : practitioners.map((p) => (
                   <tr key={p.id} className="border-b border-border last:border-0 hover:bg-muted/50 transition-colors">
-                    <td className="px-5 py-3 font-mono text-xs">{p.id}</td>
+                    <td className="px-5 py-3 font-mono text-xs">{p.serialId || p.id}</td>
                     <td className="px-5 py-3 font-medium">{p.name}</td>
                     <td className="px-5 py-3 font-mono text-xs">{p.email}</td>
                     <td className="px-5 py-3">
@@ -287,7 +284,7 @@ export default function PractitionersPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={() => setModalOpen(false)}>
           <Card className="w-full max-w-md max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <CardHeader className="flex flex-row items-center justify-between pb-3">
-              <CardTitle className="text-base">{editing ? `Edit Practitioner — ${editing.id}` : 'Add Practitioner'}</CardTitle>
+              <CardTitle className="text-base">{editing ? `Edit Practitioner — ${editing.serialId || editing.id}` : 'Add Practitioner'}</CardTitle>
               <button onClick={() => setModalOpen(false)} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -372,7 +369,7 @@ export default function PractitionersPage() {
               <button onClick={() => setConfirmDelete(null)} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
             </CardHeader>
             <CardContent className="space-y-4">
-              <p className="text-sm">Remove <strong>{confirmDelete.name}</strong> ({confirmDelete.id})?</p>
+              <p className="text-sm">Remove <strong>{confirmDelete.name}</strong> ({confirmDelete.serialId || confirmDelete.id})?</p>
               <div className="flex justify-end gap-2">
                 <Button variant="outline" onClick={() => setConfirmDelete(null)}>Cancel</Button>
                 <Button variant="primary" onClick={doDelete} className="bg-red-600 hover:bg-red-700 text-white">

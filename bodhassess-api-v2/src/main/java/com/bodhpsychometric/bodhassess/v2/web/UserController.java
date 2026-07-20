@@ -29,12 +29,12 @@ public class UserController {
     public record ProfileRequest(String name, String phone, String gender, LocalDate dob) {}
     public record StatusRequest(UserStatus status) {}
 
-    public record UserDto(Long id, String email, String name, LocalDate dob, String phone,
-                          String gender, UserStatus status, boolean superAdmin, boolean consent,
-                          List<String> roles) {
+    public record UserDto(Long id, String serialId, String email, String name, LocalDate dob,
+                          String phone, String gender, UserStatus status, boolean superAdmin,
+                          boolean consent, List<String> roles) {
         static UserDto from(User u) {
-            return new UserDto(u.getId(), u.getEmail(), u.getName(), u.getDob(), u.getPhone(),
-                    u.getGender(), u.getStatus(), u.isSuperAdmin(), u.isConsent(),
+            return new UserDto(u.getId(), u.getSerialId(), u.getEmail(), u.getName(), u.getDob(),
+                    u.getPhone(), u.getGender(), u.getStatus(), u.isSuperAdmin(), u.isConsent(),
                     u.getRoles().stream().map(r -> r.getRole().getName()).sorted().toList());
         }
     }

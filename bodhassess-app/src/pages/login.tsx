@@ -1,16 +1,18 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Brain, LogIn, AlertTriangle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { authApi } from '@/lib/api';
 import { config } from '@/lib/config';
 import { usePractitionerAuth } from '@/lib/practitioner-auth';
-import { getDashboardToken } from '@/lib/practitioner-auth-utils';
 import { useRouter } from '@/src/lib/router-helpers';
 import { autoFormatDdmmyyyy, ddmmyyyyToIso } from '@/lib/helpers';
 
+// Session restore for a stored token lives in PractitionerAuthProvider (it
+// resolves /auth/me once on mount and bounces authenticated visitors off
+// /login) — this page deliberately makes no identity call of its own.
 export default function LoginPage() {
   const router = useRouter();
   const { login } = usePractitionerAuth();
@@ -19,25 +21,6 @@ export default function LoginPage() {
   const [dob, setDob] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-
-  // If a stored token already validates against /auth/me, skip the form and
-  // land in /dashboard via the react-router push (no full-page reload).
-  useEffect(() => {
-    let cancelled = false;
-    const token = getDashboardToken();
-    if (!token) return;
-    (async () => {
-      try {
-        const user = await authApi.me(token);
-        if (!cancelled) {
-          login(token, user);
-          router.replace('/dashboard');
-        }
-      } catch { /* stale token — leave on form */ }
-    })();
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   const submit = async (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -56,11 +39,12 @@ export default function LoginPage() {
         setLoading(false);
         return;
       }
-      // Unified login against the single app_users table via /auth.
+      // Unified login against the single User identity table via /auth.
       const res = await authApi.login(id, isoDob);
-      if (res.user?.isSuperAdmin) {
-        // Dashboard accounts (super admin today; staff roles once RBAC lands)
-        // → the dashboard, restored from the same /auth token.
+      // This app is the admin + practitioner surface; the server decides
+      // whether the identity belongs here. Respondent-only accounts sign in
+      // at the assessment portal, which is its own frontend.
+      if (res.user?.dashboardAccess) {
         login(res.token, res.user);
         router.replace('/dashboard');
       } else {

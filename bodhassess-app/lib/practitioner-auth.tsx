@@ -98,12 +98,9 @@ export function PractitionerAuthProvider({ children }: { children: ReactNode }) 
   }, [state.status, pathname, router]);
 
   const logout = useCallback(async () => {
-    const token = getDashboardToken();
+    // Stateless JWT — dropping the stored token IS the logout; no server call.
     clearDashboardToken();
     setState({ status: 'unauthenticated', me: null });
-    if (token) {
-      try { await authApi.logout(token); } catch { /* best effort */ }
-    }
     router.replace(LOGIN_PATH);
   }, [router]);
 

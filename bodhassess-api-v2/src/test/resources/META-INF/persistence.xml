@@ -24,6 +24,8 @@
         <class>com.bodhpsychometric.bodhassess.domain.people.User</class>
         <class>com.bodhpsychometric.bodhassess.domain.people.Role</class>
         <class>com.bodhpsychometric.bodhassess.domain.people.UserRole</class>
+        <class>com.bodhpsychometric.bodhassess.domain.people.PractitionerProfile</class>
+        <class>com.bodhpsychometric.bodhassess.domain.people.RespondentProfile</class>
         <class>com.bodhpsychometric.bodhassess.domain.people.Organization</class>
         <class>com.bodhpsychometric.bodhassess.domain.people.OrganizationMember</class>
         <class>com.bodhpsychometric.bodhassess.domain.people.RespondentGroup</class>

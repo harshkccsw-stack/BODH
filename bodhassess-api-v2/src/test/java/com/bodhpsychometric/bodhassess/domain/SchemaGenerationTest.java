@@ -24,9 +24,10 @@ import jakarta.persistence.Persistence;
  */
 class SchemaGenerationTest {
 
-    // 32 entity tables + 5 value-collection tables:
-    // ItemLanguage, RoleUrlPath, OrganizationVertical, OrganizationModule, AssessmentLanguage
-    private static final int EXPECTED_TABLES = 37;
+    // 34 entity tables + 6 value-collection tables:
+    // ItemLanguage, RoleUrlPath, OrganizationVertical, OrganizationModule,
+    // AssessmentLanguage, PractitionerVertical
+    private static final int EXPECTED_TABLES = 40;
 
     @Test
     void allMappingsBuildAndExportMySqlSchema() throws IOException {

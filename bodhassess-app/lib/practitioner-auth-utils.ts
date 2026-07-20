@@ -63,6 +63,7 @@ export function clearDashboardToken() {
 export function authUserToPractitionerMe(user: AuthUser): PractitionerMe {
   return {
     id: user.id,
+    serialId: user.serialId,
     name: user.name || (user.isSuperAdmin ? 'Administrator' : user.email),
     email: user.email,
     roles: user.roles ?? (user.isSuperAdmin ? ['SUPER_ADMIN'] : []),

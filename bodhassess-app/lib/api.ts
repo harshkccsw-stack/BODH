@@ -166,6 +166,8 @@ export const respondentsApi = {
 // ---------- Practitioners ----------
 export interface Practitioner {
   id: string;
+  /** Account code shown in the ID column, e.g. USR-000012. */
+  serialId?: string;
   name: string;
   email: string;
   phone?: string;
@@ -180,16 +182,18 @@ export interface Practitioner {
 export interface PractitionerMe extends Practitioner {
   url_paths: string[];
 }
-// Unified login over the single app_users identity table. Both login pages
-// (dashboard + assessment portal) call this; the response's isSuperAdmin
-// decides which surface the caller routes to. roles/url_paths carry the RBAC
-// the dashboard uses to gate routes — so /auth/me is the only identity call.
+// Unified login over the single User identity table (api-v2). Both login
+// pages (dashboard + assessment portal) call this; the response's
+// isSuperAdmin decides which surface the caller routes to.
 export interface AuthUser {
   id: string;
+  /** Account code shown on screens, e.g. USR-000012. */
+  serialId?: string;
   email: string;
   name?: string;
   isSuperAdmin: boolean;
-  entityIds?: string[];
+  /** May this identity use the admin/practitioner dashboard at all. */
+  dashboardAccess?: boolean;
   roles?: string[];
   url_paths?: string[];
 }
@@ -197,23 +201,103 @@ export interface AuthLoginResponse {
   token: string;
   user: AuthUser;
 }
+// api-v2 wire shape: AuthController.LoginResponse is FLAT (no nested user,
+// `superAdmin`/`userId` field names, no url_paths — page-path RBAC for staff
+// roles is a later phase; super admins get '/*' in authUserToPractitionerMe).
+interface V2AuthResponse {
+  token: string | null;
+  userId: number;
+  serialId: string | null;
+  email: string;
+  name: string | null;
+  roles: string[];
+  superAdmin: boolean;
+  dashboardAccess: boolean;
+  pagePaths: string[];
+}
+function toAuthUser(res: V2AuthResponse): AuthUser {
+  return {
+    id: String(res.userId),
+    serialId: res.serialId ?? undefined,
+    email: res.email,
+    name: res.name ?? undefined,
+    isSuperAdmin: res.superAdmin,
+    dashboardAccess: res.dashboardAccess,
+    roles: res.roles,
+    // Which dashboard routes to allow once inside — separate from whether the
+    // account belongs on this app at all (dashboardAccess).
+    url_paths: res.pagePaths ?? [],
+  };
+}
 export const authApi = {
-  login: (email: string, dob: string) =>
-    jsonFetch<AuthLoginResponse>('/auth/login', { method: 'POST', body: JSON.stringify({ email, dob }) }),
-  me: (token: string) =>
-    jsonFetch<AuthUser>('/auth/me', { headers: { Authorization: `Bearer ${token}` } }),
-  logout: (token: string) =>
-    jsonFetch<null>('/auth/logout', { method: 'POST', headers: { Authorization: `Bearer ${token}` } }),
+  login: async (email: string, dob: string): Promise<AuthLoginResponse> => {
+    const res = await jsonFetch<V2AuthResponse>('/auth/login', { method: 'POST', body: JSON.stringify({ email, dob }) });
+    return { token: res.token ?? '', user: toAuthUser(res) };
+  },
+  me: async (token: string): Promise<AuthUser> =>
+    toAuthUser(await jsonFetch<V2AuthResponse>('/auth/me', { headers: { Authorization: `Bearer ${token}` } })),
+  // No logout endpoint: v2 sessions are stateless JWTs — logging out is
+  // purely client-side (drop the stored token).
 };
 
+// api-v2 keeps the shared identity (User) and the practitioner-only detail
+// (PractitionerProfile: verticals) in two tables but serves them as one
+// resource. Numeric ids and enum status are adapted to the strings the
+// dashboard is written against.
+interface V2Practitioner {
+  id: number;
+  serialId: string | null;
+  name: string | null;
+  email: string;
+  phone: string | null;
+  dob: string | null;
+  roles: string[];
+  verticals: string[];
+  status: 'ACTIVE' | 'INACTIVE' | 'SUSPENDED';
+  lastLoginAt: string | null;
+}
+function toPractitioner(p: V2Practitioner): Practitioner {
+  return {
+    // id stays the numeric key the API is addressed by; serialId is for display.
+    id: String(p.id),
+    serialId: p.serialId ?? undefined,
+    name: p.name ?? '',
+    email: p.email,
+    phone: p.phone ?? undefined,
+    dob: p.dob ?? undefined,
+    roles: p.roles,
+    verticals: p.verticals,
+    status: p.status === 'ACTIVE' ? 'Active' : 'Inactive',
+    last_login: p.lastLoginAt ?? undefined,
+  };
+}
+function toV2PractitionerBody(p: Partial<Practitioner>) {
+  return {
+    name: p.name,
+    email: p.email,
+    phone: p.phone || null,
+    dob: p.dob || null,
+    roles: p.roles,
+    verticals: p.verticals,
+    status: p.status === 'Inactive' ? 'INACTIVE' : 'ACTIVE',
+  };
+}
 export const practitionersApi = {
-  list: () => jsonFetch<Practitioner[]>('/practitioners'),
-  get: (id: string) => jsonFetch<Practitioner>(`/practitioners/${encodeURIComponent(id)}`),
-  create: (p: Practitioner) => jsonFetch<Practitioner>('/practitioners', { method: 'POST', body: JSON.stringify(p) }),
-  update: (id: string, p: Partial<Practitioner>) => jsonFetch<Practitioner>(`/practitioners/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(p) }),
+  list: async () =>
+    (await jsonFetch<V2Practitioner[]>('/practitioners')).map(toPractitioner),
+  get: async (id: string) =>
+    toPractitioner(await jsonFetch<V2Practitioner>(`/practitioners/${encodeURIComponent(id)}`)),
+  create: async (p: Partial<Practitioner>) =>
+    toPractitioner(await jsonFetch<V2Practitioner>('/practitioners', {
+      method: 'POST', body: JSON.stringify(toV2PractitionerBody(p)),
+    })),
+  update: async (id: string, p: Partial<Practitioner>) =>
+    toPractitioner(await jsonFetch<V2Practitioner>(`/practitioners/${encodeURIComponent(id)}`, {
+      method: 'PUT', body: JSON.stringify(toV2PractitionerBody(p)),
+    })),
   delete: (id: string) => jsonFetch<null>(`/practitioners/${encodeURIComponent(id)}`, { method: 'DELETE' }),
-  // Auth (login/me/logout) is unified under authApi → /auth. These CRUD
-  // methods are the practitioner-management surface only.
+  // Auth (login/me) is unified under authApi → /auth. These CRUD methods are
+  // the practitioner-management surface only.
 };
 
 // ---------- Roles (page-access bundles) ----------
@@ -223,12 +307,29 @@ export interface Role {
   description?: string;
   url_paths: string[];
 }
+// v2 splits a role's allow-list by matcher: apiPaths gate requests
+// server-side, pagePaths gate dashboard routes. The dashboard only ever
+// reasons about page paths, so that is what url_paths carries here.
+interface V2Role {
+  id: number;
+  name: string;
+  description: string | null;
+  apiPaths: string[];
+  pagePaths: string[];
+}
+function toRole(r: V2Role): Role {
+  return {
+    id: String(r.id),
+    name: r.name,
+    description: r.description ?? undefined,
+    url_paths: r.pagePaths,
+  };
+}
 export const rolesApi = {
-  list: () => jsonFetch<Role[]>('/roles'),
-  get: (id: string) => jsonFetch<Role>(`/roles/${encodeURIComponent(id)}`),
-  create: (r: Role) => jsonFetch<Role>('/roles', { method: 'POST', body: JSON.stringify(r) }),
-  update: (id: string, r: Partial<Role>) => jsonFetch<Role>(`/roles/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(r) }),
-  delete: (id: string) => jsonFetch<null>(`/roles/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  list: async () => (await jsonFetch<V2Role[]>('/roles')).map(toRole),
+  get: async (name: string) => toRole(await jsonFetch<V2Role>(`/roles/${encodeURIComponent(name)}`)),
+  // Role authoring lands with the roles & permissions phase; v2 serves the
+  // seeded roles read-only for now.
 };
 
 // ---------- Groups ----------
