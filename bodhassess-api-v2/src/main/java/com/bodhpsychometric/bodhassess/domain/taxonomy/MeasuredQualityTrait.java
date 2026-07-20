@@ -1,10 +1,10 @@
 package com.bodhpsychometric.bodhassess.domain.taxonomy;
 
+import com.bodhpsychometric.auth.base.SoftDeletableEntity;
+
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
-
-import com.bodhpsychometric.bodhassess.domain.base.SoftDeletableEntity;
 
 /**
  * Pure library node, shared across MQs: no parent, no MQ link — context comes

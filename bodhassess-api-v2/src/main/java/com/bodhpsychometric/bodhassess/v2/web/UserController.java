@@ -15,10 +15,10 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.bodhpsychometric.bodhassess.domain.people.User;
-import com.bodhpsychometric.bodhassess.domain.people.UserStatus;
-import com.bodhpsychometric.bodhassess.domain.repository.UserRepository;
+import com.bodhpsychometric.auth.User;
+import com.bodhpsychometric.auth.UserStatus;
 import com.bodhpsychometric.bodhassess.domain.service.UserService;
+import com.bodhpsychometric.repository.UserRepository;
 
 @RestController
 @RequestMapping("/api/v2/users")

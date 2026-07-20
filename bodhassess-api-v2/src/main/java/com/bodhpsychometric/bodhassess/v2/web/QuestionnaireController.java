@@ -13,18 +13,18 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.bodhpsychometric.bodhassess.domain.questionnaire.Questionnaire;
-import com.bodhpsychometric.bodhassess.domain.questionnaire.QuestionnaireChangeLog;
-import com.bodhpsychometric.bodhassess.domain.questionnaire.QuestionnaireItem;
-import com.bodhpsychometric.bodhassess.domain.questionnaire.QuestionnaireItemOption;
-import com.bodhpsychometric.bodhassess.domain.questionnaire.QuestionnaireSection;
 import com.bodhpsychometric.bodhassess.domain.repository.OrganizationRepository;
-import com.bodhpsychometric.bodhassess.domain.repository.QuestionnaireChangeLogRepository;
-import com.bodhpsychometric.bodhassess.domain.repository.QuestionnaireItemRepository;
-import com.bodhpsychometric.bodhassess.domain.repository.QuestionnaireRepository;
-import com.bodhpsychometric.bodhassess.domain.service.NotFoundException;
-import com.bodhpsychometric.bodhassess.domain.service.QuestionnaireAuthoringService;
-import com.bodhpsychometric.bodhassess.domain.service.QuestionnaireAuthoringService.PlacementValue;
+import com.bodhpsychometric.model.questionnaire.Questionnaire;
+import com.bodhpsychometric.model.questionnaire.QuestionnaireChangeLog;
+import com.bodhpsychometric.model.questionnaire.QuestionnaireItem;
+import com.bodhpsychometric.model.questionnaire.QuestionnaireItemOption;
+import com.bodhpsychometric.model.questionnaire.QuestionnaireSection;
+import com.bodhpsychometric.repository.QuestionnaireChangeLogRepository;
+import com.bodhpsychometric.repository.QuestionnaireItemRepository;
+import com.bodhpsychometric.repository.QuestionnaireRepository;
+import com.bodhpsychometric.service.NotFoundException;
+import com.bodhpsychometric.service.QuestionnaireAuthoringService;
+import com.bodhpsychometric.service.QuestionnaireAuthoringService.PlacementValue;
 
 @RestController
 @RequestMapping("/api/v2/questionnaires")

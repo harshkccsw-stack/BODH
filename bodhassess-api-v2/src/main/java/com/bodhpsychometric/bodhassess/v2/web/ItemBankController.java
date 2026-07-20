@@ -15,14 +15,14 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.bodhpsychometric.bodhassess.domain.item.AnswerOption;
-import com.bodhpsychometric.bodhassess.domain.item.Item;
-import com.bodhpsychometric.bodhassess.domain.item.ItemFormat;
-import com.bodhpsychometric.bodhassess.domain.item.ValidationStatus;
-import com.bodhpsychometric.bodhassess.domain.repository.ItemRepository;
-import com.bodhpsychometric.bodhassess.domain.service.ItemBankService;
-import com.bodhpsychometric.bodhassess.domain.service.ItemBankService.ItemContent;
-import com.bodhpsychometric.bodhassess.domain.service.ItemBankService.OptionContent;
+import com.bodhpsychometric.model.item.AnswerOption;
+import com.bodhpsychometric.model.item.Item;
+import com.bodhpsychometric.model.item.ItemFormat;
+import com.bodhpsychometric.model.item.ValidationStatus;
+import com.bodhpsychometric.repository.ItemRepository;
+import com.bodhpsychometric.service.ItemBankService;
+import com.bodhpsychometric.service.ItemBankService.ItemContent;
+import com.bodhpsychometric.service.ItemBankService.OptionContent;
 
 @RestController
 @RequestMapping("/api/v2/items")

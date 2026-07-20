@@ -18,8 +18,8 @@ import com.bodhpsychometric.bodhassess.domain.assessment.Assessment;
 import com.bodhpsychometric.bodhassess.domain.assessment.AssessmentStatus;
 import com.bodhpsychometric.bodhassess.domain.repository.AssessmentGroupAllotmentRepository;
 import com.bodhpsychometric.bodhassess.domain.repository.AssessmentOrganizationAllotmentRepository;
-import com.bodhpsychometric.bodhassess.domain.repository.AssessmentRespondentAllotmentRepository;
 import com.bodhpsychometric.bodhassess.domain.service.AssessmentAdminService;
+import com.bodhpsychometric.repository.AssessmentRespondentAllotmentRepository;
 
 @RestController
 @RequestMapping("/api/v2/assessments")

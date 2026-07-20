@@ -14,12 +14,12 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.bodhpsychometric.bodhassess.domain.repository.MeasuredQualityRepository;
-import com.bodhpsychometric.bodhassess.domain.repository.MeasuredQualityTraitRepository;
-import com.bodhpsychometric.bodhassess.domain.service.TaxonomyService;
 import com.bodhpsychometric.bodhassess.domain.taxonomy.MeasuredQuality;
 import com.bodhpsychometric.bodhassess.domain.taxonomy.MeasuredQualityTrait;
 import com.bodhpsychometric.bodhassess.domain.taxonomy.TraitPlacement;
+import com.bodhpsychometric.repository.MeasuredQualityRepository;
+import com.bodhpsychometric.repository.MeasuredQualityTraitRepository;
+import com.bodhpsychometric.service.TaxonomyService;
 
 @RestController
 @RequestMapping("/api/v2/taxonomy")

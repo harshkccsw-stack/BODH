@@ -15,11 +15,11 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
-import com.bodhpsychometric.bodhassess.domain.people.User;
-import com.bodhpsychometric.bodhassess.domain.people.UserStatus;
-import com.bodhpsychometric.bodhassess.domain.repository.UserRepository;
+import com.bodhpsychometric.auth.User;
+import com.bodhpsychometric.auth.UserStatus;
 import com.bodhpsychometric.bodhassess.domain.service.UserService;
 import com.bodhpsychometric.bodhassess.v2.security.JwtService;
+import com.bodhpsychometric.repository.UserRepository;
 
 /**
  * Login = email + date of birth (the product's permanent credential, kept by

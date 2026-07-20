@@ -13,11 +13,11 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.bodhpsychometric.bodhassess.domain.people.Organization;
-import com.bodhpsychometric.bodhassess.domain.people.OrganizationMember;
-import com.bodhpsychometric.bodhassess.domain.people.OrganizationStatus;
-import com.bodhpsychometric.bodhassess.domain.people.RespondentGroup;
-import com.bodhpsychometric.bodhassess.domain.people.RespondentGroupMember;
+import com.bodhpsychometric.bodhassess.domain.auth.enums.OrganizationStatus;
+import com.bodhpsychometric.bodhassess.domain.auth.unnecessary.Organization;
+import com.bodhpsychometric.bodhassess.domain.auth.unnecessary.OrganizationMember;
+import com.bodhpsychometric.bodhassess.domain.auth.unnecessary.RespondentGroup;
+import com.bodhpsychometric.bodhassess.domain.auth.unnecessary.RespondentGroupMember;
 import com.bodhpsychometric.bodhassess.domain.repository.OrganizationRepository;
 import com.bodhpsychometric.bodhassess.domain.service.OrganizationService;
 import com.bodhpsychometric.bodhassess.domain.service.RespondentGroupService;

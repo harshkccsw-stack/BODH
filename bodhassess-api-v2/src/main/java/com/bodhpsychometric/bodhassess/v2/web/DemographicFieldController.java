@@ -18,9 +18,9 @@ import org.springframework.web.bind.annotation.RestController;
 import com.bodhpsychometric.bodhassess.domain.assessment.DemographicField;
 import com.bodhpsychometric.bodhassess.domain.assessment.DemographicFieldOption;
 import com.bodhpsychometric.bodhassess.domain.assessment.DemographicFieldType;
-import com.bodhpsychometric.bodhassess.domain.repository.DemographicFieldRepository;
-import com.bodhpsychometric.bodhassess.domain.service.ConflictException;
-import com.bodhpsychometric.bodhassess.domain.service.NotFoundException;
+import com.bodhpsychometric.repository.DemographicFieldRepository;
+import com.bodhpsychometric.service.ConflictException;
+import com.bodhpsychometric.service.NotFoundException;
 
 /**
  * Registry admin for demographic fields. Simple enough that the controller

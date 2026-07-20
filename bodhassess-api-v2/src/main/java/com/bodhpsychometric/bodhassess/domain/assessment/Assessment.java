@@ -16,8 +16,8 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 
-import com.bodhpsychometric.bodhassess.domain.base.SoftDeletableEntity;
-import com.bodhpsychometric.bodhassess.domain.questionnaire.Questionnaire;
+import com.bodhpsychometric.auth.base.SoftDeletableEntity;
+import com.bodhpsychometric.model.questionnaire.Questionnaire;
 
 /**
  * One "Create Assessment" act — a questionnaire offered to a set of allottees.

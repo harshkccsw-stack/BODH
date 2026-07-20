@@ -3,6 +3,8 @@ package com.bodhpsychometric.bodhassess.domain.taxonomy;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.bodhpsychometric.auth.base.SoftDeletableEntity;
+
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -15,8 +17,6 @@ import jakarta.persistence.OneToMany;
 import jakarta.persistence.OrderBy;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
-
-import com.bodhpsychometric.bodhassess.domain.base.SoftDeletableEntity;
 
 /**
  * The context edge of the taxonomy: this trait, inside this MQ, under this

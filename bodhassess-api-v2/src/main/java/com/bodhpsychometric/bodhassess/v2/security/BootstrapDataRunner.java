@@ -8,13 +8,13 @@ import org.springframework.boot.CommandLineRunner;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.bodhpsychometric.bodhassess.domain.people.Role;
-import com.bodhpsychometric.bodhassess.domain.people.User;
-import com.bodhpsychometric.bodhassess.domain.people.UserRole;
-import com.bodhpsychometric.bodhassess.domain.repository.RoleRepository;
-import com.bodhpsychometric.bodhassess.domain.repository.UserRepository;
-import com.bodhpsychometric.bodhassess.domain.repository.UserRoleRepository;
+import com.bodhpsychometric.auth.Role;
+import com.bodhpsychometric.auth.User;
+import com.bodhpsychometric.bodhassess.domain.auth.unnecessary.UserRole;
 import com.bodhpsychometric.bodhassess.domain.service.UserService;
+import com.bodhpsychometric.repository.RoleRepository;
+import com.bodhpsychometric.repository.UserRepository;
+import com.bodhpsychometric.repository.UserRoleRepository;
 
 /**
  * Idempotent first-run seeding: the three primary roles (created with

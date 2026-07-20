@@ -19,10 +19,10 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
-import com.bodhpsychometric.bodhassess.domain.people.User;
-import com.bodhpsychometric.bodhassess.domain.repository.MeasuredQualityRepository;
-import com.bodhpsychometric.bodhassess.domain.repository.UserRepository;
+import com.bodhpsychometric.auth.User;
 import com.bodhpsychometric.bodhassess.domain.service.UserService;
+import com.bodhpsychometric.repository.MeasuredQualityRepository;
+import com.bodhpsychometric.repository.UserRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 

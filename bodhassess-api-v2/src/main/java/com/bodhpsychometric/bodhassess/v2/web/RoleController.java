@@ -8,9 +8,9 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.bodhpsychometric.bodhassess.domain.people.Role;
-import com.bodhpsychometric.bodhassess.domain.repository.RoleRepository;
-import com.bodhpsychometric.bodhassess.domain.service.NotFoundException;
+import com.bodhpsychometric.auth.Role;
+import com.bodhpsychometric.repository.RoleRepository;
+import com.bodhpsychometric.service.NotFoundException;
 
 /**
  * Read-only view of the RBAC roles — enough for the screens that assign roles

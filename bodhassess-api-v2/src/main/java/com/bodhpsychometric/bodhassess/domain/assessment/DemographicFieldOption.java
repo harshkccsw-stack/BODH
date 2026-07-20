@@ -1,5 +1,7 @@
 package com.bodhpsychometric.bodhassess.domain.assessment;
 
+import com.bodhpsychometric.auth.base.BaseEntity;
+
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -8,8 +10,6 @@ import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
-
-import com.bodhpsychometric.bodhassess.domain.base.BaseEntity;
 
 /**
  * One choice of a SELECT-type demographic field — ordered rows now (the

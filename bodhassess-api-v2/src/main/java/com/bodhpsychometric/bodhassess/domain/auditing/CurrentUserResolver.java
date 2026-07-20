@@ -2,7 +2,7 @@ package com.bodhpsychometric.bodhassess.domain.auditing;
 
 import java.util.Optional;
 
-import com.bodhpsychometric.bodhassess.domain.people.User;
+import com.bodhpsychometric.auth.User;
 
 /**
  * Bridge between the domain's auditing and whatever authentication mechanism

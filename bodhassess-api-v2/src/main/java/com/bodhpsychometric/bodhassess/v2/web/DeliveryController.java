@@ -12,13 +12,13 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.bodhpsychometric.bodhassess.domain.delivery.AssessmentAttempt;
-import com.bodhpsychometric.bodhassess.domain.delivery.AssessmentSession;
-import com.bodhpsychometric.bodhassess.domain.delivery.AttemptStatus;
-import com.bodhpsychometric.bodhassess.domain.delivery.SessionAnswer;
-import com.bodhpsychometric.bodhassess.domain.delivery.SessionTraitScore;
 import com.bodhpsychometric.bodhassess.domain.service.DeliveryService;
 import com.bodhpsychometric.bodhassess.domain.service.DeliveryService.Selection;
+import com.bodhpsychometric.model.delivery.AssessmentAttempt;
+import com.bodhpsychometric.model.delivery.AssessmentSession;
+import com.bodhpsychometric.model.delivery.AttemptStatus;
+import com.bodhpsychometric.model.delivery.SessionAnswer;
+import com.bodhpsychometric.model.delivery.SessionTraitScore;
 
 @RestController
 @RequestMapping("/api/v2/delivery")

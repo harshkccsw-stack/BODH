@@ -9,8 +9,8 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 
-import com.bodhpsychometric.bodhassess.domain.base.BaseEntity;
-import com.bodhpsychometric.bodhassess.domain.people.User;
+import com.bodhpsychometric.auth.User;
+import com.bodhpsychometric.auth.base.BaseEntity;
 
 /**
  * Direct individual eligibility — one row, no cap. Retake/reset mechanics

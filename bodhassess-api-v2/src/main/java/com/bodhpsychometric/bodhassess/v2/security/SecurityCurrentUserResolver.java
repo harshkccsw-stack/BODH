@@ -6,9 +6,9 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 
+import com.bodhpsychometric.auth.User;
 import com.bodhpsychometric.bodhassess.domain.auditing.CurrentUserResolver;
-import com.bodhpsychometric.bodhassess.domain.people.User;
-import com.bodhpsychometric.bodhassess.domain.repository.UserRepository;
+import com.bodhpsychometric.repository.UserRepository;
 
 /**
  * The real auditing bridge: whoever the JWT authenticated is who createdBy /

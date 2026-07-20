@@ -3,14 +3,14 @@ package com.bodhpsychometric.bodhassess.domain.taxonomy;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.bodhpsychometric.auth.base.SoftDeletableEntity;
+
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.OrderBy;
 import jakarta.persistence.Table;
-
-import com.bodhpsychometric.bodhassess.domain.base.SoftDeletableEntity;
 
 /**
  * A measured quality (MQ) — the top-level psychometric construct. Its per-MQ

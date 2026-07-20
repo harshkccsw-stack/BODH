@@ -7,9 +7,9 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
-import com.bodhpsychometric.bodhassess.domain.service.ConflictException;
-import com.bodhpsychometric.bodhassess.domain.service.NotFoundException;
-import com.bodhpsychometric.bodhassess.domain.service.ValidationException;
+import com.bodhpsychometric.service.ConflictException;
+import com.bodhpsychometric.service.NotFoundException;
+import com.bodhpsychometric.service.ValidationException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {

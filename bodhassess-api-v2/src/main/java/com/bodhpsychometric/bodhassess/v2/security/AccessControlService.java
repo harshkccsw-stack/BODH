@@ -4,10 +4,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.AntPathMatcher;
 
-import com.bodhpsychometric.bodhassess.domain.people.User;
-import com.bodhpsychometric.bodhassess.domain.people.UserRole;
-import com.bodhpsychometric.bodhassess.domain.people.UserStatus;
-import com.bodhpsychometric.bodhassess.domain.repository.UserRepository;
+import com.bodhpsychometric.auth.User;
+import com.bodhpsychometric.auth.UserStatus;
+import com.bodhpsychometric.bodhassess.domain.auth.unnecessary.UserRole;
+import com.bodhpsychometric.repository.UserRepository;
 
 /**
  * The RBAC decision: superAdmin passes everything; everyone else needs one
