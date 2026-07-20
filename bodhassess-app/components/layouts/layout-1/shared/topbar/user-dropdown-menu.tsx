@@ -97,7 +97,7 @@ export function UserDropdownMenu({ trigger }: { trigger: ReactNode }) {
             </div>
           </div>
           <Badge variant="primary" appearance="light" size="sm">
-            {me?.id || 'Guest'}
+            {me?.serialId || me?.id || 'Guest'}
           </Badge>
         </div>
 

@@ -19,7 +19,7 @@ import javax.persistence.OrderBy;
 import javax.persistence.Table;
 
 @Entity
-@Table(name = "items")
+@Table(name = "item")
 public class Item {
 
     @Id

@@ -93,7 +93,8 @@ export async function bulkCreateRespondents(rows: BulkRespondentRow[]): Promise<
 export async function getPractitioners(): Promise<StoredPractitioner[]> {
   try { return await practitionersApi.list(); } catch (e) { console.error(e); return []; }
 }
-export async function createPractitioner(p: StoredPractitioner): Promise<StoredPractitioner | null> {
+// The server owns the id and the last-login stamp — callers pass profile data only.
+export async function createPractitioner(p: Partial<StoredPractitioner>): Promise<StoredPractitioner | null> {
   try { return await practitionersApi.create(p); } catch (e) { console.error(e); return null; }
 }
 export async function updatePractitioner(id: string, p: Partial<StoredPractitioner>): Promise<StoredPractitioner | null> {
@@ -107,14 +108,21 @@ export async function deletePractitioner(id: string): Promise<boolean> {
 export async function getRoles(): Promise<Role[]> {
   try { return await rolesApi.list(); } catch (e) { console.error(e); return []; }
 }
-export async function createRole(r: Role): Promise<Role | null> {
-  try { return await rolesApi.create(r); } catch (e) { console.error(e); return null; }
+// Role authoring is not served yet — the API exposes the seeded roles
+// read-only until the roles & permissions phase. These keep the Permissions
+// screen compiling and make it fail loudly rather than appear to save.
+const ROLE_WRITES_UNAVAILABLE = 'Role authoring is not available yet — roles are seeded server-side.';
+export async function createRole(_r: Role): Promise<Role | null> {
+  console.error(ROLE_WRITES_UNAVAILABLE);
+  return null;
 }
-export async function updateRole(id: string, r: Partial<Role>): Promise<Role | null> {
-  try { return await rolesApi.update(id, r); } catch (e) { console.error(e); return null; }
+export async function updateRole(_id: string, _r: Partial<Role>): Promise<Role | null> {
+  console.error(ROLE_WRITES_UNAVAILABLE);
+  return null;
 }
-export async function deleteRole(id: string): Promise<boolean> {
-  try { await rolesApi.delete(id); return true; } catch (e) { console.error(e); return false; }
+export async function deleteRole(_id: string): Promise<boolean> {
+  console.error(ROLE_WRITES_UNAVAILABLE);
+  return false;
 }
 
 // ---- Groups ----
