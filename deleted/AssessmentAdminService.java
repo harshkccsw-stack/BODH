@@ -1,4 +1,4 @@
-package com.bodhpsychometric.bodhassess.domain.service;
+package com.bodhpsychometric.model.service;
 
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -7,23 +7,23 @@ import java.util.Set;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.bodhpsychometric.bodhassess.domain.assessment.Assessment;
-import com.bodhpsychometric.bodhassess.domain.assessment.AssessmentGroupAllotment;
-import com.bodhpsychometric.bodhassess.domain.assessment.AssessmentOrganizationAllotment;
-import com.bodhpsychometric.bodhassess.domain.assessment.AssessmentRespondentAllotment;
-import com.bodhpsychometric.bodhassess.domain.assessment.AssessmentStatus;
-import com.bodhpsychometric.bodhassess.domain.auth.User;
-import com.bodhpsychometric.bodhassess.domain.auth.unnecessary.Organization;
-import com.bodhpsychometric.bodhassess.domain.auth.unnecessary.RespondentGroup;
-import com.bodhpsychometric.bodhassess.domain.repository.AssessmentGroupAllotmentRepository;
-import com.bodhpsychometric.bodhassess.domain.repository.AssessmentOrganizationAllotmentRepository;
-import com.bodhpsychometric.bodhassess.domain.repository.AssessmentRepository;
-import com.bodhpsychometric.bodhassess.domain.repository.AssessmentRespondentAllotmentRepository;
-import com.bodhpsychometric.bodhassess.domain.repository.OrganizationRepository;
-import com.bodhpsychometric.bodhassess.domain.repository.QuestionnaireRepository;
-import com.bodhpsychometric.bodhassess.domain.repository.RespondentGroupRepository;
-import com.bodhpsychometric.bodhassess.domain.repository.UserRepository;
-import com.bodhpsychometric.bodhassess.domain.questionnaire.Questionnaire;
+import com.bodhpsychometric.model.assessment.Assessment;
+import com.bodhpsychometric.model.assessment.AssessmentGroupAllotment;
+import com.bodhpsychometric.model.assessment.AssessmentOrganizationAllotment;
+import com.bodhpsychometric.model.assessment.AssessmentRespondentAllotment;
+import com.bodhpsychometric.model.assessment.AssessmentStatus;
+import com.bodhpsychometric.model.auth.User;
+import com.bodhpsychometric.model.auth.unnecessary.Organization;
+import com.bodhpsychometric.model.auth.unnecessary.RespondentGroup;
+import com.bodhpsychometric.model.repository.AssessmentGroupAllotmentRepository;
+import com.bodhpsychometric.model.repository.AssessmentOrganizationAllotmentRepository;
+import com.bodhpsychometric.model.repository.AssessmentRepository;
+import com.bodhpsychometric.model.repository.AssessmentRespondentAllotmentRepository;
+import com.bodhpsychometric.model.repository.OrganizationRepository;
+import com.bodhpsychometric.model.repository.QuestionnaireRepository;
+import com.bodhpsychometric.model.repository.RespondentGroupRepository;
+import com.bodhpsychometric.model.repository.UserRepository;
+import com.bodhpsychometric.model.questionnaire.Questionnaire;
 
 /** Create/lifecycle of assessments and the three allotment kinds with caps. */
 @Service

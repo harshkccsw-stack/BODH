@@ -1,8 +1,5 @@
 package com.bodhpsychometric.service;
 
-import com.bodhpsychometric.exception.ValidationException;
-import com.bodhpsychometric.exception.ConflictException;
-import com.bodhpsychometric.exception.NotFoundException;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -13,7 +10,9 @@ import java.util.Map;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.bodhpsychometric.exception.ValidationException;
 import com.bodhpsychometric.model.assessment.DemographicField;
+import com.bodhpsychometric.model.taxonomy.TraitPlacement;
 import com.bodhpsychometric.model.item.AnswerOption;
 import com.bodhpsychometric.model.item.Item;
 import com.bodhpsychometric.model.questionnaire.ItemUsageTraitScore;
@@ -33,7 +32,6 @@ import com.bodhpsychometric.repository.QuestionnaireItemRepository;
 import com.bodhpsychometric.repository.QuestionnaireRepository;
 import com.bodhpsychometric.repository.QuestionnaireSectionRepository;
 import com.bodhpsychometric.repository.TraitPlacementRepository;
-import com.bodhpsychometric.model.taxonomy.TraitPlacement;
 
 /**
  * Authoring of live questionnaires. Every mutation is recorded in the

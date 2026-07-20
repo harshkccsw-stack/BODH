@@ -1,4 +1,4 @@
-package com.bodhpsychometric.bodhassess.domain.assessment;
+package com.bodhpsychometric.model.assessment;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -10,8 +10,8 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 
-import com.bodhpsychometric.bodhassess.domain.auth.unnecessary.Organization;
-import com.bodhpsychometric.bodhassess.domain.base.BaseEntity;
+import com.bodhpsychometric.model.auth.unnecessary.Organization;
+import com.bodhpsychometric.model.base.BaseEntity;
 
 /**
  * Allots an assessment to an organization. cap = maximum COMPLETED sessions

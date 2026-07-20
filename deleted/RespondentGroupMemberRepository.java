@@ -1,11 +1,11 @@
-package com.bodhpsychometric.bodhassess.domain.repository;
+package com.bodhpsychometric.model.repository;
 
 import java.util.List;
 import java.util.Optional;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 
-import com.bodhpsychometric.bodhassess.domain.auth.unnecessary.RespondentGroupMember;
+import com.bodhpsychometric.model.auth.unnecessary.RespondentGroupMember;
 
 /** Temporal, same contract as {@link OrganizationMemberRepository}. */
 public interface RespondentGroupMemberRepository extends JpaRepository<RespondentGroupMember, Long> {

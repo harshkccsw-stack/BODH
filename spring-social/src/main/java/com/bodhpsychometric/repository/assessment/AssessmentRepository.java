@@ -1,0 +1,9 @@
+package com.bodhpsychometric.repository.assessment;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import com.bodhpsychometric.model.assessment.Assessment;
+
+public interface AssessmentRepository extends JpaRepository<Assessment, Long> {
+
+}

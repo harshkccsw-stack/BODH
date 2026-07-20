@@ -7,6 +7,7 @@ import java.util.Map;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.bodhpsychometric.model.taxonomy.TraitPlacement;
 import com.bodhpsychometric.model.delivery.AssessmentAttempt;
 import com.bodhpsychometric.model.delivery.SessionAnswer;
 import com.bodhpsychometric.model.delivery.SessionAnswerOption;
@@ -18,7 +19,6 @@ import com.bodhpsychometric.model.questionnaire.QuestionnaireItemOption;
 import com.bodhpsychometric.repository.QuestionnaireItemOptionRepository;
 import com.bodhpsychometric.repository.QuestionnaireItemRepository;
 import com.bodhpsychometric.repository.SessionAnswerRepository;
-import com.bodhpsychometric.model.taxonomy.TraitPlacement;
 
 /**
  * SERVER-side scoring, computed once at submit and frozen as

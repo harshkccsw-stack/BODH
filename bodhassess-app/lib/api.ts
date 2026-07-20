@@ -201,41 +201,41 @@ export interface AuthLoginResponse {
   token: string;
   user: AuthUser;
 }
-// api-v2 wire shape: AuthController.LoginResponse is FLAT (no nested user,
-// `superAdmin`/`userId` field names, no url_paths — page-path RBAC for staff
-// roles is a later phase; super admins get '/*' in authUserToPractitionerMe).
-interface V2AuthResponse {
-  token: string | null;
-  userId: number;
+// spring-social wire shape: DashboardAuthController returns { token, user }
+// where user is AuthUserResponse; /auth/me returns the user object alone.
+// urlPaths is the role group's union — empty for a super admin, whose flag
+// overrides path checks (authUserToPractitionerMe turns that into '/*').
+interface ApiAuthUser {
+  id: number;
   serialId: string | null;
   email: string;
-  name: string | null;
-  roles: string[];
   superAdmin: boolean;
   dashboardAccess: boolean;
-  pagePaths: string[];
+  urlPaths: string[];
 }
-function toAuthUser(res: V2AuthResponse): AuthUser {
+interface ApiLoginResponse {
+  token: string;
+  user: ApiAuthUser;
+}
+function toAuthUser(u: ApiAuthUser): AuthUser {
   return {
-    id: String(res.userId),
-    serialId: res.serialId ?? undefined,
-    email: res.email,
-    name: res.name ?? undefined,
-    isSuperAdmin: res.superAdmin,
-    dashboardAccess: res.dashboardAccess,
-    roles: res.roles,
-    // Which dashboard routes to allow once inside — separate from whether the
-    // account belongs on this app at all (dashboardAccess).
-    url_paths: res.pagePaths ?? [],
+    id: String(u.id),
+    serialId: u.serialId ?? undefined,
+    email: u.email,
+    isSuperAdmin: u.superAdmin,
+    dashboardAccess: u.dashboardAccess,
+    // Leave empty path lists undefined so authUserToPractitionerMe applies
+    // its super-admin '/*' fallback instead of seeing "no routes allowed".
+    url_paths: u.urlPaths && u.urlPaths.length > 0 ? u.urlPaths : undefined,
   };
 }
 export const authApi = {
   login: async (email: string, dob: string): Promise<AuthLoginResponse> => {
-    const res = await jsonFetch<V2AuthResponse>('/auth/login', { method: 'POST', body: JSON.stringify({ email, dob }) });
-    return { token: res.token ?? '', user: toAuthUser(res) };
+    const res = await jsonFetch<ApiLoginResponse>('/auth/login', { method: 'POST', body: JSON.stringify({ email, dob }) });
+    return { token: res.token ?? '', user: toAuthUser(res.user) };
   },
   me: async (token: string): Promise<AuthUser> =>
-    toAuthUser(await jsonFetch<V2AuthResponse>('/auth/me', { headers: { Authorization: `Bearer ${token}` } })),
+    toAuthUser(await jsonFetch<ApiAuthUser>('/auth/me', { headers: { Authorization: `Bearer ${token}` } })),
   // No logout endpoint: v2 sessions are stateless JWTs — logging out is
   // purely client-side (drop the stored token).
 };

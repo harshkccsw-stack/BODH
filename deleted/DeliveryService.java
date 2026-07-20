@@ -1,4 +1,4 @@
-package com.bodhpsychometric.bodhassess.domain.service;
+package com.bodhpsychometric.model.service;
 
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -6,34 +6,34 @@ import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.bodhpsychometric.bodhassess.domain.assessment.Assessment;
-import com.bodhpsychometric.bodhassess.domain.assessment.AssessmentGroupAllotment;
-import com.bodhpsychometric.bodhassess.domain.assessment.AssessmentOrganizationAllotment;
-import com.bodhpsychometric.bodhassess.domain.assessment.AssessmentStatus;
-import com.bodhpsychometric.bodhassess.domain.auth.User;
-import com.bodhpsychometric.bodhassess.domain.delivery.AssessmentAttempt;
-import com.bodhpsychometric.bodhassess.domain.delivery.AssessmentSession;
-import com.bodhpsychometric.bodhassess.domain.delivery.AttemptStatus;
-import com.bodhpsychometric.bodhassess.domain.delivery.SessionAnswer;
-import com.bodhpsychometric.bodhassess.domain.delivery.SessionAnswerOption;
-import com.bodhpsychometric.bodhassess.domain.item.AnswerOption;
-import com.bodhpsychometric.bodhassess.domain.item.Item;
-import com.bodhpsychometric.bodhassess.domain.item.ItemFormat;
-import com.bodhpsychometric.bodhassess.domain.repository.AnswerOptionRepository;
-import com.bodhpsychometric.bodhassess.domain.repository.AssessmentAttemptRepository;
-import com.bodhpsychometric.bodhassess.domain.repository.AssessmentGroupAllotmentRepository;
-import com.bodhpsychometric.bodhassess.domain.repository.AssessmentOrganizationAllotmentRepository;
-import com.bodhpsychometric.bodhassess.domain.repository.AssessmentRepository;
-import com.bodhpsychometric.bodhassess.domain.repository.AssessmentRespondentAllotmentRepository;
-import com.bodhpsychometric.bodhassess.domain.repository.AssessmentSessionRepository;
-import com.bodhpsychometric.bodhassess.domain.repository.ItemRepository;
-import com.bodhpsychometric.bodhassess.domain.repository.OrganizationMemberRepository;
-import com.bodhpsychometric.bodhassess.domain.repository.QuestionnaireItemRepository;
-import com.bodhpsychometric.bodhassess.domain.repository.RespondentGroupMemberRepository;
-import com.bodhpsychometric.bodhassess.domain.delivery.SessionTraitScore;
-import com.bodhpsychometric.bodhassess.domain.repository.SessionAnswerRepository;
-import com.bodhpsychometric.bodhassess.domain.repository.SessionTraitScoreRepository;
-import com.bodhpsychometric.bodhassess.domain.repository.UserRepository;
+import com.bodhpsychometric.model.assessment.Assessment;
+import com.bodhpsychometric.model.assessment.AssessmentGroupAllotment;
+import com.bodhpsychometric.model.assessment.AssessmentOrganizationAllotment;
+import com.bodhpsychometric.model.assessment.AssessmentStatus;
+import com.bodhpsychometric.model.auth.User;
+import com.bodhpsychometric.model.delivery.AssessmentAttempt;
+import com.bodhpsychometric.model.delivery.AssessmentSession;
+import com.bodhpsychometric.model.delivery.AttemptStatus;
+import com.bodhpsychometric.model.delivery.SessionAnswer;
+import com.bodhpsychometric.model.delivery.SessionAnswerOption;
+import com.bodhpsychometric.model.item.AnswerOption;
+import com.bodhpsychometric.model.item.Item;
+import com.bodhpsychometric.model.item.ItemFormat;
+import com.bodhpsychometric.model.repository.AnswerOptionRepository;
+import com.bodhpsychometric.model.repository.AssessmentAttemptRepository;
+import com.bodhpsychometric.model.repository.AssessmentGroupAllotmentRepository;
+import com.bodhpsychometric.model.repository.AssessmentOrganizationAllotmentRepository;
+import com.bodhpsychometric.model.repository.AssessmentRepository;
+import com.bodhpsychometric.model.repository.AssessmentRespondentAllotmentRepository;
+import com.bodhpsychometric.model.repository.AssessmentSessionRepository;
+import com.bodhpsychometric.model.repository.ItemRepository;
+import com.bodhpsychometric.model.repository.OrganizationMemberRepository;
+import com.bodhpsychometric.model.repository.QuestionnaireItemRepository;
+import com.bodhpsychometric.model.repository.RespondentGroupMemberRepository;
+import com.bodhpsychometric.model.delivery.SessionTraitScore;
+import com.bodhpsychometric.model.repository.SessionAnswerRepository;
+import com.bodhpsychometric.model.repository.SessionTraitScoreRepository;
+import com.bodhpsychometric.model.repository.UserRepository;
 
 /**
  * The take-flow. Vocabulary matches the product: RESUME (continue the live
@@ -158,7 +158,7 @@ public class DeliveryService {
         if (!usageRepository.existsByQuestionnaireIdAndItemId(questionnaireId, itemId)) {
             throw new ValidationException("Item " + itemId + " is not part of this assessment's questionnaire");
         }
-        Item item = itemRepository.findById(itemId)
+        Question item = itemRepository.findById(itemId)
                 .orElseThrow(() -> new NotFoundException("Item", itemId));
 
         SessionAnswer answer = answerRepository.findByAttemptIdAndItemId(attempt.getId(), itemId)

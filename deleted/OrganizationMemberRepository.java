@@ -1,11 +1,11 @@
-package com.bodhpsychometric.bodhassess.domain.repository;
+package com.bodhpsychometric.model.repository;
 
 import java.util.List;
 import java.util.Optional;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 
-import com.bodhpsychometric.bodhassess.domain.auth.unnecessary.OrganizationMember;
+import com.bodhpsychometric.model.auth.unnecessary.OrganizationMember;
 
 /**
  * Temporal membership: rows are never deleted — leaving stamps removedAt,

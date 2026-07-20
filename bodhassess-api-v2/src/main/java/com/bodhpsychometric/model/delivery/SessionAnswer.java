@@ -15,7 +15,7 @@ import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 
-import com.bodhpsychometric.model.base.BaseEntity;
+import com.bodhpsychometric.auth.base.BaseEntity;
 import com.bodhpsychometric.model.item.Item;
 
 /**

@@ -1,23 +1,21 @@
 package com.bodhpsychometric.service;
 
-import com.bodhpsychometric.exception.ValidationException;
-import com.bodhpsychometric.exception.ConflictException;
-import com.bodhpsychometric.exception.NotFoundException;
 import java.time.OffsetDateTime;
 import java.util.List;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.bodhpsychometric.exception.ValidationException;
+import com.bodhpsychometric.model.taxonomy.MeasuredQuality;
+import com.bodhpsychometric.model.taxonomy.MeasuredQualityTrait;
+import com.bodhpsychometric.model.taxonomy.TraitPlacement;
 import com.bodhpsychometric.repository.ItemUsageTraitScoreRepository;
 import com.bodhpsychometric.repository.MeasuredQualityRepository;
 import com.bodhpsychometric.repository.MeasuredQualityTraitRepository;
 import com.bodhpsychometric.repository.OptionUsageTraitScoreRepository;
 import com.bodhpsychometric.repository.SessionTraitScoreRepository;
 import com.bodhpsychometric.repository.TraitPlacementRepository;
-import com.bodhpsychometric.model.taxonomy.MeasuredQuality;
-import com.bodhpsychometric.model.taxonomy.MeasuredQualityTrait;
-import com.bodhpsychometric.model.taxonomy.TraitPlacement;
 
 /**
  * The taxonomy rules that the mappings cannot express live here: same-MQ

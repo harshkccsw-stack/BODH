@@ -1,0 +1,22 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:bodhpsychometric;DB_CLOSE_DELAY=-1;MODE=MySQL
+    username: sa
+    password: ""
+    driver-class-name: org.h2.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    properties:
+      hibernate:
+        # "User" is a reserved word in H2 (not MySQL); quote keywords per dialect.
+        auto_quote_keyword: true
+
+app:
+  superadmin:
+    email: superadmin@test.local
+    dob: 1990-01-01
+  jwt:
+    secret: ${JWT_SECRET:eb36fabf9a4245f0e94e981537361065878f2b21d557f75b0137343b7de06f80}
+    expiry-minutes: ${JWT_EXPIRY_MINUTES:720}

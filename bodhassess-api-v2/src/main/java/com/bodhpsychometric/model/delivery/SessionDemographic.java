@@ -10,8 +10,8 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 
+import com.bodhpsychometric.auth.base.BaseEntity;
 import com.bodhpsychometric.model.assessment.DemographicField;
-import com.bodhpsychometric.model.base.BaseEntity;
 
 /**
  * One demographic answer captured at attempt start. Per-attempt (re-entered

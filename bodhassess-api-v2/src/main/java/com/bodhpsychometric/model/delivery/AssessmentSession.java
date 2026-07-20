@@ -15,9 +15,9 @@ import jakarta.persistence.OneToMany;
 import jakarta.persistence.OrderBy;
 import jakarta.persistence.Table;
 
+import com.bodhpsychometric.auth.User;
+import com.bodhpsychometric.auth.base.SoftDeletableEntity;
 import com.bodhpsychometric.model.assessment.Assessment;
-import com.bodhpsychometric.model.base.SoftDeletableEntity;
-import com.bodhpsychometric.model.auth.User;
 
 /**
  * One respondent's engagement with one assessment (was portal_sessions).
@@ -36,6 +36,8 @@ import com.bodhpsychometric.model.auth.User;
         indexes = {
                 @Index(name = "idxSessionAssessment", columnList = "assessmentId"),
                 @Index(name = "idxSessionUser", columnList = "userId"),
+                @Index(name = "idxSessionOrganization", columnList = "organizationId"),
+                @Index(name = "idxSessionGroup", columnList = "groupId")
         })
 public class AssessmentSession extends SoftDeletableEntity {
 
