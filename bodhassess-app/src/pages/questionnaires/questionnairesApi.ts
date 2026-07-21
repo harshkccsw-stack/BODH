@@ -84,6 +84,40 @@ function setQuestionnaireDemographicFields(
   );
 }
 
+// ── Sections ───────────────────────────────────────────────────────────────
+/** Matches SectionResponse on the backend. */
+export interface SectionResponse {
+  sectionId: number;
+  name: string;
+  instruction: string | null;
+}
+
+function getQuestionnaireSections(questionnaireId: number) {
+  return axios.get<SectionResponse[]>(`${API_URL}/questionnaire/${questionnaireId}/sections`);
+}
+
+function createQuestionnaireSection(questionnaireId: number, payload: { name: string; instruction: string | null }) {
+  return axios.post<SectionResponse>(`${API_URL}/questionnaire/${questionnaireId}/sections`, payload);
+}
+
+/** Questions in the section survive — they detach to the questionnaire root. */
+function deleteQuestionnaireSection(questionnaireId: number, sectionId: number) {
+  return axios.delete<void>(`${API_URL}/questionnaire/${questionnaireId}/sections/${sectionId}`);
+}
+
+// ── Question mapping ───────────────────────────────────────────────────────
+/** Matches QuestionnaireQuestionRequest; the PUT carries the full mapping. */
+export interface QuestionnaireQuestionEntry {
+  questionId: number;
+  sectionId: number | null;
+  sortOrder: number;
+}
+
+/** Replace-all: attaches listed bank questions, detaches everything else. */
+function setQuestionnaireQuestions(questionnaireId: number, entries: QuestionnaireQuestionEntry[]) {
+  return axios.put<{ attached: number }>(`${API_URL}/questionnaire/${questionnaireId}/questions`, entries);
+}
+
 export const questionnairesApi = {
   getQuestionnaires,
   getQuestionnaireById,
@@ -92,4 +126,8 @@ export const questionnairesApi = {
   deleteQuestionnaire,
   getQuestionnaireDemographicFields,
   setQuestionnaireDemographicFields,
+  getQuestionnaireSections,
+  createQuestionnaireSection,
+  deleteQuestionnaireSection,
+  setQuestionnaireQuestions,
 };

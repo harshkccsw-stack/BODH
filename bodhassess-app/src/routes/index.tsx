@@ -110,6 +110,7 @@ const IndustrialCompetency     = lazyPage(() => import('@/pages/industrial/compe
 const IndustrialProctoring     = lazyPage(() => import('@/pages/industrial/proctoring'));
 
 const QuestionBank             = lazyPage(() => import('@/pages/question-bank/item-explorer'));
+const QuestionBankQuestions    = lazyPage(() => import('@/pages/question-bank/questions'));
 const QuestionBankCalibration  = lazyPage(() => import('@/pages/question-bank/calibration'));
 const QuestionBankCreate       = lazyPage(() => import('@/pages/question-bank/create-questionnaire'));
 const QuestionBankNorms        = lazyPage(() => import('@/pages/question-bank/norms'));
@@ -261,6 +262,7 @@ const routes: RouteObject[] = [
       { path: '/industrial/proctoring', element: <IndustrialProctoring /> },
 
       { path: '/question-bank', element: <QuestionBank /> },
+      { path: '/question-bank/questions', element: <QuestionBankQuestions /> },
       { path: '/question-bank/calibration', element: <QuestionBankCalibration /> },
       { path: '/question-bank/create', element: <QuestionBankCreate /> },
       { path: '/question-bank/norms', element: <QuestionBankNorms /> },

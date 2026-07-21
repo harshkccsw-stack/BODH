@@ -21,14 +21,21 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.bodhpsychometric.dto.QuestionnaireDemographicFieldRequest;
 import com.bodhpsychometric.dto.QuestionnaireDemographicFieldResponse;
+import com.bodhpsychometric.dto.QuestionnaireQuestionRequest;
 import com.bodhpsychometric.dto.QuestionnaireRequest;
 import com.bodhpsychometric.dto.QuestionnaireResponse;
+import com.bodhpsychometric.dto.SectionRequest;
+import com.bodhpsychometric.dto.SectionResponse;
 import com.bodhpsychometric.model.demographics.DemographicField;
 import com.bodhpsychometric.model.demographics.QuestionnaireDemographicField;
+import com.bodhpsychometric.model.question.Question;
 import com.bodhpsychometric.model.questionnaire.Questionnaire;
+import com.bodhpsychometric.model.questionnaire.Section;
 import com.bodhpsychometric.repository.demographics.DemographicFieldRepository;
 import com.bodhpsychometric.repository.demographics.QuestionnaireDemographicFieldRepository;
+import com.bodhpsychometric.repository.question.QuestionRepository;
 import com.bodhpsychometric.repository.questionnaire.QuestionnaireRepository;
+import com.bodhpsychometric.repository.questionnaire.SectionRepository;
 
 import jakarta.validation.Valid;
 
@@ -51,6 +58,12 @@ public class QuestionnaireController {
 
     @Autowired
     private DemographicFieldRepository demographicFieldRepository;
+
+    @Autowired
+    private SectionRepository sectionRepository;
+
+    @Autowired
+    private QuestionRepository questionRepository;
 
     @GetMapping("/getAll")
     public List<QuestionnaireResponse> getAllQuestionnaires() {
@@ -88,13 +101,23 @@ public class QuestionnaireController {
 
     @DeleteMapping("/delete/{id}")
     public ResponseEntity<Void> deleteQuestionnaire(@PathVariable Long id) {
-        if (!questionnaireRepository.existsById(id)) {
+        Questionnaire questionnaire = questionnaireRepository.findById(id).orElse(null);
+        if (questionnaire == null) {
             return ResponseEntity.notFound().build();
         }
-        // Questions and their options cascade with the questionnaire. Sections
-        // deliberately do not — a questionnaire that still has Section rows
-        // will be refused by the FK until its sections are removed.
-        questionnaireRepository.deleteById(id);
+        // Questions are independent bank items: detach them (FK to null) so
+        // they survive the questionnaire. Sections still FK-block until
+        // removed.
+        for (Question question : List.copyOf(questionnaire.getQuestions())) {
+            question.setQuestionnaire(null);
+        }
+        questionnaire.getQuestions().clear();
+        // The demographic-field form config belongs to this questionnaire and
+        // goes with it — the registry fields themselves are untouched. Flush
+        // so the mapping rows are gone before the questionnaire row delete.
+        questionnaireDemographicFieldRepository.deleteByQuestionnaireQuestionnaireId(id);
+        questionnaireDemographicFieldRepository.flush();
+        questionnaireRepository.delete(questionnaire);
         return ResponseEntity.noContent().build();
     }
 
@@ -155,6 +178,125 @@ public class QuestionnaireController {
                 questionnaireDemographicFieldRepository.saveAll(rows).stream()
                         .map(QuestionnaireDemographicFieldResponse::from)
                         .toList());
+    }
+
+    // ── Sections ──────────────────────────────────────────────────────────
+
+    @GetMapping("/{id}/sections")
+    public ResponseEntity<List<SectionResponse>> getSections(@PathVariable Long id) {
+        if (!questionnaireRepository.existsById(id)) {
+            return ResponseEntity.notFound().build();
+        }
+        return ResponseEntity.ok(
+                sectionRepository.findByQuestionnaire_QuestionnaireIdOrderBySectionIdAsc(id).stream()
+                        .map(SectionResponse::from)
+                        .toList());
+    }
+
+    @PostMapping("/{id}/sections")
+    public ResponseEntity<SectionResponse> createSection(@PathVariable Long id,
+            @Valid @RequestBody SectionRequest request) {
+        Questionnaire questionnaire = questionnaireRepository.findById(id).orElse(null);
+        if (questionnaire == null) {
+            return ResponseEntity.notFound().build();
+        }
+        Section section = new Section();
+        section.setQuestionnaire(questionnaire);
+        section.setName(request.name().trim());
+        section.setInstruction(request.instruction());
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(SectionResponse.from(sectionRepository.save(section)));
+    }
+
+    /**
+     * Deletes a section. Its questions are NOT deleted — they detach from
+     * the section (staying attached to the questionnaire) so the author can
+     * re-place them; Section itself has no cascade by design.
+     */
+    @DeleteMapping("/{id}/sections/{sectionId}")
+    public ResponseEntity<Void> deleteSection(@PathVariable Long id, @PathVariable Long sectionId) {
+        Section section = sectionRepository.findById(sectionId).orElse(null);
+        if (section == null || !section.getQuestionnaire().getQuestionnaireId().equals(id)) {
+            return ResponseEntity.notFound().build();
+        }
+        for (Question question : questionRepository.findBySectionSectionId(sectionId)) {
+            question.setSection(null);
+        }
+        questionRepository.flush();
+        sectionRepository.delete(section);
+        return ResponseEntity.noContent().build();
+    }
+
+    // ── Question mapping ──────────────────────────────────────────────────
+
+    /**
+     * Replace which bank questions make up this questionnaire, where, and in
+     * what order. Full-state PUT: entries not previously attached are
+     * attached, previously attached questions missing from the list are
+     * detached back to the bank. Questions attached to a DIFFERENT
+     * questionnaire are refused, never stolen.
+     */
+    @PutMapping("/{id}/questions")
+    public ResponseEntity<?> setQuestions(@PathVariable Long id,
+            @RequestBody List<QuestionnaireQuestionRequest> entries) {
+        Questionnaire questionnaire = questionnaireRepository.findById(id).orElse(null);
+        if (questionnaire == null) {
+            return ResponseEntity.notFound().build();
+        }
+        Set<Long> validSections = new HashSet<>();
+        Map<Long, Section> sectionById = new java.util.HashMap<>();
+        for (Section s : sectionRepository.findByQuestionnaire_QuestionnaireIdOrderBySectionIdAsc(id)) {
+            validSections.add(s.getSectionId());
+            sectionById.put(s.getSectionId(), s);
+        }
+
+        Set<Long> seen = new HashSet<>();
+        List<Question> resolved = new ArrayList<>();
+        for (QuestionnaireQuestionRequest entry : entries) {
+            if (entry.questionId() == null || !seen.add(entry.questionId())) {
+                return ResponseEntity.badRequest().body(Map.of("message", "missing or duplicate questionId"));
+            }
+            if (questionnaire.isHasSections()) {
+                if (entry.sectionId() == null || !validSections.contains(entry.sectionId())) {
+                    return ResponseEntity.badRequest().body(Map.of("message",
+                            "sectionId is required and must belong to this questionnaire (questionId "
+                                    + entry.questionId() + ")"));
+                }
+            } else if (entry.sectionId() != null) {
+                return ResponseEntity.badRequest().body(Map.of("message",
+                        "this questionnaire has no sections — sectionId must be null"));
+            }
+            Question question = questionRepository.findById(entry.questionId()).orElse(null);
+            if (question == null) {
+                return ResponseEntity.badRequest().body(Map.of("message",
+                        "unknown questionId " + entry.questionId()));
+            }
+            Long attachedTo = question.getQuestionnaire() == null ? null
+                    : question.getQuestionnaire().getQuestionnaireId();
+            if (attachedTo != null && !attachedTo.equals(id)) {
+                return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("message",
+                        "question " + entry.questionId() + " is attached to another questionnaire"));
+            }
+            resolved.add(question);
+        }
+
+        // Detach everything currently attached but absent from the new list.
+        for (Question attached : questionRepository
+                .findByQuestionnaireQuestionnaireIdOrderBySortOrderAscQuestionIdAsc(id)) {
+            if (!seen.contains(attached.getQuestionId())) {
+                attached.setQuestionnaire(null);
+                attached.setSection(null);
+                attached.setSortOrder(null);
+            }
+        }
+        for (int i = 0; i < entries.size(); i++) {
+            QuestionnaireQuestionRequest entry = entries.get(i);
+            Question question = resolved.get(i);
+            question.setQuestionnaire(questionnaire);
+            question.setSection(entry.sectionId() == null ? null : sectionById.get(entry.sectionId()));
+            question.setSortOrder(entry.sortOrder() == null ? i : entry.sortOrder());
+        }
+        return ResponseEntity.ok(Map.of("attached", entries.size()));
     }
 
     private void apply(Questionnaire q, QuestionnaireRequest request) {
