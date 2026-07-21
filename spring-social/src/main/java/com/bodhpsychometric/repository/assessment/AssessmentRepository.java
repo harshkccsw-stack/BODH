@@ -6,4 +6,5 @@ import com.bodhpsychometric.model.assessment.Assessment;
 
 public interface AssessmentRepository extends JpaRepository<Assessment, Long> {
 
+    long countByQuestionnaireQuestionnaireId(Long questionnaireId);
 }

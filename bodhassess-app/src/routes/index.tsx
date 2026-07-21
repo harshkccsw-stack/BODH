@@ -67,8 +67,10 @@ const Qualities          = lazyPage(() => import('@/pages/MeasuredQuality/qualit
 
 const AdminGroups        = lazyPage(() => import('@/pages/admin/groups'));
 const AdminPermissions   = lazyPage(() => import('@/pages/admin/permissions'));
-const AdminPractitioners = lazyPage(() => import('@/pages/admin/practitioners'));
-const AdminRespondents          = lazyPage(() => import('@/pages/admin/respondents'));
+// New-dialect practitioners page wired to spring-social (/api/practitioners).
+const AdminPractitioners = lazyPage(() => import('@/pages/Practitioner/practitioners'));
+// New-dialect respondents page wired to spring-social (/api/respondents).
+const AdminRespondents          = lazyPage(() => import('@/pages/Respondent/respondents'));
 const AdminEntityRegistrations  = lazyPage(() => import('@/pages/admin/entity-registrations'));
 const AdminEntityDrillIn        = lazyPage(() => import('@/pages/admin/entity-drill-in'));
 const AdminRoles         = lazyPage(() => import('@/pages/admin/roles'));
@@ -76,6 +78,8 @@ const AdminLiveTracking  = lazyPage(() => import('@/pages/admin/live-tracking'))
 const AdminDataGrid      = lazyPage(() => import('@/pages/admin/data-grid'));
 
 const Assessments              = lazyPage(() => import('@/pages/assessments/all-assessments'));
+// New-dialect catalog page wired to spring-social (Assessment Library group).
+const AssessmentLibrary        = lazyPage(() => import('@/pages/assessments/assessment-library'));
 const AssessmentsCreate        = lazyPage(() => import('@/pages/assessments/create-assessment'));
 const AssessmentsEdit          = lazyPage(() => import('@/pages/assessments/edit-assessment'));
 const AssessmentsBatch         = lazyPage(() => import('@/pages/assessments/batch-upload'));
@@ -119,6 +123,7 @@ const QuestionBankNorms        = lazyPage(() => import('@/pages/question-bank/no
 // it reads the pathname to pre-filter. Versioning (parents/versions) is gone.
 const Questionnaires             = lazyPage(() => import('@/pages/questionnaires/all-questionnaires'));
 const QuestionnairesDemographics = lazyPage(() => import('@/pages/questionnaires/demographics'));
+const QuestionnairePreview       = lazyPage(() => import('@/pages/questionnaires/preview'));
 
 const Reports             = lazyPage(() => import('@/pages/reports/all-reports'));
 const ReportsResponses    = lazyPage(() => import('@/pages/reports/response-sheets'));
@@ -222,8 +227,9 @@ const routes: RouteObject[] = [
       { path: '/admin/live-tracking', element: <AdminLiveTracking /> },
       { path: '/admin/data-grid', element: <AdminDataGrid /> },
 
-      { path: '/assessments', element: <Assessments /> },
-      { path: '/assessments/create', element: <AssessmentsCreate /> },
+      { path: '/assessment-library/assessments', element: <AssessmentLibrary /> },
+      // { path: '/assessments', element: <Assessments /> },
+      // { path: '/assessments/create', element: <AssessmentsCreate /> },
       { path: '/assessments/edit/:id', element: <AssessmentsEdit /> },
       { path: '/assessments/batch', element: <AssessmentsBatch /> },
       // Browse assessments grouped by the bulk-create group key + drill in
@@ -271,6 +277,7 @@ const routes: RouteObject[] = [
       { path: '/questionnaires/clinical', element: <Questionnaires /> },
       { path: '/questionnaires/counselling', element: <Questionnaires /> },
       { path: '/questionnaires/demographics', element: <QuestionnairesDemographics /> },
+      { path: '/questionnaires/:id/preview', element: <QuestionnairePreview /> },
       { path: '/questionnaires/experimental', element: <Questionnaires /> },
       { path: '/questionnaires/industrial', element: <Questionnaires /> },
 

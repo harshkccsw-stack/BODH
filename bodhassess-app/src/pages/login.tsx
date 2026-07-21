@@ -57,6 +57,13 @@ export default function LoginPage() {
       const msg = String(err?.message || '');
       if (msg.includes('401')) {
         setError('Invalid email/phone or date of birth.');
+      } else if (msg.includes('403')) {
+        // Server-side gate: dashboard tokens are only issued to practitioner
+        // (or superadmin) accounts — respondent-only accounts belong to the
+        // assessment portal.
+        setError(msg.includes('disabled')
+          ? 'This account is disabled.'
+          : 'Only practitioner accounts can sign in to the dashboard.');
       } else {
         setError('Login failed — the API may be unreachable.');
       }

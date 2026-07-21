@@ -1,10 +1,6 @@
 package com.bodhpsychometric.model.questionnaire;
 
-import java.util.ArrayList;
-import java.util.List;
-
 import com.bodhpsychometric.model.auth.enums.Vertical;
-import com.bodhpsychometric.model.question.Question;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -12,8 +8,6 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.Id;
-import jakarta.persistence.OneToMany;
-import jakarta.persistence.OrderBy;
 import jakarta.persistence.Table;
 
 @Entity  
@@ -79,15 +73,9 @@ public class Questionnaire implements java.io.Serializable {
     @Column(name = "scoringModel", length = 32)
     private String scoringModel;
 
-    /**
-     * Inverse side of Questionnaire 1—* Question. Questions are independent
-     * bank items that get ATTACHED here — no cascade on purpose: deleting a
-     * questionnaire must never delete bank questions, and removeQuestion is a
-     * detach (FK set null), not a delete.
-     */
-    @OneToMany(mappedBy = "questionnaire")
-    @OrderBy("questionId ASC")
-    private List<Question> questions = new ArrayList<>();
+    // Which bank questions appear here (and where) lives in
+    // QuestionnaireQuestion rows — a question can be in many questionnaires,
+    // so no collection on either side.
 
     public Long getQuestionnaireId() {
         return questionnaireId;
@@ -157,22 +145,4 @@ public class Questionnaire implements java.io.Serializable {
         this.hasSections = hasSections;
     }
 
-    public List<Question> getQuestions() {
-        return questions;
-    }
-
-    public void setQuestions(List<Question> questions) {
-        this.questions = questions;
-    }
-
-    /** Keeps both sides of the bidirectional link in sync. */
-    public void addQuestion(Question question) {
-        questions.add(question);
-        question.setQuestionnaire(this);
-    }
-
-    public void removeQuestion(Question question) {
-        questions.remove(question);
-        question.setQuestionnaire(null);
-    }
 }

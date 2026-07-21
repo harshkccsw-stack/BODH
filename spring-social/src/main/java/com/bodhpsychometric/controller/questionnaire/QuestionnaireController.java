@@ -30,10 +30,13 @@ import com.bodhpsychometric.model.demographics.DemographicField;
 import com.bodhpsychometric.model.demographics.QuestionnaireDemographicField;
 import com.bodhpsychometric.model.question.Question;
 import com.bodhpsychometric.model.questionnaire.Questionnaire;
+import com.bodhpsychometric.model.questionnaire.QuestionnaireQuestion;
 import com.bodhpsychometric.model.questionnaire.Section;
+import com.bodhpsychometric.repository.assessment.AssessmentRepository;
 import com.bodhpsychometric.repository.demographics.DemographicFieldRepository;
 import com.bodhpsychometric.repository.demographics.QuestionnaireDemographicFieldRepository;
 import com.bodhpsychometric.repository.question.QuestionRepository;
+import com.bodhpsychometric.repository.questionnaire.QuestionnaireQuestionRepository;
 import com.bodhpsychometric.repository.questionnaire.QuestionnaireRepository;
 import com.bodhpsychometric.repository.questionnaire.SectionRepository;
 
@@ -65,17 +68,27 @@ public class QuestionnaireController {
     @Autowired
     private QuestionRepository questionRepository;
 
+    @Autowired
+    private QuestionnaireQuestionRepository questionnaireQuestionRepository;
+
+    @Autowired
+    private AssessmentRepository assessmentRepository;
+
+    private int questionCountOf(Long questionnaireId) {
+        return (int) questionnaireQuestionRepository.countByQuestionnaireQuestionnaireId(questionnaireId);
+    }
+
     @GetMapping("/getAll")
     public List<QuestionnaireResponse> getAllQuestionnaires() {
         return questionnaireRepository.findAll().stream()
-                .map(QuestionnaireResponse::from)
+                .map(q -> QuestionnaireResponse.from(q, questionCountOf(q.getQuestionnaireId())))
                 .toList();
     }
 
     @GetMapping("/getById/{id}")
     public ResponseEntity<QuestionnaireResponse> getQuestionnaireById(@PathVariable Long id) {
         return questionnaireRepository.findById(id)
-                .map(q -> ResponseEntity.ok(QuestionnaireResponse.from(q)))
+                .map(q -> ResponseEntity.ok(QuestionnaireResponse.from(q, questionCountOf(id))))
                 .orElse(ResponseEntity.notFound().build());
     }
 
@@ -85,7 +98,7 @@ public class QuestionnaireController {
         Questionnaire q = new Questionnaire();
         apply(q, request);
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(QuestionnaireResponse.from(questionnaireRepository.save(q)));
+                .body(QuestionnaireResponse.from(questionnaireRepository.save(q), 0));
     }
 
     @PutMapping("/update/{id}")
@@ -94,29 +107,34 @@ public class QuestionnaireController {
         return questionnaireRepository.findById(id)
                 .map(q -> {
                     apply(q, request);
-                    return ResponseEntity.ok(QuestionnaireResponse.from(questionnaireRepository.save(q)));
+                    return ResponseEntity.ok(
+                            QuestionnaireResponse.from(questionnaireRepository.save(q), questionCountOf(id)));
                 })
                 .orElse(ResponseEntity.notFound().build());
     }
 
     @DeleteMapping("/delete/{id}")
-    public ResponseEntity<Void> deleteQuestionnaire(@PathVariable Long id) {
+    public ResponseEntity<?> deleteQuestionnaire(@PathVariable Long id) {
         Questionnaire questionnaire = questionnaireRepository.findById(id).orElse(null);
         if (questionnaire == null) {
             return ResponseEntity.notFound().build();
         }
-        // Questions are independent bank items: detach them (FK to null) so
-        // they survive the questionnaire. Sections still FK-block until
-        // removed.
-        for (Question question : List.copyOf(questionnaire.getQuestions())) {
-            question.setQuestionnaire(null);
+        // Assessments FK-reference the questionnaire they offer; deleting the
+        // questionnaire under them would orphan live configuration.
+        long assessments = assessmentRepository.countByQuestionnaireQuestionnaireId(id);
+        if (assessments > 0) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("message",
+                    "questionnaire backs " + assessments + " assessment(s) — delete those assessments first"));
         }
-        questionnaire.getQuestions().clear();
-        // The demographic-field form config belongs to this questionnaire and
-        // goes with it — the registry fields themselves are untouched. Flush
-        // so the mapping rows are gone before the questionnaire row delete.
+        // Placements, form config and sections belong to this questionnaire
+        // and go with it; bank questions and registry fields are untouched.
+        // Flush placements before sections so nothing FK-blocks.
+        questionnaireQuestionRepository.deleteByQuestionnaireQuestionnaireId(id);
         questionnaireDemographicFieldRepository.deleteByQuestionnaireQuestionnaireId(id);
+        questionnaireQuestionRepository.flush();
         questionnaireDemographicFieldRepository.flush();
+        sectionRepository.deleteAll(sectionRepository.findByQuestionnaire_QuestionnaireIdOrderBySectionIdAsc(id));
+        sectionRepository.flush();
         questionnaireRepository.delete(questionnaire);
         return ResponseEntity.noContent().build();
     }
@@ -219,10 +237,10 @@ public class QuestionnaireController {
         if (section == null || !section.getQuestionnaire().getQuestionnaireId().equals(id)) {
             return ResponseEntity.notFound().build();
         }
-        for (Question question : questionRepository.findBySectionSectionId(sectionId)) {
-            question.setSection(null);
+        for (QuestionnaireQuestion placement : questionnaireQuestionRepository.findBySectionSectionId(sectionId)) {
+            placement.setSection(null);
         }
-        questionRepository.flush();
+        questionnaireQuestionRepository.flush();
         sectionRepository.delete(section);
         return ResponseEntity.noContent().build();
     }
@@ -230,11 +248,10 @@ public class QuestionnaireController {
     // ── Question mapping ──────────────────────────────────────────────────
 
     /**
-     * Replace which bank questions make up this questionnaire, where, and in
-     * what order. Full-state PUT: entries not previously attached are
-     * attached, previously attached questions missing from the list are
-     * detached back to the bank. Questions attached to a DIFFERENT
-     * questionnaire are refused, never stolen.
+     * Replace this questionnaire's placements with exactly this list. A bank
+     * question may appear in MANY questionnaires — the duplicate check (and
+     * the DB's unique pair) only forbids the same question twice in THIS one.
+     * An empty list clears the questionnaire.
      */
     @PutMapping("/{id}/questions")
     public ResponseEntity<?> setQuestions(@PathVariable Long id,
@@ -254,7 +271,8 @@ public class QuestionnaireController {
         List<Question> resolved = new ArrayList<>();
         for (QuestionnaireQuestionRequest entry : entries) {
             if (entry.questionId() == null || !seen.add(entry.questionId())) {
-                return ResponseEntity.badRequest().body(Map.of("message", "missing or duplicate questionId"));
+                return ResponseEntity.badRequest().body(Map.of("message",
+                        "missing or duplicate questionId — a question can appear only once per questionnaire"));
             }
             if (questionnaire.isHasSections()) {
                 if (entry.sectionId() == null || !validSections.contains(entry.sectionId())) {
@@ -271,31 +289,25 @@ public class QuestionnaireController {
                 return ResponseEntity.badRequest().body(Map.of("message",
                         "unknown questionId " + entry.questionId()));
             }
-            Long attachedTo = question.getQuestionnaire() == null ? null
-                    : question.getQuestionnaire().getQuestionnaireId();
-            if (attachedTo != null && !attachedTo.equals(id)) {
-                return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("message",
-                        "question " + entry.questionId() + " is attached to another questionnaire"));
-            }
             resolved.add(question);
         }
 
-        // Detach everything currently attached but absent from the new list.
-        for (Question attached : questionRepository
-                .findByQuestionnaireQuestionnaireIdOrderBySortOrderAscQuestionIdAsc(id)) {
-            if (!seen.contains(attached.getQuestionId())) {
-                attached.setQuestionnaire(null);
-                attached.setSection(null);
-                attached.setSortOrder(null);
-            }
-        }
+        questionnaireQuestionRepository.deleteByQuestionnaireQuestionnaireId(id);
+        // Flush the deletes now: Hibernate orders INSERTs before DELETEs at
+        // commit, which would trip the unique (questionnaireId, questionId)
+        // pair for every question that stays placed.
+        questionnaireQuestionRepository.flush();
+        List<QuestionnaireQuestion> rows = new ArrayList<>();
         for (int i = 0; i < entries.size(); i++) {
             QuestionnaireQuestionRequest entry = entries.get(i);
-            Question question = resolved.get(i);
-            question.setQuestionnaire(questionnaire);
-            question.setSection(entry.sectionId() == null ? null : sectionById.get(entry.sectionId()));
-            question.setSortOrder(entry.sortOrder() == null ? i : entry.sortOrder());
+            QuestionnaireQuestion row = new QuestionnaireQuestion();
+            row.setQuestionnaire(questionnaire);
+            row.setQuestion(resolved.get(i));
+            row.setSection(entry.sectionId() == null ? null : sectionById.get(entry.sectionId()));
+            row.setSortOrder(entry.sortOrder() == null ? i : entry.sortOrder());
+            rows.add(row);
         }
+        questionnaireQuestionRepository.saveAll(rows);
         return ResponseEntity.ok(Map.of("attached", entries.size()));
     }
 

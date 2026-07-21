@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   Clock,
+  Eye,
   FileText,
   Layers,
   ListChecks,
@@ -235,6 +236,15 @@ export default function AllQuestionnairesPage() {
                       {q.vertical.charAt(0) + q.vertical.slice(1).toLowerCase()}
                     </span>
                   )}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    mode="icon"
+                    onClick={(e) => { e.stopPropagation(); navigate(`/questionnaires/${q.questionnaireId}/preview`); }}
+                    title="Preview questionnaire"
+                  >
+                    <Eye className="h-3.5 w-3.5" />
+                  </Button>
                   <Button
                     variant="ghost"
                     size="sm"

@@ -4,8 +4,9 @@ import com.bodhpsychometric.model.auth.enums.Vertical;
 import com.bodhpsychometric.model.questionnaire.Questionnaire;
 
 /**
- * Catalog view of a questionnaire. questionCount walks the lazy questions
- * collection — callers must build this inside a transaction.
+ * Catalog view of a questionnaire. questionCount is the number of
+ * QuestionnaireQuestion placements — the caller counts via repository, since
+ * the entity holds no questions collection anymore.
  */
 public record QuestionnaireResponse(
         Long questionnaireId,
@@ -19,7 +20,7 @@ public record QuestionnaireResponse(
         boolean hasSections,
         int questionCount) {
 
-    public static QuestionnaireResponse from(Questionnaire q) {
+    public static QuestionnaireResponse from(Questionnaire q, int questionCount) {
         return new QuestionnaireResponse(
                 q.getQuestionnaireId(),
                 q.getName(),
@@ -30,6 +31,6 @@ public record QuestionnaireResponse(
                 q.getDurationMinutes(),
                 q.getGeneralInstruction(),
                 q.isHasSections(),
-                q.getQuestions().size());
+                questionCount);
     }
 }

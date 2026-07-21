@@ -5,8 +5,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import com.bodhpsychometric.model.question.Question;
 
 public interface QuestionRepository extends JpaRepository<Question, Long> {
-
-    java.util.List<Question> findByQuestionnaireQuestionnaireIdOrderBySortOrderAscQuestionIdAsc(Long questionnaireId);
-
-    java.util.List<Question> findBySectionSectionId(Long sectionId);
+    // Placement queries live on QuestionnaireQuestionRepository — a bank
+    // question carries no attachment state of its own.
 }
