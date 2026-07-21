@@ -23,8 +23,10 @@ import {
   X,
   Youtube,
 } from 'lucide-react';
-import { getMQs, getQuestionnaires, getVerticals, BUILT_IN_VERTICALS, type MQ as StoredMQ, type StoredQuestionnaire, type Vertical as StoredVertical } from '@/lib/data-store';
-import { demographicFieldsApi, verticalsApi, API_BASE, type DemographicField } from '@/lib/api';
+import { getMQs, getQuestionnaires, type MQ as StoredMQ, type StoredQuestionnaire } from '@/lib/data-store';
+import { API_BASE } from '@/lib/api';
+import { questionnairesApi } from '@/pages/questionnaires/questionnairesApi';
+import { demographicsApi, type DemographicFieldResponse } from '@/pages/questionnaires/demographicsApi';
 
 // --- Types ---
 
@@ -286,194 +288,64 @@ export default function CreateAssessmentPage() {
     getMQs().then(setCatalog).catch(() => setCatalog([]));
   }, []);
 
-  // Demographic field catalog — fetched once so Step 1 can offer a per-questionnaire subset.
-  const [demoFieldCatalog, setDemoFieldCatalog] = useState<DemographicField[]>([]);
-  const [demoFieldKeys, setDemoFieldKeys] = useState<string[]>([]);
+  // Demographic field registry (spring-social) — Step 1 maps a subset onto
+  // this questionnaire. Selection order becomes the form's sortOrder.
+  const [demoFieldCatalog, setDemoFieldCatalog] = useState<DemographicFieldResponse[]>([]);
+  const [demoSelection, setDemoSelection] = useState<Array<{ demographicFieldId: number; required: boolean }>>([]);
 
   useEffect(() => {
-    demographicFieldsApi.list(true).then(setDemoFieldCatalog).catch(() => setDemoFieldCatalog([]));
+    demographicsApi.getDemographicFields()
+      .then((r) => setDemoFieldCatalog(r.data))
+      .catch(() => setDemoFieldCatalog([]));
   }, []);
 
-  // ---- Edit mode: load an existing questionnaire from the API ----
+  // ---- Edit mode: ?edit=<id> loads the catalog entry from the new API ----
   const [editMode, setEditMode] = useState(false);
   useEffect(() => {
     (async () => {
+      const params = new URLSearchParams(window.location.search);
+      const editKey = params.get('edit');
+      if (!editKey) return;
+      const id = Number(editKey);
+      if (!Number.isInteger(id)) {
+        setError(`Invalid questionnaire id "${editKey}".`);
+        return;
+      }
       try {
-        const params = new URLSearchParams(window.location.search);
-        const editKey = params.get('edit');
-        if (!editKey) return;
-        const { questionnairesApi } = await import('@/lib/api');
-        let match;
+        const res = await questionnairesApi.getQuestionnaireById(id);
+        const q = res.data;
+        setInstName(q.name || '');
+        setInstShortName(q.shortName || '');
+        setInstVertical((q.vertical || 'CLINICAL').toUpperCase());
+        setInstCategory(q.category || '');
+        setInstDescription(q.description || '');
+        setInstInstructions(q.generalInstruction || '');
+        setInstDuration(q.durationMinutes ?? 10);
+        setUseSections(q.hasSections);
+        setBackendQid(q.questionnaireId);
+        setQuestionnaireId(String(q.questionnaireId));
         try {
-          match = await questionnairesApi.getByName(editKey);
-        } catch (e) {
-          // 404 is expected when `editKey` is an id, not a name — fall through.
-          console.debug('[create-questionnaire] getByName failed, will try get:', e);
-        }
-        if (!match) {
-          try {
-            match = await questionnairesApi.get(editKey);
-          } catch (e) {
-            console.debug('[create-questionnaire] get failed too:', e);
-          }
-        }
-        if (!match) {
-          setError(`Could not find "${editKey}" in the Questionnaire Library.`);
-          return;
-        }
-        setInstName(match.name || '');
-        setInstShortName(match.shortName || '');
-        setInstVertical(String(match.vertical || 'CLINICAL').toUpperCase());
-        setInstCategory(match.category || '');
-        setInstDescription(match.description || '');
-        setInstDisclaimer(match.disclaimer || '');
-        setInstInstructions(match.instructions || '');
-        setInstShowInstructions(!!match.showInstructions);
-        if (Array.isArray(match.demographicFieldKeys)) {
-          setDemoFieldKeys(match.demographicFieldKeys);
-        }
-        setInstDuration(typeof match.duration === 'number' ? match.duration : 10);
-        setInstTier(typeof match.tier === 'string' && match.tier ? match.tier : 'T1');
-        if (Array.isArray(match.languages)) setInstLanguages(match.languages);
-        setQuestionnaireId(match.id || crypto.randomUUID());
-        if (Array.isArray(match.questions)) {
-          const loaded = match.questions.map((q: any) => ({
-            id: q.id || crypto.randomUUID(),
-            stem: String(q.stem || ''),
-            format: String(q.format || 'MCQ'),
-            media_url: String(q.media_url || ''),
-            media_type: (q.media_type || 'none') as MediaType,
-            options: Array.isArray(q.options)
-              ? q.options.map((o: any) => ({
-                  text: String(o.text || ''),
-                  scores: Array.isArray(o.scores) ? o.scores.map((s: any) => ({ mqt_id: s.mqt_id, score: Number(s.score) || 0 })) : [],
-                  media_url: o.media_url,
-                  media_type: o.media_type,
-                }))
-              : [],
-            question_scores: Array.isArray(q.question_scores)
-              ? q.question_scores.map((s: any) => ({ mqt_id: s.mqt_id, score: Number(s.score) || 0 }))
-              : [],
-            coverage: normalizeCoverage(q.coverage),
-            clinical_risk_flag: !!q.clinical_risk_flag,
-            risk_flag_rule: String(q.risk_flag_rule || ''),
-            sectionId: q.sectionId || undefined,
-            sectionTitle: q.sectionTitle || undefined,
-          }));
-          setQuestions(loaded);
-          // Rebuild sections state from the loaded questions, preserving order.
-          const seen = new Map<string, string>();
-          const order: string[] = [];
-          loaded.forEach((q: Question) => {
-            if (!q.sectionId) return;
-            if (!seen.has(q.sectionId)) {
-              seen.set(q.sectionId, q.sectionTitle || '');
-              order.push(q.sectionId);
-            }
-          });
-          if (order.length > 0) {
-            setSections(order.map((id) => ({ id, title: seen.get(id) || '' })));
-            setUseSections(true);
-          }
-        }
+          const m = await questionnairesApi.getQuestionnaireDemographicFields(id);
+          setDemoSelection(m.data.map((e) => ({ demographicFieldId: e.demographicFieldId, required: e.required })));
+        } catch { /* mapping is optional — an empty form is valid */ }
         setEditMode(true);
-        setStep(2);
-        setSuccess(`Editing "${match.name}" — changes will replace the existing questionnaire on publish.`);
+        setSuccess(`Editing "${q.name}" — Step 1 saves to the catalog when you continue.`);
       } catch (e: any) {
-        setError(`Failed to load questionnaire for editing: ${e?.message || 'unknown error'}`);
+        setError(`Failed to load questionnaire ${id}: ${e?.message || 'unknown error'}`);
       }
     })();
   }, []);
 
-  // ---- Verticals (built-in + user-created, synced with backend) ----
-  const [verticals, setVerticals] = useState<StoredVertical[]>(BUILT_IN_VERTICALS);
-  const [verticalOpen, setVerticalOpen] = useState(false);
-  const [verticalSearch, setVerticalSearch] = useState('');
-  const [newVerticalOpen, setNewVerticalOpen] = useState(false);
-  const [newVerticalForm, setNewVerticalForm] = useState({ name: '', code: '', description: '' });
-  const [newVerticalError, setNewVerticalError] = useState('');
-
-  useEffect(() => {
-    let active = true;
-    (async () => {
-      // Build the vertical list from three sources, deduped by code (uppercase):
-      //   1. /verticals API (built-ins + registered customs)
-      //   2. Published questionnaires' `vertical` field — picks up "orphan"
-      //      verticals whose POST to /verticals silently failed.
-      try {
-        const fromApi = await getVerticals();
-        const seen = new Set(fromApi.map((v) => v.code.toUpperCase()));
-        const merged: StoredVertical[] = [...fromApi];
-        try {
-          const { questionnairesApi } = await import('@/lib/api');
-          const qns = await questionnairesApi.list();
-          qns.forEach((q) => {
-            const code = String(q.vertical || '').trim().toUpperCase();
-            if (!code || seen.has(code)) return;
-            seen.add(code);
-            merged.push({
-              id: `v-orphan-${code.toLowerCase()}`,
-              code,
-              name: humanizeVerticalCode(code),
-              description: '',
-            });
-          });
-        } catch { /* questionnaires endpoint optional — skip on error */ }
-        if (active) setVerticals(merged);
-      } catch {
-        if (active) setVerticals(BUILT_IN_VERTICALS);
-      }
-    })();
-    return () => { active = false; };
-  }, []);
-
-  const filteredVerticals = useMemo(() => {
-    const q = verticalSearch.trim().toLowerCase();
-    if (!q) return verticals;
-    return verticals.filter(
-      (v) => v.name.toLowerCase().includes(q) || v.code.toLowerCase().includes(q),
-    );
-  }, [verticals, verticalSearch]);
-
-  const selectedVertical = useMemo(
-    () => verticals.find((v) => v.code === instVertical) || null,
-    [verticals, instVertical],
-  );
-
-  const openNewVertical = () => {
-    setNewVerticalForm({ name: '', code: '', description: '' });
-    setNewVerticalError('');
-    setNewVerticalOpen(true);
-  };
-
-  const submitNewVertical = async () => {
-    const name = newVerticalForm.name.trim();
-    const code = newVerticalForm.code.trim().toUpperCase().replace(/[^A-Z0-9_]/g, '_').slice(0, 64);
-    if (!name) { setNewVerticalError('Name is required'); return; }
-    if (!code) { setNewVerticalError('Code is required (A-Z, 0-9, underscore)'); return; }
-    if (verticals.some((v) => v.code === code)) { setNewVerticalError('A vertical with this code already exists'); return; }
-    const vertical: StoredVertical = {
-      id: `v-${code.toLowerCase()}-${Math.random().toString(36).slice(2, 6)}`,
-      code,
-      name,
-      description: newVerticalForm.description.trim(),
-    };
-    // Persist first so we know it survived a refresh. If the POST fails the
-    // user stays in the dialog with a visible error rather than thinking it
-    // was saved (and ending up with an orphan vertical on a published
-    // questionnaire — the "B" bug from earlier).
-    try {
-      await verticalsApi.create(vertical);
-    } catch (e: any) {
-      setNewVerticalError(`Couldn't save vertical: ${e?.message || 'network error'}`);
-      return;
-    }
-    setVerticals([...verticals, vertical]);
-    setInstVertical(code);
-    setNewVerticalOpen(false);
-    setVerticalOpen(false);
-    setVerticalSearch('');
-  };
+  // ---- Verticals: fixed backend enum — custom verticals are gone ----
+  const VERTICAL_OPTIONS = [
+    { code: 'CLINICAL', name: 'Clinical' },
+    { code: 'INDUSTRIAL', name: 'Industrial' },
+    { code: 'COUNSELLING', name: 'Counselling' },
+    { code: 'EXPERIMENTS', name: 'Experiments' },
+    { code: 'WHITELABEL', name: 'Whitelabel' },
+    { code: 'RESEARCH', name: 'Research' },
+    { code: 'OTHER', name: 'Other' },
+  ];
 
   const mqs: MQ[] = useMemo(
     () => catalog.map((m) => ({
@@ -487,6 +359,8 @@ export default function CreateAssessmentPage() {
   // Questions
   const [questions, setQuestions] = useState<Question[]>([]);
   const [instrumentId, setQuestionnaireId] = useState<string | null>(null);
+  // Numeric id of the catalog row Step 1 created/updated in spring-social.
+  const [backendQid, setBackendQid] = useState<number | null>(null);
 
   // Status
   const [saving, setSaving] = useState(false);
@@ -1730,7 +1604,7 @@ export default function CreateAssessmentPage() {
   // ---- Create/Save ----
 
   const handleCreateQuestionnaire = async () => {
-    if (!instName || !instVertical) {
+    if (!instName.trim() || !instVertical) {
       setError('Name and vertical are required');
       return;
     }
@@ -1742,13 +1616,39 @@ export default function CreateAssessmentPage() {
     } catch (e) {
       console.warn('[create-questionnaire] catalog refresh failed:', e);
     }
-    // No DB write here — the instrument is only persisted when the user
-    // clicks Publish in Step 2. This avoids leaving orphan rows behind if
-    // the user abandons the flow halfway.
-    setError('');
-    if (!instrumentId) setQuestionnaireId(crypto.randomUUID());
-    setStep(2);
-    setSuccess('');
+    // Step 1 persists the catalog entry (payload mirrors QuestionnaireRequest
+    // 1:1); Steps 2-3 attach questions and scoring to it.
+    const payload = {
+      name: instName.trim(),
+      shortName: instShortName.trim() || null,
+      category: instCategory.trim() || null,
+      vertical: instVertical,
+      description: instDescription.trim() || null,
+      durationMinutes: Number.isFinite(instDuration) ? instDuration : null,
+      generalInstruction: instInstructions.trim() || null,
+      hasSections: useSections,
+    };
+    setSaving(true);
+    try {
+      let qid = backendQid;
+      if (qid != null) {
+        await questionnairesApi.updateQuestionnaire(qid, payload);
+      } else {
+        const res = await questionnairesApi.createQuestionnaire(payload);
+        qid = res.data.questionnaireId;
+        setBackendQid(qid);
+        setQuestionnaireId(String(qid));
+      }
+      // Persist the demographic form mapping (replace-all; order = sortOrder).
+      await questionnairesApi.setQuestionnaireDemographicFields(qid, demoSelection);
+      setError('');
+      setSuccess('');
+      setStep(2);
+    } catch (e: any) {
+      setError(e?.response?.data?.message || e?.message || 'Failed to save questionnaire');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleSaveQuestions = async () => {
@@ -1811,7 +1711,7 @@ export default function CreateAssessmentPage() {
           ...(useSections && q.sectionId ? { sectionId: q.sectionId, sectionTitle: q.sectionTitle || '' } : {}),
         })),
         isDemo: false,
-        demographicFieldKeys: demoFieldKeys,
+        demographicFieldKeys: demoSelection.map((e) => String(e.demographicFieldId)),
       });
 
       // Also register the instrument in the /instruments catalog so it shows
@@ -1986,75 +1886,17 @@ export default function CreateAssessmentPage() {
                   <label className="text-sm font-medium">Short Name</label>
                   <input value={instShortName} onChange={(e) => setInstShortName(e.target.value)} placeholder="e.g., EGAT" className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" />
                 </div>
-                <div className="space-y-1.5 relative">
+                <div className="space-y-1.5">
                   <label className="text-sm font-medium">Vertical *</label>
-                  <button
-                    type="button"
-                    onClick={() => setVerticalOpen((v) => !v)}
-                    className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 flex items-center justify-between text-left"
+                  <select
+                    value={instVertical}
+                    onChange={(e) => setInstVertical(e.target.value)}
+                    className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
                   >
-                    <span className={cn(!selectedVertical && 'text-muted-foreground')}>
-                      {selectedVertical ? selectedVertical.name : 'Select a vertical'}
-                    </span>
-                    <ChevronRight className={cn('h-4 w-4 text-muted-foreground transition-transform', verticalOpen && 'rotate-90')} />
-                  </button>
-                  {verticalOpen && (
-                    <>
-                      <div className="fixed inset-0 z-40" onClick={() => setVerticalOpen(false)} />
-                      <div className="absolute left-0 right-0 top-full mt-1 z-50 rounded-lg border border-border bg-background shadow-lg overflow-hidden">
-                        <div className="p-2 border-b border-border">
-                          <div className="relative">
-                            <SearchIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-                            <input
-                              autoFocus
-                              value={verticalSearch}
-                              onChange={(e) => setVerticalSearch(e.target.value)}
-                              placeholder="Search verticals..."
-                              className="w-full rounded-md border border-border bg-background pl-8 pr-3 py-1.5 text-xs outline-none focus:border-primary"
-                            />
-                          </div>
-                        </div>
-                        <div className="max-h-56 overflow-y-auto">
-                          {filteredVerticals.length === 0 ? (
-                            <p className="px-3 py-4 text-xs text-muted-foreground text-center">No verticals match your search.</p>
-                          ) : (
-                            filteredVerticals.map((v) => {
-                              const selected = v.code === instVertical;
-                              return (
-                                <button
-                                  key={v.id}
-                                  type="button"
-                                  onClick={() => { setInstVertical(v.code); setVerticalOpen(false); setVerticalSearch(''); }}
-                                  className={cn(
-                                    'w-full text-left px-3 py-2 text-xs hover:bg-muted transition-colors flex items-center justify-between gap-2',
-                                    selected && 'bg-primary/5',
-                                  )}
-                                >
-                                  <div className="min-w-0">
-                                    <p className={cn('font-medium truncate', selected && 'text-primary')}>{v.name}</p>
-                                    <p className="text-[0.6875rem] text-muted-foreground truncate font-mono">
-                                      {v.code}{BUILT_IN_VERTICALS.some((b) => b.code === v.code) ? ' · built-in' : ''}
-                                    </p>
-                                  </div>
-                                  {selected && <Check className="h-3.5 w-3.5 text-primary shrink-0" />}
-                                </button>
-                              );
-                            })
-                          )}
-                        </div>
-                        <div className="border-t border-border p-1.5">
-                          <button
-                            type="button"
-                            onClick={() => { setNewVerticalOpen(true); setVerticalOpen(false); }}
-                            className="w-full flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs font-medium text-primary hover:bg-primary/5 transition-colors"
-                          >
-                            <Plus className="h-3.5 w-3.5" />
-                            Create new vertical
-                          </button>
-                        </div>
-                      </div>
-                    </>
-                  )}
+                    {VERTICAL_OPTIONS.map((v) => (
+                      <option key={v.code} value={v.code}>{v.name}</option>
+                    ))}
+                  </select>
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-sm font-medium">Category</label>
@@ -2062,13 +1904,7 @@ export default function CreateAssessmentPage() {
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-sm font-medium">Duration (minutes)</label>
-                  <input type="number" value={instDuration} onChange={(e) => setInstDuration(Number(e.target.value))} className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-sm font-medium">Tier Required</label>
-                  <select value={instTier} onChange={(e) => setInstTier(e.target.value)} className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
-                    {TIERS.map((t) => <option key={t} value={t}>{t}</option>)}
-                  </select>
+                  <input type="number" min={0} value={instDuration} onChange={(e) => setInstDuration(Number(e.target.value))} className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" />
                 </div>
               </div>
 
@@ -2078,65 +1914,33 @@ export default function CreateAssessmentPage() {
               </div>
 
               <div className="space-y-1.5">
-                <div className="flex items-center justify-between gap-3">
-                  <label className="text-sm font-medium">Disclaimer / Terms &amp; Conditions</label>
-                  <span className="text-[0.6875rem] text-muted-foreground">Optional — shown to respondents before they start</span>
-                </div>
+                <label className="text-sm font-medium">General Instruction</label>
                 <textarea
-                  value={instDisclaimer}
-                  onChange={(e) => setInstDisclaimer(e.target.value)}
-                  rows={6}
-                  placeholder="Paste or write any terms, confidentiality notes, or participation conditions here. If left empty, respondents go straight to the first question."
+                  value={instInstructions}
+                  onChange={(e) => setInstInstructions(e.target.value)}
+                  rows={4}
+                  placeholder="Optional — shown to the respondent before the first question. e.g. Read each question carefully. Answer honestly — there are no right or wrong answers."
                   className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
                 />
-                <p className="text-[0.6875rem] text-muted-foreground">
-                  When present, the respondent must tick <em>I agree &amp; continue</em> before the assessment starts.
-                </p>
               </div>
 
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between gap-3">
-                  <label className="flex items-center gap-2 text-sm font-medium">
-                    <input
-                      type="checkbox"
-                      checked={instShowInstructions}
-                      onChange={(e) => setInstShowInstructions(e.target.checked)}
-                      className="rounded"
-                    />
-                    Show Instructions to respondents
-                  </label>
-                  <span className="text-[0.6875rem] text-muted-foreground">Optional — guide respondents on how to take the assessment</span>
-                </div>
-                {instShowInstructions && (
-                  <>
-                    <textarea
-                      value={instInstructions}
-                      onChange={(e) => setInstInstructions(e.target.value)}
-                      rows={6}
-                      placeholder="e.g. Read each question carefully. Answer honestly — there are no right or wrong answers. Allow about 15 minutes to complete."
-                      className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-                    />
-                    <p className="text-[0.6875rem] text-muted-foreground">
-                      Shown on the portal between the disclaimer (if any) and the first question.
-                    </p>
-                  </>
-                )}
-              </div>
-
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between gap-3">
-                  <label className="text-sm font-medium">Pre-Assessment Demographic Fields</label>
+                  <label className="text-sm font-medium">Demographic Fields</label>
                   <div className="flex items-center gap-2">
                     <span className="text-[0.6875rem] text-muted-foreground">
-                      {demoFieldKeys.length === 0
-                        ? `Empty = all ${demoFieldCatalog.length} active fields`
-                        : `${demoFieldKeys.length} selected`}
+                      {demoSelection.length === 0
+                        ? 'None selected — respondents skip the demographic form'
+                        : `${demoSelection.length} selected`}
                     </span>
                     {demoFieldCatalog.length > 0 && (
                       <>
                         <button
                           type="button"
-                          onClick={() => setDemoFieldKeys(demoFieldCatalog.map((f) => f.fieldKey))}
+                          onClick={() => setDemoSelection(demoFieldCatalog.map((f) => {
+                            const prev = demoSelection.find((e) => e.demographicFieldId === f.demographicFieldId);
+                            return { demographicFieldId: f.demographicFieldId, required: prev?.required ?? false };
+                          }))}
                           className="text-[0.6875rem] font-medium text-primary hover:underline"
                         >
                           Select all
@@ -2144,7 +1948,7 @@ export default function CreateAssessmentPage() {
                         <span className="text-[0.6875rem] text-muted-foreground">·</span>
                         <button
                           type="button"
-                          onClick={() => setDemoFieldKeys([])}
+                          onClick={() => setDemoSelection([])}
                           className="text-[0.6875rem] font-medium text-primary hover:underline"
                         >
                           Clear
@@ -2161,76 +1965,70 @@ export default function CreateAssessmentPage() {
                   <div className="rounded-lg border border-border bg-background p-3">
                     <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
                       {demoFieldCatalog.map((f) => {
-                        const checked = demoFieldKeys.includes(f.fieldKey);
+                        const entry = demoSelection.find((e) => e.demographicFieldId === f.demographicFieldId);
                         return (
-                          <label
-                            key={f.id}
+                          <div
+                            key={f.demographicFieldId}
                             className={cn(
-                              'flex items-start gap-2 rounded-md border px-2.5 py-2 text-xs cursor-pointer transition-colors',
-                              checked ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50',
+                              'flex items-start gap-2 rounded-md border px-2.5 py-2 text-xs transition-colors',
+                              entry ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50',
                             )}
                           >
                             <input
                               type="checkbox"
-                              checked={checked}
+                              checked={!!entry}
                               onChange={(e) => {
-                                setDemoFieldKeys((prev) =>
+                                setDemoSelection((prev) =>
                                   e.target.checked
-                                    ? [...prev, f.fieldKey]
-                                    : prev.filter((k) => k !== f.fieldKey),
+                                    ? [...prev, { demographicFieldId: f.demographicFieldId, required: false }]
+                                    : prev.filter((x) => x.demographicFieldId !== f.demographicFieldId),
                                 );
                               }}
                               className="mt-0.5 rounded"
                             />
                             <div className="min-w-0 flex-1">
-                              <div className="flex items-center gap-1.5">
-                                <span className="font-medium truncate">{f.label}</span>
-                                {f.required && <span className="text-[0.625rem] text-destructive">*</span>}
-                              </div>
-                              <div className="text-[0.625rem] text-muted-foreground truncate">
-                                {f.fieldKey} · {f.type}
-                              </div>
+                              <span className="font-medium truncate block">{f.label}</span>
+                              <span className="text-[0.625rem] text-muted-foreground truncate block">{f.fieldType.toLowerCase()}</span>
                             </div>
-                          </label>
+                            {entry && (
+                              <button
+                                type="button"
+                                onClick={() => setDemoSelection((prev) =>
+                                  prev.map((x) => x.demographicFieldId === f.demographicFieldId
+                                    ? { ...x, required: !x.required }
+                                    : x),
+                                )}
+                                className={cn(
+                                  'shrink-0 rounded border px-1.5 py-0.5 text-[0.625rem] font-medium transition-colors',
+                                  entry.required
+                                    ? 'border-primary text-primary bg-primary/10'
+                                    : 'border-border text-muted-foreground hover:text-foreground',
+                                )}
+                                title="Toggle whether respondents must fill this field"
+                              >
+                                {entry.required ? 'Required' : 'Optional'}
+                              </button>
+                            )}
+                          </div>
                         );
                       })}
                     </div>
                   </div>
                 )}
                 <p className="text-[0.6875rem] text-muted-foreground">
-                  Respondents fill these in before starting this questionnaire. Leave empty to use every active field from the catalog.
+                  Respondents fill the selected fields before starting this questionnaire. Selection order becomes the form order.
                 </p>
               </div>
 
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium">Languages</label>
-                <div className="flex flex-wrap gap-2">
-                  {LANGUAGES.map((l) => (
-                    <button key={l.code} onClick={() => toggleLanguage(l.code)} className={cn('px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors', instLanguages.includes(l.code) ? 'bg-primary text-primary-foreground border-primary' : 'bg-background text-muted-foreground border-border hover:border-primary/50')}>
-                      {l.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="flex items-center gap-6 flex-wrap">
-                <label className="flex items-center gap-2 text-sm">
-                  <input type="checkbox" checked={instIsAdaptive} onChange={(e) => setInstIsAdaptive(e.target.checked)} className="rounded" /> Adaptive (CAT)
-                </label>
-                <label className="flex items-center gap-2 text-sm">
-                  <input type="checkbox" checked={instIsFixed} onChange={(e) => setInstIsFixed(e.target.checked)} className="rounded" /> Fixed sequence
-                </label>
-                <label className="flex items-center gap-2 text-sm" title="Organize questions into labelled sections (e.g., Part A, Part B)">
-                  <input type="checkbox" checked={useSections} onChange={(e) => setUseSections(e.target.checked)} className="rounded" /> Organize into sections
-                </label>
-              </div>
+              <label className="flex items-center gap-2 text-sm" title="Organize questions into labelled sections (e.g., Part A, Part B)">
+                <input type="checkbox" checked={useSections} onChange={(e) => setUseSections(e.target.checked)} className="rounded" /> Organize into sections
+              </label>
             </CardContent>
           </Card>
 
-
           <div className="flex justify-end">
             <Button variant="primary" onClick={handleCreateQuestionnaire} disabled={saving}>
-              Continue to Questions
+              {saving ? 'Saving…' : editMode || backendQid != null ? 'Save & Continue to Questions' : 'Create & Continue to Questions'}
               <ChevronRight className="h-4 w-4" />
             </Button>
           </div>
@@ -2469,67 +2267,6 @@ export default function CreateAssessmentPage() {
             </Button>
           </div>
           </div>
-        </div>
-      )}
-
-      {/* ===== Create new vertical modal ===== */}
-      {newVerticalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={() => setNewVerticalOpen(false)}>
-          <Card className="w-full max-w-md" onClick={(e) => e.stopPropagation()}>
-            <CardHeader className="flex flex-row items-center justify-between pb-3">
-              <CardTitle className="text-base">Create Vertical</CardTitle>
-              <button onClick={() => setNewVerticalOpen(false)} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {newVerticalError && (
-                <div className="rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-3 py-2 text-xs text-red-700 dark:text-red-400 flex items-start gap-2">
-                  <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                  <span>{newVerticalError}</span>
-                </div>
-              )}
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium">Name *</label>
-                <input
-                  value={newVerticalForm.name}
-                  onChange={(e) => {
-                    const name = e.target.value;
-                    setNewVerticalForm((f) => ({
-                      ...f,
-                      name,
-                      // Auto-fill the code from name if the user hasn't typed their own code yet
-                      code: f.code ? f.code : name.toUpperCase().replace(/[^A-Z0-9_]/g, '_').slice(0, 64),
-                    }));
-                  }}
-                  placeholder="e.g., Sports Psychology"
-                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium">Code *</label>
-                <input
-                  value={newVerticalForm.code}
-                  onChange={(e) => setNewVerticalForm({ ...newVerticalForm, code: e.target.value.toUpperCase() })}
-                  placeholder="SPORTS_PSYCH"
-                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm font-mono outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-                />
-                <p className="text-[0.6875rem] text-muted-foreground">Stable identifier used on records. A-Z, 0-9, underscore only.</p>
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium">Description</label>
-                <textarea
-                  rows={2}
-                  value={newVerticalForm.description}
-                  onChange={(e) => setNewVerticalForm({ ...newVerticalForm, description: e.target.value })}
-                  placeholder="Optional"
-                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-                />
-              </div>
-              <div className="flex justify-end gap-2 pt-1">
-                <Button variant="outline" onClick={() => setNewVerticalOpen(false)}>Cancel</Button>
-                <Button variant="primary" onClick={submitNewVertical}>Create</Button>
-              </div>
-            </CardContent>
-          </Card>
         </div>
       )}
 

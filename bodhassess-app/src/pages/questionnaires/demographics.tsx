@@ -3,133 +3,142 @@ import {
   AlertTriangle,
   ArrowDown,
   ArrowUp,
-  CheckCircle2,
-  CircleDashed,
+  Calendar,
+  ChevronDown,
   ClipboardList,
+  Hash,
+  Loader2,
   Pencil,
   Plus,
+  Search,
   Trash2,
+  Type,
   X,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
-import { demographicFieldsApi, type DemographicField } from '@/lib/api';
+import {
+  demographicsApi,
+  type DemographicFieldPayload,
+  type DemographicFieldResponse,
+  type DemographicFieldType,
+} from './demographicsApi';
 
-type FieldType = DemographicField['type'];
-
-const FIELD_TYPES: Array<{ value: FieldType; label: string }> = [
-  { value: 'text', label: 'Text' },
-  { value: 'number', label: 'Number' },
-  { value: 'date', label: 'Date' },
-  { value: 'select', label: 'Dropdown' },
-  { value: 'textarea', label: 'Textarea' },
+const FIELD_TYPES: Array<{ value: DemographicFieldType; label: string; icon: typeof Type }> = [
+  { value: 'TEXT', label: 'Text', icon: Type },
+  { value: 'NUMBER', label: 'Number', icon: Hash },
+  { value: 'DATE', label: 'Date', icon: Calendar },
+  { value: 'DROPDOWN', label: 'Dropdown', icon: ChevronDown },
 ];
 
-const EMPTY: DemographicField = {
-  id: '',
-  fieldKey: '',
-  label: '',
-  type: 'text',
-  required: false,
-  placeholder: '',
-  options: [],
-  sortOrder: 100,
-  active: true,
-};
+const typeMeta = (t: DemographicFieldType) => FIELD_TYPES.find((f) => f.value === t) ?? FIELD_TYPES[0];
 
-function slugToCamel(s: string) {
-  return s
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim()
-    .split(/\s+/)
-    .map((w, i) => i === 0 ? w : w.charAt(0).toUpperCase() + w.slice(1))
-    .join('');
+interface FieldForm {
+  id: number | null;
+  label: string;
+  fieldType: DemographicFieldType;
+  placeholder: string;
+  options: string[];
 }
 
-export default function DemographicFieldsPage() {
-  const [fields, setFields] = useState<DemographicField[]>([]);
+const EMPTY_FORM: FieldForm = { id: null, label: '', fieldType: 'TEXT', placeholder: '', options: [] };
+
+export default function DemographicsPage() {
+  const [fields, setFields] = useState<DemographicFieldResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
+  const [search, setSearch] = useState('');
 
   const [modalOpen, setModalOpen] = useState(false);
+  const [form, setForm] = useState<FieldForm>(EMPTY_FORM);
+  const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState<DemographicField>(EMPTY);
-  const [optionsText, setOptionsText] = useState('');
-  const [error, setError] = useState('');
-  const [isEditing, setIsEditing] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState<DemographicField | null>(null);
 
-  const refresh = async () => {
-    setLoading(true);
+  const [confirmDelete, setConfirmDelete] = useState<DemographicFieldResponse | null>(null);
+  const [deleteError, setDeleteError] = useState('');
+
+  const refresh = async (showLoading = false) => {
     setLoadError('');
+    if (showLoading) setLoading(true);
     try {
-      const list = await demographicFieldsApi.list();
-      setFields(list);
+      const res = await demographicsApi.getDemographicFields();
+      setFields(res.data);
     } catch (e: any) {
-      setLoadError(e?.message || 'Failed to load fields');
+      setLoadError(e?.message || 'Failed to load demographic fields');
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
     }
   };
-  useEffect(() => { refresh(); }, []);
+  useEffect(() => { refresh(true); }, []);
 
-  const stats = useMemo(() => ({
-    total: fields.length,
-    active: fields.filter((f) => f.active).length,
-    required: fields.filter((f) => f.required && f.active).length,
-  }), [fields]);
+  const filtered = useMemo(() => {
+    if (!search) return fields;
+    const s = search.toLowerCase();
+    return fields.filter(
+      (f) => f.label.toLowerCase().includes(s) || f.options.some((o) => o.toLowerCase().includes(s)),
+    );
+  }, [fields, search]);
 
-  const openAdd = () => {
-    const next = Math.max(0, ...fields.map((f) => f.sortOrder)) + 10;
-    setForm({ ...EMPTY, sortOrder: next });
-    setOptionsText('');
-    setIsEditing(false);
-    setError('');
+  const openCreate = () => {
+    setForm(EMPTY_FORM);
+    setFormError('');
     setModalOpen(true);
   };
-  const openEdit = (f: DemographicField) => {
-    setForm(f);
-    setOptionsText((f.options || []).join('\n'));
-    setIsEditing(true);
-    setError('');
+  const openEdit = (f: DemographicFieldResponse) => {
+    setForm({
+      id: f.demographicFieldId,
+      label: f.label,
+      fieldType: f.fieldType,
+      placeholder: f.placeholder || '',
+      options: [...f.options],
+    });
+    setFormError('');
     setModalOpen(true);
   };
+
+  // --- Option list editing (DROPDOWN only) ---
+  const setOption = (i: number, value: string) =>
+    setForm((p) => ({ ...p, options: p.options.map((o, j) => (j === i ? value : o)) }));
+  const addOption = () => setForm((p) => ({ ...p, options: [...p.options, ''] }));
+  const removeOption = (i: number) =>
+    setForm((p) => ({ ...p, options: p.options.filter((_, j) => j !== i) }));
+  const moveOption = (i: number, dir: -1 | 1) =>
+    setForm((p) => {
+      const next = [...p.options];
+      const j = i + dir;
+      if (j < 0 || j >= next.length) return p;
+      [next[i], next[j]] = [next[j], next[i]];
+      return { ...p, options: next };
+    });
 
   const submit = async () => {
     const label = form.label.trim();
-    let key = form.fieldKey.trim();
-    if (!label) { setError('Label is required.'); return; }
-    if (!key) key = slugToCamel(label);
-    if (!key) { setError('Machine key could not be derived; enter one manually.'); return; }
-    if (!isEditing && fields.some((f) => f.fieldKey === key)) {
-      setError(`The key "${key}" is already used by another field.`);
+    if (!label) { setFormError('Label is required'); return; }
+    const options = form.options.map((o) => o.trim()).filter(Boolean);
+    if (form.fieldType === 'DROPDOWN' && options.length === 0) {
+      setFormError('A dropdown needs at least one option');
       return;
     }
-    const options = form.type === 'select'
-      ? optionsText.split('\n').map((s) => s.trim()).filter(Boolean)
-      : [];
-    if (form.type === 'select' && options.length === 0) {
-      setError('Dropdown fields need at least one option (one per line).');
-      return;
-    }
-    const id = form.id || `df-${key.toLowerCase()}-${Math.random().toString(36).slice(2, 6)}`;
+    // Payload mirrors the backend's DemographicFieldRequest; options are only
+    // read for DROPDOWN fields.
+    const payload: DemographicFieldPayload = {
+      label,
+      fieldType: form.fieldType,
+      placeholder: form.placeholder.trim() || null,
+      options,
+    };
     setSaving(true);
     try {
-      await demographicFieldsApi.upsert({
-        ...form,
-        id,
-        fieldKey: key,
-        label,
-        placeholder: (form.placeholder || '').trim(),
-        options,
-      });
-      setModalOpen(false);
+      if (form.id != null) {
+        await demographicsApi.updateDemographicField(form.id, payload);
+      } else {
+        await demographicsApi.createDemographicField(payload);
+      }
       await refresh();
+      setModalOpen(false);
     } catch (e: any) {
-      setError(e?.message || 'Failed to save.');
+      setFormError(e?.response?.data?.message || e?.message || 'Failed to save');
     } finally {
       setSaving(false);
     }
@@ -137,33 +146,21 @@ export default function DemographicFieldsPage() {
 
   const doDelete = async () => {
     if (!confirmDelete) return;
-    await demographicFieldsApi.delete(confirmDelete.id);
-    setConfirmDelete(null);
-    await refresh();
-  };
-
-  const toggleActive = async (f: DemographicField) => {
-    await demographicFieldsApi.upsert({ ...f, active: !f.active });
-    await refresh();
-  };
-
-  const move = async (f: DemographicField, dir: -1 | 1) => {
-    const sorted = [...fields].sort((a, b) => a.sortOrder - b.sortOrder);
-    const idx = sorted.findIndex((x) => x.id === f.id);
-    const swapIdx = idx + dir;
-    if (swapIdx < 0 || swapIdx >= sorted.length) return;
-    const a = sorted[idx];
-    const b = sorted[swapIdx];
-    await demographicFieldsApi.upsert({ ...a, sortOrder: b.sortOrder });
-    await demographicFieldsApi.upsert({ ...b, sortOrder: a.sortOrder });
-    await refresh();
+    setDeleteError('');
+    try {
+      await demographicsApi.deleteDemographicField(confirmDelete.demographicFieldId);
+      setConfirmDelete(null);
+      await refresh();
+    } catch (e: any) {
+      setDeleteError(e?.response?.data?.message || e?.message || 'Failed to delete');
+    }
   };
 
   return (
     <div className="p-5 lg:p-7.5 space-y-7">
       <div>
         <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
-          <span>BodhAssess</span><span>/</span><span>Questionnaire Library</span><span>/</span>
+          <span>BodhAssess</span><span>/</span><span>Questionnaires</span><span>/</span>
           <span className="text-foreground font-medium">Demographic Fields</span>
         </div>
         <div className="flex items-start justify-between gap-4">
@@ -173,12 +170,14 @@ export default function DemographicFieldsPage() {
               Demographic Fields
             </h1>
             <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
-              The catalogue of fields respondents can be asked to fill before starting an assessment.
-              Each questionnaire picks which of these apply (on Create Questionnaire → Step 1). Fields added here become available everywhere automatically.
+              The registry of custom fields respondents can be asked to fill in.
+              Define a field once here, then attach it to questionnaires — order
+              and required-ness are chosen per questionnaire, not on the field.
             </p>
           </div>
-          <Button variant="primary" onClick={openAdd}>
-            <Plus className="h-4 w-4" /> Add Field
+          <Button variant="primary" onClick={openCreate}>
+            <Plus className="h-4 w-4" />
+            Add Field
           </Button>
         </div>
       </div>
@@ -190,201 +189,230 @@ export default function DemographicFieldsPage() {
       )}
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
-        <Card><CardContent className="p-5"><p className="text-sm text-muted-foreground">Total Fields</p><p className="text-2xl font-semibold mt-1">{stats.total}</p></CardContent></Card>
-        <Card><CardContent className="p-5"><p className="text-sm text-muted-foreground">Active</p><p className="text-2xl font-semibold mt-1 text-green-600">{stats.active}</p></CardContent></Card>
-        <Card><CardContent className="p-5"><p className="text-sm text-muted-foreground">Required by default</p><p className="text-2xl font-semibold mt-1">{stats.required}</p></CardContent></Card>
+        <Card><CardContent className="p-5"><p className="text-sm text-muted-foreground">Fields Defined</p><p className="text-2xl font-semibold mt-1">{fields.length}</p></CardContent></Card>
+        <Card><CardContent className="p-5"><p className="text-sm text-muted-foreground">Dropdowns</p><p className="text-2xl font-semibold mt-1">{fields.filter((f) => f.fieldType === 'DROPDOWN').length}</p></CardContent></Card>
+        <Card><CardContent className="p-5"><p className="text-sm text-muted-foreground">Free Inputs</p><p className="text-2xl font-semibold mt-1">{fields.filter((f) => f.fieldType !== 'DROPDOWN').length}</p></CardContent></Card>
       </div>
 
-      <Card>
-        <CardHeader className="pb-3"><CardTitle className="text-base">All Fields</CardTitle></CardHeader>
-        <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border">
-                  <th className="px-5 py-3 text-left font-medium text-muted-foreground w-12">#</th>
-                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Label</th>
-                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Key</th>
-                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Type</th>
-                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Required</th>
-                  <th className="px-5 py-3 text-left font-medium text-muted-foreground">Active</th>
-                  <th className="px-5 py-3 text-right font-medium text-muted-foreground">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {loading && fields.length === 0 ? (
-                  <tr><td colSpan={7} className="px-5 py-10 text-center text-sm text-muted-foreground">Loading…</td></tr>
-                ) : fields.length === 0 ? (
-                  <tr><td colSpan={7} className="px-5 py-10 text-center text-sm text-muted-foreground">No fields yet. Click "Add Field".</td></tr>
-                ) : fields.map((f, idx) => (
-                  <tr key={f.id} className="border-b border-border last:border-0 hover:bg-muted/50 transition-colors">
-                    <td className="px-5 py-3 text-xs text-muted-foreground">
-                      <div className="flex items-center gap-1">
-                        <button onClick={() => move(f, -1)} disabled={idx === 0} className="p-0.5 disabled:opacity-30 hover:text-foreground"><ArrowUp className="h-3 w-3" /></button>
-                        <button onClick={() => move(f, 1)} disabled={idx === fields.length - 1} className="p-0.5 disabled:opacity-30 hover:text-foreground"><ArrowDown className="h-3 w-3" /></button>
-                      </div>
-                    </td>
-                    <td className="px-5 py-3">
-                      <p className="font-medium">{f.label}</p>
-                      {f.placeholder && <p className="text-[0.6875rem] text-muted-foreground mt-0.5 truncate max-w-xs">{f.placeholder}</p>}
-                      {f.options.length > 0 && (
-                        <p className="text-[0.6875rem] text-muted-foreground mt-0.5">
-                          {f.options.length} option{f.options.length !== 1 ? 's' : ''}: {f.options.slice(0, 3).join(', ')}{f.options.length > 3 ? '…' : ''}
-                        </p>
-                      )}
-                    </td>
-                    <td className="px-5 py-3 font-mono text-xs">{f.fieldKey}</td>
-                    <td className="px-5 py-3">
-                      <Badge variant="secondary" appearance="light" size="sm">{f.type}</Badge>
-                    </td>
-                    <td className="px-5 py-3">
-                      {f.required ? (
-                        <span className="text-xs text-amber-600">Required</span>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">Optional</span>
-                      )}
-                    </td>
-                    <td className="px-5 py-3">
-                      <button onClick={() => toggleActive(f)} className={cn('inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium', f.active ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-muted text-muted-foreground')}>
-                        {f.active ? <CheckCircle2 className="h-3 w-3" /> : <CircleDashed className="h-3 w-3" />}
-                        {f.active ? 'Active' : 'Hidden'}
-                      </button>
-                    </td>
-                    <td className="px-5 py-3 text-right">
-                      <div className="inline-flex items-center gap-1">
-                        <Button variant="ghost" size="sm" onClick={() => openEdit(f)} title="Edit"><Pencil className="h-3.5 w-3.5" /></Button>
-                        <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(f)} title="Delete">
-                          <Trash2 className="h-3.5 w-3.5 text-red-600" />
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
+      <div className="relative max-w-md">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <input
+          type="text"
+          placeholder="Search fields or options..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="w-full h-9 rounded-md border border-input bg-background pl-9 pr-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:border-ring focus:ring-[3px] focus:ring-ring/30 transition-shadow"
+        />
+      </div>
 
-      {/* Add / Edit modal */}
+      {loading ? (
+        <Card>
+          <CardContent className="p-14 flex flex-col items-center justify-center text-center">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <p className="text-sm text-muted-foreground mt-3">Loading demographic fields…</p>
+          </CardContent>
+        </Card>
+      ) : filtered.length === 0 ? (
+        <Card className="border-dashed">
+          <CardContent className="p-14 text-center">
+            <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-muted">
+              <ClipboardList className="h-7 w-7 text-muted-foreground/60" />
+            </div>
+            <p className="text-base font-semibold">
+              {fields.length === 0 ? 'No demographic fields yet' : 'No matches'}
+            </p>
+            <p className="text-sm text-muted-foreground mt-1 max-w-sm mx-auto">
+              {fields.length === 0
+                ? 'Add fields like "Grade", "School Name" or "City" that assessments can ask respondents to fill.'
+                : 'Try a different search term.'}
+            </p>
+            {fields.length === 0 && (
+              <Button variant="primary" onClick={openCreate} className="mt-4">
+                <Plus className="h-4 w-4" /> Add your first field
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+      ) : (
+        <Card className="overflow-hidden">
+          <ul className="divide-y divide-border">
+            {filtered.map((f) => {
+              const meta = typeMeta(f.fieldType);
+              const Icon = meta.icon;
+              return (
+                <li
+                  key={f.demographicFieldId}
+                  className="flex items-center justify-between gap-4 px-4 py-3 hover:bg-muted/40 transition-colors cursor-pointer"
+                  onClick={() => openEdit(f)}
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium truncate">{f.label}</p>
+                    <div className="flex items-center gap-3 mt-0.5 text-xs text-muted-foreground">
+                      {f.placeholder && <span className="truncate italic">"{f.placeholder}"</span>}
+                      {f.fieldType === 'DROPDOWN' && (
+                        <span className="truncate shrink-0">
+                          {f.options.length} option{f.options.length !== 1 ? 's' : ''}: {f.options.slice(0, 4).join(', ')}{f.options.length > 4 ? '…' : ''}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-2.5 py-0.5 text-xs font-medium">
+                      <Icon className="h-3 w-3" />
+                      {meta.label}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      mode="icon"
+                      onClick={(e) => { e.stopPropagation(); openEdit(f); }}
+                      title="Edit field"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      mode="icon"
+                      onClick={(e) => { e.stopPropagation(); setDeleteError(''); setConfirmDelete(f); }}
+                      title="Delete field"
+                    >
+                      <Trash2 className="h-3.5 w-3.5 text-red-600" />
+                    </Button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </Card>
+      )}
+
+      {/* Create / edit modal */}
       {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={() => !saving && setModalOpen(false)}>
-          <Card className="w-full max-w-lg max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={() => setModalOpen(false)}>
+          <Card className="w-full max-w-lg max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
             <CardHeader className="flex flex-row items-center justify-between pb-3 shrink-0">
-              <CardTitle className="text-base">{isEditing ? 'Edit Field' : 'Add Field'}</CardTitle>
-              <button onClick={() => !saving && setModalOpen(false)} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+              <CardTitle className="text-base">{form.id != null ? 'Edit Field' : 'Add Field'}</CardTitle>
+              <button onClick={() => setModalOpen(false)} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
             </CardHeader>
-            <CardContent className="flex-1 min-h-0 overflow-y-auto space-y-4">
-              {error && (
+            <CardContent className="space-y-4 overflow-y-auto">
+              {formError && (
                 <div className="rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-3 py-2 text-xs text-red-700 dark:text-red-400 flex items-start gap-2">
                   <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                  <span>{error}</span>
+                  <span>{formError}</span>
                 </div>
               )}
               <div className="space-y-1.5">
                 <label className="text-sm font-medium">Label *</label>
                 <input
                   value={form.label}
-                  onChange={(e) => {
-                    const label = e.target.value;
-                    setForm((p) => ({ ...p, label, fieldKey: isEditing ? p.fieldKey : slugToCamel(label) }));
-                  }}
-                  placeholder="e.g., Annual Household Income"
+                  onChange={(e) => setForm({ ...form, label: e.target.value })}
+                  placeholder='e.g., "Grade", "School Name", "City"'
                   className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
                 />
               </div>
               <div className="space-y-1.5">
-                <label className="text-sm font-medium">Machine Key *</label>
-                <input
-                  value={form.fieldKey}
-                  onChange={(e) => setForm({ ...form, fieldKey: slugToCamel(e.target.value) })}
-                  disabled={isEditing}
-                  placeholder="auto-derived from label"
-                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm font-mono outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:opacity-60"
-                />
-                <p className="text-[0.6875rem] text-muted-foreground">
-                  Stored on each session as the JSON key. Camel-case, no spaces. {isEditing && 'Cannot be changed after creation.'}
-                </p>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <label className="text-sm font-medium">Type</label>
-                  <select
-                    value={form.type}
-                    onChange={(e) => setForm({ ...form, type: e.target.value as FieldType })}
-                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-                  >
-                    {FIELD_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
-                  </select>
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-sm font-medium">Sort order</label>
-                  <input
-                    type="number"
-                    min={1}
-                    step={1}
-                    value={form.sortOrder}
-                    onKeyDown={(e) => { if (e.key === '-' || e.key === 'e') e.preventDefault(); }}
-                    onChange={(e) => setForm({ ...form, sortOrder: Math.max(1, Math.floor(Number(e.target.value)) || 1) })}
-                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-                  />
+                <label className="text-sm font-medium">Type *</label>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {FIELD_TYPES.map((t) => {
+                    const Icon = t.icon;
+                    return (
+                      <button
+                        key={t.value}
+                        type="button"
+                        onClick={() => setForm({ ...form, fieldType: t.value })}
+                        className={cn(
+                          'flex items-center justify-center gap-1.5 rounded-lg border px-2 py-2 text-xs font-medium transition-colors',
+                          form.fieldType === t.value
+                            ? 'border-primary bg-primary/10 text-primary'
+                            : 'border-border bg-muted/40 text-muted-foreground hover:text-foreground',
+                        )}
+                      >
+                        <Icon className="h-3.5 w-3.5" />
+                        {t.label}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
               <div className="space-y-1.5">
-                <label className="text-sm font-medium">Placeholder / helper text</label>
+                <label className="text-sm font-medium">Placeholder</label>
                 <input
-                  value={form.placeholder || ''}
+                  value={form.placeholder}
                   onChange={(e) => setForm({ ...form, placeholder: e.target.value })}
-                  placeholder="Shown inside the input when empty (optional)"
+                  placeholder="Optional hint shown inside the empty input"
                   className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
                 />
               </div>
-              {form.type === 'select' && (
+              {form.fieldType === 'DROPDOWN' && (
                 <div className="space-y-1.5">
-                  <label className="text-sm font-medium">Options (one per line) *</label>
-                  <textarea
-                    rows={5}
-                    value={optionsText}
-                    onChange={(e) => setOptionsText(e.target.value)}
-                    placeholder={'Male\nFemale\nNon-binary\nPrefer not to say'}
-                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 font-mono text-xs"
-                  />
+                  <div className="flex items-center justify-between">
+                    <label className="text-sm font-medium">Options *</label>
+                    <Button variant="outline" size="sm" onClick={addOption}>
+                      <Plus className="h-3 w-3" /> Add option
+                    </Button>
+                  </div>
+                  {form.options.length === 0 ? (
+                    <p className="text-xs text-muted-foreground italic">No options yet — a dropdown needs at least one.</p>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {form.options.map((opt, i) => (
+                        <div key={i} className="flex items-center gap-1.5">
+                          <input
+                            value={opt}
+                            onChange={(e) => setOption(i, e.target.value)}
+                            placeholder={`Option ${i + 1}`}
+                            className="flex-1 rounded-lg border border-border bg-background px-3 py-1.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                          />
+                          <button type="button" onClick={() => moveOption(i, -1)} disabled={i === 0} className="text-muted-foreground hover:text-foreground disabled:opacity-30 p-1" title="Move up">
+                            <ArrowUp className="h-3.5 w-3.5" />
+                          </button>
+                          <button type="button" onClick={() => moveOption(i, 1)} disabled={i === form.options.length - 1} className="text-muted-foreground hover:text-foreground disabled:opacity-30 p-1" title="Move down">
+                            <ArrowDown className="h-3.5 w-3.5" />
+                          </button>
+                          <button type="button" onClick={() => removeOption(i)} className="text-muted-foreground hover:text-red-500 p-1" title="Remove option">
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
-              <div className="flex items-center gap-6">
-                <label className="flex items-center gap-2 text-sm">
-                  <input type="checkbox" checked={form.required} onChange={(e) => setForm({ ...form, required: e.target.checked })} className="rounded" />
-                  Required
-                </label>
-                <label className="flex items-center gap-2 text-sm">
-                  <input type="checkbox" checked={form.active} onChange={(e) => setForm({ ...form, active: e.target.checked })} className="rounded" />
-                  Active
-                </label>
-              </div>
             </CardContent>
-            <div className="shrink-0 border-t border-border px-5 py-3 flex justify-end gap-2">
-              <Button variant="outline" onClick={() => !saving && setModalOpen(false)}>Cancel</Button>
+            <div className="flex justify-end gap-2 p-4 border-t border-border shrink-0">
+              <Button variant="outline" onClick={() => setModalOpen(false)}>Cancel</Button>
               <Button variant="primary" onClick={submit} disabled={saving}>
-                {saving ? 'Saving…' : isEditing ? 'Save' : 'Add Field'}
+                {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                {form.id != null ? 'Save' : 'Add Field'}
               </Button>
             </div>
           </Card>
         </div>
       )}
 
-      {/* Delete confirm */}
+      {/* Delete confirmation */}
       {confirmDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={() => setConfirmDelete(null)}>
           <Card className="w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
             <CardHeader className="flex flex-row items-center justify-between pb-3">
               <CardTitle className="text-base flex items-center gap-2">
-                <AlertTriangle className="h-4 w-4 text-red-500" /> Delete Field
+                <AlertTriangle className="h-4 w-4 text-red-500" />
+                Delete Field
               </CardTitle>
               <button onClick={() => setConfirmDelete(null)} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
             </CardHeader>
             <CardContent className="space-y-4">
+              {deleteError && (
+                <div className="rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-3 py-2 text-xs text-red-700 dark:text-red-400 flex items-start gap-2">
+                  <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  <span>{deleteError}</span>
+                </div>
+              )}
               <p className="text-sm">
-                Remove <strong>{confirmDelete.label}</strong> (<code className="font-mono text-xs">{confirmDelete.fieldKey}</code>)? Existing responses that captured this field stay intact, but it won't appear on new assessments.
+                Remove <strong>{confirmDelete.label}</strong> from the registry?
+                Fields that are attached to a questionnaire or already have
+                responses cannot be deleted.
               </p>
               <div className="flex justify-end gap-2">
                 <Button variant="outline" onClick={() => setConfirmDelete(null)}>Cancel</Button>

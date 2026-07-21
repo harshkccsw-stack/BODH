@@ -1,0 +1,32 @@
+import axios from 'axios';
+
+// import.meta.env, not process.env — process does not exist in the browser
+// bundle Vite produces.
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api';
+
+function getAllDemographics() {
+  return axios.get(`${API_URL}/demographics/getAll`);
+}
+
+function getDemographicById(id: number) {
+  return axios.get(`${API_URL}/demographics/getById/${id}`);
+}
+function createDemographic(payload: any) {
+  return axios.post(`${API_URL}/demographics/create`, payload);
+}
+
+function updateDemographic(id: number, payload: any) {
+  return axios.put(`${API_URL}/demographics/update/${id}`, payload);
+}
+
+function deleteDemographic(id: number) {
+  return axios.delete(`${API_URL}/demographics/delete/${id}`);
+}
+
+export const demographicsApi = {
+  getAllDemographics,
+  getDemographicById,
+  createDemographic,
+  updateDemographic,
+  deleteDemographic,
+};

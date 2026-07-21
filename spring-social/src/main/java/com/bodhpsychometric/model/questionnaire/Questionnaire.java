@@ -3,11 +3,14 @@ package com.bodhpsychometric.model.questionnaire;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.bodhpsychometric.model.auth.enums.Vertical;
 import com.bodhpsychometric.model.question.Question;
 
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.Id;
 import jakarta.persistence.OneToMany;
@@ -33,9 +36,11 @@ public class Questionnaire implements java.io.Serializable {
     @Column(name = "category", length = 100)
     private String category;
 
-    // Verticals stay a plain label until the deferred Vertical entity lands.
+    // STRING, not ordinal: the column stays readable varchar and reordering
+    // the Vertical enum can never corrupt stored rows.
+    @Enumerated(EnumType.STRING)
     @Column(name = "vertical", length = 100)
-    private String vertical;
+    private Vertical vertical;
 
     @Column(name = "description", columnDefinition = "TEXT")
     private String description;
@@ -84,6 +89,66 @@ public class Questionnaire implements java.io.Serializable {
     @OneToMany(mappedBy = "questionnaire", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("questionId ASC")
     private List<Question> questions = new ArrayList<>();
+
+    public Long getQuestionnaireId() {
+        return questionnaireId;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+
+    public String getShortName() {
+        return shortName;
+    }
+
+    public void setShortName(String shortName) {
+        this.shortName = shortName;
+    }
+
+    public String getCategory() {
+        return category;
+    }
+
+    public void setCategory(String category) {
+        this.category = category;
+    }
+
+    public Vertical getVertical() {
+        return vertical;
+    }
+
+    public void setVertical(Vertical vertical) {
+        this.vertical = vertical;
+    }
+
+    public String getDescription() {
+        return description;
+    }
+
+    public void setDescription(String description) {
+        this.description = description;
+    }
+
+    public Integer getDurationMinutes() {
+        return durationMinutes;
+    }
+
+    public void setDurationMinutes(Integer durationMinutes) {
+        this.durationMinutes = durationMinutes;
+    }
+
+    public String getGeneralInstruction() {
+        return generalInstruction;
+    }
+
+    public void setGeneralInstruction(String generalInstruction) {
+        this.generalInstruction = generalInstruction;
+    }
 
     public boolean isHasSections() {
         return hasSections;

@@ -114,14 +114,10 @@ const QuestionBankCalibration  = lazyPage(() => import('@/pages/question-bank/ca
 const QuestionBankCreate       = lazyPage(() => import('@/pages/question-bank/create-questionnaire'));
 const QuestionBankNorms        = lazyPage(() => import('@/pages/question-bank/norms'));
 
+// One catalog page serves /questionnaires and the vertical-preset routes —
+// it reads the pathname to pre-filter. Versioning (parents/versions) is gone.
 const Questionnaires             = lazyPage(() => import('@/pages/questionnaires/all-questionnaires'));
-const QuestionnaireParents       = lazyPage(() => import('@/pages/questionnaires/parents'));
-const QuestionnaireVersions      = lazyPage(() => import('@/pages/questionnaires/versions'));
-const QuestionnairesClinical     = lazyPage(() => import('@/pages/questionnaires/clinical'));
-const QuestionnairesCounselling  = lazyPage(() => import('@/pages/questionnaires/counselling'));
 const QuestionnairesDemographics = lazyPage(() => import('@/pages/questionnaires/demographics'));
-const QuestionnairesExperimental = lazyPage(() => import('@/pages/questionnaires/experimental'));
-const QuestionnairesIndustrial   = lazyPage(() => import('@/pages/questionnaires/industrial'));
 
 const Reports             = lazyPage(() => import('@/pages/reports/all-reports'));
 const ReportsResponses    = lazyPage(() => import('@/pages/reports/response-sheets'));
@@ -270,17 +266,11 @@ const routes: RouteObject[] = [
       { path: '/question-bank/norms', element: <QuestionBankNorms /> },
 
       { path: '/questionnaires', element: <Questionnaires /> },
-      // Git-style version history for a single questionnaire parent.
-      // Parent-centric list (one row per questionnaire family). The
-      // /:id/versions route below must stay registered after this so
-      // the literal /parents wins matching.
-      { path: '/questionnaires/parents', element: <QuestionnaireParents /> },
-      { path: '/questionnaires/:id/versions', element: <QuestionnaireVersions /> },
-      { path: '/questionnaires/clinical', element: <QuestionnairesClinical /> },
-      { path: '/questionnaires/counselling', element: <QuestionnairesCounselling /> },
+      { path: '/questionnaires/clinical', element: <Questionnaires /> },
+      { path: '/questionnaires/counselling', element: <Questionnaires /> },
       { path: '/questionnaires/demographics', element: <QuestionnairesDemographics /> },
-      { path: '/questionnaires/experimental', element: <QuestionnairesExperimental /> },
-      { path: '/questionnaires/industrial', element: <QuestionnairesIndustrial /> },
+      { path: '/questionnaires/experimental', element: <Questionnaires /> },
+      { path: '/questionnaires/industrial', element: <Questionnaires /> },
 
       { path: '/reports', element: <Reports /> },
       { path: '/reports/responses', element: <ReportsResponses /> },
