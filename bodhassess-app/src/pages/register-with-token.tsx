@@ -9,7 +9,7 @@ import {
 } from '@/lib/api';
 import { config } from '@/lib/config';
 import { autoFormatDdmmyyyy, ddmmyyyyToIso } from '@/lib/helpers';
-import { PublicRoute } from '@/src/components/public-route';
+import { PublicRoute } from '@/components/guards/public-route';
 import PortalRegisterPage from './register';
 
 /**

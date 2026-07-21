@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useParams } from '@/src/lib/router-helpers';
+import { useParams } from '@/lib/router-helpers';
 import { Brain, Check, ChevronLeft, ChevronRight, AlertTriangle, FlaskConical } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';

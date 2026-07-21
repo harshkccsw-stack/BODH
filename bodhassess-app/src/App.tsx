@@ -5,7 +5,7 @@ import { ThemeProvider } from 'next-themes';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { Toaster } from '@/components/ui/sonner';
 import { ScreenLoader } from '@/components/screen-loader';
-import { router } from './router';
+import { router } from './routes';
 
 const queryClient = new QueryClient({
   defaultOptions: {

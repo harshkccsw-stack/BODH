@@ -1,6 +1,6 @@
 import { ReactNode } from 'react';
-import Link from '@/src/lib/router-helpers';
-import { usePathname } from '@/src/lib/router-helpers';
+import Link from '@/lib/router-helpers';
+import { usePathname } from '@/lib/router-helpers';
 import { MenuConfig } from '@/config/types';
 import { cn } from '@/lib/utils';
 import { useMenu } from '@/hooks/use-menu';

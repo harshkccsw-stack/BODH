@@ -25,9 +25,9 @@
     "types": ["vite/client", "node"],
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./*"]
+      "@/*": ["./src/*"]
     }
   },
-  "include": ["src", "app", "components", "config", "hooks", "lib"],
-  "exclude": ["node_modules", "dist", ".next"]
+  "include": ["src"],
+  "exclude": ["node_modules", "dist"]
 }

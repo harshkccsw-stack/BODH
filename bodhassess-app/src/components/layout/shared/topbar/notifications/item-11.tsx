@@ -1,4 +1,4 @@
-import Link from '@/src/lib/router-helpers';
+import Link from '@/lib/router-helpers';
 import { toAbsoluteUrl } from '@/lib/helpers';
 import {
   Avatar,

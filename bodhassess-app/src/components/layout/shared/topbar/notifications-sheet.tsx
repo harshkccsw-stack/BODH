@@ -1,6 +1,6 @@
 import { ReactNode } from 'react';
 import { Calendar, Settings, Settings2, Shield, Users } from 'lucide-react';
-import Link from '@/src/lib/router-helpers';
+import Link from '@/lib/router-helpers';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,

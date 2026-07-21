@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { useParams } from '@/src/lib/router-helpers';
+import { useParams } from '@/lib/router-helpers';
 
 // Preview page — previously had a hardcoded PHQ-9 mock that drifted from the
 // real questionnaire content. Anything reachable via the practitioner UI

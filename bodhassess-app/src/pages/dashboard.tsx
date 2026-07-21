@@ -1,5 +1,5 @@
 import { Suspense, useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from '@/src/lib/router-helpers';
+import { useSearchParams } from '@/lib/router-helpers';
 import {
   Activity,
   BarChart3,

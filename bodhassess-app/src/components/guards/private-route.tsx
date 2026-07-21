@@ -5,7 +5,7 @@ import { usePractitionerAuth } from '@/lib/practitioner-auth';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { ShieldAlert } from 'lucide-react';
-import { Layout1 } from '@/components/layouts/layout-1';
+import { Layout1 } from '@/components/layout';
 
 // PrivateRoute is the auth gate for practitioner-dashboard pages. It assumes
 // PractitionerAuthProvider is mounted somewhere above (we mount it once in

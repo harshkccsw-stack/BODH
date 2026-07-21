@@ -12,8 +12,8 @@ import { Label } from '@/components/ui/label';
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
-import { DataGrid } from '@/src/components/data-grid/DataGrid';
-import { useDerivedColumns } from '@/src/components/data-studio/useDerivedColumns';
+import { DataGrid } from '@/components/data-grid/DataGrid';
+import { useDerivedColumns } from '@/pages/data-studio/components/useDerivedColumns';
 import {
   dataStudioApi,
   type DatasetResponse,

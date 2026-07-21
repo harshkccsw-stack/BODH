@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import type { DatasetColumn, DatasetRow, DerivedColumn } from '@/lib/api';
-import { evaluateFormula } from '@/lib/data-studio/formula';
+import { evaluateFormula } from '@/pages/data-studio/lib/formula';
 
 // Sentinel value placed in SERVER-derived cells until Phase 2 computes them.
 export const SERVER_PENDING = '— (server)';

@@ -20,7 +20,7 @@ import {
   useMemo,
   useState,
 } from 'react';
-import { usePathname, useRouter } from '@/src/lib/router-helpers';
+import { usePathname, useRouter } from '@/lib/router-helpers';
 import { authApi, type AuthUser, type PractitionerMe } from '@/lib/api';
 import {
   LOGIN_PATH,

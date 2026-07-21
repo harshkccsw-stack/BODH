@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { publicEntityApi, type PublicEntityInfo } from '@/lib/api';
 import { config } from '@/lib/config';
 import { autoFormatDdmmyyyy, ddmmyyyyToIso } from '@/lib/helpers';
-import { useParams } from '@/src/lib/router-helpers';
+import { useParams } from '@/lib/router-helpers';
 
 /**
  * Entity member self-registration — reached anonymously via an entity's

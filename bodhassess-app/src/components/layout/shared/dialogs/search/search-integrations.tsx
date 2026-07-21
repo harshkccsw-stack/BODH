@@ -1,4 +1,4 @@
-import Link from '@/src/lib/router-helpers';
+import Link from '@/lib/router-helpers';
 import { toAbsoluteUrl } from '@/lib/helpers';
 import {
   AccordionMenu,
@@ -7,7 +7,7 @@ import {
 } from '@/components/ui/accordion-menu';
 import { Button } from '@/components/ui/button';
 import { SearchIntegrationsItem } from './types';
-import { AvatarGroup }  from '@/components/layouts/layout-1/shared/common/avatar-group';
+import { AvatarGroup }  from '@/components/layout/shared/common/avatar-group';
 
 export function SearchIntegrations({
   items,

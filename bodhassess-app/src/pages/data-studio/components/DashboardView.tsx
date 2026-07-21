@@ -17,7 +17,7 @@ import { Label } from '@/components/ui/label';
 import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
-import { WidgetBody, type MeasureCfg, type WidgetConfig } from '@/src/components/data-studio/DashboardWidgets';
+import { WidgetBody, type MeasureCfg, type WidgetConfig } from '@/pages/data-studio/components/DashboardWidgets';
 import {
   dataStudioApi,
   type Dashboard, type DatasetColumn, type Sheet, type Widget, type WidgetType, type Workbook,

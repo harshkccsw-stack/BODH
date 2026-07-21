@@ -1,5 +1,5 @@
 import { CircleCheck } from 'lucide-react';
-import Link from '@/src/lib/router-helpers';
+import Link from '@/lib/router-helpers';
 import {
   Avatar,
   AvatarFallback,

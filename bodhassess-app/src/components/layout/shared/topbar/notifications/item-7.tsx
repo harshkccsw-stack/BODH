@@ -1,4 +1,4 @@
-import { AvatarGroup }  from '@/components/layouts/layout-1/shared/common/avatar-group';
+import { AvatarGroup }  from '@/components/layout/shared/common/avatar-group';
 import {
   CalendarDays,
   Lock,
@@ -7,7 +7,7 @@ import {
   Timer,
   Users,
 } from 'lucide-react';
-import Link from '@/src/lib/router-helpers';
+import Link from '@/lib/router-helpers';
 import {
   Avatar,
   AvatarFallback,

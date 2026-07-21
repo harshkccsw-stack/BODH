@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Download, RefreshCw, Search, Table2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { DataGrid } from '@/src/components/data-grid/DataGrid';
+import { DataGrid } from '@/components/data-grid/DataGrid';
 import {
   datasetsApi,
   type DatasetColumn,

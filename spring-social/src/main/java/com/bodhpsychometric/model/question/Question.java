@@ -6,6 +6,7 @@ import java.util.List;
 
 import com.bodhpsychometric.model.question.enums.ContentType;
 import com.bodhpsychometric.model.questionnaire.Questionnaire;
+import com.bodhpsychometric.model.questionnaire.Section;
 
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
@@ -40,6 +41,16 @@ public class Question implements Serializable {
     @JoinColumn(name = "questionnaireId", nullable = false,
             foreignKey = @ForeignKey(name = "fkQuestionQuestionnaire"))
     private Questionnaire questionnaire;
+
+    /**
+     * Null on flat questionnaires; required by the service when the
+     * questionnaire hasSections. Must belong to the same questionnaire —
+     * a rule the schema cannot express, enforced in the service.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "sectionId",
+            foreignKey = @ForeignKey(name = "fkQuestionSection"))
+    private Section section;
 
     /**
      * Inverse side of Question 1—* Option. Options live and die with their
@@ -176,6 +187,14 @@ public class Question implements Serializable {
 
     public void setQuestionnaire(Questionnaire questionnaire) {
         this.questionnaire = questionnaire;
+    }
+
+    public Section getSection() {
+        return section;
+    }
+
+    public void setSection(Section section) {
+        this.section = section;
     }
 
     public List<Option> getOptions() {

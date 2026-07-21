@@ -19,16 +19,16 @@ import {
   SheetHeader,
   SheetTrigger,
 } from '@/components/ui/sheet';
-import { SearchDialog } from '@/components/layouts/layout-1/shared/dialogs/search/search-dialog';
-import { AppsDropdownMenu } from '@/components/layouts/layout-1/shared/topbar/apps-dropdown-menu';
-import { ChatSheet } from '@/components/layouts/layout-1/shared/topbar/chat-sheet';
-import { NotificationsSheet } from '@/components/layouts/layout-1/shared/topbar/notifications-sheet';
-import { UserDropdownMenu } from '@/components/layouts/layout-1/shared/topbar/user-dropdown-menu';
+import { SearchDialog } from '@/components/layout/shared/dialogs/search/search-dialog';
+import { AppsDropdownMenu } from '@/components/layout/shared/topbar/apps-dropdown-menu';
+import { ChatSheet } from '@/components/layout/shared/topbar/chat-sheet';
+import { NotificationsSheet } from '@/components/layout/shared/topbar/notifications-sheet';
+import { UserDropdownMenu } from '@/components/layout/shared/topbar/user-dropdown-menu';
 import { MegaMenu } from './mega-menu';
 import { MegaMenuMobile } from './mega-menu-mobile';
 import { SidebarMenu } from './sidebar-menu';
-import { usePathname } from '@/src/lib/router-helpers';
-import Link from '@/src/lib/router-helpers';
+import { usePathname } from '@/lib/router-helpers';
+import Link from '@/lib/router-helpers';
 
 export function Header() {
   const [isSidebarSheetOpen, setIsSidebarSheetOpen] = useState(false);

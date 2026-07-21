@@ -9,8 +9,8 @@ import {
   NavigationMenuList,
   NavigationMenuTrigger,
 } from '@/components/ui/navigation-menu';
-import { usePathname } from '@/src/lib/router-helpers';
-import Link from '@/src/lib/router-helpers';
+import { usePathname } from '@/lib/router-helpers';
+import Link from '@/lib/router-helpers';
 import { MenuItem } from '@/config/types';
 
 export function MegaMenu() {

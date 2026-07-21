@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useParams } from '@/src/lib/router-helpers';
+import { useParams } from '@/lib/router-helpers';
 import { AlertTriangle, ArrowLeft, Check, Download, Link as LinkIcon, QrCode, Send, Trash2, X } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';

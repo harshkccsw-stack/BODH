@@ -13,8 +13,8 @@ import { Label } from '@/components/ui/label';
 import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
-import { SheetView } from '@/src/components/data-studio/SheetView';
-import { DashboardView } from '@/src/components/data-studio/DashboardView';
+import { SheetView } from '@/pages/data-studio/components/SheetView';
+import { DashboardView } from '@/pages/data-studio/components/DashboardView';
 import {
   assessmentRecordsApi,
   dataStudioApi,

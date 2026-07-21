@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useParams } from '@/src/lib/router-helpers';
+import { useParams } from '@/lib/router-helpers';
 import {
   AlertTriangle,
   ArrowLeft,

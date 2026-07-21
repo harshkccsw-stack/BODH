@@ -18,8 +18,8 @@ import {
 } from '@/components/ui/accordion-menu';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { usePathname } from '@/src/lib/router-helpers';
-import Link from '@/src/lib/router-helpers';
+import { usePathname } from '@/lib/router-helpers';
+import Link from '@/lib/router-helpers';
 
 export function SidebarMenu() {
   const pathname = usePathname();

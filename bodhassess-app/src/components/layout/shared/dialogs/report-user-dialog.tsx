@@ -1,5 +1,5 @@
 import { useId, useState } from 'react';
-import Link from '@/src/lib/router-helpers';
+import Link from '@/lib/router-helpers';
 import { toAbsoluteUrl } from '@/lib/helpers';
 import { Button } from '@/components/ui/button';
 import {

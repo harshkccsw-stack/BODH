@@ -1,6 +1,7 @@
 node_modules/
 package-lock.json
 # bodhassess-app/dist
+*.tsbuildinfo
 bodhassess-app/.env
 bodhassess-app/.env.local
 bodhassess-app/.env.development.local

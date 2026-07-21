@@ -25,7 +25,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { DropdownMenu4 } from '@/components/layouts/layout-1/shared/dropdown-menu/dropdown-menu-4';
+import { DropdownMenu4 } from '@/components/layout/shared/dropdown-menu/dropdown-menu-4';
 import {
   SearchDocs,
   SearchDocsItem,

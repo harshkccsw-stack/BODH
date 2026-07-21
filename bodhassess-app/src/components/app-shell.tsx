@@ -1,5 +1,5 @@
 import { Outlet } from 'react-router';
-import { Layout1 } from '@/components/layouts/layout-1';
+import { Layout1 } from '@/components/layout';
 
 // AppShell wraps the practitioner-dashboard layout (sidebar, header, footer,
 // etc.) and renders the matched child route inside it via <Outlet />.

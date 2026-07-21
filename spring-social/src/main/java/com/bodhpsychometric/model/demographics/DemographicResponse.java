@@ -68,7 +68,7 @@ public class DemographicResponse implements java.io.Serializable {
     public void setMapping(RespondentAssessmentMapping mapping) {
         this.mapping = mapping;
     }
-
+    
     public DemographicField getDemographicField() {
         return demographicField;
     }

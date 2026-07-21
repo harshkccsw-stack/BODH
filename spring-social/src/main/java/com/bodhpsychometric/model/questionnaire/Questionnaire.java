@@ -45,6 +45,14 @@ public class Questionnaire implements java.io.Serializable {
 
     @Column(name = "generalInstruction", columnDefinition = "TEXT")
     private String generalInstruction;
+
+    /**
+     * Rendering switch: false — flat list, Section is ignored entirely;
+     * true — questions are grouped by their Section, and the service must
+     * ensure no question of this questionnaire is left sectionless.
+     */
+    @Column(name = "hasSections", nullable = false)
+    private boolean hasSections;
     // ── Kept from the old catalog, to be refined in a later pass ─────────
     @Column(name = "tierRequired", length = 50)
     private String tierRequired;
@@ -76,6 +84,14 @@ public class Questionnaire implements java.io.Serializable {
     @OneToMany(mappedBy = "questionnaire", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("questionId ASC")
     private List<Question> questions = new ArrayList<>();
+
+    public boolean isHasSections() {
+        return hasSections;
+    }
+
+    public void setHasSections(boolean hasSections) {
+        this.hasSections = hasSections;
+    }
 
     public List<Question> getQuestions() {
         return questions;

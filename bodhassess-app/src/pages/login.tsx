@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { authApi } from '@/lib/api';
 import { config } from '@/lib/config';
 import { usePractitionerAuth } from '@/lib/practitioner-auth';
-import { useRouter } from '@/src/lib/router-helpers';
+import { useRouter } from '@/lib/router-helpers';
 import { autoFormatDdmmyyyy, ddmmyyyyToIso } from '@/lib/helpers';
 
 // Session restore for a stored token lives in PractitionerAuthProvider (it

@@ -2,7 +2,7 @@ package com.bodhpsychometric.model.auth;
 
 import com.bodhpsychometric.model.auth.enums.PractitionerStatus;
 import com.bodhpsychometric.model.auth.enums.Vertical;
-
+import com.bodhpsychometric.model.organization.Organization;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -13,6 +13,7 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
@@ -56,6 +57,12 @@ public class PractitionerUser implements java.io.Serializable {
     @Enumerated(value = jakarta.persistence.EnumType.STRING)
     @Column(name = "vertical")
     private Vertical vertical;
+
+    /** At most one organization per practitioner; null means independent. */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "organizationId",
+            foreignKey = @ForeignKey(name = "fkPractitionerUserOrganization"))
+    private Organization organization;
 
 
     public Long getId() {
@@ -105,6 +112,14 @@ public class PractitionerUser implements java.io.Serializable {
 
     public void setVertical(Vertical vertical) {
         this.vertical = vertical;
+    }
+
+    public Organization getOrganization() {
+        return organization;
+    }
+
+    public void setOrganization(Organization organization) {
+        this.organization = organization;
     }
 
 }
