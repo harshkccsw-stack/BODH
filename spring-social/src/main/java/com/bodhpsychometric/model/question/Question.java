@@ -34,11 +34,12 @@ public class Question implements Serializable {
     private Long questionId;
 
     /**
-     * Owning side of Questionnaire 1—* Question: the FK column lives here.
-     * Every question belongs to exactly one questionnaire.
+     * The questionnaire this bank question is currently attached to; null for
+     * an unattached question. Questions are created standalone in the question
+     * bank — attachment happens during questionnaire authoring, not here.
      */
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "questionnaireId", nullable = false,
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "questionnaireId",
             foreignKey = @ForeignKey(name = "fkQuestionQuestionnaire"))
     private Questionnaire questionnaire;
 
@@ -75,6 +76,14 @@ public class Question implements Serializable {
     /** Asset location when contentType is not TEXT: uploaded file path for IMAGE/VIDEO, external link for URL. */
     @Column(name = "mediaUrl", columnDefinition = "TEXT")
     private String mediaUrl;
+
+    /**
+     * Position within the attached questionnaire (within its section when the
+     * questionnaire hasSections). Null while the question sits unattached in
+     * the bank — order is an attachment concern, set by the mapping flow.
+     */
+    @Column(name = "sortOrder")
+    private Integer sortOrder;
 
     // ── Kept from the old system, to be refined in a later pass ──────────
     @Column(name = "irtA")
@@ -195,6 +204,14 @@ public class Question implements Serializable {
 
     public void setSection(Section section) {
         this.section = section;
+    }
+
+    public Integer getSortOrder() {
+        return sortOrder;
+    }
+
+    public void setSortOrder(Integer sortOrder) {
+        this.sortOrder = sortOrder;
     }
 
     public List<Option> getOptions() {

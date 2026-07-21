@@ -25,8 +25,9 @@ import {
 } from 'lucide-react';
 import { getMQs, getQuestionnaires, type MQ as StoredMQ, type StoredQuestionnaire } from '@/lib/data-store';
 import { API_BASE } from '@/lib/api';
-import { questionnairesApi } from '@/pages/questionnaires/questionnairesApi';
+import { questionnairesApi, type SectionResponse } from '@/pages/questionnaires/questionnairesApi';
 import { demographicsApi, type DemographicFieldResponse } from '@/pages/questionnaires/demographicsApi';
+import { questionApis, type QuestionResponse as BankQuestion } from './questionApis';
 
 // --- Types ---
 
@@ -261,6 +262,8 @@ function MediaPicker({
 
 export default function CreateAssessmentPage() {
   const [step, setStep] = useState<1 | 2 | 3>(1);
+  // Numeric id of the catalog row Step 1 created/updated in spring-social.
+  const [backendQid, setBackendQid] = useState<number | null>(null);
 
   // Questionnaire
   const [instName, setInstName] = useState('');
@@ -298,6 +301,203 @@ export default function CreateAssessmentPage() {
       .then((r) => setDemoFieldCatalog(r.data))
       .catch(() => setDemoFieldCatalog([]));
   }, []);
+
+  // ── Step 2: question bank + placement ─────────────────────────────────
+  // placement: questionId → where it sits (sectionId null on flat
+  // questionnaires) and its position within that scope.
+  const [bankQuestions, setBankQuestions] = useState<BankQuestion[]>([]);
+  const [bankLoading, setBankLoading] = useState(false);
+  const [bankError, setBankError] = useState('');
+  const [qSections, setQSections] = useState<SectionResponse[]>([]);
+  const [placement, setPlacement] = useState<Record<number, { sectionId: number | null; sortOrder: number }>>({});
+  const [newSectionName, setNewSectionName] = useState('');
+  const [addQOpen, setAddQOpen] = useState(false);
+  const [newQStem, setNewQStem] = useState('');
+  const [newQOptions, setNewQOptions] = useState<string[]>(['', '']);
+  const [newQError, setNewQError] = useState('');
+  const [newQSaving, setNewQSaving] = useState(false);
+
+  const loadBank = async (qid: number) => {
+    setBankLoading(true);
+    setBankError('');
+    try {
+      const [qs, secs, mine] = await Promise.all([
+        questionApis.getAllQuestions(),
+        questionnairesApi.getQuestionnaireSections(qid),
+        questionApis.getQuestionsByQuestionnaireId(qid),
+      ]);
+      setBankQuestions(qs.data);
+      setQSections(secs.data);
+      const p: Record<number, { sectionId: number | null; sortOrder: number }> = {};
+      mine.data.forEach((q, i) => {
+        p[q.questionId] = { sectionId: q.sectionId, sortOrder: q.sortOrder ?? i };
+      });
+      setPlacement(p);
+    } catch (e: any) {
+      setBankError(e?.message || 'Failed to load the question bank');
+    } finally {
+      setBankLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (step === 2 && backendQid != null) loadBank(backendQid);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, backendQid]);
+
+  /** Selected question ids of one scope (section or flat root), in order. */
+  const scopeOf = (
+    map: Record<number, { sectionId: number | null; sortOrder: number }>,
+    sectionId: number | null,
+  ) =>
+    Object.entries(map)
+      .filter(([, p]) => p.sectionId === sectionId)
+      .sort((a, b) => a[1].sortOrder - b[1].sortOrder)
+      .map(([qid]) => Number(qid));
+
+  const scopeList = (sectionId: number | null) => scopeOf(placement, sectionId);
+
+  const toggleQuestion = (questionId: number, sectionId: number | null) => {
+    setPlacement((prev) => {
+      const next = { ...prev };
+      const existing = next[questionId];
+      if (existing && existing.sectionId === sectionId) {
+        delete next[questionId];
+        scopeOf(next, sectionId).forEach((qid, idx) => {
+          next[qid] = { ...next[qid], sortOrder: idx };
+        });
+      } else if (!existing) {
+        next[questionId] = { sectionId, sortOrder: scopeOf(next, sectionId).length };
+      }
+      // Selected in another section: no-op — the row is disabled there.
+      return next;
+    });
+  };
+
+  const moveQuestionTo = (questionId: number, position: number) => {
+    setPlacement((prev) => {
+      const p = prev[questionId];
+      if (!p) return prev;
+      const ids = scopeOf(prev, p.sectionId).filter((id) => id !== questionId);
+      ids.splice(position, 0, questionId);
+      const next = { ...prev };
+      ids.forEach((id, idx) => {
+        next[id] = { ...next[id], sortOrder: idx };
+      });
+      return next;
+    });
+  };
+
+  const addQSection = async () => {
+    const name = newSectionName.trim();
+    if (!name || backendQid == null) return;
+    try {
+      const res = await questionnairesApi.createQuestionnaireSection(backendQid, { name, instruction: null });
+      setQSections((prev) => [...prev, res.data]);
+      setNewSectionName('');
+    } catch (e: any) {
+      setBankError(e?.response?.data?.message || e?.message || 'Failed to create section');
+    }
+  };
+
+  const removeQSection = async (sectionId: number) => {
+    if (backendQid == null) return;
+    try {
+      await questionnairesApi.deleteQuestionnaireSection(backendQid, sectionId);
+      setQSections((prev) => prev.filter((s) => s.sectionId !== sectionId));
+      // Its selections leave the mapping; re-place them in another section.
+      setPlacement((prev) => {
+        const next = { ...prev };
+        Object.keys(next).forEach((k) => {
+          if (next[Number(k)].sectionId === sectionId) delete next[Number(k)];
+        });
+        return next;
+      });
+    } catch (e: any) {
+      setBankError(e?.response?.data?.message || e?.message || 'Failed to remove section');
+    }
+  };
+
+  const submitNewQuestion = async () => {
+    const stem = newQStem.trim();
+    if (!stem) { setNewQError('Question text is required'); return; }
+    const opts = newQOptions.map((o) => o.trim()).filter(Boolean);
+    setNewQSaving(true);
+    try {
+      const res = await questionApis.createQuestion({
+        contentType: 'TEXT',
+        stem,
+        mediaUrl: null,
+        riskFlag: false,
+        options: opts.map((t) => ({ optionText: t, contentType: 'TEXT', mediaUrl: null, mqtScores: [] })),
+        mqtScores: [],
+      });
+      setBankQuestions((prev) => [...prev, res.data]);
+      setAddQOpen(false);
+      setNewQStem('');
+      setNewQOptions(['', '']);
+      setNewQError('');
+    } catch (e: any) {
+      setNewQError(e?.response?.data?.message || e?.message || 'Failed to create question');
+    } finally {
+      setNewQSaving(false);
+    }
+  };
+
+  /** Flatten placement into the PUT payload; per-scope order = sortOrder. */
+  const buildMappingEntries = () => {
+    const entries: Array<{ questionId: number; sectionId: number | null; sortOrder: number }> = [];
+    const scopes: Array<number | null> = useSections ? qSections.map((s) => s.sectionId) : [null];
+    scopes.forEach((sec) => {
+      scopeList(sec).forEach((qid, idx) => entries.push({ questionId: qid, sectionId: sec, sortOrder: idx }));
+    });
+    return entries;
+  };
+
+  const renderBankRow = (q: BankQuestion, sectionId: number | null) => {
+    const p = placement[q.questionId];
+    const selectedHere = !!p && p.sectionId === sectionId;
+    const selectedElsewhere = !!p && p.sectionId !== sectionId;
+    const attachedElsewhere = q.questionnaireId != null && q.questionnaireId !== backendQid;
+    const disabled = attachedElsewhere || selectedElsewhere;
+    const scope = scopeList(sectionId);
+    return (
+      <div
+        key={q.questionId}
+        className={cn(
+          'flex items-center gap-2.5 rounded-md border px-3 py-2 text-sm transition-colors',
+          selectedHere ? 'border-primary bg-primary/5' : 'border-border',
+          disabled && 'opacity-50',
+        )}
+      >
+        <input
+          type="checkbox"
+          checked={selectedHere}
+          disabled={disabled}
+          onChange={() => toggleQuestion(q.questionId, sectionId)}
+          className="rounded shrink-0"
+        />
+        <div className="min-w-0 flex-1">
+          <p className="truncate">{q.stem || <span className="italic text-muted-foreground">(media question)</span>}</p>
+          <p className="text-[0.6875rem] text-muted-foreground truncate">
+            {q.options.length} option{q.options.length !== 1 ? 's' : ''}
+            {attachedElsewhere && ` · in "${q.questionnaireName}"`}
+            {selectedElsewhere && ' · placed in another section'}
+          </p>
+        </div>
+        {selectedHere && (
+          <select
+            value={scope.indexOf(q.questionId)}
+            onChange={(e) => moveQuestionTo(q.questionId, Number(e.target.value))}
+            className="shrink-0 rounded-md border border-border bg-background px-1.5 py-1 text-xs outline-none focus:border-primary"
+            title="Position in order"
+          >
+            {scope.map((_, i) => <option key={i} value={i}>{i + 1}</option>)}
+          </select>
+        )}
+      </div>
+    );
+  };
 
   // ---- Edit mode: ?edit=<id> loads the catalog entry from the new API ----
   const [editMode, setEditMode] = useState(false);
@@ -359,8 +559,6 @@ export default function CreateAssessmentPage() {
   // Questions
   const [questions, setQuestions] = useState<Question[]>([]);
   const [instrumentId, setQuestionnaireId] = useState<string | null>(null);
-  // Numeric id of the catalog row Step 1 created/updated in spring-social.
-  const [backendQid, setBackendQid] = useState<number | null>(null);
 
   // Status
   const [saving, setSaving] = useState(false);
@@ -1652,155 +1850,23 @@ export default function CreateAssessmentPage() {
   };
 
   const handleSaveQuestions = async () => {
-    if (questions.length === 0) {
-      setError('Add at least one question');
+    if (backendQid == null) {
+      setError('Save Step 1 first — the questionnaire must exist before questions attach to it.');
       return;
     }
-    if (!instShortName.trim()) {
-      setError('Short name is required — set one in Step 1 before publishing');
+    const entries = buildMappingEntries();
+    if (entries.length === 0) {
+      setError('Select at least one question');
       return;
     }
-    const empty = questions.find((q) => !q.stem.trim() && q.media_type === 'none');
-    if (empty) {
-      setError('Every question needs either text or media');
-      return;
-    }
-
     setSaving(true);
-    setError('');
-
-    const qid = instrumentId || `qn-${Math.random().toString(36).slice(2, 10)}`;
     try {
-      const { questionnairesApi } = await import('@/lib/api');
-      await questionnairesApi.upsert({
-        id: qid,
-        name: instName,
-        shortName: instShortName,
-        vertical: instVertical,
-        category: instCategory,
-        description: instDescription,
-        disclaimer: instDisclaimer,
-        instructions: instShowInstructions ? instInstructions : '',
-        showInstructions: instShowInstructions,
-        duration: Number(instDuration) || 0,
-        tier: instTier,
-        languages: instLanguages,
-        mqs: mqs.map((m) => ({
-          id: m.id,
-          name: m.name,
-          mqts: m.mqts, // recursive — children preserved
-        })),
-        questions: questions.map((q) => ({
-          id: q.id,
-          stem: q.stem,
-          format: q.format,
-          media_url: q.media_type === 'none' ? '' : q.media_url,
-          media_type: q.media_type === 'none' ? 'none' : q.media_type,
-          options: q.options
-            .filter((o) => o.text.trim() || o.media_url || o.scores.length > 0)
-            .map((o) => ({
-              text: o.text,
-              scores: o.scores.map((s) => ({ mqt_id: s.mqt_id, score: Number(s.score) || 0 })),
-              media_url: o.media_url,
-              media_type: o.media_type,
-            })),
-          question_scores: q.question_scores.map((s) => ({ mqt_id: s.mqt_id, score: Number(s.score) || 0 })),
-          coverage: { mqs: [...q.coverage.mqs], mqts: [...q.coverage.mqts] },
-          clinical_risk_flag: q.clinical_risk_flag,
-          risk_flag_rule: q.risk_flag_rule,
-          ...(useSections && q.sectionId ? { sectionId: q.sectionId, sectionTitle: q.sectionTitle || '' } : {}),
-        })),
-        isDemo: false,
-        demographicFieldKeys: demoSelection.map((e) => String(e.demographicFieldId)),
-      });
-
-      // Also register the instrument in the /instruments catalog so it shows
-      // up in the Questionnaire Library, then bulk-insert the questions into
-      // the items table so they're queryable per-row (not only as JSON inside
-      // published_questionnaires). Both failures are non-fatal — the published
-      // questionnaire write above already succeeded — but we surface warnings.
-      let catalogWarning = '';
-      try {
-        const scoring_config = {
-          model: 'MQ_MQT',
-          mqs: mqs.map((m) => ({ id: m.id, name: m.name, mqts: m.mqts })),
-        };
-        const res = await fetch(`${API_BASE}/questionnaires-catalog`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            // Passing the same id every republish makes the backend upsert
-            // instead of inserting a new instrument row each time.
-            id: qid,
-            name: instName,
-            short_name: instShortName,
-            vertical: instVertical,
-            category: instCategory,
-            description: instDescription,
-            duration_minutes: instDuration,
-            tier_required: instTier,
-            languages: instLanguages,
-            is_adaptive: instIsAdaptive,
-            is_fixed_sequence: instIsFixed,
-            uses_weighted_scoring: true,
-            scoring_config,
-          }),
-        });
-        if (!res.ok && res.status !== 204) {
-          const text = await res.text().catch(() => res.statusText);
-          catalogWarning = `but catalog registration failed (${res.status}: ${text}). It may not show in the Questionnaire Library — try republishing.`;
-        } else {
-          const catalogBody = await res.json().catch(() => null as any);
-          const instrumentDbId: string | undefined = catalogBody?.id;
-          if (instrumentDbId) {
-            const itemsPayload = {
-              items: questions.map((q, idx) => ({
-                stem: q.stem,
-                format: q.format,
-                media_url: q.media_type === 'none' ? '' : q.media_url,
-                media_type: q.media_type === 'none' ? 'none' : q.media_type,
-                options: q.options
-                  .filter((o) => o.text.trim() || o.media_url || o.scores.length > 0)
-                  .map((o) => ({
-                    text: o.text,
-                    scores: o.scores.map((s) => ({ mqt_id: s.mqt_id, score: Number(s.score) || 0 })),
-                    media_url: o.media_url,
-                    media_type: o.media_type,
-                  })),
-                sub_domains: q.question_scores.map((s) => ({ domain: s.mqt_id, weight: Number(s.score) || 0 })),
-                clinical_risk_flag: q.clinical_risk_flag,
-                risk_flag_rule: q.risk_flag_rule,
-                sequence_order: idx + 1,
-                languages: instLanguages,
-              })),
-            };
-            const itemsRes = await fetch(
-              `${API_BASE}/questionnaires-catalog/${encodeURIComponent(instrumentDbId)}/items/bulk`,
-              {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(itemsPayload),
-              },
-            );
-            if (!itemsRes.ok) {
-              const text = await itemsRes.text().catch(() => itemsRes.statusText);
-              catalogWarning = `but items table population failed (${itemsRes.status}: ${text}). The questionnaire is published, but per-row item queries will be empty for this instrument.`;
-            }
-          }
-        }
-      } catch (e: any) {
-        catalogWarning = `but catalog registration failed (${e?.message || 'network error'}). It may not show in the Questionnaire Library — try republishing.`;
-      }
-
-      setQuestionnaireId(qid);
+      await questionnairesApi.setQuestionnaireQuestions(backendQid, entries);
+      setError('');
+      setSuccess(`Saved ${entries.length} question${entries.length === 1 ? '' : 's'} to "${instName}".`);
       setStep(3);
-      setSuccess(
-        catalogWarning
-          ? `"${instName}" published with ${questions.length} question${questions.length !== 1 ? 's' : ''}, ${catalogWarning}`
-          : `"${instName}" published with ${questions.length} question${questions.length !== 1 ? 's' : ''}. Saved and ready for respondents.`,
-      );
     } catch (e: any) {
-      setError(`Failed to publish: ${e?.message || 'API error'}. Is the backend running?`);
+      setError(e?.response?.data?.message || e?.message || 'Failed to save questions');
     } finally {
       setSaving(false);
     }
@@ -2037,533 +2103,158 @@ export default function CreateAssessmentPage() {
 
       {/* ===== STEP 2 ===== */}
       {step === 2 && (
-        <div className="flex gap-6 items-start">
-          {/* Question navigator — click a question to jump to its card */}
-          {questions.length > 0 && (
-            <aside className="hidden lg:block w-56 shrink-0 sticky top-6 self-start max-h-[calc(100vh-3rem)] overflow-auto rounded-xl border border-border bg-card">
-              <div className="px-3 py-2.5 border-b border-border">
-                <p className="text-xs font-semibold">Questions</p>
-                <p className="text-[0.625rem] text-muted-foreground">{questions.length} total · click to jump</p>
-              </div>
-              <nav className="p-1.5 space-y-0.5">
-                {questions.map((q, idx) => (
-                  <button
-                    key={q.id}
-                    type="button"
-                    onClick={() => goToQuestion(q.id)}
-                    className="w-full flex items-start gap-2 rounded-md px-2 py-1.5 text-left hover:bg-muted transition-colors"
-                  >
-                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary text-[0.625rem] font-semibold">{idx + 1}</span>
-                    <span className="text-xs text-muted-foreground break-words whitespace-normal">{q.stem?.trim() || 'Untitled question'}</span>
-                  </button>
-                ))}
-              </nav>
-            </aside>
-          )}
-          <div className="min-w-0 flex-1 space-y-7">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-lg font-semibold">{instName}</h2>
-              <p className="text-sm text-muted-foreground">
-                {questions.length} questions · {allMqts.length} MQT{allMqts.length !== 1 ? 's' : ''} across {mqs.length} MQ{mqs.length !== 1 ? 's' : ''}
-              </p>
-            </div>
-            <div className="flex gap-3">
-              <Button variant="outline" onClick={() => { setStep(1); setError(''); }}>
-                <ChevronLeft className="h-4 w-4" /> Previous Step
-              </Button>
-              <Button variant="primary" onClick={handleSaveQuestions} disabled={saving || questions.length === 0}>
-                <Save className="h-4 w-4" /> {saving ? (editMode ? 'Saving...' : 'Publishing...') : editMode ? `Save ${questions.length} Questions` : `Publish ${questions.length} Questions`}
-              </Button>
-            </div>
-          </div>
-
-          {/* Coverage map — which MQs/MQTs the questions measure */}
-          {questions.length > 0 && (mqs.length > 0 || allMqts.length > 0) && (
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm flex items-center gap-2">
-                  <Layers className="h-4 w-4 text-primary" /> Coverage Map
-                </CardTitle>
-                <p className="text-xs text-muted-foreground">
-                  {coverageSummary.taggedCount} of {questions.length} question{questions.length !== 1 ? 's' : ''} tagged with coverage.
-                </p>
-              </CardHeader>
-              <CardContent className="pt-0 space-y-1.5">
-                {mqs.map((m) => {
-                  const mqN = coverageSummary.mqCounts[m.id] || 0;
-                  const traits = mqtsByMq[m.id] || [];
-                  const collapsed = collapsedMqs.has(m.id);
-                  return (
-                    <div key={m.id} className="rounded-md border border-border px-2 py-1.5">
-                      <div className="flex items-center gap-2">
-                        {/* Collapse toggle for the trait list */}
-                        {traits.length > 0 ? (
-                          <button
-                            type="button"
-                            onClick={() => toggleMqCollapse(m.id)}
-                            className="text-muted-foreground hover:text-foreground shrink-0"
-                            title={collapsed ? 'Expand traits' : 'Collapse traits'}
-                          >
-                            <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', !collapsed && 'rotate-90')} />
-                          </button>
-                        ) : (
-                          <span className="w-3.5 shrink-0" />
-                        )}
-                        <span
-                          className={cn(
-                            'inline-flex items-center px-2 py-0.5 text-[0.6875rem] font-medium rounded-full border',
-                            mqN > 0 ? 'bg-primary/10 text-primary border-primary/30' : 'bg-muted text-muted-foreground border-border',
-                          )}
-                        >
-                          {m.name}
-                        </span>
-                        <span className="text-[0.625rem] text-muted-foreground">
-                          {mqN} question{mqN !== 1 ? 's' : ''}
-                        </span>
-                      </div>
-                      {traits.length > 0 && !collapsed && (
-                        <div className="mt-1.5 flex flex-wrap gap-1 pl-5">
-                          {traits.map(({ mqt, path, label, number, depth }) => {
-                            const n = coverageSummary.mqtCounts[mqt.id] || 0;
-                            return (
-                              <span
-                                key={mqt.id}
-                                title={path}
-                                style={{ marginLeft: depth * 12 }}
-                                className={cn(
-                                  'inline-flex items-center gap-1 px-2 py-0.5 text-[0.6875rem] rounded-full border',
-                                  n > 0 ? 'bg-primary/10 text-primary border-primary/30' : 'bg-muted/60 text-muted-foreground border-border',
-                                )}
-                              >
-                                <span className="font-mono text-[0.625rem] opacity-70">{number}</span>
-                                {label} · {n}
-                              </span>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Empty state — varies based on sections mode */}
-          {!useSections && questions.length === 0 && (
-            <Card className="border-dashed">
-              <CardContent className="p-12 text-center space-y-4">
-                <p className="text-muted-foreground">No questions yet. Click "Add Question" below to start.</p>
-                <Button variant="outline" onClick={() => addQuestion()}><Plus className="h-4 w-4" /> Add First Question</Button>
-              </CardContent>
-            </Card>
-          )}
-          {useSections && sections.length === 0 && (
-            <Card className="border-dashed">
-              <CardContent className="p-12 text-center space-y-4">
-                <p className="text-muted-foreground">
-                  Sections mode is on. Start by creating a section — you can then add questions inside each section.
-                </p>
-                <Button variant="outline" onClick={addSection}><Layers className="h-4 w-4" /> Add First Section</Button>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Flat rendering — when sections toggle is off */}
-          {!useSections && questions.length > 0 && (
-            <div className="space-y-4">
-              {questions.map((q, idx) => renderQuestionCard(q, idx))}
-            </div>
-          )}
-
-          {/* Grouped rendering — when sections toggle is on */}
-          {useSections && sections.length > 0 && (
-            <div className="space-y-6">
-              {sections.map((section) => {
-                const sectionQuestions = questions.filter((q) => q.sectionId === section.id);
-                return (
-                  <div key={section.id} className="rounded-xl border border-border bg-muted/20">
-                    <div className="flex items-center gap-2 border-b border-border bg-background px-4 py-3 rounded-t-xl">
-                      <Layers className="h-4 w-4 text-primary shrink-0" />
-                      <input
-                        value={section.title}
-                        onChange={(e) => renameSection(section.id, e.target.value)}
-                        placeholder="Section title"
-                        className="flex-1 rounded-lg border border-border bg-background px-3 py-1.5 text-sm font-semibold outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-                      />
-                      <span className="text-[0.6875rem] text-muted-foreground shrink-0">
-                        {sectionQuestions.length} question{sectionQuestions.length !== 1 ? 's' : ''}
-                      </span>
-                      <button
-                        onClick={() => deleteSection(section.id)}
-                        className="text-muted-foreground hover:text-red-500 shrink-0"
-                        title="Delete section (removes all questions inside)"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                    <div className="p-4 space-y-4">
-                      {sectionQuestions.length === 0 ? (
-                        <p className="text-xs text-muted-foreground italic text-center py-4">
-                          No questions in this section yet.
-                        </p>
-                      ) : (
-                        sectionQuestions.map((q) => renderQuestionCard(q, questions.indexOf(q)))
-                      )}
-                      <div className="pt-1">
-                        <Button variant="outline" size="sm" onClick={() => addQuestion(section.id, section.title)}>
-                          <Plus className="h-4 w-4" /> Add Question to this Section
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-
-              {/* Ungrouped questions (sectionId not in sections list) */}
-              {(() => {
-                const sectionIds = new Set(sections.map((s) => s.id));
-                const ungrouped = questions.filter((q) => !q.sectionId || !sectionIds.has(q.sectionId));
-                if (ungrouped.length === 0) return null;
-                return (
-                  <div className="rounded-xl border border-dashed border-border bg-muted/10">
-                    <div className="px-4 py-3 border-b border-border text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                      Unassigned ({ungrouped.length})
-                    </div>
-                    <div className="p-4 space-y-4">
-                      {ungrouped.map((q) => renderQuestionCard(q, questions.indexOf(q)))}
-                    </div>
-                  </div>
-                );
-              })()}
-            </div>
-          )}
-
-          {/* ===== Bottom toolbar: add/preview/copy (sticky) ===== */}
-          <div className="sticky bottom-4 z-30 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-background/95 backdrop-blur px-4 py-3 shadow-lg mt-6">
-            <div className="flex flex-wrap gap-2">
-              {useSections ? (
-                <Button variant="outline" onClick={addSection}>
-                  <Layers className="h-4 w-4" /> Add Section
-                </Button>
-              ) : (
-                <Button variant="outline" onClick={() => addQuestion()}>
-                  <Plus className="h-4 w-4" /> Add Question
-                </Button>
-              )}
-              <Button variant="outline" onClick={openImport}>
-                <Copy className="h-4 w-4" /> Copy from Questionnaire
-              </Button>
-              <Button variant="outline" onClick={openBulkImport}>
-                <UploadIcon className="h-4 w-4" /> Import CSV/Excel
-              </Button>
-              <Button variant="outline" onClick={openPreview} disabled={questions.length === 0}>
-                <Eye className="h-4 w-4" /> Preview
-              </Button>
-            </div>
-            <Button variant="primary" onClick={handleSaveQuestions} disabled={saving || questions.length === 0}>
-              <Save className="h-4 w-4" /> {saving ? (editMode ? 'Saving...' : 'Publishing...') : editMode ? `Save ${questions.length} Questions` : `Publish ${questions.length} Questions`}
-            </Button>
-          </div>
-          </div>
-        </div>
-      )}
-
-      {/* ===== Preview: whole questionnaire at once ===== */}
-      {previewOpen && (
-        <div className="fixed inset-0 z-50 flex items-stretch bg-black/60" onClick={() => setPreviewOpen(false)}>
-          <div className="m-auto w-full max-w-3xl bg-background rounded-xl border border-border shadow-xl max-h-[92vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
-            {/* Header */}
-            <div className="shrink-0 border-b border-border px-5 py-4 flex items-center justify-between gap-4">
-              <div className="min-w-0">
-                <p className="text-[0.6875rem] font-medium uppercase tracking-wider text-primary">
-                  Preview · not saved
-                </p>
-                <h3 className="text-lg font-semibold truncate">{instName || 'Untitled questionnaire'}</h3>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  {questions.length} question{questions.length !== 1 ? 's' : ''}
-                  {instShortName ? ` · ${instShortName}` : ''}
-                  {instVertical ? ` · ${instVertical}` : ''}
-                  {instDuration ? ` · ~${instDuration} min` : ''}
-                </p>
-              </div>
-              <button onClick={() => setPreviewOpen(false)} className="text-muted-foreground hover:text-foreground">
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
-            {/* Whole questionnaire in a single scrollable view */}
-            <div className="flex-1 min-h-0 overflow-y-auto">
-              <div className="px-5 py-6 space-y-6">
-                {instDescription && (
-                  <p className="text-sm text-muted-foreground leading-relaxed border-l-2 border-primary/40 pl-3">
-                    {instDescription}
-                  </p>
-                )}
-
-                {instShowInstructions && instInstructions.trim() && (
-                  <div className="rounded-lg border border-border bg-muted/30 p-4">
-                    <p className="text-[0.6875rem] font-medium uppercase tracking-wider text-primary mb-2">Instructions</p>
-                    <p className="text-sm whitespace-pre-wrap leading-relaxed">{instInstructions}</p>
-                  </div>
-                )}
-
-                {questions.map((q, idx) => (
-                  <div key={q.id} className="rounded-xl border border-border bg-background overflow-hidden">
-                    <div className="flex items-start gap-3 px-4 py-3 bg-muted/40 border-b border-border">
-                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary text-xs font-semibold">
-                        {idx + 1}
-                      </span>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium leading-snug">
-                          {q.stem || <span className="text-muted-foreground italic">(no stem)</span>}
-                        </p>
-                        <div className="flex flex-wrap items-center gap-2 mt-1 text-[0.6875rem] text-muted-foreground">
-                          <span className="font-mono">{q.format}</span>
-                          {q.clinical_risk_flag && (
-                            <span className="inline-flex items-center gap-1 text-red-600">
-                              <AlertTriangle className="h-3 w-3" /> Risk flag
-                            </span>
-                          )}
-                          {q.options.length > 0 && <span>· {q.options.length} options</span>}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="p-4 space-y-3">
-                      {q.media_type !== 'none' && q.media_url && (
-                        <MediaPreview url={q.media_url} type={q.media_type} />
-                      )}
-
-                      {String(q.format || '').toUpperCase().replace(/_/g, '') === 'FREETEXT' ? (
-                        <div className="space-y-1.5">
-                          <textarea
-                            rows={5}
-                            disabled
-                            placeholder="Respondent will type their answer here…"
-                            className="w-full rounded-lg border border-dashed border-border bg-muted/30 px-3 py-2.5 text-sm outline-none resize-none"
-                          />
-                          <p className="text-[0.6875rem] text-muted-foreground italic">
-                            Free-text response — no MQT scoring; stored on the session for admin review.
-                          </p>
-                        </div>
-                      ) : q.options.length === 0 ? (
-                        <p className="text-xs text-muted-foreground italic">No options on this question yet.</p>
-                      ) : (
-                        <div className="space-y-2">
-                          {q.options.map((opt, oi) => (
-                            <div
-                              key={oi}
-                              className="rounded-lg border border-border px-3 py-2"
-                            >
-                              <div className="flex items-start gap-3">
-                                <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border text-[0.6875rem] font-semibold text-muted-foreground">
-                                  {String.fromCharCode(65 + oi)}
-                                </span>
-                                <div className="flex-1 min-w-0 space-y-1.5">
-                                  <p className="text-sm">
-                                    {opt.text || <span className="text-muted-foreground italic">Option {oi + 1} (no text)</span>}
-                                  </p>
-                                  {opt.media_url && opt.media_type && opt.media_type !== 'none' && (
-                                    <MediaPreview url={opt.media_url} type={opt.media_type} />
-                                  )}
-                                  {opt.scores.length > 0 && (
-                                    <div className="flex flex-wrap gap-1">
-                                      {opt.scores.map((s) => (
-                                        <span key={s.mqt_id} className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[0.6875rem] font-mono text-muted-foreground">
-                                          {mqtIndex[s.mqt_id]?.path || s.mqt_id}: {s.score}
-                                        </span>
-                                      ))}
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-
-                      {q.clinical_risk_flag && q.risk_flag_rule && (
-                        <p className="text-[0.6875rem] text-red-600 flex items-start gap-1.5">
-                          <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
-                          <span>{q.risk_flag_rule}</span>
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Footer */}
-            <div className="shrink-0 border-t border-border px-5 py-3 flex items-center justify-between gap-3">
-              <p className="text-xs text-muted-foreground">
-                This preview is not saved. Close to keep editing, or publish to make it available in the Questionnaire Library.
-              </p>
+        <>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle className="text-base">
+                {useSections ? 'Assign Questions to Sections' : 'Select Questions'}
+              </CardTitle>
               <div className="flex items-center gap-2">
-                <Button variant="outline" onClick={() => setPreviewOpen(false)}>Close</Button>
-                <Button
-                  variant="primary"
-                  onClick={() => { setPreviewOpen(false); handleSaveQuestions(); }}
-                  disabled={saving || questions.length === 0}
-                >
-                  <Save className="h-4 w-4" />
-                  {saving ? 'Publishing...' : 'Publish'}
+                <span className="text-xs text-muted-foreground">
+                  {Object.keys(placement).length} selected · {bankQuestions.length} in bank
+                </span>
+                <Button variant="outline" size="sm" onClick={() => { setNewQError(''); setAddQOpen(true); }}>
+                  <Plus className="h-3.5 w-3.5" /> Add Question
                 </Button>
               </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ===== Import from questionnaire modal ===== */}
-      {importOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={() => setImportOpen(false)}>
-          <Card className="w-full max-w-2xl max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
-            <CardHeader className="flex flex-row items-center justify-between pb-3 shrink-0">
-              <div className="flex items-center gap-2">
-                {importStage === 'questions' && (
-                  <Button variant="ghost" size="sm" mode="icon" onClick={() => { setImportStage('instrument'); setImportPicked(new Set()); setImportQuestionSearch(''); }}>
-                    <ArrowLeft className="h-4 w-4" />
-                  </Button>
-                )}
-                <CardTitle className="text-base">
-                  {importStage === 'instrument' ? 'Pick a Questionnaire' : `Pick Questions — ${importSource?.name}`}
-                </CardTitle>
-              </div>
-              <button onClick={() => setImportOpen(false)} className="text-muted-foreground hover:text-foreground">
-                <X className="h-4 w-4" />
-              </button>
             </CardHeader>
-            <CardContent className="flex-1 min-h-0 flex flex-col gap-3 pb-4">
-              {/* Search bar (sticky at top of the list panel) */}
-              <div className="relative shrink-0">
-                <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                {importStage === 'instrument' ? (
-                  <input
-                    autoFocus
-                    type="text"
-                    value={importQuestionnaireSearch}
-                    onChange={(e) => setImportQuestionnaireSearch(e.target.value)}
-                    placeholder="Search questionnaires by name, short name, or vertical..."
-                    className="w-full h-9 rounded-lg border border-border bg-background pl-9 pr-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-                  />
+            <CardContent className="space-y-5">
+              {bankError && (
+                <div className="rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-3 py-2 text-xs text-red-700 dark:text-red-400">
+                  {bankError}
+                </div>
+              )}
+              {bankLoading ? (
+                <p className="text-sm text-muted-foreground py-8 text-center">Loading question bank…</p>
+              ) : !useSections ? (
+                bankQuestions.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-8 text-center">
+                    The question bank is empty — add your first question.
+                  </p>
                 ) : (
-                  <input
-                    autoFocus
-                    type="text"
-                    value={importQuestionSearch}
-                    onChange={(e) => setImportQuestionSearch(e.target.value)}
-                    placeholder="Search questions by text..."
-                    className="w-full h-9 rounded-lg border border-border bg-background pl-9 pr-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-                  />
-                )}
-              </div>
-
-              {/* Scrollable list */}
-              <div className="flex-1 min-h-0 overflow-y-auto rounded-lg border border-border">
-                {importStage === 'instrument' ? (
-                  filteredImportQuestionnaires.length === 0 ? (
-                    <div className="p-8 text-center text-sm text-muted-foreground">
-                      {importLibrary.length === 0
-                        ? 'No published questionnaires yet. Create one first, then you can copy from it later.'
-                        : 'No questionnaires match your search.'}
-                    </div>
+                  <div className="space-y-1.5">
+                    {bankQuestions.map((q) => renderBankRow(q, null))}
+                  </div>
+                )
+              ) : (
+                <>
+                  <div className="flex gap-2">
+                    <input
+                      value={newSectionName}
+                      onChange={(e) => setNewSectionName(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') addQSection(); }}
+                      placeholder="New section name — e.g., Part A"
+                      className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                    />
+                    <Button variant="outline" onClick={addQSection} disabled={!newSectionName.trim()}>
+                      <Plus className="h-4 w-4" /> Add Section
+                    </Button>
+                  </div>
+                  {qSections.length === 0 ? (
+                    <p className="text-sm text-muted-foreground py-6 text-center">
+                      This questionnaire uses sections — add the first section to start placing questions.
+                    </p>
                   ) : (
-                    <ul className="divide-y divide-border">
-                      {filteredImportQuestionnaires.map((inst) => {
-                        const qCount = Array.isArray(inst.questions) ? inst.questions.length : 0;
-                        return (
-                          <li key={inst.id}>
+                    qSections.map((sec) => (
+                      <div key={sec.sectionId} className="rounded-lg border border-border">
+                        <div className="flex items-center justify-between gap-2 border-b border-border bg-muted/40 px-3 py-2">
+                          <p className="text-sm font-medium">{sec.name}</p>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[0.6875rem] text-muted-foreground">
+                              {scopeList(sec.sectionId).length} question{scopeList(sec.sectionId).length !== 1 ? 's' : ''}
+                            </span>
                             <button
                               type="button"
-                              onClick={() => {
-                                setImportSource(inst);
-                                setImportPicked(new Set());
-                                setImportQuestionSearch('');
-                                setImportStage('questions');
-                              }}
-                              className="w-full text-left px-4 py-3 hover:bg-muted/50 transition-colors flex items-center justify-between gap-3"
+                              onClick={() => removeQSection(sec.sectionId)}
+                              className="text-muted-foreground hover:text-red-500"
+                              title="Remove section (its selected questions go back to unplaced)"
                             >
-                              <div className="min-w-0">
-                                <p className="text-sm font-medium truncate">{inst.name}</p>
-                                <p className="text-xs text-muted-foreground mt-0.5">
-                                  {inst.shortName ? `${inst.shortName} · ` : ''}
-                                  {String(inst.vertical || '—').toLowerCase()} · {qCount} question{qCount !== 1 ? 's' : ''}
-                                </p>
-                              </div>
-                              <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                              <Trash2 className="h-3.5 w-3.5" />
                             </button>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  )
-                ) : (
-                  filteredImportQuestions.length === 0 ? (
-                    <div className="p-8 text-center text-sm text-muted-foreground">
-                      {(importSource?.questions?.length || 0) === 0
-                        ? 'This questionnaire has no questions.'
-                        : 'No questions match your search.'}
-                    </div>
-                  ) : (
-                    <ul className="divide-y divide-border">
-                      {filteredImportQuestions.map((qq: any, idx: number) => {
-                        const picked = importPicked.has(qq.id);
-                        return (
-                          <li key={qq.id || idx}>
-                            <label className={cn(
-                              'flex items-start gap-3 px-4 py-3 cursor-pointer hover:bg-muted/50 transition-colors',
-                              picked && 'bg-primary/5',
-                            )}>
-                              <input
-                                type="checkbox"
-                                checked={picked}
-                                onChange={() => toggleImportPick(qq.id)}
-                                className="mt-0.5 rounded"
-                              />
-                              <div className="flex-1 min-w-0">
-                                <p className="text-sm font-medium leading-snug">
-                                  {idx + 1}. {qq.stem || <span className="text-muted-foreground italic">(no text)</span>}
-                                </p>
-                                {Array.isArray(qq.options) && qq.options.length > 0 && (
-                                  <p className="text-xs text-muted-foreground mt-1 truncate">
-                                    {qq.options.map((o: any) => o.text).filter(Boolean).join(' · ') || `${qq.options.length} options`}
-                                  </p>
-                                )}
-                                <p className="text-[0.6875rem] text-muted-foreground mt-1">
-                                  {String(qq.format || '').toLowerCase()} · {Array.isArray(qq.options) ? qq.options.length : 0} options
-                                </p>
-                              </div>
-                            </label>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  )
-                )}
-              </div>
-
-              <div className="flex items-center justify-between gap-3 shrink-0 pt-1">
-                <p className="text-xs text-muted-foreground">
-                  {importStage === 'instrument'
-                    ? `${filteredImportQuestionnaires.length} questionnaire${filteredImportQuestionnaires.length !== 1 ? 's' : ''} found`
-                    : `${importPicked.size} selected · ${filteredImportQuestions.length} shown`}
-                </p>
-                <div className="flex gap-2">
-                  <Button variant="outline" onClick={() => setImportOpen(false)}>Cancel</Button>
-                  {importStage === 'questions' && (
-                    <Button variant="primary" onClick={confirmImport} disabled={importPicked.size === 0}>
-                      <Plus className="h-4 w-4" />
-                      Add {importPicked.size > 0 ? `${importPicked.size} ` : ''}Question{importPicked.size === 1 ? '' : 's'}
-                    </Button>
+                          </div>
+                        </div>
+                        <div className="p-3 space-y-1.5">
+                          {bankQuestions.length === 0 ? (
+                            <p className="text-xs text-muted-foreground text-center py-3">Question bank is empty.</p>
+                          ) : (
+                            bankQuestions.map((q) => renderBankRow(q, sec.sectionId))
+                          )}
+                        </div>
+                      </div>
+                    ))
                   )}
-                </div>
-              </div>
+                </>
+              )}
             </CardContent>
           </Card>
-        </div>
+
+          <div className="flex justify-between">
+            <Button variant="outline" onClick={() => { setStep(1); setError(''); }}>
+              <ChevronLeft className="h-4 w-4" /> Previous Step
+            </Button>
+            <Button variant="primary" onClick={handleSaveQuestions} disabled={saving || Object.keys(placement).length === 0}>
+              {saving ? 'Saving…' : 'Save Questions & Continue'}
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+
+          {/* Add-question-to-bank modal */}
+          {addQOpen && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={() => setAddQOpen(false)}>
+              <Card className="w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+                <CardHeader className="flex flex-row items-center justify-between pb-3">
+                  <CardTitle className="text-base">Add Question to Bank</CardTitle>
+                  <button onClick={() => setAddQOpen(false)} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {newQError && (
+                    <div className="rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-3 py-2 text-xs text-red-700 dark:text-red-400">
+                      {newQError}
+                    </div>
+                  )}
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium">Question text *</label>
+                    <textarea
+                      rows={2}
+                      value={newQStem}
+                      onChange={(e) => setNewQStem(e.target.value)}
+                      placeholder="e.g., I enjoy meeting new people."
+                      className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <label className="text-sm font-medium">Options</label>
+                      <button type="button" onClick={() => setNewQOptions((p) => [...p, ''])} className="text-[0.6875rem] font-medium text-primary hover:underline">+ Add option</button>
+                    </div>
+                    {newQOptions.map((opt, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <input
+                          value={opt}
+                          onChange={(e) => setNewQOptions((p) => p.map((o, j) => (j === i ? e.target.value : o)))}
+                          placeholder={`Option ${i + 1}`}
+                          className="flex-1 rounded-lg border border-border bg-background px-3 py-1.5 text-sm outline-none focus:border-primary"
+                        />
+                        {newQOptions.length > 2 && (
+                          <button type="button" onClick={() => setNewQOptions((p) => p.filter((_, j) => j !== i))} className="text-muted-foreground hover:text-red-500"><X className="h-3.5 w-3.5" /></button>
+                        )}
+                      </div>
+                    ))}
+                    <p className="text-[0.6875rem] text-muted-foreground">
+                      Text-only quick add. Media and MQT scoring live in the Question Bank page.
+                    </p>
+                  </div>
+                  <div className="flex justify-end gap-2 pt-1">
+                    <Button variant="outline" onClick={() => setAddQOpen(false)}>Cancel</Button>
+                    <Button variant="primary" onClick={submitNewQuestion} disabled={newQSaving}>
+                      {newQSaving ? 'Adding…' : 'Add to Bank'}
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+        </>
       )}
 
       {/* ===== STEP 3 ===== */}
@@ -2573,13 +2264,19 @@ export default function CreateAssessmentPage() {
             <div className="flex h-16 w-16 items-center justify-center rounded-full bg-green-100 dark:bg-green-900/30 mx-auto">
               <Check className="h-8 w-8 text-green-600" />
             </div>
-            <h2 className="text-xl font-semibold">Published to Questionnaire Library</h2>
+            <h2 className="text-xl font-semibold">Saved to Questionnaire Library</h2>
             <p className="text-muted-foreground max-w-md mx-auto">
-              <strong>{instName}</strong> with {questions.length} questions, {mqs.length} MQ{mqs.length !== 1 ? 's' : ''} and {allMqts.length} MQT{allMqts.length !== 1 ? 's' : ''} is now live.
+              <strong>{instName}</strong> is live with {Object.keys(placement).length} question{Object.keys(placement).length !== 1 ? 's' : ''}
+              {useSections ? ` across ${qSections.length} section${qSections.length !== 1 ? 's' : ''}` : ''}
+              {demoSelection.length > 0 ? ` and ${demoSelection.length} demographic field${demoSelection.length !== 1 ? 's' : ''}` : ''}.
             </p>
             <div className="flex justify-center gap-3 pt-4">
               <Button variant="outline" onClick={() => window.location.href = '/questionnaires'}>View in Library</Button>
-              <Button variant="outline" onClick={openPreview} disabled={questions.length === 0}>
+              <Button
+                variant="outline"
+                onClick={() => { if (backendQid != null) window.location.href = `/questionnaires/${backendQid}/preview`; }}
+                disabled={backendQid == null}
+              >
                 <Eye className="h-4 w-4" /> Preview
               </Button>
               <Button variant="primary" onClick={() => window.location.href = '/assessments/create'}>Create Assessment</Button>

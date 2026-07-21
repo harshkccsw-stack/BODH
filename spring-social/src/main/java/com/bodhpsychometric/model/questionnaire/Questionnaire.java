@@ -6,7 +6,6 @@ import java.util.List;
 import com.bodhpsychometric.model.auth.enums.Vertical;
 import com.bodhpsychometric.model.question.Question;
 
-import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -81,12 +80,12 @@ public class Questionnaire implements java.io.Serializable {
     private String scoringModel;
 
     /**
-     * Inverse side of Questionnaire 1—* Question. Questions belong to this
-     * catalog entry: cascade ALL + orphanRemoval means they are saved and
-     * deleted with the questionnaire, and removing one from this list
-     * deletes it (and, transitively, its options).
+     * Inverse side of Questionnaire 1—* Question. Questions are independent
+     * bank items that get ATTACHED here — no cascade on purpose: deleting a
+     * questionnaire must never delete bank questions, and removeQuestion is a
+     * detach (FK set null), not a delete.
      */
-    @OneToMany(mappedBy = "questionnaire", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OneToMany(mappedBy = "questionnaire")
     @OrderBy("questionId ASC")
     private List<Question> questions = new ArrayList<>();
 

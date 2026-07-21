@@ -6,4 +6,5 @@ import com.bodhpsychometric.model.assessment.AssessmentAnswer;
 
 public interface AssessmentAnswerRepository extends JpaRepository<AssessmentAnswer, Long> {
 
+    boolean existsByQuestionQuestionId(Long questionId);
 }
