@@ -1,5 +1,6 @@
 package com.bodhpsychometric.controller.organization;
 
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -17,6 +18,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.bodhpsychometric.dto.OrganizationAssessmentAssignRequest;
+import com.bodhpsychometric.dto.OrganizationAssessmentResponse;
 import com.bodhpsychometric.dto.OrganizationAssignRequest;
 import com.bodhpsychometric.dto.OrganizationDetailResponse;
 import com.bodhpsychometric.dto.OrganizationDetailResponse.MemberRef;
@@ -24,9 +27,14 @@ import com.bodhpsychometric.dto.OrganizationDetailResponse.StaffRef;
 import com.bodhpsychometric.dto.OrganizationRequest;
 import com.bodhpsychometric.dto.OrganizationResponse;
 import com.bodhpsychometric.dto.UnassignedPeopleResponse;
+import com.bodhpsychometric.model.assessment.Assessment;
+import com.bodhpsychometric.model.assessment.OrganizationAssessmentMapping;
 import com.bodhpsychometric.model.auth.PractitionerUser;
 import com.bodhpsychometric.model.auth.RespondentUser;
 import com.bodhpsychometric.model.organization.Organization;
+import com.bodhpsychometric.repository.assessment.AssessmentRepository;
+import com.bodhpsychometric.repository.assessment.OrganizationAssessmentMappingRepository;
+import com.bodhpsychometric.repository.assessment.RespondentAssessmentMappingRepository;
 import com.bodhpsychometric.repository.auth.PractitionerUserRepository;
 import com.bodhpsychometric.repository.auth.RespondentUserRepository;
 import com.bodhpsychometric.repository.organization.OrganizationRepository;
@@ -57,12 +65,27 @@ public class OrganizationController {
     @Autowired
     private RespondentUserRepository respondentUserRepository;
 
+    @Autowired
+    private AssessmentRepository assessmentRepository;
+
+    @Autowired
+    private OrganizationAssessmentMappingRepository organizationAssessmentMappingRepository;
+
+    @Autowired
+    private RespondentAssessmentMappingRepository respondentAssessmentMappingRepository;
+
+    private OrganizationResponse toResponse(Organization organization) {
+        Long id = organization.getOrganizationId();
+        return OrganizationResponse.from(organization,
+                practitionerUserRepository.countByOrganization_OrganizationId(id),
+                respondentUserRepository.countByOrganization_OrganizationId(id),
+                organizationAssessmentMappingRepository.countByOrganization_OrganizationId(id));
+    }
+
     @GetMapping("/getAll")
     public List<OrganizationResponse> getAllOrganizations() {
         return organizationRepository.findAll().stream()
-                .map(o -> OrganizationResponse.from(o,
-                        practitionerUserRepository.countByOrganization_OrganizationId(o.getOrganizationId()),
-                        respondentUserRepository.countByOrganization_OrganizationId(o.getOrganizationId())))
+                .map(this::toResponse)
                 .toList();
     }
 
@@ -219,11 +242,26 @@ public class OrganizationController {
         if (organizationRepository.existsByNameIgnoreCase(name)) {
             return duplicateName();
         }
+        // Initial catalog: validate every assessment id before creating anything.
+        List<Long> assessmentIds = request.assessmentIds() == null
+                ? List.of() : request.assessmentIds().stream().distinct().toList();
+        List<Assessment> assessments = new ArrayList<>();
+        for (Long assessmentId : assessmentIds) {
+            Assessment assessment = assessmentRepository.findById(assessmentId).orElse(null);
+            if (assessment == null) {
+                return ResponseEntity.badRequest()
+                        .body(Map.of("message", "Assessment " + assessmentId + " not found"));
+            }
+            assessments.add(assessment);
+        }
+
         Organization organization = new Organization();
         apply(organization, request, name);
         organization = organizationRepository.save(organization);
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(OrganizationResponse.from(organization, 0, 0));
+        for (Assessment assessment : assessments) {
+            organizationAssessmentMappingRepository.save(newMapping(organization, assessment));
+        }
+        return ResponseEntity.status(HttpStatus.CREATED).body(toResponse(organization));
     }
 
     @PutMapping("/update/{id}")
@@ -239,9 +277,7 @@ public class OrganizationController {
         }
         apply(organization, request, name);
         organization = organizationRepository.save(organization);
-        return ResponseEntity.ok(OrganizationResponse.from(organization,
-                practitionerUserRepository.countByOrganization_OrganizationId(id),
-                respondentUserRepository.countByOrganization_OrganizationId(id)));
+        return ResponseEntity.ok(toResponse(organization));
     }
 
     @DeleteMapping("/delete/{id}")
@@ -255,8 +291,124 @@ public class OrganizationController {
                     .body(Map.of("message",
                             "This organization still has staff or members — move them out first"));
         }
+        // Catalog rows are meaningless without the org — clean them with it.
+        organizationAssessmentMappingRepository.deleteByOrganization_OrganizationId(id);
         organizationRepository.deleteById(id);
         return ResponseEntity.noContent().build();
+    }
+
+    // ── Assessment catalog (data segregation) ──────────────────────────────
+
+    /** The org's mapped assessments, with how many of its members hold each. */
+    @GetMapping("/getAssessments/{id}")
+    public ResponseEntity<?> getOrganizationAssessments(@PathVariable Long id) {
+        if (!organizationRepository.existsById(id)) {
+            return ResponseEntity.notFound().build();
+        }
+        return ResponseEntity.ok(organizationAssessmentMappingRepository.findForOrganizationCatalog(id).stream()
+                .map(m -> OrganizationAssessmentResponse.from(m,
+                        respondentAssessmentMappingRepository
+                                .countByAssessment_AssessmentIdAndRespondent_Organization_OrganizationId(
+                                        m.getAssessment().getAssessmentId(), id)))
+                .toList());
+    }
+
+    /** Map assessments into the org's catalog — all-or-nothing. */
+    @PutMapping("/assign-assessments/{id}")
+    public ResponseEntity<?> assignAssessments(@PathVariable Long id,
+            @RequestBody OrganizationAssessmentAssignRequest request) {
+        Organization organization = organizationRepository.findById(id).orElse(null);
+        if (organization == null) {
+            return ResponseEntity.notFound().build();
+        }
+        List<Long> assessmentIds = request.assessmentIds() == null
+                ? List.of() : request.assessmentIds().stream().distinct().toList();
+        if (assessmentIds.isEmpty()) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("message", "Nothing to map — pick at least one assessment"));
+        }
+
+        // Pass 1 — resolve and validate everything before writing anything.
+        List<Assessment> assessments = new ArrayList<>();
+        for (Long assessmentId : assessmentIds) {
+            Assessment assessment = assessmentRepository.findById(assessmentId).orElse(null);
+            if (assessment == null) {
+                return ResponseEntity.badRequest()
+                        .body(Map.of("message", "Assessment " + assessmentId + " not found"));
+            }
+            if (organizationAssessmentMappingRepository
+                    .existsByOrganization_OrganizationIdAndAssessment_AssessmentId(id, assessmentId)) {
+                return ResponseEntity.status(HttpStatus.CONFLICT)
+                        .body(Map.of("message", "Assessment \"" + assessment.getName()
+                                + "\" is already mapped to this organization"));
+            }
+            assessments.add(assessment);
+        }
+
+        // Pass 2 — write.
+        for (Assessment assessment : assessments) {
+            organizationAssessmentMappingRepository.save(newMapping(organization, assessment));
+        }
+        return getOrganizationAssessments(id);
+    }
+
+    /**
+     * Remove assessments from the org's catalog. Blocked (409) while any of
+     * this org's members hold attempt rows for that assessment — revoking
+     * access mid-flight would orphan their assignments.
+     */
+    @PutMapping("/unassign-assessments/{id}")
+    public ResponseEntity<?> unassignAssessments(@PathVariable Long id,
+            @RequestBody OrganizationAssessmentAssignRequest request) {
+        Organization organization = organizationRepository.findById(id).orElse(null);
+        if (organization == null) {
+            return ResponseEntity.notFound().build();
+        }
+        List<Long> assessmentIds = request.assessmentIds() == null
+                ? List.of() : request.assessmentIds().stream().distinct().toList();
+        if (assessmentIds.isEmpty()) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("message", "Nothing to unmap — pick at least one assessment"));
+        }
+
+        // Pass 1 — resolve and validate everything before writing anything.
+        List<OrganizationAssessmentMapping> mappings = new ArrayList<>();
+        for (Long assessmentId : assessmentIds) {
+            Assessment assessment = assessmentRepository.findById(assessmentId).orElse(null);
+            if (assessment == null) {
+                return ResponseEntity.badRequest()
+                        .body(Map.of("message", "Assessment " + assessmentId + " not found"));
+            }
+            OrganizationAssessmentMapping mapping = organizationAssessmentMappingRepository
+                    .findForOrganizationCatalog(id).stream()
+                    .filter(m -> m.getAssessment().getAssessmentId().equals(assessmentId))
+                    .findFirst().orElse(null);
+            if (mapping == null) {
+                return ResponseEntity.status(HttpStatus.CONFLICT)
+                        .body(Map.of("message", "Assessment \"" + assessment.getName()
+                                + "\" is not mapped to this organization"));
+            }
+            long memberAttempts = respondentAssessmentMappingRepository
+                    .countByAssessment_AssessmentIdAndRespondent_Organization_OrganizationId(assessmentId, id);
+            if (memberAttempts > 0) {
+                return ResponseEntity.status(HttpStatus.CONFLICT)
+                        .body(Map.of("message", "Assessment \"" + assessment.getName() + "\" has "
+                                + memberAttempts + " member assignment(s) in this organization — remove those first"));
+            }
+            mappings.add(mapping);
+        }
+
+        // Pass 2 — write.
+        organizationAssessmentMappingRepository.deleteAll(mappings);
+        return getOrganizationAssessments(id);
+    }
+
+    private OrganizationAssessmentMapping newMapping(Organization organization, Assessment assessment) {
+        OrganizationAssessmentMapping mapping = new OrganizationAssessmentMapping();
+        mapping.setOrganization(organization);
+        mapping.setAssessment(assessment);
+        mapping.setMappedAt(OffsetDateTime.now());
+        return mapping;
     }
 
     private void apply(Organization organization, OrganizationRequest request, String name) {

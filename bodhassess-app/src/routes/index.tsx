@@ -82,6 +82,8 @@ const AdminDataGrid      = lazyPage(() => import('@/pages/admin/data-grid'));
 const Assessments              = lazyPage(() => import('@/pages/assessments/all-assessments'));
 // New-dialect catalog page wired to spring-social (Assessment Library group).
 const AssessmentLibrary        = lazyPage(() => import('@/pages/assessments/assessment-library'));
+// Direct assessment→respondent assignment for unaffiliated respondents.
+const AssessmentMapping        = lazyPage(() => import('@/pages/AssessmentMapping/assessment-mapping'));
 const AssessmentsCreate        = lazyPage(() => import('@/pages/assessments/create-assessment'));
 const AssessmentsEdit          = lazyPage(() => import('@/pages/assessments/edit-assessment'));
 const AssessmentsBatch         = lazyPage(() => import('@/pages/assessments/batch-upload'));
@@ -229,6 +231,7 @@ const routes: RouteObject[] = [
       { path: '/admin/data-grid', element: <AdminDataGrid /> },
 
       { path: '/assessment-library/assessments', element: <AssessmentLibrary /> },
+      { path: '/assessment-library/mapping', element: <AssessmentMapping /> },
       // { path: '/assessments', element: <Assessments /> },
       // { path: '/assessments/create', element: <AssessmentsCreate /> },
       { path: '/assessments/edit/:id', element: <AssessmentsEdit /> },

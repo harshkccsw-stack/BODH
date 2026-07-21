@@ -47,6 +47,7 @@ export const MENU_SIDEBAR: MenuConfig = [
     icon: ClipboardCheck,
     children: [
       { title: 'Assessments', path: '/assessment-library/assessments' },
+      { title: 'Assessment Mapping', path: '/assessment-library/mapping' },
     ],
   },
   {

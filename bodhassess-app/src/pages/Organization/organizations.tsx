@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   Building2,
   Check,
+  ClipboardList,
   Loader2,
   Mail,
   Pencil,
@@ -21,6 +22,9 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import {
   organizationApis,
+  type AssessmentRef,
+  type OrgAssessmentRef,
+  type OrgMemberRef,
   type OrganizationDetailResponse,
   type OrganizationPayload,
   type OrganizationResponse,
@@ -40,9 +44,11 @@ interface OrganizationForm {
   name: string;
   orgEmail: string;
   description: string;
+  /** Initial catalog — create only; the map modal owns it afterwards. */
+  assessmentIds: number[];
 }
 
-const EMPTY_FORM: OrganizationForm = { id: null, name: '', orgEmail: '', description: '' };
+const EMPTY_FORM: OrganizationForm = { id: null, name: '', orgEmail: '', description: '', assessmentIds: [] };
 
 export default function OrganizationsPage() {
   const [organizations, setOrganizations] = useState<OrganizationResponse[]>([]);
@@ -64,6 +70,36 @@ export default function OrganizationsPage() {
   const [detailError, setDetailError] = useState('');
   // Which detail row's unassign is in flight — 'p-3' / 'r-5' style keys.
   const [unassignBusy, setUnassignBusy] = useState<string | null>(null);
+
+  // Full assessment catalog — lazily loaded for the create-modal picker and
+  // the map-assessments modal.
+  const [allAssessments, setAllAssessments] = useState<AssessmentRef[] | null>(null);
+  const loadAllAssessments = async () => {
+    try {
+      const res = await organizationApis.getAllAssessments();
+      setAllAssessments(res.data);
+    } catch {
+      setAllAssessments([]);
+    }
+  };
+
+  // Map-assessments modal: the org's catalog + picker for unmapped ones.
+  const [catalogTarget, setCatalogTarget] = useState<OrganizationResponse | null>(null);
+  const [catalog, setCatalog] = useState<OrgAssessmentRef[] | null>(null);
+  const [catalogError, setCatalogError] = useState('');
+  const [mapChecked, setMapChecked] = useState<Set<number>>(new Set());
+  const [mapSearch, setMapSearch] = useState('');
+  const [mapSaving, setMapSaving] = useState(false);
+  const [unmapBusy, setUnmapBusy] = useState<number | null>(null);
+
+  // Assign-members step (stacked over the catalog modal): give one mapped
+  // assessment to the org's members.
+  const [memberAssignTarget, setMemberAssignTarget] = useState<OrgAssessmentRef | null>(null);
+  const [orgMembersForAssign, setOrgMembersForAssign] = useState<OrgMemberRef[] | null>(null);
+  const [holdersOfTarget, setHoldersOfTarget] = useState<Set<number> | null>(null);
+  const [memberAssignChecked, setMemberAssignChecked] = useState<Set<number>>(new Set());
+  const [memberAssignError, setMemberAssignError] = useState('');
+  const [memberAssignSaving, setMemberAssignSaving] = useState(false);
 
   // Assign modal: bulk-attach unassigned people into one org.
   const [assignTarget, setAssignTarget] = useState<OrganizationResponse | null>(null);
@@ -103,6 +139,7 @@ export default function OrganizationsPage() {
     setForm(EMPTY_FORM);
     setFormError('');
     setModalOpen(true);
+    if (!allAssessments) loadAllAssessments();
   };
   const openEdit = (o: OrganizationResponse) => {
     setForm({
@@ -110,9 +147,96 @@ export default function OrganizationsPage() {
       name: o.name,
       orgEmail: o.orgEmail || '',
       description: o.description || '',
+      assessmentIds: [],
     });
     setFormError('');
     setModalOpen(true);
+  };
+
+  const openCatalog = async (o: OrganizationResponse) => {
+    setCatalogTarget(o);
+    setCatalog(null);
+    setCatalogError('');
+    setMapChecked(new Set());
+    setMapSearch('');
+    if (!allAssessments) loadAllAssessments();
+    try {
+      const res = await organizationApis.getOrganizationAssessments(o.organizationId);
+      setCatalog(res.data);
+    } catch (e: any) {
+      setCatalogError(e?.response?.data?.message || e?.message || 'Failed to load mapped assessments');
+    }
+  };
+
+  const doMapAssessments = async () => {
+    if (!catalogTarget || mapChecked.size === 0) return;
+    setCatalogError('');
+    setMapSaving(true);
+    try {
+      const res = await organizationApis.assignAssessments(
+        catalogTarget.organizationId, Array.from(mapChecked));
+      setCatalog(res.data);
+      setMapChecked(new Set());
+      await refresh();
+    } catch (e: any) {
+      setCatalogError(e?.response?.data?.message || e?.message || 'Failed to map assessments');
+    } finally {
+      setMapSaving(false);
+    }
+  };
+
+  const openMemberAssign = async (assessment: OrgAssessmentRef) => {
+    if (!catalogTarget) return;
+    setMemberAssignTarget(assessment);
+    setOrgMembersForAssign(null);
+    setHoldersOfTarget(null);
+    setMemberAssignChecked(new Set());
+    setMemberAssignError('');
+    try {
+      const [detailRes, holdersRes] = await Promise.all([
+        organizationApis.getOrganizationById(catalogTarget.organizationId),
+        organizationApis.getAssessmentAssignments(assessment.assessmentId),
+      ]);
+      setOrgMembersForAssign(detailRes.data.members);
+      setHoldersOfTarget(new Set(holdersRes.data.map((h) => h.respondentUserId)));
+    } catch (e: any) {
+      setMemberAssignError(e?.response?.data?.message || e?.message || 'Failed to load members');
+    }
+  };
+
+  const doMemberAssign = async () => {
+    if (!catalogTarget || !memberAssignTarget || memberAssignChecked.size === 0) return;
+    setMemberAssignError('');
+    setMemberAssignSaving(true);
+    try {
+      await organizationApis.assignAssessmentToMembers(
+        memberAssignTarget.assessmentId, Array.from(memberAssignChecked));
+      setMemberAssignTarget(null);
+      // Refresh the catalog so assignedMemberCount reflects the new rows.
+      const res = await organizationApis.getOrganizationAssessments(catalogTarget.organizationId);
+      setCatalog(res.data);
+      await refresh();
+    } catch (e: any) {
+      setMemberAssignError(e?.response?.data?.message || e?.message || 'Failed to assign');
+    } finally {
+      setMemberAssignSaving(false);
+    }
+  };
+
+  const doUnmapAssessment = async (assessmentId: number) => {
+    if (!catalogTarget) return;
+    setCatalogError('');
+    setUnmapBusy(assessmentId);
+    try {
+      const res = await organizationApis.unassignAssessments(
+        catalogTarget.organizationId, [assessmentId]);
+      setCatalog(res.data);
+      await refresh();
+    } catch (e: any) {
+      setCatalogError(e?.response?.data?.message || e?.message || 'Failed to unmap');
+    } finally {
+      setUnmapBusy(null);
+    }
   };
 
   const openDetail = async (o: OrganizationResponse) => {
@@ -198,11 +322,13 @@ export default function OrganizationsPage() {
       setFormError('That does not look like a valid email address');
       return;
     }
-    // Payload mirrors the backend's OrganizationRequest.
+    // Payload mirrors the backend's OrganizationRequest. assessmentIds only
+    // on create — afterwards the map-assessments modal owns the catalog.
     const payload: OrganizationPayload = {
       name,
       orgEmail: orgEmail || null,
       description: form.description.trim() || null,
+      assessmentIds: form.id == null ? form.assessmentIds : null,
     };
     setSaving(true);
     try {
@@ -341,6 +467,19 @@ export default function OrganizationsPage() {
                     <Users className="h-3 w-3" />
                     {o.memberCount} member{o.memberCount !== 1 ? 's' : ''}
                   </span>
+                  <span className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/40 px-2.5 py-0.5 text-xs font-medium">
+                    <ClipboardList className="h-3 w-3" />
+                    {o.assessmentCount} assessment{o.assessmentCount !== 1 ? 's' : ''}
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    mode="icon"
+                    onClick={(e) => { e.stopPropagation(); openCatalog(o); }}
+                    title="Map assessments"
+                  >
+                    <ClipboardList className="h-3.5 w-3.5" />
+                  </Button>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -429,6 +568,56 @@ export default function OrganizationsPage() {
                   className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 resize-y"
                 />
               </div>
+              {form.id == null && (
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">
+                    Map Assessments <span className="text-muted-foreground font-normal">(optional)</span>
+                  </label>
+                  {!allAssessments ? (
+                    <p className="text-xs text-muted-foreground italic">Loading assessments…</p>
+                  ) : allAssessments.length === 0 ? (
+                    <p className="text-xs text-muted-foreground italic">No assessments in the catalog yet.</p>
+                  ) : (
+                    <div className="border border-border rounded-lg max-h-44 overflow-y-auto">
+                      {allAssessments.map((a) => {
+                        const checked = form.assessmentIds.includes(a.assessmentId);
+                        return (
+                          <button
+                            key={a.assessmentId}
+                            type="button"
+                            onClick={() => setForm((p) => ({
+                              ...p,
+                              assessmentIds: checked
+                                ? p.assessmentIds.filter((x) => x !== a.assessmentId)
+                                : [...p.assessmentIds, a.assessmentId],
+                            }))}
+                            className={cn(
+                              'w-full flex items-center gap-3 px-3 py-2 text-sm text-left border-b border-border last:border-0 transition-colors',
+                              checked ? 'bg-primary/5' : 'hover:bg-muted/50',
+                            )}
+                          >
+                            <span className={cn(
+                              'flex h-4 w-4 shrink-0 items-center justify-center rounded border',
+                              checked ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-background',
+                            )}>
+                              {checked && <Check className="h-3 w-3" />}
+                            </span>
+                            <div className="min-w-0">
+                              <p className="font-medium truncate">{a.name}</p>
+                              <p className="text-[0.6875rem] text-muted-foreground truncate">
+                                {a.questionnaireName} · {a.status}
+                              </p>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                  <p className="text-[0.6875rem] text-muted-foreground">
+                    The org's members can only be assigned assessments mapped here.
+                  </p>
+                </div>
+              )}
               <p className="text-[0.6875rem] text-muted-foreground">
                 Staff and members are attached from the Practitioners and
                 Respondents pages via their Organization picker.
@@ -440,6 +629,269 @@ export default function OrganizationsPage() {
                 {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                 {form.id != null ? 'Save' : 'Add Organization'}
               </Button>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* Map assessments (org catalog) */}
+      {catalogTarget && (() => {
+        const mappedIds = new Set((catalog ?? []).map((c) => c.assessmentId));
+        const q = mapSearch.trim().toLowerCase();
+        const candidates = (allAssessments ?? [])
+          .filter((a) => !mappedIds.has(a.assessmentId))
+          .filter((a) => !q
+            || a.name.toLowerCase().includes(q)
+            || a.questionnaireName.toLowerCase().includes(q));
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={() => !mapSaving && setCatalogTarget(null)}>
+            <Card className="w-full max-w-xl max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+              <CardHeader className="flex flex-row items-center justify-between pb-3 shrink-0">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <ClipboardList className="h-4 w-4 text-primary" />
+                  Assessments — {catalogTarget.name}
+                </CardTitle>
+                <button onClick={() => setCatalogTarget(null)} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+              </CardHeader>
+              <CardContent className="space-y-5 overflow-y-auto flex-1">
+                {catalogError && (
+                  <div className="rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-3 py-2 text-xs text-red-700 dark:text-red-400 flex items-start gap-2">
+                    <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                    <span>{catalogError}</span>
+                  </div>
+                )}
+                {!catalog && !catalogError ? (
+                  <div className="py-10 flex flex-col items-center justify-center text-center">
+                    <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                    <p className="text-sm text-muted-foreground mt-2">Loading mapped assessments…</p>
+                  </div>
+                ) : catalog && (
+                  <>
+                    <div>
+                      <div className="flex items-center gap-1.5 text-[0.6875rem] uppercase tracking-wider text-muted-foreground font-medium mb-2">
+                        <ClipboardList className="h-3.5 w-3.5" /> Mapped assessments
+                        <span className="ml-auto normal-case tracking-normal">{catalog.length}</span>
+                      </div>
+                      {catalog.length === 0 ? (
+                        <p className="text-xs text-muted-foreground italic">
+                          Nothing mapped yet — members can't be assigned any assessment until one is.
+                        </p>
+                      ) : (
+                        <ul className="divide-y divide-border border border-border rounded-lg">
+                          {catalog.map((c) => (
+                            <li key={c.assessmentId} className="flex items-center justify-between gap-3 px-3 py-2">
+                              <div className="min-w-0">
+                                <p className="text-sm font-medium truncate">{c.name}</p>
+                                <p className="text-xs text-muted-foreground truncate">
+                                  {c.questionnaireName} · {c.assignedMemberCount} member{c.assignedMemberCount !== 1 ? 's' : ''} assigned
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <span className={cn(
+                                  'inline-flex items-center rounded-full border px-2 py-0.5 text-[0.6875rem] font-medium',
+                                  c.status === 'ACTIVE'
+                                    ? 'border-green-300 bg-green-50 text-green-700 dark:border-green-900 dark:bg-green-950/30 dark:text-green-400'
+                                    : 'border-border bg-muted/40 text-muted-foreground',
+                                )}>
+                                  {c.status}
+                                </span>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => openMemberAssign(c)}
+                                  disabled={c.status !== 'ACTIVE'}
+                                  title={c.status === 'ACTIVE'
+                                    ? 'Assign this assessment to members'
+                                    : 'Activate the assessment before assigning'}
+                                >
+                                  <UserPlus className="h-3 w-3" />
+                                  Assign members
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => doUnmapAssessment(c.assessmentId)}
+                                  disabled={unmapBusy !== null}
+                                  title="Remove from this organization's catalog"
+                                >
+                                  {unmapBusy === c.assessmentId
+                                    ? <Loader2 className="h-3 w-3 animate-spin" />
+                                    : <X className="h-3 w-3" />}
+                                  Unmap
+                                </Button>
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-1.5 text-[0.6875rem] uppercase tracking-wider text-muted-foreground font-medium mb-2">
+                        <Plus className="h-3.5 w-3.5" /> Map more
+                        <span className="ml-auto normal-case tracking-normal">{mapChecked.size} selected</span>
+                      </div>
+                      <div className="relative mb-2">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <input
+                          type="text"
+                          placeholder="Search assessments..."
+                          value={mapSearch}
+                          onChange={(e) => setMapSearch(e.target.value)}
+                          className="w-full h-9 rounded-md border border-input bg-background pl-9 pr-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:border-ring focus:ring-[3px] focus:ring-ring/30 transition-shadow"
+                        />
+                      </div>
+                      {!allAssessments ? (
+                        <p className="text-xs text-muted-foreground italic">Loading assessments…</p>
+                      ) : candidates.length === 0 ? (
+                        <p className="text-xs text-muted-foreground italic">
+                          {(allAssessments.length - mappedIds.size) === 0
+                            ? 'Every assessment is already mapped.'
+                            : 'No assessments match your search.'}
+                        </p>
+                      ) : (
+                        <div className="border border-border rounded-lg max-h-56 overflow-y-auto">
+                          {candidates.map((a) => {
+                            const checked = mapChecked.has(a.assessmentId);
+                            return (
+                              <button
+                                key={a.assessmentId}
+                                type="button"
+                                onClick={() => {
+                                  const next = new Set(mapChecked);
+                                  if (checked) next.delete(a.assessmentId);
+                                  else next.add(a.assessmentId);
+                                  setMapChecked(next);
+                                }}
+                                className={cn(
+                                  'w-full flex items-center gap-3 px-3 py-2 text-sm text-left border-b border-border last:border-0 transition-colors',
+                                  checked ? 'bg-primary/5' : 'hover:bg-muted/50',
+                                )}
+                              >
+                                <span className={cn(
+                                  'flex h-4 w-4 shrink-0 items-center justify-center rounded border',
+                                  checked ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-background',
+                                )}>
+                                  {checked && <Check className="h-3 w-3" />}
+                                </span>
+                                <div className="min-w-0">
+                                  <p className="font-medium truncate">{a.name}</p>
+                                  <p className="text-[0.6875rem] text-muted-foreground truncate">
+                                    {a.questionnaireName} · {a.status}
+                                  </p>
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
+              </CardContent>
+              <div className="flex justify-end gap-2 p-4 border-t border-border shrink-0">
+                <Button variant="outline" onClick={() => setCatalogTarget(null)} disabled={mapSaving}>Close</Button>
+                <Button variant="primary" onClick={doMapAssessments} disabled={mapSaving || mapChecked.size === 0}>
+                  {mapSaving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  <ClipboardList className="h-3.5 w-3.5" />
+                  Map {mapChecked.size > 0 ? mapChecked.size : ''}
+                </Button>
+              </div>
+            </Card>
+          </div>
+        );
+      })()}
+
+      {/* Assign a mapped assessment to members — stacked over the catalog modal */}
+      {memberAssignTarget && catalogTarget && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 px-4" onClick={() => !memberAssignSaving && setMemberAssignTarget(null)}>
+          <Card className="w-full max-w-lg max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <CardHeader className="flex flex-row items-center justify-between pb-3 shrink-0">
+              <CardTitle className="text-base flex items-center gap-2">
+                <UserPlus className="h-4 w-4 text-primary" />
+                Assign "{memberAssignTarget.name}" to members
+              </CardTitle>
+              <button onClick={() => setMemberAssignTarget(null)} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+            </CardHeader>
+            <CardContent className="space-y-3 overflow-y-auto flex-1">
+              {memberAssignError && (
+                <div className="rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-3 py-2 text-xs text-red-700 dark:text-red-400 flex items-start gap-2">
+                  <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  <span>{memberAssignError}</span>
+                </div>
+              )}
+              {(!orgMembersForAssign || !holdersOfTarget) && !memberAssignError ? (
+                <div className="py-8 flex flex-col items-center justify-center text-center">
+                  <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                  <p className="text-sm text-muted-foreground mt-2">Loading members…</p>
+                </div>
+              ) : orgMembersForAssign && holdersOfTarget && (
+                orgMembersForAssign.length === 0 ? (
+                  <p className="text-sm text-muted-foreground italic">
+                    This organization has no members yet — assign respondents to
+                    it first (people icon on the org row).
+                  </p>
+                ) : (
+                  <div className="border border-border rounded-lg overflow-hidden">
+                    {orgMembersForAssign.map((m) => {
+                      const holds = holdersOfTarget.has(m.respondentUserId);
+                      const isChecked = memberAssignChecked.has(m.respondentUserId);
+                      return (
+                        <button
+                          key={m.respondentUserId}
+                          type="button"
+                          disabled={holds}
+                          onClick={() => {
+                            const next = new Set(memberAssignChecked);
+                            if (isChecked) next.delete(m.respondentUserId);
+                            else next.add(m.respondentUserId);
+                            setMemberAssignChecked(next);
+                          }}
+                          className={cn(
+                            'w-full flex items-center gap-3 px-3 py-2 text-sm text-left border-b border-border last:border-0 transition-colors',
+                            holds ? 'opacity-60 cursor-not-allowed'
+                              : isChecked ? 'bg-primary/5' : 'hover:bg-muted/50',
+                          )}
+                        >
+                          <span className={cn(
+                            'flex h-4 w-4 shrink-0 items-center justify-center rounded border',
+                            isChecked ? 'border-primary bg-primary text-primary-foreground'
+                              : holds ? 'border-border bg-muted/60' : 'border-border bg-background',
+                          )}>
+                            {isChecked && <Check className="h-3 w-3" />}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <p className="font-medium truncate">{m.name}</p>
+                              {m.serialId && (
+                                <span className="font-mono text-[0.6875rem] text-muted-foreground bg-muted rounded px-1.5 py-0.5 shrink-0">
+                                  {m.serialId}
+                                </span>
+                              )}
+                              {holds && (
+                                <span className="inline-flex items-center rounded-full border border-primary/30 bg-primary/5 px-2 py-0.5 text-[0.6875rem] font-medium shrink-0">
+                                  already assigned
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[0.6875rem] text-muted-foreground truncate">{m.email}</p>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )
+              )}
+            </CardContent>
+            <div className="flex items-center justify-between gap-2 p-4 border-t border-border shrink-0">
+              <span className="text-xs text-muted-foreground">{memberAssignChecked.size} selected</span>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={() => setMemberAssignTarget(null)} disabled={memberAssignSaving}>Cancel</Button>
+                <Button variant="primary" onClick={doMemberAssign} disabled={memberAssignSaving || memberAssignChecked.size === 0}>
+                  {memberAssignSaving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  <UserPlus className="h-3.5 w-3.5" />
+                  Assign {memberAssignChecked.size > 0 ? memberAssignChecked.size : ''}
+                </Button>
+              </div>
             </div>
           </Card>
         </div>

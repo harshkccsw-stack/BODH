@@ -28,6 +28,10 @@ import { API_BASE } from '@/lib/api';
 import { questionnairesApi, type SectionResponse } from '@/pages/questionnaires/questionnairesApi';
 import { demographicsApi, type DemographicFieldResponse } from '@/pages/questionnaires/demographicsApi';
 import { questionApis, type QuestionResponse as BankQuestion } from './questionApis';
+import { qualitiesApi } from '@/pages/MeasuredQuality/qualitiesApi';
+// Step 2's add-to-bank modal is the SAME full editor the Questions page
+// uses — stem type, media URL, risk flag, options and both MQT score levels.
+import { QuestionFormModal, choicesFromQualities, type MqtChoice } from './question-form-modal';
 
 // --- Types ---
 
@@ -312,22 +316,22 @@ export default function CreateAssessmentPage() {
   const [placement, setPlacement] = useState<Record<number, { sectionId: number | null; sortOrder: number }>>({});
   const [newSectionName, setNewSectionName] = useState('');
   const [addQOpen, setAddQOpen] = useState(false);
-  const [newQStem, setNewQStem] = useState('');
-  const [newQOptions, setNewQOptions] = useState<string[]>(['', '']);
-  const [newQError, setNewQError] = useState('');
-  const [newQSaving, setNewQSaving] = useState(false);
+  const [bankMqtChoices, setBankMqtChoices] = useState<MqtChoice[]>([]);
+  const [bankSearch, setBankSearch] = useState('');
 
   const loadBank = async (qid: number) => {
     setBankLoading(true);
     setBankError('');
     try {
-      const [qs, secs, mine] = await Promise.all([
+      const [qs, secs, mine, mq] = await Promise.all([
         questionApis.getAllQuestions(),
         questionnairesApi.getQuestionnaireSections(qid),
         questionApis.getQuestionsByQuestionnaireId(qid),
+        qualitiesApi.getQualities(),
       ]);
       setBankQuestions(qs.data);
       setQSections(secs.data);
+      setBankMqtChoices(choicesFromQualities(mq.data));
       const p: Record<number, { sectionId: number | null; sortOrder: number }> = {};
       mine.data.forEach((q, i) => {
         p[q.questionId] = { sectionId: q.sectionId, sortOrder: q.sortOrder ?? i };
@@ -356,6 +360,19 @@ export default function CreateAssessmentPage() {
       .map(([qid]) => Number(qid));
 
   const scopeList = (sectionId: number | null) => scopeOf(placement, sectionId);
+
+  // Search narrows what the bank list SHOWS (matching stem, option text or a
+  // questionnaire it's used in) — selections outside the match set stay put.
+  const visibleBank = useMemo(() => {
+    const s = bankSearch.trim().toLowerCase();
+    if (!s) return bankQuestions;
+    return bankQuestions.filter(
+      (q) =>
+        q.stem.toLowerCase().includes(s) ||
+        q.usedIn.some((u) => u.name.toLowerCase().includes(s)) ||
+        q.options.some((o) => (o.optionText || '').toLowerCase().includes(s)),
+    );
+  }, [bankQuestions, bankSearch]);
 
   const toggleQuestion = (questionId: number, sectionId: number | null) => {
     setPlacement((prev) => {
@@ -415,32 +432,6 @@ export default function CreateAssessmentPage() {
       });
     } catch (e: any) {
       setBankError(e?.response?.data?.message || e?.message || 'Failed to remove section');
-    }
-  };
-
-  const submitNewQuestion = async () => {
-    const stem = newQStem.trim();
-    if (!stem) { setNewQError('Question text is required'); return; }
-    const opts = newQOptions.map((o) => o.trim()).filter(Boolean);
-    setNewQSaving(true);
-    try {
-      const res = await questionApis.createQuestion({
-        contentType: 'TEXT',
-        stem,
-        mediaUrl: null,
-        riskFlag: false,
-        options: opts.map((t) => ({ optionText: t, contentType: 'TEXT', mediaUrl: null, mqtScores: [] })),
-        mqtScores: [],
-      });
-      setBankQuestions((prev) => [...prev, res.data]);
-      setAddQOpen(false);
-      setNewQStem('');
-      setNewQOptions(['', '']);
-      setNewQError('');
-    } catch (e: any) {
-      setNewQError(e?.response?.data?.message || e?.message || 'Failed to create question');
-    } finally {
-      setNewQSaving(false);
     }
   };
 
@@ -2111,9 +2102,9 @@ export default function CreateAssessmentPage() {
               </CardTitle>
               <div className="flex items-center gap-2">
                 <span className="text-xs text-muted-foreground">
-                  {Object.keys(placement).length} selected · {bankQuestions.length} in bank
+                  {Object.keys(placement).length} selected · {bankSearch.trim() ? `${visibleBank.length} of ${bankQuestions.length}` : bankQuestions.length} in bank
                 </span>
-                <Button variant="outline" size="sm" onClick={() => { setNewQError(''); setAddQOpen(true); }}>
+                <Button variant="outline" size="sm" onClick={() => setAddQOpen(true)}>
                   <Plus className="h-3.5 w-3.5" /> Add Question
                 </Button>
               </div>
@@ -2124,6 +2115,28 @@ export default function CreateAssessmentPage() {
                   {bankError}
                 </div>
               )}
+              {!bankLoading && bankQuestions.length > 0 && (
+                <div className="relative">
+                  <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <input
+                    type="text"
+                    value={bankSearch}
+                    onChange={(e) => setBankSearch(e.target.value)}
+                    placeholder="Search bank questions by text, option or questionnaire..."
+                    className="w-full h-9 rounded-md border border-input bg-background pl-9 pr-8 text-sm placeholder:text-muted-foreground focus:outline-none focus:border-ring focus:ring-[3px] focus:ring-ring/30 transition-shadow"
+                  />
+                  {bankSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setBankSearch('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      title="Clear search"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+              )}
               {bankLoading ? (
                 <p className="text-sm text-muted-foreground py-8 text-center">Loading question bank…</p>
               ) : !useSections ? (
@@ -2131,9 +2144,13 @@ export default function CreateAssessmentPage() {
                   <p className="text-sm text-muted-foreground py-8 text-center">
                     The question bank is empty — add your first question.
                   </p>
+                ) : visibleBank.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-8 text-center">
+                    No bank questions match “{bankSearch.trim()}”.
+                  </p>
                 ) : (
                   <div className="space-y-1.5">
-                    {bankQuestions.map((q) => renderBankRow(q, null))}
+                    {visibleBank.map((q) => renderBankRow(q, null))}
                   </div>
                 )
               ) : (
@@ -2176,8 +2193,12 @@ export default function CreateAssessmentPage() {
                         <div className="p-3 space-y-1.5">
                           {bankQuestions.length === 0 ? (
                             <p className="text-xs text-muted-foreground text-center py-3">Question bank is empty.</p>
+                          ) : visibleBank.length === 0 ? (
+                            <p className="text-xs text-muted-foreground text-center py-3">
+                              No bank questions match “{bankSearch.trim()}”.
+                            </p>
                           ) : (
-                            bankQuestions.map((q) => renderBankRow(q, sec.sectionId))
+                            visibleBank.map((q) => renderBankRow(q, sec.sectionId))
                           )}
                         </div>
                       </div>
@@ -2198,61 +2219,17 @@ export default function CreateAssessmentPage() {
             </Button>
           </div>
 
-          {/* Add-question-to-bank modal */}
+          {/* Add-question-to-bank modal — the same full editor as the Questions page */}
           {addQOpen && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={() => setAddQOpen(false)}>
-              <Card className="w-full max-w-md" onClick={(e) => e.stopPropagation()}>
-                <CardHeader className="flex flex-row items-center justify-between pb-3">
-                  <CardTitle className="text-base">Add Question to Bank</CardTitle>
-                  <button onClick={() => setAddQOpen(false)} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {newQError && (
-                    <div className="rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-3 py-2 text-xs text-red-700 dark:text-red-400">
-                      {newQError}
-                    </div>
-                  )}
-                  <div className="space-y-1.5">
-                    <label className="text-sm font-medium">Question text *</label>
-                    <textarea
-                      rows={2}
-                      value={newQStem}
-                      onChange={(e) => setNewQStem(e.target.value)}
-                      placeholder="e.g., I enjoy meeting new people."
-                      className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <label className="text-sm font-medium">Options</label>
-                      <button type="button" onClick={() => setNewQOptions((p) => [...p, ''])} className="text-[0.6875rem] font-medium text-primary hover:underline">+ Add option</button>
-                    </div>
-                    {newQOptions.map((opt, i) => (
-                      <div key={i} className="flex items-center gap-2">
-                        <input
-                          value={opt}
-                          onChange={(e) => setNewQOptions((p) => p.map((o, j) => (j === i ? e.target.value : o)))}
-                          placeholder={`Option ${i + 1}`}
-                          className="flex-1 rounded-lg border border-border bg-background px-3 py-1.5 text-sm outline-none focus:border-primary"
-                        />
-                        {newQOptions.length > 2 && (
-                          <button type="button" onClick={() => setNewQOptions((p) => p.filter((_, j) => j !== i))} className="text-muted-foreground hover:text-red-500"><X className="h-3.5 w-3.5" /></button>
-                        )}
-                      </div>
-                    ))}
-                    <p className="text-[0.6875rem] text-muted-foreground">
-                      Text-only quick add. Media and MQT scoring live in the Question Bank page.
-                    </p>
-                  </div>
-                  <div className="flex justify-end gap-2 pt-1">
-                    <Button variant="outline" onClick={() => setAddQOpen(false)}>Cancel</Button>
-                    <Button variant="primary" onClick={submitNewQuestion} disabled={newQSaving}>
-                      {newQSaving ? 'Adding…' : 'Add to Bank'}
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
+            <QuestionFormModal
+              initial={null}
+              choices={bankMqtChoices}
+              onClose={() => setAddQOpen(false)}
+              onSaved={(q) => {
+                setBankQuestions((prev) => [...prev, q]);
+                setAddQOpen(false);
+              }}
+            />
           )}
         </>
       )}
@@ -2279,7 +2256,16 @@ export default function CreateAssessmentPage() {
               >
                 <Eye className="h-4 w-4" /> Preview
               </Button>
-              <Button variant="primary" onClick={() => window.location.href = '/assessments/create'}>Create Assessment</Button>
+              <Button
+                variant="primary"
+                onClick={() => {
+                  window.location.href = backendQid != null
+                    ? `/assessment-library/assessments?create=${backendQid}`
+                    : '/assessment-library/assessments';
+                }}
+              >
+                Create Assessment
+              </Button>
             </div>
           </CardContent>
         </Card>
