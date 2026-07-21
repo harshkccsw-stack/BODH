@@ -150,6 +150,69 @@ public class OrganizationController {
                 respondentUserRepository.findForOrganizationDetail(id)));
     }
 
+    /**
+     * Detach people from this org — the mirror of assign, same all-or-nothing
+     * shape. Everyone in the batch must currently belong to THIS org.
+     */
+    @PutMapping("/unassign/{id}")
+    public ResponseEntity<?> unassignPeople(@PathVariable Long id,
+            @RequestBody OrganizationAssignRequest request) {
+        Organization organization = organizationRepository.findById(id).orElse(null);
+        if (organization == null) {
+            return ResponseEntity.notFound().build();
+        }
+        List<Long> practitionerIds = request.practitionerIds() == null
+                ? List.of() : request.practitionerIds();
+        List<Long> respondentIds = request.respondentIds() == null
+                ? List.of() : request.respondentIds();
+        if (practitionerIds.isEmpty() && respondentIds.isEmpty()) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("message", "Nothing to unassign — pick at least one person"));
+        }
+
+        // Pass 1 — resolve and validate everything before writing anything.
+        List<PractitionerUser> practitioners = new ArrayList<>();
+        for (Long practitionerId : practitionerIds) {
+            PractitionerUser practitioner = practitionerUserRepository.findById(practitionerId).orElse(null);
+            if (practitioner == null) {
+                return ResponseEntity.badRequest()
+                        .body(Map.of("message", "Practitioner " + practitionerId + " not found"));
+            }
+            if (practitioner.getOrganization() == null
+                    || !practitioner.getOrganization().getOrganizationId().equals(id)) {
+                return ResponseEntity.status(HttpStatus.CONFLICT)
+                        .body(Map.of("message", "Practitioner \"" + practitioner.getName()
+                                + "\" is not in this organization"));
+            }
+            practitioners.add(practitioner);
+        }
+        List<RespondentUser> respondents = new ArrayList<>();
+        for (Long respondentId : respondentIds) {
+            RespondentUser respondent = respondentUserRepository.findById(respondentId).orElse(null);
+            if (respondent == null) {
+                return ResponseEntity.badRequest()
+                        .body(Map.of("message", "Respondent " + respondentId + " not found"));
+            }
+            if (respondent.getOrganization() == null
+                    || !respondent.getOrganization().getOrganizationId().equals(id)) {
+                return ResponseEntity.status(HttpStatus.CONFLICT)
+                        .body(Map.of("message", "Respondent \"" + respondent.getName()
+                                + "\" is not in this organization"));
+            }
+            respondents.add(respondent);
+        }
+
+        // Pass 2 — write.
+        practitioners.forEach(p -> p.setOrganization(null));
+        respondents.forEach(r -> r.setOrganization(null));
+        practitionerUserRepository.saveAll(practitioners);
+        respondentUserRepository.saveAll(respondents);
+
+        return ResponseEntity.ok(OrganizationDetailResponse.from(organization,
+                practitionerUserRepository.findForOrganizationDetail(id),
+                respondentUserRepository.findForOrganizationDetail(id)));
+    }
+
     @PostMapping("/create")
     public ResponseEntity<?> createOrganization(@Valid @RequestBody OrganizationRequest request) {
         String name = request.name().trim();

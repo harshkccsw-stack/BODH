@@ -11,6 +11,7 @@ import {
   ShieldCheck,
   Stethoscope,
   Trash2,
+  UserMinus,
   UserPlus,
   Users,
   X,
@@ -61,6 +62,8 @@ export default function OrganizationsPage() {
   const [detailTarget, setDetailTarget] = useState<OrganizationResponse | null>(null);
   const [detail, setDetail] = useState<OrganizationDetailResponse | null>(null);
   const [detailError, setDetailError] = useState('');
+  // Which detail row's unassign is in flight — 'p-3' / 'r-5' style keys.
+  const [unassignBusy, setUnassignBusy] = useState<string | null>(null);
 
   // Assign modal: bulk-attach unassigned people into one org.
   const [assignTarget, setAssignTarget] = useState<OrganizationResponse | null>(null);
@@ -121,6 +124,25 @@ export default function OrganizationsPage() {
       setDetail(res.data);
     } catch (e: any) {
       setDetailError(e?.response?.data?.message || e?.message || 'Failed to load members');
+    }
+  };
+
+  const doUnassign = async (kind: 'practitioner' | 'respondent', profileId: number) => {
+    if (!detailTarget) return;
+    const key = `${kind === 'practitioner' ? 'p' : 'r'}-${profileId}`;
+    setDetailError('');
+    setUnassignBusy(key);
+    try {
+      const res = await organizationApis.unassignPeople(detailTarget.organizationId, {
+        practitionerIds: kind === 'practitioner' ? [profileId] : [],
+        respondentIds: kind === 'respondent' ? [profileId] : [],
+      });
+      setDetail(res.data);
+      await refresh();
+    } catch (e: any) {
+      setDetailError(e?.response?.data?.message || e?.message || 'Failed to unassign');
+    } finally {
+      setUnassignBusy(null);
     }
   };
 
@@ -296,8 +318,7 @@ export default function OrganizationsPage() {
             {filtered.map((o) => (
               <li
                 key={o.organizationId}
-                className="flex items-center justify-between gap-4 px-4 py-3 hover:bg-muted/40 transition-colors cursor-pointer"
-                onClick={() => openDetail(o)}
+                className="flex items-center justify-between gap-4 px-4 py-3 hover:bg-muted/40 transition-colors"
               >
                 <div className="min-w-0">
                   <p className="text-sm font-medium truncate">{o.name}</p>
@@ -637,12 +658,26 @@ export default function OrganizationsPage() {
                               </div>
                               <p className="text-xs text-muted-foreground truncate">{s.email}</p>
                             </div>
-                            <span className={cn(
-                              'inline-flex items-center rounded-full border px-2 py-0.5 text-[0.6875rem] font-medium shrink-0',
-                              STATUS_BADGE[s.practitionerStatus] || STATUS_BADGE.INACTIVE,
-                            )}>
-                              {s.practitionerStatus.charAt(0) + s.practitionerStatus.slice(1).toLowerCase()}
-                            </span>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <span className={cn(
+                                'inline-flex items-center rounded-full border px-2 py-0.5 text-[0.6875rem] font-medium',
+                                STATUS_BADGE[s.practitionerStatus] || STATUS_BADGE.INACTIVE,
+                              )}>
+                                {s.practitionerStatus.charAt(0) + s.practitionerStatus.slice(1).toLowerCase()}
+                              </span>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => doUnassign('practitioner', s.practitionerUserId)}
+                                disabled={unassignBusy !== null}
+                                title="Remove from this organization"
+                              >
+                                {unassignBusy === `p-${s.practitionerUserId}`
+                                  ? <Loader2 className="h-3 w-3 animate-spin" />
+                                  : <UserMinus className="h-3 w-3" />}
+                                Unassign
+                              </Button>
+                            </div>
                           </li>
                         ))}
                       </ul>
@@ -672,16 +707,30 @@ export default function OrganizationsPage() {
                               </div>
                               <p className="text-xs text-muted-foreground truncate">{m.email}</p>
                             </div>
-                            {m.isConsented ? (
-                              <span className="inline-flex items-center gap-1 rounded-full border border-green-300 bg-green-50 dark:border-green-900 dark:bg-green-950/30 px-2 py-0.5 text-[0.6875rem] font-medium text-green-700 dark:text-green-400 shrink-0">
-                                <ShieldCheck className="h-3 w-3" />
-                                Consented
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[0.6875rem] font-medium text-muted-foreground shrink-0">
-                                No consent
-                              </span>
-                            )}
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              {m.isConsented ? (
+                                <span className="inline-flex items-center gap-1 rounded-full border border-green-300 bg-green-50 dark:border-green-900 dark:bg-green-950/30 px-2 py-0.5 text-[0.6875rem] font-medium text-green-700 dark:text-green-400">
+                                  <ShieldCheck className="h-3 w-3" />
+                                  Consented
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[0.6875rem] font-medium text-muted-foreground">
+                                  No consent
+                                </span>
+                              )}
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => doUnassign('respondent', m.respondentUserId)}
+                                disabled={unassignBusy !== null}
+                                title="Remove from this organization"
+                              >
+                                {unassignBusy === `r-${m.respondentUserId}`
+                                  ? <Loader2 className="h-3 w-3 animate-spin" />
+                                  : <UserMinus className="h-3 w-3" />}
+                                Unassign
+                              </Button>
+                            </div>
                           </li>
                         ))}
                       </ul>

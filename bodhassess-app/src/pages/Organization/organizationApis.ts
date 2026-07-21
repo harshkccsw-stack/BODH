@@ -101,6 +101,11 @@ function assignPeople(id: number, payload: OrganizationAssignPayload) {
   return axios.put<OrganizationDetailResponse>(`${API_URL}/organizations/assign/${id}`, payload);
 }
 
+/** Mirror of assign — 409 if someone in the batch is not in this org. */
+function unassignPeople(id: number, payload: OrganizationAssignPayload) {
+  return axios.put<OrganizationDetailResponse>(`${API_URL}/organizations/unassign/${id}`, payload);
+}
+
 export const organizationApis = {
   getAllOrganizations,
   getOrganizationById,
@@ -109,4 +114,5 @@ export const organizationApis = {
   deleteOrganization,
   getUnassignedPeople,
   assignPeople,
+  unassignPeople,
 };
