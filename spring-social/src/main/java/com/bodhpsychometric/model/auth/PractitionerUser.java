@@ -44,7 +44,7 @@ public class PractitionerUser implements java.io.Serializable {
             foreignKey = @ForeignKey(name = "fkPractitionerUserUser"))
     private User user;
 
-    @Column(name = "name", length = 20)
+    @Column(name = "name")
     private String name;
 
     @Column(name = "phone")

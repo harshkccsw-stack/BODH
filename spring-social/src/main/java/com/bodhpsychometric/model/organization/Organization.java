@@ -57,4 +57,12 @@ public class Organization implements java.io.Serializable {
     public void setDescription(String description) {
         this.description = description;
     }
+
+    public String getOrgEmail() {
+        return orgEmail;
+    }
+
+    public void setOrgEmail(String orgEmail) {
+        this.orgEmail = orgEmail;
+    }
 }

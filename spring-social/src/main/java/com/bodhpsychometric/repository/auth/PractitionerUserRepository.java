@@ -19,4 +19,17 @@ public interface PractitionerUserRepository extends JpaRepository<PractitionerUs
     /** Listing fetch — user + organization eagerly, so DTO mapping never lazy-loads per row. */
     @Query("select p from PractitionerUser p join fetch p.user left join fetch p.organization")
     List<PractitionerUser> findAllForListing();
+
+    // ── Organization membership (practitioners are an org's "staff") ──────
+    long countByOrganization_OrganizationId(Long organizationId);
+
+    boolean existsByOrganization_OrganizationId(Long organizationId);
+
+    /** Detail fetch — user eagerly, so staff refs never lazy-load per row. */
+    @Query("select p from PractitionerUser p join fetch p.user where p.organization.organizationId = :organizationId")
+    List<PractitionerUser> findForOrganizationDetail(Long organizationId);
+
+    /** Everyone not yet in an org — feeds the org page's assign picker. */
+    @Query("select p from PractitionerUser p join fetch p.user where p.organization is null")
+    List<PractitionerUser> findUnassignedForPicker();
 }

@@ -19,4 +19,17 @@ public interface RespondentUserRepository extends JpaRepository<RespondentUser, 
 
     /** Does this identity also hold a respondent profile? */
     boolean existsByUser_Id(Long userId);
+
+    // ── Organization membership (respondents are an org's "members") ──────
+    long countByOrganization_OrganizationId(Long organizationId);
+
+    boolean existsByOrganization_OrganizationId(Long organizationId);
+
+    /** Detail fetch — user eagerly, so member refs never lazy-load per row. */
+    @Query("select r from RespondentUser r join fetch r.user where r.organization.organizationId = :organizationId")
+    List<RespondentUser> findForOrganizationDetail(Long organizationId);
+
+    /** Everyone not yet in an org — feeds the org page's assign picker. */
+    @Query("select r from RespondentUser r join fetch r.user where r.organization is null")
+    List<RespondentUser> findUnassignedForPicker();
 }
