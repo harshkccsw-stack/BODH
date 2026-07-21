@@ -24,8 +24,9 @@ import jakarta.persistence.UniqueConstraint;
  *
  * The value is stored as text for every field type; NUMBER and DATE are
  * validated and parsed by the service against the field's type. The service
- * must also check the field is actually mapped to the attempt's assessment
- * via AssessmentDemographicField — the schema cannot express that.
+ * must also check the field is actually mapped to the questionnaire of the
+ * attempt's assessment via QuestionnaireDemographicField — the schema cannot
+ * express that.
  */
 @Entity
 @Table(name = "DemographicResponse",

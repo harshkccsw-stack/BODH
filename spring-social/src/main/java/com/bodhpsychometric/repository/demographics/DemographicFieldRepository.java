@@ -6,4 +6,7 @@ import com.bodhpsychometric.model.demographics.DemographicField;
 
 public interface DemographicFieldRepository extends JpaRepository<DemographicField, Long> {
 
+    boolean existsByLabelIgnoreCase(String label);
+
+    boolean existsByLabelIgnoreCaseAndDemographicFieldIdNot(String label, Long demographicFieldId);
 }

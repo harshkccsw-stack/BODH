@@ -24,8 +24,8 @@ import jakarta.persistence.UniqueConstraint;
 /**
  * Registry of custom demographic fields — one row is one field ("Grade",
  * "School Name", "City"). Assessments pick from this registry via
- * {@link AssessmentDemographicField}; the field itself carries only what the
- * input IS, while per-assessment concerns (order, required) live on the
+ * {@link QuestionnaireDemographicField}; the field itself carries only what
+ * the input IS, while per-questionnaire concerns (order, required) live on the
  * mapping.
  */
 @Entity

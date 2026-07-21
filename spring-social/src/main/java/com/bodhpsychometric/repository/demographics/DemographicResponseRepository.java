@@ -6,4 +6,5 @@ import com.bodhpsychometric.model.demographics.DemographicResponse;
 
 public interface DemographicResponseRepository extends JpaRepository<DemographicResponse, Long> {
 
+    boolean existsByDemographicFieldDemographicFieldId(Long demographicFieldId);
 }
