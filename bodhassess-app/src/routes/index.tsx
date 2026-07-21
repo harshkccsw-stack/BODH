@@ -71,8 +71,10 @@ const AdminPermissions   = lazyPage(() => import('@/pages/admin/permissions'));
 const AdminPractitioners = lazyPage(() => import('@/pages/Practitioner/practitioners'));
 // New-dialect respondents page wired to spring-social (/api/respondents).
 const AdminRespondents          = lazyPage(() => import('@/pages/Respondent/respondents'));
-const AdminEntityRegistrations  = lazyPage(() => import('@/pages/admin/entity-registrations'));
-const AdminEntityDrillIn        = lazyPage(() => import('@/pages/admin/entity-drill-in'));
+// New-dialect organizations page wired to spring-social (/api/organizations).
+// Takes over the old entity-registrations route; the v1 entity pages are
+// parked in bodh/deleted/.
+const AdminOrganizations        = lazyPage(() => import('@/pages/Organization/organizations'));
 const AdminRoles         = lazyPage(() => import('@/pages/admin/roles'));
 const AdminLiveTracking  = lazyPage(() => import('@/pages/admin/live-tracking'));
 const AdminDataGrid      = lazyPage(() => import('@/pages/admin/data-grid'));
@@ -221,8 +223,7 @@ const routes: RouteObject[] = [
       { path: '/admin/permissions', element: <AdminPermissions /> },
       { path: '/admin/practitioners', element: <AdminPractitioners /> },
       { path: '/admin/respondents', element: <AdminRespondents /> },
-      { path: '/admin/entity-registrations', element: <AdminEntityRegistrations /> },
-      { path: '/admin/entity-registrations/:id', element: <AdminEntityDrillIn /> },
+      { path: '/admin/entity-registrations', element: <AdminOrganizations /> },
       { path: '/admin/roles', element: <AdminRoles /> },
       { path: '/admin/live-tracking', element: <AdminLiveTracking /> },
       { path: '/admin/data-grid', element: <AdminDataGrid /> },

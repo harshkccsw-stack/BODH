@@ -2,16 +2,26 @@ package com.bodhpsychometric.dto;
 
 import com.bodhpsychometric.model.organization.Organization;
 
-/** Listing shape for organization pickers (respondent/practitioner forms). */
+/**
+ * Listing shape for the organizations page and the member-form pickers.
+ * staffCount = practitioners in the org, memberCount = respondents.
+ */
 public record OrganizationResponse(
         Long organizationId,
         String name,
-        String description) {
+        String orgEmail,
+        String description,
+        long staffCount,
+        long memberCount) {
 
-    public static OrganizationResponse from(Organization organization) {
+    public static OrganizationResponse from(Organization organization,
+            long staffCount, long memberCount) {
         return new OrganizationResponse(
                 organization.getOrganizationId(),
                 organization.getName(),
-                organization.getDescription());
+                organization.getOrgEmail(),
+                organization.getDescription(),
+                staffCount,
+                memberCount);
     }
 }

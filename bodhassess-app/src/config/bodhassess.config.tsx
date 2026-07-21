@@ -79,7 +79,7 @@ export const MENU_SIDEBAR: MenuConfig = [
   },
   { heading: 'Entity Management' },
   {
-    title: 'Entity Registration',
+    title: 'Organizations',
     icon: Building2,
     path: '/admin/entity-registrations',
   },
