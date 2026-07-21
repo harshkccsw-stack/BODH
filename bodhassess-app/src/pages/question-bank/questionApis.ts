@@ -48,11 +48,21 @@ export interface QuestionOptionResponse {
   mqtScores: MqtScoreView[];
 }
 
-/** Matches QuestionResponse on the backend; questionnaire fields are null for unattached questions. */
+/** One questionnaire that uses a bank question. */
+export interface UsedInRef {
+  questionnaireId: number;
+  name: string;
+}
+
+/**
+ * Matches QuestionResponse on the backend. usedIn lists every questionnaire
+ * the question appears in (empty = unattached). sectionId/sortOrder are only
+ * set when reading through one questionnaire (getByQuestionnaireId) — they
+ * are that questionnaire's placement, meaningless in bank-wide reads.
+ */
 export interface QuestionResponse {
   questionId: number;
-  questionnaireId: number | null;
-  questionnaireName: string | null;
+  usedIn: UsedInRef[];
   sectionId: number | null;
   sortOrder: number | null;
   contentType: QuestionContentType;
@@ -76,6 +86,11 @@ function createQuestion(question: QuestionPayload) {
   return axios.post<QuestionResponse>(`${API_URL}/questions/create`, question);
 }
 
+/** All-or-nothing: the backend validates every item before writing any. */
+function bulkCreateQuestions(questions: QuestionPayload[]) {
+  return axios.post<QuestionResponse[]>(`${API_URL}/questions/bulk-create`, questions);
+}
+
 function updateQuestion(id: number, question: QuestionPayload) {
   return axios.put<QuestionResponse>(`${API_URL}/questions/update/${id}`, question);
 }
@@ -94,6 +109,7 @@ export const questionApis = {
   getAllQuestions,
   getQuestionById,
   createQuestion,
+  bulkCreateQuestions,
   updateQuestion,
   deleteQuestion,
   getQuestionsByQuestionnaireId,

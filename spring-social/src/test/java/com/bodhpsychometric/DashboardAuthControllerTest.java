@@ -58,6 +58,38 @@ class DashboardAuthControllerTest {
     }
 
     @Test
+    void respondentOnlyAccountCannotLogIn() throws Exception {
+        // Profile creation speaks dd-MM-yyyy; login speaks ISO.
+        mvc.perform(post("/api/respondents/create")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Resp Only\",\"email\":\"resp.only@test.local\",\"dob\":\"10-01-2000\","
+                                + "\"phone\":null,\"gender\":null,\"isConsented\":false,\"organizationId\":null}"))
+                .andExpect(status().isCreated());
+
+        mvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"resp.only@test.local\",\"dob\":\"2000-01-10\"}"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void practitionerAccountCanLogIn() throws Exception {
+        mvc.perform(post("/api/practitioners/create")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Pract\",\"email\":\"pract@test.local\",\"dob\":\"05-06-1985\","
+                                + "\"phone\":null,\"practitionerStatus\":null,\"vertical\":null,\"organizationId\":null}"))
+                .andExpect(status().isCreated());
+
+        mvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"pract@test.local\",\"dob\":\"1985-06-05\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.token").isNotEmpty())
+                .andExpect(jsonPath("$.user.superAdmin").value(false))
+                .andExpect(jsonPath("$.user.dashboardAccess").value(true));
+    }
+
+    @Test
     void wrongDobIsRejected() throws Exception {
         mvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)

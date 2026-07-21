@@ -5,20 +5,14 @@ import java.util.ArrayList;
 import java.util.List;
 
 import com.bodhpsychometric.model.question.enums.ContentType;
-import com.bodhpsychometric.model.questionnaire.Questionnaire;
-import com.bodhpsychometric.model.questionnaire.Section;
 
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import jakarta.persistence.FetchType;
-import jakarta.persistence.ForeignKey;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
-import jakarta.persistence.JoinColumn;
-import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.OrderBy;
 import jakarta.persistence.Table;
@@ -33,25 +27,9 @@ public class Question implements Serializable {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long questionId;
 
-    /**
-     * The questionnaire this bank question is currently attached to; null for
-     * an unattached question. Questions are created standalone in the question
-     * bank — attachment happens during questionnaire authoring, not here.
-     */
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "questionnaireId",
-            foreignKey = @ForeignKey(name = "fkQuestionQuestionnaire"))
-    private Questionnaire questionnaire;
-
-    /**
-     * Null on flat questionnaires; required by the service when the
-     * questionnaire hasSections. Must belong to the same questionnaire —
-     * a rule the schema cannot express, enforced in the service.
-     */
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "sectionId",
-            foreignKey = @ForeignKey(name = "fkQuestionSection"))
-    private Section section;
+    // Pure bank item: which questionnaires use this question — and where —
+    // lives in QuestionnaireQuestion rows, never on this table. A question
+    // may appear in many questionnaires, once each.
 
     /**
      * Inverse side of Question 1—* Option. Options live and die with their
@@ -76,14 +54,6 @@ public class Question implements Serializable {
     /** Asset location when contentType is not TEXT: uploaded file path for IMAGE/VIDEO, external link for URL. */
     @Column(name = "mediaUrl", columnDefinition = "TEXT")
     private String mediaUrl;
-
-    /**
-     * Position within the attached questionnaire (within its section when the
-     * questionnaire hasSections). Null while the question sits unattached in
-     * the bank — order is an attachment concern, set by the mapping flow.
-     */
-    @Column(name = "sortOrder")
-    private Integer sortOrder;
 
     // ── Kept from the old system, to be refined in a later pass ──────────
     @Column(name = "irtA")
@@ -188,30 +158,6 @@ public class Question implements Serializable {
 
     public void setQuestionId(Long questionId) {
         this.questionId = questionId;
-    }
-
-    public Questionnaire getQuestionnaire() {
-        return questionnaire;
-    }
-
-    public void setQuestionnaire(Questionnaire questionnaire) {
-        this.questionnaire = questionnaire;
-    }
-
-    public Section getSection() {
-        return section;
-    }
-
-    public void setSection(Section section) {
-        this.section = section;
-    }
-
-    public Integer getSortOrder() {
-        return sortOrder;
-    }
-
-    public void setSortOrder(Integer sortOrder) {
-        this.sortOrder = sortOrder;
     }
 
     public List<Option> getOptions() {

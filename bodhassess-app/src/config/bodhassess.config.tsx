@@ -5,6 +5,7 @@ import {
   Brain,
   Briefcase,
   Building2,
+  ClipboardCheck,
   ClipboardList,
   FileText,
   FlaskConical,
@@ -30,13 +31,22 @@ export const MENU_SIDEBAR: MenuConfig = [
     path: '/dashboard',
   },
   { heading: 'Assessments' },
+  // Legacy v1-dialect assessments group — superseded by Assessment Library
+  // below. Commented out (not deleted) so the cutover stays reversible.
+  // {
+  //   title: 'Assessments',
+  //   icon: ClipboardList,
+  //   children: [
+  //     { title: 'All Assessments', path: '/assessments' },
+  //     { title: 'Create Assessment', path: '/assessments/create' },
+  //     { title: 'Batch Upload', path: '/assessments/batch' },
+  //   ],
+  // },
   {
-    title: 'Assessments',
-    icon: ClipboardList,
+    title: 'Assessment Library',
+    icon: ClipboardCheck,
     children: [
-      { title: 'All Assessments', path: '/assessments' },
-      { title: 'Create Assessment', path: '/assessments/create' },
-      { title: 'Batch Upload', path: '/assessments/batch' },
+      { title: 'Assessments', path: '/assessment-library/assessments' },
     ],
   },
   {
@@ -44,6 +54,8 @@ export const MENU_SIDEBAR: MenuConfig = [
     icon: BookOpen,
     children: [
       { title: 'All Questionnaires', path: '/questionnaires' },
+      { title: 'Create Questionnaire', path: '/question-bank/create' },
+      { title: 'Questions', path: '/question-bank/questions' },
       { title: 'Demographic Fields', path: '/questionnaires/demographics' },
     ],
   },
@@ -52,9 +64,7 @@ export const MENU_SIDEBAR: MenuConfig = [
     icon: Brain,
     children: [
       { title: 'Item Explorer', path: '/question-bank' },
-      { title: 'Questions', path: '/question-bank/questions' },
       { title: 'Measured Qualities', path: '/question-bank/qualities' },
-      { title: 'Create Questionnaire', path: '/question-bank/create' },
       { title: 'IRT Calibration', path: '/question-bank/calibration' },
       { title: 'Norm Tables', path: '/question-bank/norms' },
     ],

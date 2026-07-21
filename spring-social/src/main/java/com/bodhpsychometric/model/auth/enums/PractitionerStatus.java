@@ -9,3 +9,4 @@ public enum PractitionerStatus {
     INACTIVE,
     SUSPENDED
 }
+

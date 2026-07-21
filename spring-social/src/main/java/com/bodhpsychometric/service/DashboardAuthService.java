@@ -12,23 +12,29 @@ import org.springframework.web.server.ResponseStatusException;
 import com.bodhpsychometric.dto.AuthUserResponse;
 import com.bodhpsychometric.dto.LoginResponse;
 import com.bodhpsychometric.model.auth.User;
+import com.bodhpsychometric.repository.auth.PractitionerUserRepository;
 import com.bodhpsychometric.repository.auth.UserRepository;
 
 import io.jsonwebtoken.JwtException;
 
 /**
  * Dashboard sign-in: email + dob against the User row. This endpoint only
- * issues tokens to accounts that may open the dashboard — respondent-only
- * accounts get 403 here; their portal flow is separate.
+ * issues tokens to accounts that may open the dashboard — being a
+ * practitioner (or superadmin) is the gate; respondent-only accounts get
+ * 403 here, their portal flow is separate. The role group no longer grants
+ * access by itself — it only supplies urlPaths once the gate passes.
  */
 @Service
 public class DashboardAuthService {
 
     private final UserRepository users;
+    private final PractitionerUserRepository practitioners;
     private final JwtService jwt;
 
-    public DashboardAuthService(UserRepository users, JwtService jwt) {
+    public DashboardAuthService(UserRepository users,
+            PractitionerUserRepository practitioners, JwtService jwt) {
         this.users = users;
+        this.practitioners = practitioners;
         this.jwt = jwt;
     }
 
@@ -45,9 +51,10 @@ public class DashboardAuthService {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Account is disabled");
         }
 
-        boolean dashboardAccess = user.isSuperAdmin() || user.getRoleGroup() != null;
+        boolean dashboardAccess = user.isSuperAdmin()
+                || practitioners.existsByUser_Id(user.getId());
         if (!dashboardAccess) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "No dashboard access");
+            throw noDashboardAccess();
         }
 
         Set<String> urlPaths = user.getRoleGroup() != null
@@ -80,8 +87,8 @@ public class DashboardAuthService {
         if (!user.isAccountStatus()) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Account is disabled");
         }
-        if (!user.isSuperAdmin() && user.getRoleGroup() == null) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "No dashboard access");
+        if (!user.isSuperAdmin() && !practitioners.existsByUser_Id(user.getId())) {
+            throw noDashboardAccess();
         }
 
         Set<String> urlPaths = user.getRoleGroup() != null
@@ -93,6 +100,11 @@ public class DashboardAuthService {
     private static AuthUserResponse toAuthUser(User user, Set<String> urlPaths) {
         return new AuthUserResponse(user.getId(), user.getSerialId(), user.getEmail(),
                 user.isSuperAdmin(), true, urlPaths);
+    }
+
+    private static ResponseStatusException noDashboardAccess() {
+        return new ResponseStatusException(HttpStatus.FORBIDDEN,
+                "Only practitioner accounts can access the dashboard");
     }
 
     private static ResponseStatusException invalidCredentials() {

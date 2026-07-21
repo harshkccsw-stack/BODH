@@ -458,8 +458,8 @@ export default function CreateAssessmentPage() {
     const p = placement[q.questionId];
     const selectedHere = !!p && p.sectionId === sectionId;
     const selectedElsewhere = !!p && p.sectionId !== sectionId;
-    const attachedElsewhere = q.questionnaireId != null && q.questionnaireId !== backendQid;
-    const disabled = attachedElsewhere || selectedElsewhere;
+    const usedElsewhereCount = q.usedIn.filter((u) => u.questionnaireId !== backendQid).length;
+    const disabled = selectedElsewhere;
     const scope = scopeList(sectionId);
     return (
       <div
@@ -481,7 +481,7 @@ export default function CreateAssessmentPage() {
           <p className="truncate">{q.stem || <span className="italic text-muted-foreground">(media question)</span>}</p>
           <p className="text-[0.6875rem] text-muted-foreground truncate">
             {q.options.length} option{q.options.length !== 1 ? 's' : ''}
-            {attachedElsewhere && ` · in "${q.questionnaireName}"`}
+            {usedElsewhereCount > 0 && ` · also in ${usedElsewhereCount} other questionnaire${usedElsewhereCount !== 1 ? 's' : ''}`}
             {selectedElsewhere && ' · placed in another section'}
           </p>
         </div>

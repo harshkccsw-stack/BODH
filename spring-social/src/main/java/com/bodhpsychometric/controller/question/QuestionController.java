@@ -31,9 +31,11 @@ import com.bodhpsychometric.model.question.enums.ContentType;
 import com.bodhpsychometric.model.scoring.OptionMqtScore;
 import com.bodhpsychometric.model.scoring.QuestionMqtScore;
 import com.bodhpsychometric.model.taxonomy.MeasuredQualityType;
+import com.bodhpsychometric.model.questionnaire.QuestionnaireQuestion;
 import com.bodhpsychometric.repository.assessment.AssessmentAnswerRepository;
 import com.bodhpsychometric.repository.measures.MeasuredQualityTypeRepository;
 import com.bodhpsychometric.repository.question.QuestionRepository;
+import com.bodhpsychometric.repository.questionnaire.QuestionnaireQuestionRepository;
 import com.bodhpsychometric.repository.scoring.OptionMqtScoreRepository;
 import com.bodhpsychometric.repository.scoring.QuestionMqtScoreRepository;
 
@@ -74,15 +76,20 @@ public class QuestionController {
     @Autowired
     private MeasuredQualityTypeRepository measuredQualityTypeRepository;
 
+    @Autowired
+    private QuestionnaireQuestionRepository questionnaireQuestionRepository;
+
     @GetMapping("/getAll")
     public List<QuestionResponse> getAllQuestions() {
         return questionRepository.findAll().stream().map(this::toResponse).toList();
     }
 
+    /** Questions of one questionnaire, each carrying THAT placement's section and order. */
     @GetMapping("/getByQuestionnaireId/{questionnaireId}")
     public List<QuestionResponse> getQuestionsByQuestionnaire(@PathVariable Long questionnaireId) {
-        return questionRepository.findByQuestionnaireQuestionnaireIdOrderBySortOrderAscQuestionIdAsc(questionnaireId)
-                .stream().map(this::toResponse).toList();
+        return questionnaireQuestionRepository
+                .findByQuestionnaireQuestionnaireIdOrderBySortOrderAscQuestionnaireQuestionIdAsc(questionnaireId)
+                .stream().map(m -> toResponse(m.getQuestion(), m)).toList();
     }
 
     @GetMapping("/getById/{id}")
@@ -104,6 +111,52 @@ public class QuestionController {
         questionRepository.save(question);
         writeScores(question, request, mqts);
         return ResponseEntity.status(HttpStatus.CREATED).body(toResponse(question));
+    }
+
+    /**
+     * Bulk authoring: create N bank questions in one call. Each item gets its
+     * OWN option rows and its own question/option score rows — nothing is
+     * shared between items, exactly like N calls to /create.
+     *
+     * All-or-nothing: every item is validated BEFORE anything is written.
+     * Returning a 400 mid-loop would still COMMIT the items already saved
+     * (a normal return from a @Transactional method commits), leaving a
+     * partial bulk behind an error response. Note @Valid on a List does not
+     * cascade into its elements, so stem is checked by hand here.
+     */
+    @PostMapping("/bulk-create")
+    public ResponseEntity<?> bulkCreateQuestions(@RequestBody List<QuestionRequest> requests) {
+        if (requests == null || requests.isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("message", "no questions in payload"));
+        }
+        // Pass 1 — validate everything up front.
+        List<Map<Long, MeasuredQualityType>> resolvedMqts = new java.util.ArrayList<>();
+        for (int i = 0; i < requests.size(); i++) {
+            QuestionRequest request = requests.get(i);
+            if (request.stem() == null || request.stem().isBlank()) {
+                return ResponseEntity.badRequest()
+                        .body(Map.of("message", "question " + (i + 1) + ": stem is required"));
+            }
+            Map<Long, MeasuredQualityType> mqts = resolveMqts(request);
+            if (mqts == null) {
+                return ResponseEntity.badRequest()
+                        .body(Map.of("message", "question " + (i + 1) + ": a referenced MQT does not exist"));
+            }
+            resolvedMqts.add(mqts);
+        }
+        // Pass 2 — write, returning the created questions so callers get ids
+        // (the questionnaire-attach flow needs them).
+        List<QuestionResponse> created = new java.util.ArrayList<>();
+        for (int i = 0; i < requests.size(); i++) {
+            QuestionRequest request = requests.get(i);
+            Question question = new Question();
+            applyFields(question, request);
+            rebuildOptions(question, request.options());
+            questionRepository.save(question);
+            writeScores(question, request, resolvedMqts.get(i));
+            created.add(toResponse(question));
+        }
+        return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
 
     @PutMapping("/update/{id}")
@@ -146,6 +199,10 @@ public class QuestionController {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("message",
                     "This question has responses and cannot be deleted"));
         }
+        if (questionnaireQuestionRepository.existsByQuestionQuestionId(id)) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("message",
+                    "This question is used in a questionnaire — remove it there first"));
+        }
         // Scoring rows belong to the question — they go first, then the
         // question takes its options with it via cascade.
         optionMqtScoreRepository.deleteByOptionQuestionQuestionId(id);
@@ -158,6 +215,11 @@ public class QuestionController {
     // ── Response assembly ─────────────────────────────────────────────────
 
     private QuestionResponse toResponse(Question q) {
+        return toResponse(q, null);
+    }
+
+    /** With a placement, the response carries that questionnaire's section and order. */
+    private QuestionResponse toResponse(Question q, QuestionnaireQuestion placement) {
         List<MqtScoreResponse> questionScores = questionMqtScoreRepository
                 .findByQuestionQuestionId(q.getQuestionId()).stream()
                 .map(s -> toScore(s.getMeasuredQualityType(), s.getScore()))
@@ -170,7 +232,15 @@ public class QuestionController {
         List<QuestionOptionResponse> options = q.getOptions().stream()
                 .map(o -> QuestionOptionResponse.from(o, byOption.getOrDefault(o.getOptionId(), List.of())))
                 .toList();
-        return QuestionResponse.from(q, options, questionScores);
+        List<QuestionResponse.UsedInRef> usedIn = questionnaireQuestionRepository
+                .findByQuestionQuestionId(q.getQuestionId()).stream()
+                .map(m -> new QuestionResponse.UsedInRef(
+                        m.getQuestionnaire().getQuestionnaireId(), m.getQuestionnaire().getName()))
+                .toList();
+        return QuestionResponse.from(q, usedIn,
+                placement == null || placement.getSection() == null ? null : placement.getSection().getSectionId(),
+                placement == null ? null : placement.getSortOrder(),
+                options, questionScores);
     }
 
     private MqtScoreResponse toScore(MeasuredQualityType mqt, int score) {

@@ -78,6 +78,14 @@ public class Assessment implements java.io.Serializable {
         this.name = name;
     }
 
+    public boolean isShowTermsAndConditions() {
+        return showTermsAndConditions;
+    }
+
+    public void setShowTermsAndConditions(boolean showTermsAndConditions) {
+        this.showTermsAndConditions = showTermsAndConditions;
+    }
+
     public AssessmentStatus getStatus() {
         return status;
     }

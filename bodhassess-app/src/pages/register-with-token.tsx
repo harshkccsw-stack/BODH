@@ -10,7 +10,7 @@ import {
 import { config } from '@/lib/config';
 import { autoFormatDdmmyyyy, ddmmyyyyToIso } from '@/lib/helpers';
 import { PublicRoute } from '@/components/guards/public-route';
-import PortalRegisterPage from './register';
+import PortalRegisterPage from './Respondent/register';
 
 /**
  * Entry component for /register. When the URL carries a ?token=… the link
