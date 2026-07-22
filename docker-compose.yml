@@ -1,0 +1,74 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: bodhpsychometric-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-Google.com1}
+      MYSQL_DATABASE: ${DB_NAME:-bodhpsychometric}
+      MYSQL_USER: ${DB_USERNAME:-bodh}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-bodh}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./docker/mysql-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_ROOT_PASSWORD:-Google.com1}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - bodhpsychometric
+
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: bodhpsychometric-redis
+  #   restart: unless-stopped
+  #   command: ["redis-server", "--save", "", "--appendonly", "no"]
+  #   ports:
+  #     - "6379:6379"
+  #   healthcheck:
+  #     test: ["CMD", "redis-cli", "ping"]
+  #     interval: 5s
+  #     timeout: 3s
+  #     retries: 10
+  #   volumes:
+  #     - redis-data:/data
+  #   networks:
+  #     - bodhpsychometric
+
+  api:
+    profiles: ["production"]
+    build:
+      context: ./spring-social
+      dockerfile: Dockerfile
+    image: bodhpsychometric-api:latest
+    container_name: bodhpsychometric-api
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      # redis:
+      #   condition: service_healthy
+    environment:
+      # Datasource host, CORS and JWT are baked into the `production` doc of
+      # application.yml — only the profile + DB credentials come from here.
+      SPRING_PROFILES_ACTIVE: production
+      DB_USERNAME: ${DB_USERNAME:-bodh}
+      DB_PASSWORD: ${DB_PASSWORD:-bodh}
+
+    ports:
+      - "8080:8080"
+    # volumes:
+    #   - app-uploads:/app/uploads
+    networks:
+      - bodhpsychometric
+
+networks:
+  bodhpsychometric:
+    driver: bridge
+
+volumes:
+  mysql-data:
+  redis-data:

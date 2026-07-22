@@ -19,11 +19,10 @@ bodhassess-portal/.env.production
 
 target/
 
-bodhassess-api-spring/target
+spring-social/target
 .envss
 .env.production
 .env.development
-docker-compose.yml
 docker-compose.prod.yml
 docker-compose.dev.yml
 docker-compose.override.yml
