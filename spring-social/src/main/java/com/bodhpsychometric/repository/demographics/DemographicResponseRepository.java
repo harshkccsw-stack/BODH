@@ -10,4 +10,7 @@ public interface DemographicResponseRepository extends JpaRepository<Demographic
 
     /** Any saved demographics freeze an attempt — pre-checked before unassign. */
     boolean existsByMapping_RespondentAssessmentMappingId(Long respondentAssessmentMappingId);
+
+    /** Replace-all write on begin, and cleanup when an un-completed attempt is unmapped. */
+    void deleteByMapping_RespondentAssessmentMappingId(Long respondentAssessmentMappingId);
 }

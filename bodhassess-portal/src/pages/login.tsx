@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router';
 import { Brain, LogIn, AlertTriangle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { authApi } from '@/lib/api';
+import { portalAuthApi, ApiError } from '@/lib/api';
 import { config } from '@/config';
 import { useAuth } from '@/lib/auth';
 import { autoFormatDdmmyyyy, ddmmyyyyToIso } from '@/lib/helpers';
@@ -25,9 +25,9 @@ export default function LoginPage() {
   const submit = async (e?: React.FormEvent) => {
     e?.preventDefault();
     setError('');
-    const id = identifier.trim();
-    if (!id || !dob) {
-      setError('Enter your email or phone, and date of birth.');
+    const email = identifier.trim();
+    if (!email || !dob) {
+      setError('Enter your email and date of birth.');
       return;
     }
     const isoDob = ddmmyyyyToIso(dob);
@@ -37,13 +37,15 @@ export default function LoginPage() {
     }
     setLoading(true);
     try {
-      const res = await authApi.login(id, isoDob);
+      const res = await portalAuthApi.login(email, isoDob);
       localStorage.setItem(config.authStorageKey, res.token);
       await refresh();
       navigate('/portal/assessment', { replace: true });
     } catch (e: any) {
-      const msg = String(e?.message || '');
-      if (msg.includes('401')) setError('Invalid email/phone or date of birth.');
+      if (e instanceof ApiError && e.status === 401) setError('Invalid email or date of birth.');
+      else if (e instanceof ApiError && e.status === 403)
+        setError(e.serverMessage || 'This account cannot access the portal.');
+      else if (e instanceof ApiError && e.status === 400) setError('Enter a valid email address.');
       else setError('Login failed — the API may be unreachable.');
       setLoading(false);
     }
@@ -73,11 +75,12 @@ export default function LoginPage() {
                 </div>
               )}
               <div className="space-y-1.5">
-                <label className="text-sm font-medium">Email or Phone</label>
+                <label className="text-sm font-medium">Email</label>
                 <input
+                  type="email"
                   value={identifier}
                   onChange={(e) => setIdentifier(e.target.value)}
-                  placeholder="you@example.com or +91 98765 43210"
+                  placeholder="you@example.com"
                   autoComplete="username"
                   className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
                 />
@@ -103,7 +106,7 @@ export default function LoginPage() {
         </Card>
 
         <p className="text-center text-xs text-muted-foreground">
-          Use the email or phone you registered with. Your date of birth is your password.
+          Use the email you registered with. Your date of birth is your password.
         </p>
       </div>
     </div>

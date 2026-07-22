@@ -94,7 +94,15 @@ function assignAssessment(payload: AssignAssessmentPayload) {
   return axios.post<RespondentAssessmentResponse[]>(`${API_URL}/respondent-assessments/assign`, payload);
 }
 
-/** Only NOT_STARTED attempts with no recorded data — else 409. */
+/**
+ * Explicit admin grant of the next attempt (longitudinal waves). Same body
+ * as assign; each respondent's LATEST attempt must be COMPLETED — else 409.
+ */
+function grantReattempt(payload: AssignAssessmentPayload) {
+  return axios.post<RespondentAssessmentResponse[]>(`${API_URL}/respondent-assessments/reattempt`, payload);
+}
+
+/** NOT_STARTED and ONGOING attempts may be removed — COMPLETED is frozen (409). */
 function deleteAssignment(id: number) {
   return axios.delete<void>(`${API_URL}/respondent-assessments/delete/${id}`);
 }
@@ -107,5 +115,6 @@ export const assessmentMappingApis = {
   getAllAssignments,
   getAssignmentsByRespondentId,
   assignAssessment,
+  grantReattempt,
   deleteAssignment,
 };

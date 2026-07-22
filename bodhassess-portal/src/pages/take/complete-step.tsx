@@ -1,16 +1,18 @@
 import { CheckCircle2, ClipboardList } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { formatDDMMYYYYTime } from '@/lib/helpers';
-import type { PortalSession } from '@/lib/api';
 
 // Terminal state of the take flow (folds in the old /portal/complete route).
 export function CompleteStep({
-  session,
+  assessmentName,
+  questionnaireName,
+  mappingId,
   respondentName,
   onBackToList,
 }: {
-  session: PortalSession;
+  assessmentName: string;
+  questionnaireName?: string;
+  mappingId: number;
   respondentName?: string;
   onBackToList: () => void;
 }) {
@@ -41,19 +43,13 @@ export function CompleteStep({
               <div className="flex items-start justify-between gap-3">
                 <span className="text-muted-foreground text-xs uppercase tracking-wider">Questionnaire</span>
                 <span className="font-medium text-right break-words max-w-[65%]">
-                  {session.instrumentFullName || session.instrument}
+                  {questionnaireName || assessmentName}
                 </span>
               </div>
               <div className="flex items-center justify-between gap-3 border-t border-border/60 pt-2">
                 <span className="text-muted-foreground text-xs uppercase tracking-wider">Assessment</span>
-                <span className="font-mono text-xs">{session.id}</span>
+                <span className="font-mono text-xs">#{mappingId}</span>
               </div>
-              {session.completedAt && (
-                <div className="flex items-center justify-between gap-3 border-t border-border/60 pt-2">
-                  <span className="text-muted-foreground text-xs uppercase tracking-wider">Submitted</span>
-                  <span className="text-xs">{formatDDMMYYYYTime(session.completedAt)}</span>
-                </div>
-              )}
             </div>
 
             <div className="flex justify-center pt-2">

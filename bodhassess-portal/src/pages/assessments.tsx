@@ -1,28 +1,21 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { useNavigate } from 'react-router';
-import { ClipboardCheck, Clock, LogOut, Play, CheckCircle2 } from 'lucide-react';
+import { ClipboardCheck, LogOut, Play, CheckCircle2 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { BrandHeader } from '@/components/brand-header';
-import { portalSessionsApi, type PortalSession } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { config } from '@/config';
-import { formatDDMMYYYY } from '@/lib/helpers';
 
 export default function AssessmentsPage() {
   const navigate = useNavigate();
-  const { user, signOut } = useAuth();
-  const [sessions, setSessions] = useState<PortalSession[]>([]);
-  const [loaded, setLoaded] = useState(false);
+  const { user, signOut, refresh } = useAuth();
 
+  // The allotted list rides on the auth payload — refetch /me on every visit
+  // so assessments allotted (or completed) since login show up.
   useEffect(() => {
-    if (!user) return;
-    portalSessionsApi
-      .list(user.id)
-      .then(setSessions)
-      .catch(() => setSessions([]))
-      .finally(() => setLoaded(true));
-  }, [user]);
+    void refresh();
+  }, [refresh]);
 
   const logout = async () => {
     await signOut();
@@ -32,22 +25,15 @@ export default function AssessmentsPage() {
   // RequireAuth guarantees user is present here.
   if (!user) return null;
 
-  const active = sessions.filter((s) => s.status !== 'Completed');
-  const completed = sessions.filter((s) => s.status === 'Completed');
-
-  // "Started" once at least one answer or demographic field is filled — every
-  // freshly-allotted session begins in 'Active', so status alone isn't enough.
-  const hasStarted = (s: PortalSession): boolean => {
-    const answerCount = s.answers ? Object.keys(s.answers).length : 0;
-    const demoCount = s.demographics ? Object.keys(s.demographics).length : 0;
-    return answerCount + demoCount > 0;
-  };
+  const sessions = user.allottedAssessments;
+  const active = sessions.filter((s) => s.assessmentStatus !== 'COMPLETED');
+  const completed = sessions.filter((s) => s.assessmentStatus === 'COMPLETED');
 
   return (
     <div className="flex-1 min-h-screen w-full bg-linear-to-b from-muted/30 via-background to-background">
       <BrandHeader
         title={`${config.appName} Portal`}
-        subtitle={`${user.name} · ${user.id}`}
+        subtitle={`${user.name} · ${user.serialId}`}
         maxWidth="5xl"
         right={
           <Button variant="outline" size="sm" onClick={logout}>
@@ -63,7 +49,7 @@ export default function AssessmentsPage() {
             <p className="text-xs font-medium uppercase tracking-wider text-primary/80">Respondent dashboard</p>
             <h1 className="text-3xl font-semibold tracking-tight mt-1">Welcome back, {user.name}.</h1>
             <p className="text-sm text-muted-foreground mt-2 max-w-xl">
-              {loaded && sessions.length === 0
+              {sessions.length === 0
                 ? 'You have no assessments assigned yet. When an administrator assigns one, it will appear below.'
                 : 'These assessments have been assigned to you. Pick one to launch — your answers are saved automatically.'}
             </p>
@@ -91,9 +77,12 @@ export default function AssessmentsPage() {
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {active.map((s) => {
-                const started = hasStarted(s);
+                const started = s.assessmentStatus === 'ONGOING';
                 return (
-                  <Card key={s.id} className="group overflow-hidden hover:shadow-md transition-shadow border-border/70">
+                  <Card
+                    key={s.respondentAssessmentMappingId}
+                    className="group overflow-hidden hover:shadow-md transition-shadow border-border/70"
+                  >
                     <CardContent className="p-5 space-y-4">
                       <div className="flex items-start justify-between gap-3">
                         <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
@@ -101,7 +90,7 @@ export default function AssessmentsPage() {
                         </div>
                         {started ? (
                           <span className="inline-flex items-center rounded-full bg-primary/10 text-primary px-2 py-0.5 text-[0.6875rem] font-medium">
-                            Pending
+                            In progress
                           </span>
                         ) : (
                           <span className="inline-flex items-center rounded-full bg-muted text-muted-foreground px-2 py-0.5 text-[0.6875rem] font-medium">
@@ -110,23 +99,17 @@ export default function AssessmentsPage() {
                         )}
                       </div>
                       <div className="space-y-1.5">
-                        <p className="font-semibold leading-snug text-[0.9375rem]">
-                          {s.name || s.instrumentFullName || s.instrument}
-                        </p>
+                        <p className="font-semibold leading-snug text-[0.9375rem]">{s.assessmentName}</p>
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                          <span className="font-mono">{s.id}</span>
-                          <span className="flex items-center gap-1">
-                            <Clock className="h-3 w-3" />
-                            {formatDDMMYYYY(s.createdAt)}
-                          </span>
-                          {s.language && <span>· {s.language}</span>}
+                          <span className="font-mono">#{s.respondentAssessmentMappingId}</span>
+                          <span>Attempt {s.attemptNumber}</span>
                         </div>
                       </div>
                       <Button
                         variant="primary"
                         size="md"
                         className="w-full"
-                        onClick={() => navigate(`/portal/assessment/${encodeURIComponent(s.id)}`)}
+                        onClick={() => navigate(`/portal/assessment/${s.respondentAssessmentMappingId}`)}
                       >
                         <Play className="h-4 w-4" />
                         {started ? 'Resume Assessment' : 'Launch Assessment'}
@@ -148,15 +131,17 @@ export default function AssessmentsPage() {
             <div className="rounded-xl border border-border bg-background overflow-hidden">
               {completed.map((s, i) => (
                 <div
-                  key={s.id}
+                  key={s.respondentAssessmentMappingId}
                   className={`flex items-center gap-4 px-5 py-4 ${i < completed.length - 1 ? 'border-b border-border' : ''}`}
                 >
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-green-100 text-green-600 dark:bg-green-900/30">
                     <CheckCircle2 className="h-5 w-5" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="font-medium truncate">{s.name || s.instrumentFullName || s.instrument}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5 font-mono">{s.id}</p>
+                    <p className="font-medium truncate">{s.assessmentName}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5 font-mono">
+                      #{s.respondentAssessmentMappingId} · Attempt {s.attemptNumber}
+                    </p>
                   </div>
                   <span className="text-xs font-semibold text-green-700 dark:text-green-400">Submitted</span>
                 </div>
@@ -165,7 +150,7 @@ export default function AssessmentsPage() {
           </section>
         )}
 
-        {loaded && sessions.length === 0 && (
+        {sessions.length === 0 && (
           <Card className="border-dashed">
             <CardContent className="p-14 text-center">
               <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-muted">

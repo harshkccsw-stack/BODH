@@ -2,12 +2,11 @@ import { useState } from 'react';
 import { Check, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { StepShell } from '@/components/step-shell';
-import { cn } from '@/lib/utils';
-import type { DemographicField } from '@/lib/api';
+import type { PortalDemographicField } from '@/lib/api';
 
-// Gate — Demographic details. Fields are the active, per-questionnaire subset
-// resolved by the orchestrator. Required-field validation; DOB auto-computes
-// age when an `age` field is also present. Persistence is delegated to onSubmit.
+// Gate — Demographic details. Fields are the questionnaire's mapped form
+// (sorted server-side). Values are keyed by demographicFieldId; persistence
+// is delegated to onSubmit.
 export function DemographicsStep({
   title,
   subtitle,
@@ -18,7 +17,7 @@ export function DemographicsStep({
 }: {
   title: string;
   subtitle?: string;
-  fields: DemographicField[];
+  fields: PortalDemographicField[];
   defaultValues: Record<string, string>;
   onSubmit: (clean: Record<string, string>) => Promise<void>;
   onCancel: () => void;
@@ -27,25 +26,14 @@ export function DemographicsStep({
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
-  const handleChange = (field: DemographicField, value: string) => {
-    setValues((prev) => {
-      const next = { ...prev, [field.fieldKey]: value };
-      if (field.fieldKey === 'dob' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
-        const today = new Date();
-        const d = new Date(value);
-        let a = today.getFullYear() - d.getFullYear();
-        const m = today.getMonth() - d.getMonth();
-        if (m < 0 || (m === 0 && today.getDate() < d.getDate())) a--;
-        if (a >= 0 && a < 130 && fields.some((f) => f.fieldKey === 'age')) {
-          next.age = String(a);
-        }
-      }
-      return next;
-    });
+  const keyOf = (f: PortalDemographicField) => String(f.demographicFieldId);
+
+  const handleChange = (f: PortalDemographicField, value: string) => {
+    setValues((prev) => ({ ...prev, [keyOf(f)]: value }));
   };
 
   const submit = async () => {
-    const missing = fields.filter((f) => f.required).filter((f) => !(values[f.fieldKey] || '').trim());
+    const missing = fields.filter((f) => f.required).filter((f) => !(values[keyOf(f)] || '').trim());
     if (missing.length > 0) {
       setError(`Please fill: ${missing.map((f) => f.label).join(', ')}`);
       return;
@@ -55,8 +43,8 @@ export function DemographicsStep({
     try {
       const clean: Record<string, string> = {};
       fields.forEach((f) => {
-        const v = (values[f.fieldKey] || '').trim();
-        if (v) clean[f.fieldKey] = v;
+        const v = (values[keyOf(f)] || '').trim();
+        if (v) clean[keyOf(f)] = v;
       });
       await onSubmit(clean);
     } catch (e: any) {
@@ -93,15 +81,14 @@ export function DemographicsStep({
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {fields.map((f) => {
-            const value = values[f.fieldKey] || '';
-            const wide = f.type === 'textarea';
+            const value = values[keyOf(f)] || '';
             return (
-              <div key={f.id} className={cn('space-y-1.5', wide && 'md:col-span-2')}>
+              <div key={f.demographicFieldId} className="space-y-1.5">
                 <label className="text-sm font-medium">
                   {f.label}
                   {f.required && ' *'}
                 </label>
-                {f.type === 'select' ? (
+                {f.fieldType === 'DROPDOWN' ? (
                   <select value={value} onChange={(e) => handleChange(f, e.target.value)} className={inputClass}>
                     <option value="">Select…</option>
                     {f.options.map((opt) => (
@@ -110,28 +97,20 @@ export function DemographicsStep({
                       </option>
                     ))}
                   </select>
-                ) : f.type === 'textarea' ? (
-                  <textarea
-                    rows={3}
-                    value={value}
-                    placeholder={f.placeholder}
-                    onChange={(e) => handleChange(f, e.target.value)}
-                    className={inputClass}
-                  />
-                ) : f.type === 'date' ? (
+                ) : f.fieldType === 'DATE' ? (
                   <input type="date" value={value} onChange={(e) => handleChange(f, e.target.value)} className={inputClass} />
-                ) : f.type === 'number' ? (
+                ) : f.fieldType === 'NUMBER' ? (
                   <input
                     type="number"
                     value={value}
-                    placeholder={f.placeholder}
+                    placeholder={f.placeholder ?? undefined}
                     onChange={(e) => handleChange(f, e.target.value)}
                     className={inputClass}
                   />
                 ) : (
                   <input
                     value={value}
-                    placeholder={f.placeholder}
+                    placeholder={f.placeholder ?? undefined}
                     onChange={(e) => handleChange(f, e.target.value)}
                     className={inputClass}
                   />

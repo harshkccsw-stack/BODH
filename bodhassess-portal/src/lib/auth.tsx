@@ -1,16 +1,17 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 import { Navigate, useLocation } from 'react-router';
 import { config } from '@/config';
-import { respondentsApi, type Respondent } from '@/lib/api';
+import { portalAuthApi, type PortalRespondent } from '@/lib/api';
 import { ScreenLoader } from '@/components/screen-loader';
 
 type Status = 'loading' | 'authed' | 'anon';
 
 interface AuthContextValue {
-  user: Respondent | null;
+  user: PortalRespondent | null;
   status: Status;
-  /** Re-read the token from localStorage and refetch the profile. Call after
-   *  login/registration stores a fresh token. */
+  /** Re-read the token from localStorage and refetch the profile (including
+   *  allotted assessments). Call after login stores a fresh token, or to
+   *  pick up newly-allotted assessments. */
   refresh: () => Promise<void>;
   signOut: () => Promise<void>;
 }
@@ -18,7 +19,7 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<Respondent | null>(null);
+  const [user, setUser] = useState<PortalRespondent | null>(null);
   const [status, setStatus] = useState<Status>('loading');
 
   const refresh = useCallback(async () => {
@@ -29,7 +30,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
     try {
-      const me = await respondentsApi.me();
+      const me = await portalAuthApi.me();
       setUser(me);
       setStatus('authed');
     } catch {
@@ -40,12 +41,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  // The token is a stateless JWT — there is nothing to revoke server-side,
+  // so signing out is just dropping it.
   const signOut = useCallback(async () => {
-    try {
-      await respondentsApi.logout();
-    } catch {
-      /* best-effort */
-    }
     localStorage.removeItem(config.authStorageKey);
     setUser(null);
     setStatus('anon');

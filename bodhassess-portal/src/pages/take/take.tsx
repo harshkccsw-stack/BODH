@@ -1,17 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import { ScreenLoader } from '@/components/screen-loader';
 import { ErrorCard } from '@/components/error-card';
 import { useAuth } from '@/lib/auth';
-import {
-  demographicFieldsApi,
-  portalSessionsApi,
-  questionnairesApi,
-  type DemographicField,
-  type PortalSession,
-  type Questionnaire,
-} from '@/lib/api';
-import { scoreAssessment } from '@/lib/scoring';
+import { portalAssessmentsApi, ApiError, type PortalAssessmentDetail } from '@/lib/api';
 import { TermsStep } from './terms-step';
 import { DemographicsStep } from './demographics-step';
 import { InstructionsStep } from './instructions-step';
@@ -20,177 +12,157 @@ import { CompleteStep } from './complete-step';
 
 type GateStep = 'terms' | 'demographics' | 'instructions' | 'questions';
 
-// Orchestrator for /portal/assessment/:sessionId. Loads the session +
-// questionnaire, then walks the applicable steps in the requested order:
+// The backend's showTermsAndConditions is a per-assessment on/off switch with
+// no terms body (yet) — the portal renders this standard consent text when on.
+const TERMS_TEXT = `This assessment is administered by your organization or practitioner through BodhAssess.
+
+By continuing you confirm that:
+• You are taking this assessment yourself, in one sitting, without assistance.
+• Your answers will be recorded and shared with the administrator who assigned this assessment to you.
+• Your responses will be used for assessment and interpretation purposes only.
+
+Answer honestly — there are no right or wrong answers unless stated otherwise in the instructions.`;
+
+// Orchestrator for /portal/assessment/:sessionId (the attempt / mapping id).
+// One backend call returns everything: assessment config, questionnaire,
+// sections, questions with options, and the demographic form. Steps:
 //   terms → demographics → instructions → questions → done
-// Completion is the terminal state (no separate route).
+// Two writes per attempt: begin (demographics + consent, → ONGOING) fires as
+// the respondent passes the gates, submit (all answers, → COMPLETED) at the
+// end.
 export default function TakePage() {
   const { sessionId } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
 
-  const [session, setSession] = useState<PortalSession | null>(null);
-  const [instrument, setInstrument] = useState<Questionnaire | null>(null);
-  const [demoCatalog, setDemoCatalog] = useState<DemographicField[]>([]);
-  const [answers, setAnswers] = useState<Record<string, number | string>>({});
+  const [detail, setDetail] = useState<PortalAssessmentDetail | null>(null);
+  const [answers, setAnswers] = useState<Record<number, number>>({});
   const [loadError, setLoadError] = useState('');
-  // Applicable steps, frozen at load (see the load effect) so mid-flow state
-  // changes can never resync stepIndex to a now-shorter list.
+  // Applicable steps, frozen at load so mid-flow state changes can never
+  // resync stepIndex to a now-shorter list.
   const [steps, setSteps] = useState<GateStep[]>([]);
   const [stepIndex, setStepIndex] = useState(0);
+  const [begun, setBegun] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState('');
   const [done, setDone] = useState(false);
 
   const backToList = () => navigate('/portal/assessment', { replace: true });
+  const current: GateStep = steps[stepIndex] ?? 'questions';
 
-  // Demographic catalogue (active subset).
+  // Load the attempt. Ownership, ACTIVE status, and content assembly are all
+  // server-side — the portal only decides which gate steps apply.
   useEffect(() => {
-    demographicFieldsApi
-      .list(true)
-      .then(setDemoCatalog)
-      .catch(() => setDemoCatalog([]));
-  }, []);
-
-  // Load session + resolve questionnaire content.
-  useEffect(() => {
-    if (!user) return;
+    if (!sessionId) {
+      setLoadError('No assessment specified.');
+      return;
+    }
     let cancelled = false;
-    (async () => {
-      if (!sessionId) {
-        setLoadError('No assessment specified.');
-        return;
-      }
-      let s: PortalSession;
-      try {
-        s = await portalSessionsApi.get(sessionId);
-      } catch {
-        setLoadError('Assessment not found.');
-        return;
-      }
-      if (s.respondentId !== user.id) {
-        setLoadError('This assessment is not assigned to you.');
-        return;
-      }
-      if (s.status === 'Completed') {
-        setLoadError('This assessment has already been submitted.');
-        return;
-      }
-
-      // Prefer the pinned version (immutable) so a later re-publish never
-      // changes what this respondent sees; fall back to by-name lookup.
-      let inst: Questionnaire | null = null;
-      if (s.questionnaireVersionId) {
-        try {
-          inst = await questionnairesApi.get(s.questionnaireVersionId);
-        } catch {
-          /* fall through to by-name */
+    portalAssessmentsApi
+      .get(sessionId)
+      .then((d) => {
+        if (cancelled) return;
+        if (d.assessmentStatus === 'COMPLETED') {
+          setLoadError('This assessment has already been submitted.');
+          return;
         }
-      }
-      if (!inst) {
-        const target = (s.instrumentFullName || s.instrument || '').trim();
-        const shortTarget = (s.instrument || '').trim();
-        for (const candidate of [target, shortTarget]) {
-          if (!candidate) continue;
-          try {
-            const res = await questionnairesApi.getByName(candidate);
-            if (res) {
-              inst = res;
-              break;
-            }
-          } catch {
-            /* try next candidate */
-          }
+        const applicable: GateStep[] = [];
+        if (d.showTermsAndConditions) applicable.push('terms');
+        if (d.demographicFields.length > 0) applicable.push('demographics');
+        if (d.generalInstruction && d.generalInstruction.trim()) applicable.push('instructions');
+        applicable.push('questions');
+        setDetail(d);
+        setSteps(applicable);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        if (e instanceof ApiError && [403, 404, 409].includes(e.status)) {
+          setLoadError(e.serverMessage || 'Assessment not found.');
+        } else if (e instanceof ApiError && e.status === 401) {
+          setLoadError('Your session has expired — please sign in again.');
+        } else {
+          setLoadError('Failed to load the assessment.');
         }
-      }
-      if (!inst) {
-        const name = (s.instrumentFullName || s.instrument || '').trim();
-        setLoadError(
-          `The assessment "${name}" isn't available in the database. Ask your administrator to publish it via Question Bank → Create Questionnaire.`,
-        );
-        return;
-      }
-
-      if (cancelled) return;
-
-      // Freeze the applicable step list from the load-time snapshot. Order:
-      // terms → demographics → instructions → questions. Computing it once
-      // (rather than reactively from session.demographics) means saving
-      // demographics mid-flow can't drop the gate and skip the next step.
-      const demoDone = !!(s.demographics && Object.keys(s.demographics).length > 0);
-      const applicable: GateStep[] = [];
-      if (inst.disclaimer && inst.disclaimer.trim()) applicable.push('terms');
-      if (!demoDone) applicable.push('demographics');
-      if (inst.showInstructions && inst.instructions && inst.instructions.trim()) {
-        applicable.push('instructions');
-      }
-      applicable.push('questions');
-
-      setSession(s);
-      setInstrument(inst);
-      // Resume fix: restore previously-saved answers so resuming keeps them.
-      setAnswers(s.answers || {});
-      setSteps(applicable);
-    })().catch(() => {
-      if (!cancelled) setLoadError('Failed to load the assessment.');
-    });
+      });
     return () => {
       cancelled = true;
     };
-  }, [sessionId, user]);
+  }, [sessionId]);
 
-  // Active demographic fields for this questionnaire (empty opt-in = all active).
-  const activeDemoFields = useMemo(() => {
-    if (!instrument) return [];
-    const keys = instrument.demographicFieldKeys || [];
-    if (keys.length === 0) return demoCatalog;
-    const keySet = new Set(keys);
-    return demoCatalog.filter((f) => keySet.has(f.fieldKey));
-  }, [instrument, demoCatalog]);
-
-  // Whether demographics were captured before this load — drives alreadyStarted
-  // (a true resume should not re-fire the first-answer ping). Deriving it from
-  // the loaded session is stable for the flow; it is NOT used to build `steps`.
-  const demographicsAlreadyDone = !!(session?.demographics && Object.keys(session.demographics).length > 0);
+  // When the questionnaire has no demographic form, begin never fires from
+  // the demographics step — fire it on reaching the questions instead so the
+  // attempt still flips to ONGOING (empty form is valid then).
+  useEffect(() => {
+    if (!detail || begun || current !== 'questions') return;
+    let cancelled = false;
+    portalAssessmentsApi
+      .begin(detail.respondentAssessmentMappingId, [])
+      .then(() => {
+        if (!cancelled) setBegun(true);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setLoadError(e instanceof ApiError ? e.serverMessage : 'Failed to start the assessment.');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [detail, begun, current]);
 
   if (loadError) return <ErrorCard message={loadError} onAction={backToList} />;
-  if (!session || !instrument || !user || steps.length === 0) return <ScreenLoader />;
+  if (!detail || !user || steps.length === 0) return <ScreenLoader />;
 
-  const title = instrument.name;
-  const subtitle = `${user.name} · Assessment ${session.id}`;
+  const title = detail.assessmentName;
+  const subtitle = `${user.name} · Attempt ${detail.attemptNumber}`;
 
-  if (done) return <CompleteStep session={session} respondentName={user.name} onBackToList={backToList} />;
+  if (done) {
+    return (
+      <CompleteStep
+        assessmentName={detail.assessmentName}
+        questionnaireName={detail.questionnaireName}
+        mappingId={detail.respondentAssessmentMappingId}
+        respondentName={user.name}
+        onBackToList={backToList}
+      />
+    );
+  }
 
-  if (instrument.questions.length === 0) {
+  if (detail.questions.length === 0) {
     return <ErrorCard message="This assessment has no questions yet." actionLabel="Back" onAction={backToList} />;
   }
 
   const goNext = () => setStepIndex((i) => i + 1);
-  const current: GateStep = steps[stepIndex] ?? 'questions';
-  const alreadyStarted = Boolean(
-    (session.answers && Object.keys(session.answers).length > 0) || demographicsAlreadyDone,
-  );
 
+  // Begin the attempt: store the form, record consent, flip to ONGOING.
+  // Thrown errors surface inside the demographics step's error box.
   const saveDemographics = async (clean: Record<string, string>) => {
-    await portalSessionsApi.update(session.id, { demographics: clean });
+    const entries = Object.entries(clean).map(([fieldId, value]) => ({
+      demographicFieldId: Number(fieldId),
+      value,
+    }));
+    try {
+      await portalAssessmentsApi.begin(detail.respondentAssessmentMappingId, entries);
+    } catch (e) {
+      throw new Error(e instanceof ApiError ? e.serverMessage : 'the API may be unreachable');
+    }
+    setBegun(true);
     goNext();
   };
 
   const submit = async () => {
     setSubmitting(true);
-    const { mqtScores, summary } = scoreAssessment(instrument, answers);
+    setSubmitError('');
+    const entries = Object.entries(answers).map(([questionId, optionId]) => ({
+      questionId: Number(questionId),
+      optionId,
+    }));
     try {
-      const updated = await portalSessionsApi.update(session.id, {
-        status: 'Completed',
-        score: summary,
-        answers,
-        mqtScores,
-        completedAt: new Date().toISOString(),
-      });
-      setSession(updated || { ...session, completedAt: new Date().toISOString() });
-    } catch {
-      // Still show completion; the session stays Active if the write failed.
+      await portalAssessmentsApi.submit(detail.respondentAssessmentMappingId, entries);
+      setDone(true);
+    } catch (e) {
+      setSubmitError(e instanceof ApiError ? e.serverMessage : 'Failed to submit — please try again.');
+      setSubmitting(false);
     }
-    setDone(true);
   };
 
   switch (current) {
@@ -199,7 +171,7 @@ export default function TakePage() {
         <TermsStep
           title={title}
           subtitle={subtitle}
-          disclaimer={instrument.disclaimer || ''}
+          disclaimer={TERMS_TEXT}
           onAgree={goNext}
           onCancel={backToList}
         />
@@ -209,8 +181,8 @@ export default function TakePage() {
         <DemographicsStep
           title={title}
           subtitle={subtitle}
-          fields={activeDemoFields}
-          defaultValues={{ fullName: user.name || '' }}
+          fields={detail.demographicFields}
+          defaultValues={{}}
           onSubmit={saveDemographics}
           onCancel={backToList}
         />
@@ -220,7 +192,7 @@ export default function TakePage() {
         <InstructionsStep
           title={title}
           subtitle={subtitle}
-          instructions={instrument.instructions || ''}
+          instructions={detail.generalInstruction || ''}
           onContinue={goNext}
           onCancel={backToList}
         />
@@ -229,15 +201,14 @@ export default function TakePage() {
     default:
       return (
         <QuestionRunner
-          instrument={instrument}
-          session={session}
+          detail={detail}
           title={title}
           subtitle={subtitle}
           answers={answers}
           setAnswers={setAnswers}
           onSubmit={submit}
           submitting={submitting}
-          alreadyStarted={alreadyStarted}
+          submitError={submitError}
         />
       );
   }

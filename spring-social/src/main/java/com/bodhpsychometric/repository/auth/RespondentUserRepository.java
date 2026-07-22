@@ -2,6 +2,7 @@
 package com.bodhpsychometric.repository.auth;
 
 import java.util.List;
+import java.util.Optional;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -19,6 +20,10 @@ public interface RespondentUserRepository extends JpaRepository<RespondentUser, 
 
     /** Does this identity also hold a respondent profile? */
     boolean existsByUser_Id(Long userId);
+
+    /** Portal sign-in fetch — user + organization eagerly, so the auth DTO never lazy-loads. */
+    @Query("select r from RespondentUser r join fetch r.user u left join fetch r.organization where u.id = :userId")
+    Optional<RespondentUser> findByUserIdForPortal(Long userId);
 
     // ── Organization membership (respondents are an org's "members") ──────
     long countByOrganization_OrganizationId(Long organizationId);
