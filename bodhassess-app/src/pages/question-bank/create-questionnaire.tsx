@@ -32,6 +32,9 @@ import { qualitiesApi } from '@/pages/MeasuredQuality/qualitiesApi';
 // Step 2's add-to-bank modal is the SAME full editor the Questions page
 // uses — stem type, media URL, risk flag, options and both MQT score levels.
 import { QuestionFormModal, choicesFromQualities, type MqtChoice } from './question-form-modal';
+// Same XLSX template as the Questions page — here the `section` column maps
+// each row onto one of THIS questionnaire's existing sections by name.
+import { BulkUploadModal } from './question-bulk-upload';
 
 // --- Types ---
 
@@ -316,6 +319,7 @@ export default function CreateAssessmentPage() {
   const [placement, setPlacement] = useState<Record<number, { sectionId: number | null; sortOrder: number }>>({});
   const [newSectionName, setNewSectionName] = useState('');
   const [addQOpen, setAddQOpen] = useState(false);
+  const [bulkUploadOpen, setBulkUploadOpen] = useState(false);
   const [bankMqtChoices, setBankMqtChoices] = useState<MqtChoice[]>([]);
   const [bankSearch, setBankSearch] = useState('');
 
@@ -360,6 +364,27 @@ export default function CreateAssessmentPage() {
       .map(([qid]) => Number(qid));
 
   const scopeList = (sectionId: number | null) => scopeOf(placement, sectionId);
+
+  /** 0 → A … 25 → Z, 26 → AA — mirrors the backend's spreadsheet lettering. */
+  const sectionLetter = (index: number) => {
+    let s = '';
+    for (let n = index; n >= 0; n = Math.floor(n / 26) - 1) {
+      s = String.fromCharCode(65 + (n % 26)) + s;
+    }
+    return s;
+  };
+
+  /**
+   * The report tag this placement gets on save. Computed exactly like the
+   * backend stamps it (per-section 1-based counters; sections with no
+   * selected questions claim no letter) so preview and stored tag agree.
+   */
+  const tagPreview = (sectionId: number | null, position: number) => {
+    if (!useSections) return `Q_${position + 1}`;
+    const lettered = qSections.filter((s) => scopeList(s.sectionId).length > 0);
+    const idx = lettered.findIndex((s) => s.sectionId === sectionId);
+    return `Section_${sectionLetter(idx)}_Q_${position + 1}`;
+  };
 
   // Search narrows what the bank list SHOWS (matching stem, option text or a
   // questionnaire it's used in) — selections outside the match set stay put.
@@ -435,6 +460,29 @@ export default function CreateAssessmentPage() {
     }
   };
 
+  /**
+   * XLSX import finished: the questions already exist in the bank — list
+   * them and auto-select each into its matched section (sectionIds are all
+   * null on flat questionnaires, where the sheet's section column is
+   * ignored), appended at the end of that scope's order. Selection still
+   * saves through the normal "Save Questions & Continue" PUT.
+   */
+  const handleBulkCreated = (created: BankQuestion[], sectionIds: (number | null)[]) => {
+    setBankQuestions((prev) => {
+      const known = new Set(prev.map((q) => q.questionId));
+      return [...prev, ...created.filter((q) => !known.has(q.questionId))];
+    });
+    setPlacement((prev) => {
+      const next = { ...prev };
+      created.forEach((q, i) => {
+        const sec = useSections ? sectionIds[i] : null;
+        next[q.questionId] = { sectionId: sec, sortOrder: scopeOf(next, sec).length };
+      });
+      return next;
+    });
+    setBulkUploadOpen(false);
+  };
+
   /** Flatten placement into the PUT payload; per-scope order = sortOrder. */
   const buildMappingEntries = () => {
     const entries: Array<{ questionId: number; sectionId: number | null; sortOrder: number }> = [];
@@ -476,6 +524,14 @@ export default function CreateAssessmentPage() {
             {selectedElsewhere && ' · placed in another section'}
           </p>
         </div>
+        {selectedHere && (
+          <span
+            className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-[0.625rem] text-muted-foreground"
+            title="Auto-generated report tag — saved with the questionnaire"
+          >
+            {tagPreview(sectionId, scope.indexOf(q.questionId))}
+          </span>
+        )}
         {selectedHere && (
           <select
             value={scope.indexOf(q.questionId)}
@@ -2104,6 +2160,9 @@ export default function CreateAssessmentPage() {
                 <span className="text-xs text-muted-foreground">
                   {Object.keys(placement).length} selected · {bankSearch.trim() ? `${visibleBank.length} of ${bankQuestions.length}` : bankQuestions.length} in bank
                 </span>
+                <Button variant="outline" size="sm" onClick={() => setBulkUploadOpen(true)}>
+                  <UploadIcon className="h-3.5 w-3.5" /> Upload XLSX
+                </Button>
                 <Button variant="outline" size="sm" onClick={() => setAddQOpen(true)}>
                   <Plus className="h-3.5 w-3.5" /> Add Question
                 </Button>
@@ -2228,6 +2287,21 @@ export default function CreateAssessmentPage() {
               onSaved={(q) => {
                 setBankQuestions((prev) => [...prev, q]);
                 setAddQOpen(false);
+              }}
+            />
+          )}
+
+          {/* Bulk XLSX upload — same modal/template as the Questions page,
+              plus section matching + auto-select into this questionnaire.
+              Unmounts on close so its state resets each time. */}
+          {bulkUploadOpen && (
+            <BulkUploadModal
+              choices={bankMqtChoices}
+              onClose={() => setBulkUploadOpen(false)}
+              questionnaire={{
+                hasSections: useSections,
+                sections: qSections.map((s) => ({ sectionId: s.sectionId, name: s.name })),
+                onCreated: handleBulkCreated,
               }}
             />
           )}

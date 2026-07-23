@@ -56,15 +56,19 @@ export interface UsedInRef {
 
 /**
  * Matches QuestionResponse on the backend. usedIn lists every questionnaire
- * the question appears in (empty = unattached). sectionId/sortOrder are only
- * set when reading through one questionnaire (getByQuestionnaireId) — they
- * are that questionnaire's placement, meaningless in bank-wide reads.
+ * the question appears in (empty = unattached). sectionId/sortOrder/
+ * questionTag are only set when reading through one questionnaire
+ * (getByQuestionnaireId) — they are that questionnaire's placement,
+ * meaningless in bank-wide reads. questionTag is the placement's report
+ * identifier ("Section_A_Q_1" / "Q_1"), stamped by the questions PUT; null
+ * on placements saved before tags existed.
  */
 export interface QuestionResponse {
   questionId: number;
   usedIn: UsedInRef[];
   sectionId: number | null;
   sortOrder: number | null;
+  questionTag: string | null;
   contentType: QuestionContentType;
   stem: string;
   mediaUrl: string | null;

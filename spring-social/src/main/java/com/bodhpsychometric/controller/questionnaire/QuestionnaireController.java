@@ -251,7 +251,9 @@ public class QuestionnaireController {
      * Replace this questionnaire's placements with exactly this list. A bank
      * question may appear in MANY questionnaires — the duplicate check (and
      * the DB's unique pair) only forbids the same question twice in THIS one.
-     * An empty list clears the questionnaire.
+     * An empty list clears the questionnaire. Every placement gets its report
+     * tag ("Section_A_Q_1" / "Q_1") stamped here — this PUT is the only
+     * writer of placements, so tags always mirror the saved layout.
      */
     @PutMapping("/{id}/questions")
     public ResponseEntity<?> setQuestions(@PathVariable Long id,
@@ -260,9 +262,10 @@ public class QuestionnaireController {
         if (questionnaire == null) {
             return ResponseEntity.notFound().build();
         }
+        List<Section> sections = sectionRepository.findByQuestionnaire_QuestionnaireIdOrderBySectionIdAsc(id);
         Set<Long> validSections = new HashSet<>();
         Map<Long, Section> sectionById = new java.util.HashMap<>();
-        for (Section s : sectionRepository.findByQuestionnaire_QuestionnaireIdOrderBySectionIdAsc(id)) {
+        for (Section s : sections) {
             validSections.add(s.getSectionId());
             sectionById.put(s.getSectionId(), s);
         }
@@ -307,8 +310,52 @@ public class QuestionnaireController {
             row.setSortOrder(entry.sortOrder() == null ? i : entry.sortOrder());
             rows.add(row);
         }
+        assignQuestionTags(questionnaire.isHasSections(), sections, rows);
         questionnaireQuestionRepository.saveAll(rows);
         return ResponseEntity.ok(Map.of("attached", entries.size()));
+    }
+
+    /**
+     * Stamps every placement with its questionnaire-local report tag.
+     * Sectioned: sections that actually hold questions are lettered A, B, …
+     * in display order (sectionId insertion order — empty sections never
+     * render, so they claim no letter), and questions count 1..n inside
+     * their section by sortOrder. Flat: Q_1..Q_n across the questionnaire.
+     */
+    private void assignQuestionTags(boolean hasSections, List<Section> sectionsInDisplayOrder,
+            List<QuestionnaireQuestion> rows) {
+        if (!hasSections) {
+            List<QuestionnaireQuestion> ordered = new ArrayList<>(rows);
+            ordered.sort(java.util.Comparator.comparingInt(QuestionnaireQuestion::getSortOrder));
+            for (int i = 0; i < ordered.size(); i++) {
+                ordered.get(i).setQuestionTag("Q_" + (i + 1));
+            }
+            return;
+        }
+        int letterIndex = 0;
+        for (Section section : sectionsInDisplayOrder) {
+            List<QuestionnaireQuestion> inSection = rows.stream()
+                    .filter(r -> r.getSection() != null
+                            && r.getSection().getSectionId().equals(section.getSectionId()))
+                    .sorted(java.util.Comparator.comparingInt(QuestionnaireQuestion::getSortOrder))
+                    .toList();
+            if (inSection.isEmpty()) {
+                continue;
+            }
+            String letter = sectionLetter(letterIndex++);
+            for (int i = 0; i < inSection.size(); i++) {
+                inSection.get(i).setQuestionTag("Section_" + letter + "_Q_" + (i + 1));
+            }
+        }
+    }
+
+    /** 0 → A … 25 → Z, 26 → AA — spreadsheet-style, should a questionnaire ever exceed 26 sections. */
+    private String sectionLetter(int index) {
+        StringBuilder sb = new StringBuilder();
+        for (int n = index; n >= 0; n = n / 26 - 1) {
+            sb.insert(0, (char) ('A' + n % 26));
+        }
+        return sb.toString();
     }
 
     private void apply(Questionnaire q, QuestionnaireRequest request) {

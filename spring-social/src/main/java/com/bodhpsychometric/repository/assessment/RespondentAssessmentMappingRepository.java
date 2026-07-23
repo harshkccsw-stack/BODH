@@ -42,6 +42,19 @@ public interface RespondentAssessmentMappingRepository extends JpaRepository<Res
             + "join fetch m.assessment where r.id = :respondentUserId")
     List<RespondentAssessmentMapping> findByRespondentForListing(Long respondentUserId);
 
+    /**
+     * Attempt tallies for one report page: respondentUserId → [count(all),
+     * count(completed)], optionally scoped to one assessment. Callers must
+     * skip the call for an empty id list.
+     */
+    @Query("select m.respondent.id, count(m), "
+            + "sum(case when m.assessmentStatus = com.bodhpsychometric.model.assessment.enums.RespondentAssessmentStatus.COMPLETED then 1 else 0 end) "
+            + "from RespondentAssessmentMapping m "
+            + "where m.respondent.id in :respondentUserIds "
+            + "and (:assessmentId is null or m.assessment.assessmentId = :assessmentId) "
+            + "group by m.respondent.id")
+    List<Object[]> tallyAttemptsForReport(List<Long> respondentUserIds, Long assessmentId);
+
     /** Portal take-flow fetch — attempt + assessment + questionnaire in one go. */
     @Query("select m from RespondentAssessmentMapping m join fetch m.respondent "
             + "join fetch m.assessment a join fetch a.questionnaire "

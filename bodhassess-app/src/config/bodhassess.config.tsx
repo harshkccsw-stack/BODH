@@ -74,6 +74,7 @@ export const MENU_SIDEBAR: MenuConfig = [
     title: 'Reports',
     icon: FileText,
     children: [
+      { title: 'Reports Hub', path: '/reports/hub' },
       { title: 'All Reports', path: '/reports' },
       { title: 'Response Sheets', path: '/reports/responses' },
     ],

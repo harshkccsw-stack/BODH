@@ -7,16 +7,18 @@ import com.bodhpsychometric.model.question.enums.ContentType;
 
 /**
  * A bank question with its options and MQT scores. usedIn lists every
- * questionnaire the question appears in (empty = unattached). sectionId and
- * sortOrder are placement context — filled only when the question is read
- * through one questionnaire (getByQuestionnaireId), null in bank-wide reads
- * because a question placed in several questionnaires has several placements.
+ * questionnaire the question appears in (empty = unattached). sectionId,
+ * sortOrder and questionTag are placement context — filled only when the
+ * question is read through one questionnaire (getByQuestionnaireId), null in
+ * bank-wide reads because a question placed in several questionnaires has
+ * several placements (and a different tag in each).
  */
 public record QuestionResponse(
         Long questionId,
         List<UsedInRef> usedIn,
         Long sectionId,
         Integer sortOrder,
+        String questionTag,
         ContentType contentType,
         String stem,
         String mediaUrl,
@@ -29,12 +31,13 @@ public record QuestionResponse(
     }
 
     public static QuestionResponse from(Question q, List<UsedInRef> usedIn, Long sectionId, Integer sortOrder,
-            List<QuestionOptionResponse> options, List<MqtScoreResponse> mqtScores) {
+            String questionTag, List<QuestionOptionResponse> options, List<MqtScoreResponse> mqtScores) {
         return new QuestionResponse(
                 q.getQuestionId(),
                 usedIn,
                 sectionId,
                 sortOrder,
+                questionTag,
                 q.getContentType(),
                 q.getQuestionTexString(),
                 q.getMediaUrl(),
