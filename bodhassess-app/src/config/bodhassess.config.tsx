@@ -1,3 +1,4 @@
+import { MenuConfig } from '@/config/types';
 import {
   Activity,
   BarChart3,
@@ -10,7 +11,6 @@ import {
   FileText,
   FlaskConical,
   GraduationCap,
-  Heart,
   LayoutDashboard,
   LayoutGrid,
   Microscope,
@@ -20,9 +20,8 @@ import {
   Stethoscope,
   Table2,
   Tag,
-  Users,
+  Users
 } from 'lucide-react';
-import { MenuConfig } from '@/config/types';
 
 export const MENU_SIDEBAR: MenuConfig = [
   {
@@ -56,7 +55,6 @@ export const MENU_SIDEBAR: MenuConfig = [
     children: [
       { title: 'All Questionnaires', path: '/questionnaires' },
       { title: 'Create Questionnaire', path: '/question-bank/create' },
-      { title: 'Questions', path: '/question-bank/questions' },
       { title: 'Demographic Fields', path: '/questionnaires/demographics' },
     ],
   },
@@ -64,7 +62,7 @@ export const MENU_SIDEBAR: MenuConfig = [
     title: 'Question Bank',
     icon: Brain,
     children: [
-      { title: 'Item Explorer', path: '/question-bank' },
+      { title: 'Questions', path: '/question-bank/questions' },
       { title: 'Measured Qualities', path: '/question-bank/qualities' },
       { title: 'IRT Calibration', path: '/question-bank/calibration' },
       { title: 'Norm Tables', path: '/question-bank/norms' },
