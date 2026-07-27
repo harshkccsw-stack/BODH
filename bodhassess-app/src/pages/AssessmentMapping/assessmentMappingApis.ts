@@ -34,7 +34,7 @@ export interface OrganizationRef {
   assessmentCount: number;
 }
 
-/** Matches RespondentAssessmentResponse on the backend (one attempt row). */
+/** Matches RespondentAssessmentResponse on the backend (one allotment row). */
 export interface RespondentAssessmentResponse {
   respondentAssessmentMappingId: number;
   respondentUserId: number;
@@ -45,14 +45,16 @@ export interface RespondentAssessmentResponse {
   organizationName: string | null;
   assessmentId: number;
   assessmentName: string;
-  attemptNumber: number;
   assessmentStatus: RespondentAssessmentStatus;
+  /** True once the submitted answers are committed to MySQL. */
+  isPersisted: boolean;
 }
 
 /**
  * Matches RespondentAssessmentAssignRequest on the backend. All-or-nothing.
  * Respondents WITH an org may only receive that org's mapped assessments;
  * respondents WITHOUT one (this page's audience) are assigned directly.
+ * One assignment per (respondent, assessment) pair — a repeat is a 409.
  */
 export interface AssignAssessmentPayload {
   assessmentId: number;
@@ -79,7 +81,7 @@ function getOrganizationAssessments(organizationId: number) {
   return axios.get<AssessmentRef[]>(`${API_URL}/organizations/getAssessments/${organizationId}`);
 }
 
-//assignments (attempt rows)
+//assignments (allotment rows)
 function getAllAssignments() {
   return axios.get<RespondentAssessmentResponse[]>(`${API_URL}/respondent-assessments/getAll`);
 }
@@ -94,15 +96,7 @@ function assignAssessment(payload: AssignAssessmentPayload) {
   return axios.post<RespondentAssessmentResponse[]>(`${API_URL}/respondent-assessments/assign`, payload);
 }
 
-/**
- * Explicit admin grant of the next attempt (longitudinal waves). Same body
- * as assign; each respondent's LATEST attempt must be COMPLETED — else 409.
- */
-function grantReattempt(payload: AssignAssessmentPayload) {
-  return axios.post<RespondentAssessmentResponse[]>(`${API_URL}/respondent-assessments/reattempt`, payload);
-}
-
-/** NOT_STARTED and ONGOING attempts may be removed — COMPLETED is frozen (409). */
+/** NOT_STARTED and ONGOING allotments may be removed — COMPLETED is frozen (409). */
 function deleteAssignment(id: number) {
   return axios.delete<void>(`${API_URL}/respondent-assessments/delete/${id}`);
 }
@@ -115,6 +109,5 @@ export const assessmentMappingApis = {
   getAllAssignments,
   getAssignmentsByRespondentId,
   assignAssessment,
-  grantReattempt,
   deleteAssignment,
 };

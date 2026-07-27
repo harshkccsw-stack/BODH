@@ -332,7 +332,7 @@ export default function ReportsHubPage() {
             <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
               Every respondent in one place. Narrow by organization and
               assessment (or keep "All"), search by name or email, then drill
-              into their attempts. Exports land here next.
+              into their assessments. Exports land here next.
             </p>
           </div>
           <Button variant="outline" disabled title="Export is coming soon">
@@ -480,16 +480,16 @@ export default function ReportsHubPage() {
                   </span>
                   <div className="flex items-center gap-2 shrink-0">
                     <span className="inline-flex items-center rounded-md border border-border bg-muted/40 px-2 py-1 text-xs text-muted-foreground">
-                      {r.totalAttempts} attempt{r.totalAttempts !== 1 ? 's' : ''}
+                      {r.assignedAssessments} assigned
                     </span>
                     <span className={cn(
                       'inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs',
-                      r.completedAttempts > 0
+                      r.completedAssessments > 0
                         ? 'border-green-300 bg-green-50 text-green-700 dark:border-green-900 dark:bg-green-950/30 dark:text-green-400'
                         : 'border-border bg-muted/40 text-muted-foreground',
                     )}>
-                      {r.completedAttempts > 0 && <CheckCircle2 className="h-3 w-3" />}
-                      {r.completedAttempts} completed
+                      {r.completedAssessments > 0 && <CheckCircle2 className="h-3 w-3" />}
+                      {r.completedAssessments} completed
                     </span>
                   </div>
                 </div>

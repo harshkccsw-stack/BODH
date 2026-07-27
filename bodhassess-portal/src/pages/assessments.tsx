@@ -102,7 +102,6 @@ export default function AssessmentsPage() {
                         <p className="font-semibold leading-snug text-[0.9375rem]">{s.assessmentName}</p>
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                           <span className="font-mono">#{s.respondentAssessmentMappingId}</span>
-                          <span>Attempt {s.attemptNumber}</span>
                         </div>
                       </div>
                       <Button
@@ -140,7 +139,7 @@ export default function AssessmentsPage() {
                   <div className="flex-1 min-w-0">
                     <p className="font-medium truncate">{s.assessmentName}</p>
                     <p className="text-xs text-muted-foreground mt-0.5 font-mono">
-                      #{s.respondentAssessmentMappingId} · Attempt {s.attemptNumber}
+                      #{s.respondentAssessmentMappingId}
                     </p>
                   </div>
                   <span className="text-xs font-semibold text-green-700 dark:text-green-400">Submitted</span>

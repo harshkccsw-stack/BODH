@@ -37,7 +37,7 @@ class PortalAssessmentControllerTest {
     }
 
     @Test
-    void respondentFetchesTheirAttemptWithFullQuestionnaireContent() throws Exception {
+    void respondentFetchesTheirAllotmentWithFullQuestionnaireContent() throws Exception {
         // ── Fixture: bank question with two options ──────────────────────
         String questionBody = postJson("/api/questions/create",
                 "{\"contentType\":\"TEXT\",\"stem\":\"How do you feel today?\",\"mediaUrl\":null,"
@@ -98,8 +98,9 @@ class PortalAssessmentControllerTest {
                         .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.respondentAssessmentMappingId").value(mappingId))
-                .andExpect(jsonPath("$.attemptNumber").value(1))
+                .andExpect(jsonPath("$.attemptNumber").doesNotExist())
                 .andExpect(jsonPath("$.assessmentStatus").value("NOT_STARTED"))
+                .andExpect(jsonPath("$.isPersisted").value(false))
                 .andExpect(jsonPath("$.assessmentName").value("Portal Take Assessment"))
                 .andExpect(jsonPath("$.showTermsAndConditions").value(true))
                 .andExpect(jsonPath("$.autoNext").value(true))
@@ -221,7 +222,7 @@ class PortalAssessmentControllerTest {
     }
 
     @Test
-    void beginAndSubmitWalkTheAttemptToCompleted() throws Exception {
+    void beginAndSubmitWalkTheAllotmentToCompleted() throws Exception {
         Fixture f = buildFixture("Portal Flow", "portal.flow@test.local", "04-04-2004", "2004-04-04");
         String bearer = "Bearer " + f.token();
 
@@ -250,7 +251,8 @@ class PortalAssessmentControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"demographics\":[{\"demographicFieldId\":" + f.fieldId() + ",\"value\":\"9th\"}]}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.assessmentStatus").value("ONGOING"));
+                .andExpect(jsonPath("$.assessmentStatus").value("ONGOING"))
+                .andExpect(jsonPath("$.isPersisted").value(false));
         mvc.perform(get("/api/respondents/getById/" + f.respondentUserId()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.isConsented").value(true));
@@ -281,7 +283,9 @@ class PortalAssessmentControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"answers\":[{\"questionId\":" + f.questionId() + ",\"optionId\":" + f.option2Id() + "}]}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.assessmentStatus").value("COMPLETED"));
+                .andExpect(jsonPath("$.assessmentStatus").value("COMPLETED"))
+                // The durability fact check: answers are committed to SQL.
+                .andExpect(jsonPath("$.isPersisted").value(true));
         mvc.perform(post("/api/portal/assessments/submit/" + f.mappingId())
                         .header("Authorization", bearer)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -292,83 +296,51 @@ class PortalAssessmentControllerTest {
     }
 
     @Test
-    void reattemptIsAnExplicitAdminGrant() throws Exception {
-        Fixture f = buildFixture("Portal Reatt", "portal.reatt@test.local", "09-09-1999", "1999-09-09");
+    void onePairGetsOneAllotmentAndNoReattempt() throws Exception {
+        Fixture f = buildFixture("Portal Once", "portal.once@test.local", "09-09-1999", "1999-09-09");
         String bearer = "Bearer " + f.token();
-        String grantBody = "{\"assessmentId\":" + f.assessmentId()
+        String body = "{\"assessmentId\":" + f.assessmentId()
                 + ",\"respondentUserIds\":[" + f.respondentUserId() + "]}";
-        String demographics = "{\"demographics\":[{\"demographicFieldId\":" + f.fieldId() + ",\"value\":\"9th\"}]}";
-        String answers = "{\"answers\":[{\"questionId\":" + f.questionId() + ",\"optionId\":" + f.option1Id() + "}]}";
 
-        // Re-assigning the pair stays refused, and a re-attempt needs the
-        // previous attempt COMPLETED — NOT_STARTED and ONGOING both refuse.
+        // The pair already holds its one allotment — assigning again is refused.
         mvc.perform(post("/api/respondent-assessments/assign")
-                        .contentType(MediaType.APPLICATION_JSON).content(grantBody))
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isConflict());
+
+        // The re-attempt endpoint is gone for good.
         mvc.perform(post("/api/respondent-assessments/reattempt")
-                        .contentType(MediaType.APPLICATION_JSON).content(grantBody))
-                .andExpect(status().isConflict());
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isNotFound());
+
+        // Walk it to COMPLETED, then prove it stays a single closed allotment:
+        // no second row, no second submit, and the portal still lists one.
         mvc.perform(post("/api/portal/assessments/begin/" + f.mappingId())
                         .header("Authorization", bearer)
-                        .contentType(MediaType.APPLICATION_JSON).content(demographics))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"demographics\":[{\"demographicFieldId\":" + f.fieldId() + ",\"value\":\"9th\"}]}"))
                 .andExpect(status().isOk());
-        mvc.perform(post("/api/respondent-assessments/reattempt")
-                        .contentType(MediaType.APPLICATION_JSON).content(grantBody))
-                .andExpect(status().isConflict());
-
-        // COMPLETED unlocks the grant: attempt 2, NOT_STARTED.
         mvc.perform(post("/api/portal/assessments/submit/" + f.mappingId())
                         .header("Authorization", bearer)
-                        .contentType(MediaType.APPLICATION_JSON).content(answers))
-                .andExpect(status().isOk());
-        String grant = mvc.perform(post("/api/respondent-assessments/reattempt")
-                        .contentType(MediaType.APPLICATION_JSON).content(grantBody))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$[0].attemptNumber").value(2))
-                .andExpect(jsonPath("$[0].assessmentStatus").value("NOT_STARTED"))
-                .andReturn().getResponse().getContentAsString();
-        int mapping2 = JsonPath.read(grant, "$[0].respondentAssessmentMappingId");
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"answers\":[{\"questionId\":" + f.questionId() + ",\"optionId\":" + f.option1Id() + "}]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.assessmentStatus").value("COMPLETED"))
+                .andExpect(jsonPath("$.isPersisted").value(true));
 
-        // The portal lists both attempts, and attempt 2 walks the same flow.
+        mvc.perform(post("/api/respondent-assessments/assign")
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isConflict());
         mvc.perform(post("/api/portal/login")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"email\":\"portal.reatt@test.local\",\"dob\":\"1999-09-09\"}"))
+                        .content("{\"email\":\"portal.once@test.local\",\"dob\":\"1999-09-09\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.respondent.allottedAssessments.length()").value(2));
-        mvc.perform(post("/api/portal/assessments/begin/" + mapping2)
-                        .header("Authorization", bearer)
-                        .contentType(MediaType.APPLICATION_JSON).content(demographics))
-                .andExpect(status().isOk());
-        mvc.perform(post("/api/portal/assessments/submit/" + mapping2)
-                        .header("Authorization", bearer)
-                        .contentType(MediaType.APPLICATION_JSON).content(answers))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.assessmentStatus").value("COMPLETED"));
-
-        // Each further wave needs its own explicit grant — attempt 3 works too.
-        mvc.perform(post("/api/respondent-assessments/reattempt")
-                        .contentType(MediaType.APPLICATION_JSON).content(grantBody))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$[0].attemptNumber").value(3));
-
-        // Never-assigned respondents are pointed at assign instead.
-        postJson("/api/respondents/create",
-                "{\"name\":\"Portal Reatt Never\",\"email\":\"portal.reatt.never@test.local\","
-                        + "\"dob\":\"10-10-2000\",\"phone\":null,\"gender\":null,\"isConsented\":false,"
-                        + "\"organizationId\":null}");
-        String neverBody = mvc.perform(get("/api/respondents/getAll"))
-                .andReturn().getResponse().getContentAsString();
-        java.util.List<Integer> ids = JsonPath.read(neverBody,
-                "$[?(@.email=='portal.reatt.never@test.local')].respondentUserId");
-        mvc.perform(post("/api/respondent-assessments/reattempt")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"assessmentId\":" + f.assessmentId()
-                                + ",\"respondentUserIds\":[" + ids.get(0) + "]}"))
-                .andExpect(status().isConflict());
+                .andExpect(jsonPath("$.respondent.allottedAssessments.length()").value(1))
+                .andExpect(jsonPath("$.respondent.allottedAssessments[0].assessmentStatus").value("COMPLETED"))
+                .andExpect(jsonPath("$.respondent.allottedAssessments[0].isPersisted").value(true));
     }
 
     @Test
-    void ongoingAttemptCanBeUnmapped() throws Exception {
+    void ongoingAllotmentCanBeUnmapped() throws Exception {
         Fixture f = buildFixture("Portal Unmap", "portal.unmap@test.local", "06-06-2006", "2006-06-06");
         mvc.perform(post("/api/portal/assessments/begin/" + f.mappingId())
                         .header("Authorization", "Bearer " + f.token())
@@ -377,7 +349,7 @@ class PortalAssessmentControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.assessmentStatus").value("ONGOING"));
 
-        // ONGOING is not frozen — the attempt (and its demographics) may go.
+        // ONGOING is not frozen — the allotment (and its demographics) may go.
         mvc.perform(delete("/api/respondent-assessments/delete/" + f.mappingId()))
                 .andExpect(status().isNoContent());
     }

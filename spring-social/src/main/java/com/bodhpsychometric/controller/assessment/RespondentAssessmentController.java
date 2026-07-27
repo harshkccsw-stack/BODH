@@ -23,7 +23,6 @@ import com.bodhpsychometric.model.assessment.RespondentAssessmentMapping;
 import com.bodhpsychometric.model.assessment.enums.AssessmentStatus;
 import com.bodhpsychometric.model.assessment.enums.RespondentAssessmentStatus;
 import com.bodhpsychometric.model.auth.RespondentUser;
-import com.bodhpsychometric.repository.assessment.AssessmentAnswerRepository;
 import com.bodhpsychometric.repository.assessment.AssessmentRepository;
 import com.bodhpsychometric.repository.assessment.OrganizationAssessmentMappingRepository;
 import com.bodhpsychometric.repository.assessment.RespondentAssessmentMappingRepository;
@@ -33,12 +32,12 @@ import com.bodhpsychometric.repository.demographics.DemographicResponseRepositor
 import jakarta.validation.Valid;
 
 /**
- * Assigning assessments to respondents — creating attempt #1 rows. The
+ * Assigning assessments to respondents — creating allotment rows. The
  * segregation rule lives here: a respondent WITH an organization may only
  * receive assessments mapped to that organization
  * (OrganizationAssessmentMapping); a respondent WITHOUT one is assigned
- * directly (the Assessment Mapping page's flow). Re-attempts are a separate
- * later flow.
+ * directly (the Assessment Mapping page's flow). Exactly one allotment per
+ * (respondent, assessment) pair — there are no re-attempts.
  */
 @RestController
 @RequestMapping("/api/respondent-assessments")
@@ -56,9 +55,6 @@ public class RespondentAssessmentController {
 
     @Autowired
     private RespondentUserRepository respondentUserRepository;
-
-    @Autowired
-    private AssessmentAnswerRepository assessmentAnswerRepository;
 
     @Autowired
     private DemographicResponseRepository demographicResponseRepository;
@@ -86,7 +82,7 @@ public class RespondentAssessmentController {
 
     /**
      * Bulk/single assign — all-or-nothing: every respondent is validated
-     * (pass 1) before any attempt row is written (pass 2).
+     * (pass 1) before any allotment row is written (pass 2).
      */
     @PostMapping("/assign")
     public ResponseEntity<?> assignAssessment(@Valid @RequestBody RespondentAssessmentAssignRequest request) {
@@ -121,12 +117,12 @@ public class RespondentAssessmentController {
                     .existsByRespondent_IdAndAssessment_AssessmentId(respondentUserId, assessment.getAssessmentId())) {
                 return ResponseEntity.status(HttpStatus.CONFLICT)
                         .body(Map.of("message", "\"" + respondent.getName()
-                                + "\" is already assigned this assessment — grant a re-attempt instead"));
+                                + "\" is already assigned this assessment"));
             }
             respondents.add(respondent);
         }
 
-        // Pass 2 — write attempt #1 rows.
+        // Pass 2 — write the allotment rows.
         List<RespondentAssessmentResponse> created = new ArrayList<>();
         for (RespondentUser respondent : respondents) {
             RespondentAssessmentMapping mapping = new RespondentAssessmentMapping();
@@ -139,78 +135,11 @@ public class RespondentAssessmentController {
     }
 
     /**
-     * Explicit admin grant of the next attempt — the longitudinal-data flow.
-     * Never automatic: each call adds exactly one attempt per respondent, and
-     * only pairs whose LATEST attempt is COMPLETED qualify — an open attempt
-     * must be finished (or unmapped) first. Same segregation and all-or-
-     * nothing rules as assign; the portal needs nothing new, the fresh
-     * NOT_STARTED row simply appears in the respondent's allotted list.
-     */
-    @PostMapping("/reattempt")
-    public ResponseEntity<?> grantReattempt(@Valid @RequestBody RespondentAssessmentAssignRequest request) {
-        Assessment assessment = assessmentRepository.findById(request.assessmentId()).orElse(null);
-        if (assessment == null) {
-            return ResponseEntity.badRequest()
-                    .body(Map.of("message", "Assessment " + request.assessmentId() + " not found"));
-        }
-        if (assessment.getStatus() != AssessmentStatus.ACTIVE) {
-            return ResponseEntity.status(HttpStatus.CONFLICT)
-                    .body(Map.of("message", "Assessment \"" + assessment.getName()
-                            + "\" is INACTIVE — activate it before granting re-attempts"));
-        }
-
-        // Pass 1 — resolve and validate everything before writing anything.
-        List<RespondentAssessmentMapping> latestAttempts = new ArrayList<>();
-        for (Long respondentUserId : request.respondentUserIds().stream().distinct().toList()) {
-            RespondentUser respondent = respondentUserRepository.findById(respondentUserId).orElse(null);
-            if (respondent == null) {
-                return ResponseEntity.badRequest()
-                        .body(Map.of("message", "Respondent " + respondentUserId + " not found"));
-            }
-            if (respondent.getOrganization() != null && !organizationAssessmentMappingRepository
-                    .existsByOrganization_OrganizationIdAndAssessment_AssessmentId(
-                            respondent.getOrganization().getOrganizationId(), assessment.getAssessmentId())) {
-                return ResponseEntity.status(HttpStatus.CONFLICT)
-                        .body(Map.of("message", "\"" + respondent.getName() + "\"'s organization ("
-                                + respondent.getOrganization().getName()
-                                + ") does not have this assessment mapped"));
-            }
-            RespondentAssessmentMapping latest = respondentAssessmentMappingRepository
-                    .findTopByRespondent_IdAndAssessment_AssessmentIdOrderByAttemptNumberDesc(
-                            respondentUserId, assessment.getAssessmentId())
-                    .orElse(null);
-            if (latest == null) {
-                return ResponseEntity.status(HttpStatus.CONFLICT)
-                        .body(Map.of("message", "\"" + respondent.getName()
-                                + "\" has never been assigned this assessment — assign it instead"));
-            }
-            if (latest.getAssessmentStatus() != RespondentAssessmentStatus.COMPLETED) {
-                return ResponseEntity.status(HttpStatus.CONFLICT)
-                        .body(Map.of("message", "\"" + respondent.getName() + "\"'s attempt "
-                                + latest.getAttemptNumber() + " is " + latest.getAssessmentStatus()
-                                + " — a re-attempt needs the previous one COMPLETED"));
-            }
-            latestAttempts.add(latest);
-        }
-
-        // Pass 2 — write the next attempt rows.
-        List<RespondentAssessmentResponse> created = new ArrayList<>();
-        for (RespondentAssessmentMapping latest : latestAttempts) {
-            RespondentAssessmentMapping next = new RespondentAssessmentMapping();
-            next.setRespondent(latest.getRespondent());
-            next.setAssessment(assessment);
-            next.setAttemptNumber(latest.getAttemptNumber() + 1);
-            created.add(RespondentAssessmentResponse.from(
-                    respondentAssessmentMappingRepository.save(next)));
-        }
-        return ResponseEntity.status(HttpStatus.CREATED).body(created);
-    }
-
-    /**
-     * Un-assign: NOT_STARTED and ONGOING attempts may both go — COMPLETED is
-     * the only frozen state, because answers only ever exist for COMPLETED
-     * attempts (the portal writes them in one submit). An ONGOING attempt's
-     * demographic responses are deleted with it.
+     * Un-assign: NOT_STARTED and ONGOING allotments may both go — COMPLETED
+     * is the only frozen state. Answers hang off the (respondent, assessment)
+     * pair and only exist once the allotment is COMPLETED, which this gate
+     * keeps undeletable, so removing a live allotment never strands answers.
+     * A started allotment's demographic responses are deleted with it.
      */
     @DeleteMapping("/delete/{id}")
     public ResponseEntity<?> deleteAssignment(@PathVariable Long id) {
@@ -220,13 +149,11 @@ public class RespondentAssessmentController {
         }
         if (mapping.getAssessmentStatus() == RespondentAssessmentStatus.COMPLETED) {
             return ResponseEntity.status(HttpStatus.CONFLICT)
-                    .body(Map.of("message", "This attempt is COMPLETED and cannot be removed"));
+                    .body(Map.of("message",
+                            "This assessment is COMPLETED and cannot be removed"));
         }
-        if (assessmentAnswerRepository.existsByMapping_RespondentAssessmentMappingId(id)) {
-            return ResponseEntity.status(HttpStatus.CONFLICT)
-                    .body(Map.of("message", "This attempt already has recorded answers and cannot be removed"));
-        }
-        demographicResponseRepository.deleteByMapping_RespondentAssessmentMappingId(id);
+        demographicResponseRepository.deleteByRespondent_IdAndAssessment_AssessmentId(
+                mapping.getRespondent().getId(), mapping.getAssessment().getAssessmentId());
         respondentAssessmentMappingRepository.delete(mapping);
         return ResponseEntity.noContent().build();
     }

@@ -12,17 +12,13 @@ public interface RespondentAssessmentMappingRepository extends JpaRepository<Res
 
     long countByAssessmentAssessmentId(Long assessmentId);
 
-    /** Attempt rows block respondent deletion — pre-checked, never caught. */
+    /** Allotments block respondent deletion — pre-checked, never caught. */
     boolean existsByRespondent_Id(Long respondentUserId);
 
-    /** Already assigned? Any attempt for the pair counts. */
+    /** Already assigned? One allotment per pair is the rule. */
     boolean existsByRespondent_IdAndAssessment_AssessmentId(Long respondentUserId, Long assessmentId);
 
-    /** The pair's latest attempt — gate and attemptNumber source for a granted re-attempt. */
-    Optional<RespondentAssessmentMapping> findTopByRespondent_IdAndAssessment_AssessmentIdOrderByAttemptNumberDesc(
-            Long respondentUserId, Long assessmentId);
-
-    /** Attempts by one org's members for one assessment — blocks org unmapping. */
+    /** Allotments by one org's members for one assessment — blocks org unmapping. */
     long countByAssessment_AssessmentIdAndRespondent_Organization_OrganizationId(
             Long assessmentId, Long organizationId);
 
@@ -43,7 +39,7 @@ public interface RespondentAssessmentMappingRepository extends JpaRepository<Res
     List<RespondentAssessmentMapping> findByRespondentForListing(Long respondentUserId);
 
     /**
-     * Attempt tallies for one report page: respondentUserId → [count(all),
+     * Allotment tallies for one report page: respondentUserId → [count(all),
      * count(completed)], optionally scoped to one assessment. Callers must
      * skip the call for an empty id list.
      */
@@ -53,9 +49,9 @@ public interface RespondentAssessmentMappingRepository extends JpaRepository<Res
             + "where m.respondent.id in :respondentUserIds "
             + "and (:assessmentId is null or m.assessment.assessmentId = :assessmentId) "
             + "group by m.respondent.id")
-    List<Object[]> tallyAttemptsForReport(List<Long> respondentUserIds, Long assessmentId);
+    List<Object[]> tallyAssignmentsForReport(List<Long> respondentUserIds, Long assessmentId);
 
-    /** Portal take-flow fetch — attempt + assessment + questionnaire in one go. */
+    /** Portal take-flow fetch — allotment + assessment + questionnaire in one go. */
     @Query("select m from RespondentAssessmentMapping m join fetch m.respondent "
             + "join fetch m.assessment a join fetch a.questionnaire "
             + "where m.respondentAssessmentMappingId = :id")

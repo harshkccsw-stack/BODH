@@ -113,7 +113,7 @@ export default function TakePage() {
   if (!detail || !user || steps.length === 0) return <ScreenLoader />;
 
   const title = detail.assessmentName;
-  const subtitle = `${user.name} · Attempt ${detail.attemptNumber}`;
+  const subtitle = `${user.name} · ${detail.assessmentName}`;
 
   if (done) {
     return (

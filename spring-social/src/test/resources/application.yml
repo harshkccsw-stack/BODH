@@ -5,6 +5,13 @@ spring:
     password: ""
     driver-class-name: org.h2.Driver
 
+  # Flyway is OFF for tests: the migrations are MySQL-flavoured (enum columns,
+  # PREPARE/EXECUTE guards) and would not run on H2. Tests keep building the
+  # schema from the entities, which is also what makes them catch mapping
+  # mistakes before a migration is ever written.
+  flyway:
+    enabled: false
+
   jpa:
     hibernate:
       ddl-auto: create-drop

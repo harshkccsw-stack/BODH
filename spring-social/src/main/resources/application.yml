@@ -20,8 +20,23 @@ spring:
     password: ${DB_PASSWORD:bodh}
     driver-class-name: com.mysql.cj.jdbc.Driver
 
+  # ── Schema changes ──────────────────────────────────────────────────────
+  # V1 is the current model's full schema. An empty database is built by it;
+  # a database that already holds this schema is stamped at version 1 by
+  # baseline-on-migrate and skips it. Either way both land at v1, and every
+  # change from here ships as V<n>__description.sql in
+  # src/main/resources/db/migration/, applied on startup before JPA.
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    baseline-version: 1
+    baseline-description: "schema matching the entity model at v1"
+
   jpa:
     hibernate:
+      # Hibernate still builds/extends the schema from the entities — there
+      # is no baseline migration, so a fresh database is created here. Switch
+      # to validate once Flyway owns a full schema from V1.
       ddl-auto: update
     show-sql: true
     open-in-view: false
@@ -61,8 +76,23 @@ spring:
     password: ${DB_PASSWORD:bodh}
     driver-class-name: com.mysql.cj.jdbc.Driver
 
+  # ── Schema changes ──────────────────────────────────────────────────────
+  # V1 is the current model's full schema. An empty database is built by it;
+  # a database that already holds this schema is stamped at version 1 by
+  # baseline-on-migrate and skips it. Either way both land at v1, and every
+  # change from here ships as V<n>__description.sql in
+  # src/main/resources/db/migration/, applied on startup before JPA.
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    baseline-version: 1
+    baseline-description: "schema matching the entity model at v1"
+
   jpa:
     hibernate:
+      # Hibernate still builds/extends the schema from the entities — there
+      # is no baseline migration, so a fresh database is created here. Switch
+      # to validate once Flyway owns a full schema from V1.
       ddl-auto: update
     show-sql: true
     open-in-view: false
