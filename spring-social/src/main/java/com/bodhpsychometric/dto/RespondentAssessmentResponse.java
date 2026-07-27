@@ -4,7 +4,7 @@ import com.bodhpsychometric.model.assessment.RespondentAssessmentMapping;
 import com.bodhpsychometric.model.assessment.enums.RespondentAssessmentStatus;
 import com.bodhpsychometric.model.auth.RespondentUser;
 
-/** One attempt row, flattened for the assignment views. */
+/** One allotment row, flattened for the assignment views. */
 public record RespondentAssessmentResponse(
         Long respondentAssessmentMappingId,
         Long respondentUserId,
@@ -15,8 +15,8 @@ public record RespondentAssessmentResponse(
         String organizationName,
         Long assessmentId,
         String assessmentName,
-        int attemptNumber,
-        RespondentAssessmentStatus assessmentStatus) {
+        RespondentAssessmentStatus assessmentStatus,
+        boolean isPersisted) {
 
     public static RespondentAssessmentResponse from(RespondentAssessmentMapping mapping) {
         RespondentUser respondent = mapping.getRespondent();
@@ -32,7 +32,7 @@ public record RespondentAssessmentResponse(
                         : respondent.getOrganization().getName(),
                 mapping.getAssessment().getAssessmentId(),
                 mapping.getAssessment().getName(),
-                mapping.getAttemptNumber(),
-                mapping.getAssessmentStatus());
+                mapping.getAssessmentStatus(),
+                mapping.isPersisted());
     }
 }

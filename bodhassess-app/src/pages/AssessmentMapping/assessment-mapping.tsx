@@ -6,7 +6,6 @@ import {
   ClipboardList,
   Link2,
   Loader2,
-  RotateCcw,
   Search,
   Trash2,
   Users,
@@ -24,7 +23,7 @@ import {
   type RespondentAssessmentStatus,
 } from './assessmentMappingApis';
 
-const ATTEMPT_BADGE: Record<RespondentAssessmentStatus, string> = {
+const STATUS_BADGE: Record<RespondentAssessmentStatus, string> = {
   NOT_STARTED: 'border-border bg-muted/40 text-muted-foreground',
   ONGOING:
     'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-400',
@@ -32,7 +31,7 @@ const ATTEMPT_BADGE: Record<RespondentAssessmentStatus, string> = {
     'border-green-300 bg-green-50 text-green-700 dark:border-green-900 dark:bg-green-950/30 dark:text-green-400',
 };
 
-const attemptLabel = (s: RespondentAssessmentStatus) =>
+const statusLabel = (s: RespondentAssessmentStatus) =>
   s === 'NOT_STARTED' ? 'Not started' : s === 'ONGOING' ? 'Ongoing' : 'Completed';
 
 /**
@@ -67,7 +66,6 @@ export default function AssessmentMappingPage() {
   const [viewError, setViewError] = useState('');
   const [viewFlash, setViewFlash] = useState('');
   const [removeBusy, setRemoveBusy] = useState<number | null>(null);
-  const [grantBusy, setGrantBusy] = useState<number | null>(null);
 
   const refresh = async (showLoading = false) => {
     setLoadError('');
@@ -199,26 +197,6 @@ export default function AssessmentMappingPage() {
       setViewError(e?.response?.data?.message || e?.message || 'Failed to remove');
     } finally {
       setRemoveBusy(null);
-    }
-  };
-
-  // Explicit longitudinal grant: adds the next attempt for this one
-  // respondent + assessment. Server enforces latest-must-be-COMPLETED.
-  const doGrantReattempt = async (assignment: RespondentAssessmentResponse) => {
-    setViewError('');
-    setViewFlash('');
-    setGrantBusy(assignment.respondentAssessmentMappingId);
-    try {
-      const res = await assessmentMappingApis.grantReattempt({
-        assessmentId: assignment.assessmentId,
-        respondentUserIds: [assignment.respondentUserId],
-      });
-      setViewFlash(`Attempt ${res.data[0]?.attemptNumber ?? '?'} of "${assignment.assessmentName}" granted.`);
-      await refresh();
-    } catch (e: any) {
-      setViewError(e?.response?.data?.message || e?.message || 'Failed to grant a re-attempt');
-    } finally {
-      setGrantBusy(null);
     }
   };
 
@@ -433,13 +411,6 @@ export default function AssessmentMappingPage() {
       {/* Per-respondent assignments viewer */}
       {viewTarget && (() => {
         const own = assignmentsByRespondent.get(viewTarget.respondentUserId) ?? [];
-        // A re-attempt hangs off the pair's LATEST attempt — only that row
-        // (when COMPLETED) offers the grant button.
-        const latestByAssessment = new Map<number, RespondentAssessmentResponse>();
-        for (const a of own) {
-          const cur = latestByAssessment.get(a.assessmentId);
-          if (!cur || a.attemptNumber > cur.attemptNumber) latestByAssessment.set(a.assessmentId, a);
-        }
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={() => setViewTarget(null)}>
             <Card className="w-full max-w-lg max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
@@ -471,42 +442,31 @@ export default function AssessmentMappingPage() {
                       <li key={a.respondentAssessmentMappingId} className="flex items-center justify-between gap-3 px-3 py-2">
                         <div className="min-w-0">
                           <p className="text-sm font-medium truncate">{a.assessmentName}</p>
-                          <p className="text-xs text-muted-foreground">Attempt {a.attemptNumber}</p>
+                          {a.assessmentStatus === 'COMPLETED' && (
+                            <p className="text-xs text-muted-foreground">
+                              {a.isPersisted ? 'Answers saved' : 'Answers not saved yet'}
+                            </p>
+                          )}
                         </div>
                         <div className="flex items-center gap-1.5 shrink-0">
                           <span className={cn(
                             'inline-flex items-center rounded-full border px-2 py-0.5 text-[0.6875rem] font-medium',
-                            ATTEMPT_BADGE[a.assessmentStatus],
+                            STATUS_BADGE[a.assessmentStatus],
                           )}>
-                            {attemptLabel(a.assessmentStatus)}
+                            {statusLabel(a.assessmentStatus)}
                           </span>
                           {a.assessmentStatus !== 'COMPLETED' && (
                             <Button
                               variant="outline"
                               size="sm"
                               onClick={() => doRemove(a)}
-                              disabled={removeBusy !== null || grantBusy !== null}
-                              title="Remove this attempt"
+                              disabled={removeBusy !== null}
+                              title="Remove this assignment"
                             >
                               {removeBusy === a.respondentAssessmentMappingId
                                 ? <Loader2 className="h-3 w-3 animate-spin" />
                                 : <Trash2 className="h-3 w-3 text-red-600" />}
                               Remove
-                            </Button>
-                          )}
-                          {a.assessmentStatus === 'COMPLETED'
-                            && latestByAssessment.get(a.assessmentId) === a && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => doGrantReattempt(a)}
-                              disabled={removeBusy !== null || grantBusy !== null}
-                              title="Grant the next attempt — longitudinal follow-up"
-                            >
-                              {grantBusy === a.respondentAssessmentMappingId
-                                ? <Loader2 className="h-3 w-3 animate-spin" />
-                                : <RotateCcw className="h-3 w-3 text-primary" />}
-                              Re-attempt
                             </Button>
                           )}
                         </div>
@@ -515,10 +475,9 @@ export default function AssessmentMappingPage() {
                   </ul>
                 )}
                 <p className="text-[0.6875rem] text-muted-foreground">
-                  Not-started and ongoing attempts can be removed — completed
-                  attempts are frozen history. "Re-attempt" grants the next
-                  attempt for longitudinal follow-up; it needs the previous
-                  attempt completed.
+                  Each respondent gets one assignment per assessment. Not-started
+                  and ongoing ones can be removed; completed ones are frozen
+                  history and keep the submitted answers.
                 </p>
               </CardContent>
               <div className="flex justify-end gap-2 p-4 border-t border-border shrink-0">

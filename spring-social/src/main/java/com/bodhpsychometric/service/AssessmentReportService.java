@@ -27,7 +27,7 @@ import com.bodhpsychometric.repository.organization.OrganizationRepository;
  * Read side of the reports area. Everything is a paged listing: the two
  * filter dropdowns (organizations, assessments — both searchable by name)
  * and the respondent rows themselves, filtered by an optional organization,
- * an optional assessment (only respondents holding an attempt of it), and a
+ * an optional assessment (only respondents allotted it), and a
  * name/email search. Null filter = "all". Listing only for now — exports
  * will sit on top of the same queries later.
  */
@@ -40,16 +40,16 @@ public class AssessmentReportService {
     private final OrganizationRepository organizations;
     private final AssessmentRepository assessments;
     private final RespondentUserRepository respondents;
-    private final RespondentAssessmentMappingRepository attempts;
+    private final RespondentAssessmentMappingRepository allotments;
 
     public AssessmentReportService(OrganizationRepository organizations,
             AssessmentRepository assessments,
             RespondentUserRepository respondents,
-            RespondentAssessmentMappingRepository attempts) {
+            RespondentAssessmentMappingRepository allotments) {
         this.organizations = organizations;
         this.assessments = assessments;
         this.respondents = respondents;
-        this.attempts = attempts;
+        this.allotments = allotments;
     }
 
     @Transactional(readOnly = true)
@@ -78,12 +78,13 @@ public class AssessmentReportService {
         Page<RespondentUser> result = respondents.findForReport(organizationId, assessmentId,
                 pattern, pageOf(page, size, Sort.unsorted()));
 
-        // One group-by for the whole page: respondentUserId → [total, completed],
-        // scoped to the assessment filter so the tallies match what's listed.
+        // One group-by for the whole page: respondentUserId → [assigned,
+        // completed], scoped to the assessment filter so the tallies match
+        // what's listed.
         List<Long> ids = result.getContent().stream().map(RespondentUser::getId).toList();
         Map<Long, long[]> tallies = new HashMap<>();
         if (!ids.isEmpty()) {
-            for (Object[] row : attempts.tallyAttemptsForReport(ids, assessmentId)) {
+            for (Object[] row : allotments.tallyAssignmentsForReport(ids, assessmentId)) {
                 tallies.put((Long) row[0], new long[] {
                         ((Number) row[1]).longValue(),
                         row[2] == null ? 0L : ((Number) row[2]).longValue()});

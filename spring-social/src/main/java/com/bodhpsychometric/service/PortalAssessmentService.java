@@ -148,13 +148,16 @@ public class PortalAssessmentService {
             throw badRequest("Required demographic fields missing: " + String.join(", ", missing));
         }
 
-        // Pass 2 — replace-all write. Flush the deletes before inserting, or
-        // Hibernate orders the inserts first and trips the unique pair.
-        demographicResponses.deleteByMapping_RespondentAssessmentMappingId(mappingId);
+        // Pass 2 — replace-all write of the pair's demographic set. Flush the
+        // deletes before inserting, or Hibernate orders the inserts first and
+        // trips the unique tuple when the form is re-entered.
+        demographicResponses.deleteByRespondent_IdAndAssessment_AssessmentId(
+                mapping.getRespondent().getId(), mapping.getAssessment().getAssessmentId());
         demographicResponses.flush();
         for (Map.Entry<Long, String> e : values.entrySet()) {
             DemographicResponse row = new DemographicResponse();
-            row.setMapping(mapping);
+            row.setRespondent(mapping.getRespondent());
+            row.setAssessment(mapping.getAssessment());
             row.setDemographicField(byFieldId.get(e.getKey()).getDemographicField());
             row.setResponseValue(e.getValue());
             demographicResponses.save(row);
@@ -171,9 +174,12 @@ public class PortalAssessmentService {
     }
 
     /**
-     * The once-and-for-all submission: one answer per placed question, every
-     * option verified to belong to its question, all-or-nothing, then
-     * ONGOING → COMPLETED. Answers only ever exist for COMPLETED attempts.
+     * The submission: one answer per placed question, every option verified
+     * to belong to its question, all-or-nothing, then ONGOING → COMPLETED.
+     * The answer set belongs to the (respondent, assessment) pair, not the
+     * attempt — a granted re-attempt REPLACES the pair's previous set
+     * (latest wins, no longitudinal copies). Within one attempt the
+     * COMPLETED gate still makes submission once-and-for-all.
      */
     @Transactional
     public PortalAttemptStatusResponse submit(String authorizationHeader, Long mappingId,
@@ -184,9 +190,6 @@ public class PortalAssessmentService {
         }
         if (mapping.getAssessmentStatus() == RespondentAssessmentStatus.NOT_STARTED) {
             throw conflict("Begin the attempt before submitting answers");
-        }
-        if (assessmentAnswers.existsByMapping_RespondentAssessmentMappingId(mappingId)) {
-            throw conflict("This attempt already has recorded answers");
         }
 
         Long questionnaireId = mapping.getAssessment().getQuestionnaire().getQuestionnaireId();
@@ -233,15 +236,29 @@ public class PortalAssessmentService {
             throw badRequest("All questions must be answered — missing questionIds: " + unanswered);
         }
 
-        // Pass 2 — write every answer row, then close the attempt.
+        // Pass 2 — replace-all write of the pair's single answer set. Flush
+        // the deletes before inserting, or Hibernate orders the inserts
+        // first and trips the unique tuple on a re-attempt.
+        Long respondentUserId = mapping.getRespondent().getId();
+        Long assessmentId = mapping.getAssessment().getAssessmentId();
+        assessmentAnswers.deleteByRespondent_IdAndAssessment_AssessmentId(respondentUserId, assessmentId);
+        assessmentAnswers.flush();
         for (Map.Entry<Long, Option> e : chosen.entrySet()) {
             AssessmentAnswer answer = new AssessmentAnswer();
-            answer.setMapping(mapping);
+            answer.setRespondent(mapping.getRespondent());
+            answer.setAssessment(mapping.getAssessment());
             answer.setQuestion(questionsById.get(e.getKey()));
             answer.setOption(e.getValue());
             assessmentAnswers.save(answer);
         }
+        // Force the answer inserts now, so isPersisted is only ever set after
+        // the rows have actually reached MySQL — a failure here rolls the
+        // whole submit back rather than reporting a durable write that never
+        // happened.
+        assessmentAnswers.flush();
+
         mapping.setAssessmentStatus(RespondentAssessmentStatus.COMPLETED);
+        mapping.setPersisted(true);
         return PortalAttemptStatusResponse.from(mappings.save(mapping));
     }
 

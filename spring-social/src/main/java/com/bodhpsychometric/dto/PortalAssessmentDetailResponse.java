@@ -20,15 +20,15 @@ import com.bodhpsychometric.model.questionnaire.QuestionnaireQuestion;
 import com.bodhpsychometric.model.questionnaire.Section;
 
 /**
- * Everything the portal take flow renders for one attempt: assessment config,
+ * Everything the portal take flow renders for one allotment: assessment config,
  * the questionnaire, its sections, questions with options, and the demographic
  * form. Deliberately excludes MQT scores, risk flags, and IRT parameters —
  * scoring data never reaches the respondent's browser.
  */
 public record PortalAssessmentDetailResponse(
         Long respondentAssessmentMappingId,
-        int attemptNumber,
         RespondentAssessmentStatus assessmentStatus,
+        boolean isPersisted,
         Long assessmentId,
         String assessmentName,
         boolean showTermsAndConditions,
@@ -126,8 +126,8 @@ public record PortalAssessmentDetailResponse(
 
         return new PortalAssessmentDetailResponse(
                 mapping.getRespondentAssessmentMappingId(),
-                mapping.getAttemptNumber(),
                 mapping.getAssessmentStatus(),
+                mapping.isPersisted(),
                 assessment.getAssessmentId(),
                 assessment.getName(),
                 assessment.isShowTermsAndConditions(),

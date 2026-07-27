@@ -3,9 +3,11 @@ package com.bodhpsychometric.dto;
 import com.bodhpsychometric.model.auth.RespondentUser;
 
 /**
- * One respondent line of the report listing. The attempt tallies are scoped
- * by the request's assessment filter: with an assessmentId they count that
- * assessment's attempts only, without one they count across all assessments.
+ * One respondent line of the report listing. The tallies are scoped by the
+ * request's assessment filter: with an assessmentId they describe that one
+ * assessment, without one they count across every assessment the respondent
+ * holds. One allotment per (respondent, assessment) pair, so these count
+ * assessments, not attempts.
  */
 public record ReportRespondentRow(
         Long respondentUserId,
@@ -15,11 +17,11 @@ public record ReportRespondentRow(
         String phone,
         Long organizationId,
         String organizationName,
-        long totalAttempts,
-        long completedAttempts) {
+        long assignedAssessments,
+        long completedAssessments) {
 
     public static ReportRespondentRow from(RespondentUser respondent,
-            long totalAttempts, long completedAttempts) {
+            long assignedAssessments, long completedAssessments) {
         return new ReportRespondentRow(
                 respondent.getId(),
                 respondent.getUser().getSerialId(),
@@ -30,7 +32,7 @@ public record ReportRespondentRow(
                         : respondent.getOrganization().getOrganizationId(),
                 respondent.getOrganization() == null ? null
                         : respondent.getOrganization().getName(),
-                totalAttempts,
-                completedAttempts);
+                assignedAssessments,
+                completedAssessments);
     }
 }

@@ -57,7 +57,8 @@ async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 // ---------- Portal auth (spring-social /api/portal) ----------
-// One allotted attempt row. Matches RespondentAssessmentResponse on the backend.
+// One allotted assessment. Matches RespondentAssessmentResponse on the
+// backend — one row per (respondent, assessment) pair, no re-attempts.
 export interface AllottedAssessment {
   respondentAssessmentMappingId: number;
   respondentUserId: number;
@@ -68,10 +69,11 @@ export interface AllottedAssessment {
   organizationName: string | null;
   assessmentId: number;
   assessmentName: string;
-  attemptNumber: number;
   assessmentStatus: 'NOT_STARTED' | 'ONGOING' | 'COMPLETED';
+  /** True once the submitted answers are committed to MySQL. */
+  isPersisted: boolean;
 }
-// The signed-in respondent + their allotted attempts. Matches
+// The signed-in respondent + their allotted assessments. Matches
 // PortalAuthResponse on the backend.
 export interface PortalRespondent {
   userId: number;
@@ -140,8 +142,8 @@ export interface PortalDemographicField {
 // no scoring data — the server never sends it to respondents.
 export interface PortalAssessmentDetail {
   respondentAssessmentMappingId: number;
-  attemptNumber: number;
   assessmentStatus: 'NOT_STARTED' | 'ONGOING' | 'COMPLETED';
+  isPersisted: boolean;
   assessmentId: number;
   assessmentName: string;
   showTermsAndConditions: boolean;
@@ -166,13 +168,15 @@ export interface PortalAnswerEntry {
   questionId: number;
   optionId: number;
 }
-// Matches PortalAttemptStatusResponse on the backend.
+// Matches PortalAttemptStatusResponse on the backend. isPersisted is the
+// durability fact check — true once the answers reached MySQL.
 export interface PortalAttemptStatus {
   respondentAssessmentMappingId: number;
   assessmentStatus: 'NOT_STARTED' | 'ONGOING' | 'COMPLETED';
+  isPersisted: boolean;
 }
 export const portalAssessmentsApi = {
-  // The id is the attempt (respondentAssessmentMappingId), not the Assessment.
+  // The id is the allotment (respondentAssessmentMappingId), not the Assessment.
   get: (mappingId: number | string) =>
     jsonFetch<PortalAssessmentDetail>(`/portal/assessments/getById/${encodeURIComponent(mappingId)}`),
   // Starts the attempt: stores the demographic form (replace-all), records

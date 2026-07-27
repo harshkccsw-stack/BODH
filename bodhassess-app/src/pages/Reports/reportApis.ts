@@ -29,9 +29,10 @@ export interface AssessmentOption {
 }
 
 /**
- * Matches ReportRespondentRow on the backend. The attempt tallies follow the
- * assessment filter: scoped to it when one is selected, across all
- * assessments otherwise.
+ * Matches ReportRespondentRow on the backend. The tallies follow the
+ * assessment filter: scoped to it when one is selected, across every
+ * assessment the respondent holds otherwise. One assignment per
+ * (respondent, assessment) pair, so these count assessments, not attempts.
  */
 export interface RespondentRow {
   respondentUserId: number;
@@ -41,8 +42,8 @@ export interface RespondentRow {
   phone: string | null;
   organizationId: number | null;
   organizationName: string | null;
-  totalAttempts: number;
-  completedAttempts: number;
+  assignedAssessments: number;
+  completedAssessments: number;
 }
 
 export interface PagedQuery {

@@ -1,6 +1,7 @@
 package com.bodhpsychometric.repository.demographics;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 
 import com.bodhpsychometric.model.demographics.DemographicResponse;
 
@@ -8,9 +9,10 @@ public interface DemographicResponseRepository extends JpaRepository<Demographic
 
     boolean existsByDemographicFieldDemographicFieldId(Long demographicFieldId);
 
-    /** Any saved demographics freeze an attempt — pre-checked before unassign. */
-    boolean existsByMapping_RespondentAssessmentMappingId(Long respondentAssessmentMappingId);
+    /** Does this (respondent, assessment) pair hold a demographic set yet? */
+    boolean existsByRespondent_IdAndAssessment_AssessmentId(Long respondentUserId, Long assessmentId);
 
-    /** Replace-all write on begin, and cleanup when an un-completed attempt is unmapped. */
-    void deleteByMapping_RespondentAssessmentMappingId(Long respondentAssessmentMappingId);
+    /** Replace-all write on begin, and cleanup when an allotment is removed. */
+    @Modifying
+    void deleteByRespondent_IdAndAssessment_AssessmentId(Long respondentUserId, Long assessmentId);
 }
