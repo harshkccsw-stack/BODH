@@ -37,7 +37,7 @@ spring:
       # Hibernate still builds/extends the schema from the entities — there
       # is no baseline migration, so a fresh database is created here. Switch
       # to validate once Flyway owns a full schema from V1.
-      ddl-auto: update
+      ddl-auto: validate
     show-sql: true
     open-in-view: false
     properties:
@@ -93,7 +93,7 @@ spring:
       # Hibernate still builds/extends the schema from the entities — there
       # is no baseline migration, so a fresh database is created here. Switch
       # to validate once Flyway owns a full schema from V1.
-      ddl-auto: update
+      ddl-auto: validate
     show-sql: true
     open-in-view: false
     properties:
