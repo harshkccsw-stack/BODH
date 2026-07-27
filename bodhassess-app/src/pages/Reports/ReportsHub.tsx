@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  AlertTriangle,
   Building2,
   CheckCircle2,
   ChevronDown,
@@ -8,9 +9,11 @@ import {
   ClipboardList,
   Download,
   FileBarChart2,
+  Info,
   Loader2,
   Mail,
   Phone,
+  RotateCcw,
   Search,
   Users,
   X,
@@ -21,7 +24,10 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import {
   reportApis,
+  type AttemptStatus,
   type ReportPage,
+  type RespondentAssessmentRow,
+  type RespondentDetail,
   type RespondentRow,
 } from './reportApis';
 
@@ -191,6 +197,27 @@ function FilterDropdown({
   );
 }
 
+// ── Attempt status ──────────────────────────────────────────────────────────
+
+const ATTEMPT_LABEL: Record<AttemptStatus, string> = {
+  NOT_STARTED: 'Not started',
+  ONGOING: 'In progress',
+  COMPLETED: 'Completed',
+};
+
+const ATTEMPT_STYLE: Record<AttemptStatus, string> = {
+  NOT_STARTED: 'border-border bg-muted/40 text-muted-foreground',
+  ONGOING: 'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-400',
+  COMPLETED: 'border-green-300 bg-green-50 text-green-700 dark:border-green-900 dark:bg-green-950/30 dark:text-green-400',
+};
+
+/** Untouched allotment — a reset would have nothing to wipe. */
+function isUntouched(row: RespondentAssessmentRow) {
+  return row.attemptStatus === 'NOT_STARTED'
+    && row.answeredQuestions === 0
+    && row.demographicResponses === 0;
+}
+
 // ── Page ────────────────────────────────────────────────────────────────────
 
 export default function ReportsHubPage() {
@@ -220,6 +247,18 @@ export default function ReportsHubPage() {
   const [respLoading, setRespLoading] = useState(true);
   const [respError, setRespError] = useState('');
   const debouncedRespSearch = useDebounced(respSearch, 350);
+  // Bumped after a reset so the listing's tallies re-read.
+  const [respReload, setRespReload] = useState(0);
+
+  // Info popup state — the row it was opened from, its detail payload, and
+  // the reset confirmation layered on top.
+  const [detailFor, setDetailFor] = useState<RespondentRow | null>(null);
+  const [detail, setDetail] = useState<RespondentDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState('');
+  const [confirmReset, setConfirmReset] = useState<RespondentAssessmentRow | null>(null);
+  const [resetting, setResetting] = useState(false);
+  const [resetError, setResetError] = useState('');
 
   // New dropdown search → back to its first page.
   useEffect(() => { setOrgPage(0); }, [debouncedOrgSearch]);
@@ -294,7 +333,59 @@ export default function ReportsHubPage() {
       })
       .finally(() => { if (!cancelled) setRespLoading(false); });
     return () => { cancelled = true; };
-  }, [selectedOrg, selectedAsmt, debouncedRespSearch, respPage, respSize]);
+  }, [selectedOrg, selectedAsmt, debouncedRespSearch, respPage, respSize, respReload]);
+
+  // Info popup: (re)fetch whenever a respondent is opened. Reset writes its
+  // own row back into state, so nothing else re-fetches this.
+  const loadDetail = (respondentUserId: number) => {
+    setDetailLoading(true);
+    setDetailError('');
+    reportApis.getRespondentDetail(respondentUserId)
+      .then((res) => setDetail(res.data))
+      .catch((e: any) => {
+        setDetailError(e?.response?.data?.message || e?.message || 'Failed to load this respondent');
+      })
+      .finally(() => setDetailLoading(false));
+  };
+
+  const openDetail = (row: RespondentRow) => {
+    setDetailFor(row);
+    setDetail(null);
+    setConfirmReset(null);
+    setResetError('');
+    loadDetail(row.respondentUserId);
+  };
+
+  const closeDetail = () => {
+    if (resetting) return;
+    setDetailFor(null);
+    setDetail(null);
+    setDetailError('');
+    setConfirmReset(null);
+    setResetError('');
+  };
+
+  const doReset = () => {
+    if (!confirmReset) return;
+    setResetting(true);
+    setResetError('');
+    reportApis.resetAssessment(confirmReset.respondentAssessmentMappingId)
+      .then((res) => {
+        // Swap the reset row in place rather than re-fetching the popup, then
+        // let the listing behind it re-read its completed tally.
+        setDetail((current) => current && {
+          ...current,
+          assessments: current.assessments.map((a) =>
+            a.respondentAssessmentMappingId === res.data.respondentAssessmentMappingId ? res.data : a),
+        });
+        setConfirmReset(null);
+        setRespReload((n) => n + 1);
+      })
+      .catch((e: any) => {
+        setResetError(e?.response?.data?.message || e?.message || 'Failed to reset this assessment');
+      })
+      .finally(() => setResetting(false));
+  };
 
   const hasFilters = selectedOrg !== null || selectedAsmt !== null || respSearch.trim() !== '';
   const clearFilters = () => {
@@ -491,6 +582,16 @@ export default function ReportsHubPage() {
                       {r.completedAssessments > 0 && <CheckCircle2 className="h-3 w-3" />}
                       {r.completedAssessments} completed
                     </span>
+                    {/* What they were assigned, how far they got, and the
+                        reset that hands an assessment back to them. */}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => openDetail(r)}
+                      title={`Assessment details for ${r.name || r.email}`}
+                    >
+                      <Info /> Info
+                    </Button>
                   </div>
                 </div>
               ))}
@@ -529,6 +630,168 @@ export default function ReportsHubPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Respondent info popup — what this person was assigned, how far each
+          attempt got, and the reset that hands one back to them. */}
+      {detailFor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={closeDetail}>
+          <Card className="w-full max-w-3xl max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start gap-3 border-b border-border px-5 py-4">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
+                {(detailFor.name || detailFor.email).charAt(0).toUpperCase()}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="text-base font-semibold">{detailFor.name || '—'}</h2>
+                  {detailFor.serialId && (
+                    <span className="rounded border border-border bg-muted/40 px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
+                      {detailFor.serialId}
+                    </span>
+                  )}
+                </div>
+                <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+                  <span className="inline-flex items-center gap-1"><Mail className="h-3 w-3" />{detailFor.email}</span>
+                  {detailFor.phone && (
+                    <span className="inline-flex items-center gap-1"><Phone className="h-3 w-3" />{detailFor.phone}</span>
+                  )}
+                  <span className="inline-flex items-center gap-1">
+                    <Building2 className="h-3 w-3" />{detailFor.organizationName ?? 'No organization'}
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={closeDetail}
+                className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                title="Close"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-5 space-y-3">
+              {detailLoading && (
+                <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Loading assessments…
+                </div>
+              )}
+
+              {!detailLoading && detailError && (
+                <div className="rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-4 py-3 text-sm text-red-700 dark:text-red-400">
+                  {detailError}
+                </div>
+              )}
+
+              {!detailLoading && !detailError && detail && detail.assessments.length === 0 && (
+                <div className="py-10 text-center text-sm text-muted-foreground">
+                  No assessments assigned to this respondent yet.
+                </div>
+              )}
+
+              {!detailLoading && !detailError && detail?.assessments.map((a) => (
+                <div key={a.respondentAssessmentMappingId} className="rounded-lg border border-border p-3.5">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-sm font-medium">{a.assessmentName}</span>
+                        <span className={cn(
+                          'inline-flex items-center rounded-md border px-2 py-0.5 text-xs',
+                          ATTEMPT_STYLE[a.attemptStatus],
+                        )}>
+                          {ATTEMPT_LABEL[a.attemptStatus]}
+                        </span>
+                        {a.assessmentStatus === 'INACTIVE' && (
+                          <span className="inline-flex items-center rounded-md border border-dashed border-border px-2 py-0.5 text-xs text-muted-foreground">
+                            Assessment inactive
+                          </span>
+                        )}
+                      </div>
+                      <div className="mt-1 inline-flex items-center gap-1 text-xs text-muted-foreground">
+                        <ClipboardList className="h-3 w-3 shrink-0" />
+                        <span className="truncate">{a.questionnaireName}</span>
+                      </div>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="shrink-0"
+                      disabled={isUntouched(a)}
+                      title={isUntouched(a)
+                        ? 'Nothing to reset — this attempt has not been started'
+                        : 'Wipe the answers and let this respondent take it again'}
+                      onClick={() => { setConfirmReset(a); setResetError(''); }}
+                    >
+                      <RotateCcw /> Reset
+                    </Button>
+                  </div>
+                  <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                    <span>
+                      Answered <span className="font-medium text-foreground">{a.answeredQuestions}</span> of{' '}
+                      {a.totalQuestions} question{a.totalQuestions === 1 ? '' : 's'}
+                    </span>
+                    <span>
+                      {a.demographicResponses} demographic answer{a.demographicResponses === 1 ? '' : 's'}
+                    </span>
+                    <span>{a.isPersisted ? 'Answers saved' : 'Answers not saved yet'}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex items-center justify-between gap-3 border-t border-border px-5 py-3">
+              <span className="text-xs text-muted-foreground">
+                {detail
+                  ? `${detail.assessments.length} assessment${detail.assessments.length === 1 ? '' : 's'} assigned`
+                  : ' '}
+              </span>
+              <Button variant="outline" size="sm" onClick={closeDetail}>Close</Button>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* Layered over the info popup — the reset is not undoable. */}
+      {confirmReset && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 px-4"
+          onClick={() => !resetting && setConfirmReset(null)}
+        >
+          <Card className="w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+            <CardContent className="p-5 space-y-4">
+              <div className="flex items-center gap-2 text-base font-semibold">
+                <AlertTriangle className="h-4 w-4 text-amber-500" /> Reset assessment
+              </div>
+              <p className="text-sm">
+                Reset <strong>{confirmReset.assessmentName}</strong> for{' '}
+                <strong>{detailFor?.name || detailFor?.email}</strong>? Their{' '}
+                {confirmReset.answeredQuestions} answer{confirmReset.answeredQuestions === 1 ? '' : 's'} and{' '}
+                {confirmReset.demographicResponses} demographic
+                {confirmReset.demographicResponses === 1 ? ' answer' : ' answers'} for it are deleted
+                permanently and the assessment goes back to <em>Not started</em>, so they take it again
+                from scratch. This cannot be undone.
+              </p>
+              {resetError && (
+                <div className="rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-3 py-2 text-xs text-red-700 dark:text-red-400">
+                  {resetError}
+                </div>
+              )}
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setConfirmReset(null)} disabled={resetting}>
+                  Cancel
+                </Button>
+                <Button
+                  onClick={doReset}
+                  disabled={resetting}
+                  className="bg-amber-600 hover:bg-amber-700 text-white"
+                >
+                  {resetting ? <Loader2 className="animate-spin" /> : <RotateCcw />}
+                  {resetting ? 'Resetting…' : 'Reset'}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }

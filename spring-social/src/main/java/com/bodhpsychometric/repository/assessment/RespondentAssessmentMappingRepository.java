@@ -51,6 +51,23 @@ public interface RespondentAssessmentMappingRepository extends JpaRepository<Res
             + "group by m.respondent.id")
     List<Object[]> tallyAssignmentsForReport(List<Long> respondentUserIds, Long assessmentId);
 
+    /**
+     * Report info popup — one respondent's allotments with the assessment and
+     * its questionnaire fetched, so the row DTO never lazy-loads. Ordered by
+     * assessment name to match the rest of the reports area.
+     */
+    @Query("select m from RespondentAssessmentMapping m "
+            + "join fetch m.assessment a join fetch a.questionnaire "
+            + "where m.respondent.id = :respondentUserId order by a.name, a.assessmentId")
+    List<RespondentAssessmentMapping> findForReportDetail(Long respondentUserId);
+
+    /** Reset fetch — the single allotment with everything the response row needs. */
+    @Query("select m from RespondentAssessmentMapping m "
+            + "join fetch m.respondent r join fetch r.user "
+            + "join fetch m.assessment a join fetch a.questionnaire "
+            + "where m.respondentAssessmentMappingId = :id")
+    Optional<RespondentAssessmentMapping> findForReportReset(Long id);
+
     /** Portal take-flow fetch — allotment + assessment + questionnaire in one go. */
     @Query("select m from RespondentAssessmentMapping m join fetch m.respondent "
             + "join fetch m.assessment a join fetch a.questionnaire "

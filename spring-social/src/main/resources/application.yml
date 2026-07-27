@@ -15,7 +15,7 @@ spring:
       on-profile: development
 
   datasource:
-    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3309}/${DB_NAME:bodhpsychometric}?createDatabaseIfNotExist=true&allowPublicKeyRetrieval=true&useSSL=false&serverTimezone=UTC
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:bodhpsychometric}?createDatabaseIfNotExist=true&allowPublicKeyRetrieval=true&useSSL=false&serverTimezone=UTC
     username: ${DB_USERNAME:bodh}
     password: ${DB_PASSWORD:bodh}
     driver-class-name: com.mysql.cj.jdbc.Driver
