@@ -26,9 +26,10 @@ import {
 } from './questionApis';
 import { type MQ, type MQT, type MeasuredQualityResponse } from '../MeasuredQuality/qualitiesApi';
 
-// The ONE create/edit form for bank questions. The Questions page and the
-// questionnaire wizard's Step 2 both render this modal, so authoring a
-// question is identical everywhere.
+// The ONE create/edit form for bank questions. The Questions page renders it
+// as a modal; the questionnaire wizard's Step 2 renders the same fields
+// (QuestionFormFields) inline on the page, so authoring a question is
+// identical everywhere.
 
 // IMAGE/VIDEO need a file upload, and there is no object storage yet (MySQL
 // is no place for videos, and base64 images are not worth it either) — both
@@ -169,16 +170,18 @@ export function ScoreEditor({
   );
 }
 
-interface OptionForm {
+// ── Form model ─────────────────────────────────────────────────────────────
+
+export interface OptionForm {
   optionText: string;
   contentType: QuestionContentType;
   mediaUrl: string;
   mqtScores: ScoreRow[];
 }
 
-const emptyOption = (): OptionForm => ({ optionText: '', contentType: 'TEXT', mediaUrl: '', mqtScores: [] });
+export const emptyOption = (): OptionForm => ({ optionText: '', contentType: 'TEXT', mediaUrl: '', mqtScores: [] });
 
-interface QuestionForm {
+export interface QuestionForm {
   id: number | null;
   contentType: QuestionContentType;
   stem: string;
@@ -188,7 +191,7 @@ interface QuestionForm {
   mqtScores: ScoreRow[];
 }
 
-const formFrom = (initial: QuestionResponse | null): QuestionForm =>
+export const formFrom = (initial: QuestionResponse | null): QuestionForm =>
   initial == null
     ? {
         id: null,
@@ -196,7 +199,9 @@ const formFrom = (initial: QuestionResponse | null): QuestionForm =>
         stem: '',
         mediaUrl: '',
         riskFlag: false,
-        options: [emptyOption(), emptyOption()],
+        // Four blank options by default — the common case. Blank rows are
+        // dropped on save, so unwanted ones can just be left empty or removed.
+        options: [emptyOption(), emptyOption(), emptyOption(), emptyOption()],
         mqtScores: [],
       }
     : {
@@ -213,6 +218,217 @@ const formFrom = (initial: QuestionResponse | null): QuestionForm =>
         })),
         mqtScores: viewsToRows(initial.mqtScores || []),
       };
+
+/** Option rows that carry text or media, trimmed. Row order = display order. */
+const liveOptions = (form: QuestionForm): OptionForm[] =>
+  form.options
+    .map((o) => ({ ...o, optionText: o.optionText.trim(), mediaUrl: o.mediaUrl.trim() }))
+    .filter((o) => o.optionText || o.mediaUrl);
+
+/** null when the form can be saved, otherwise the first problem found. */
+export function validateQuestionForm(form: QuestionForm): string | null {
+  if (!form.stem.trim()) return 'Question text is required';
+  if (form.contentType !== 'TEXT' && !form.mediaUrl.trim()) {
+    return `A ${form.contentType.toLowerCase()} question needs a media URL`;
+  }
+  const rows = liveOptions(form);
+  for (let i = 0; i < rows.length; i++) {
+    if (rows[i].contentType !== 'TEXT' && !rows[i].mediaUrl) {
+      return `Option ${i + 1} is ${rows[i].contentType.toLowerCase()} — it needs a media URL`;
+    }
+  }
+  return null;
+}
+
+/** Form → the wire payload. Validate first — this assumes a valid form. */
+export function questionPayloadFrom(form: QuestionForm): QuestionPayload {
+  const rows = liveOptions(form);
+  return {
+    contentType: form.contentType,
+    stem: form.stem.trim(),
+    mediaUrl: form.contentType === 'TEXT' ? null : form.mediaUrl.trim(),
+    riskFlag: form.riskFlag,
+    options: rows.map((o) => ({
+      optionText: o.optionText || null,
+      contentType: o.contentType,
+      mediaUrl: o.contentType === 'TEXT' ? null : o.mediaUrl,
+      mqtScores: rowsToPayload(o.mqtScores),
+    })),
+    mqtScores: rowsToPayload(form.mqtScores),
+  };
+}
+
+/**
+ * Every field of a bank question — stem type, text, media URL, risk flag,
+ * question-level MQT scores and the option list with per-option scores.
+ * Fully controlled: it never saves anything, the host decides when to write.
+ */
+export function QuestionFormFields({
+  form,
+  onChange,
+  choices,
+}: {
+  form: QuestionForm;
+  onChange: (next: QuestionForm) => void;
+  choices: MqtChoice[];
+}) {
+  const set = (patch: Partial<QuestionForm>) => onChange({ ...form, ...patch });
+  const patchOption = (i: number, patch: Partial<OptionForm>) =>
+    set({ options: form.options.map((o, j) => (j === i ? { ...o, ...patch } : o)) });
+  const addOption = () => set({ options: [...form.options, emptyOption()] });
+  const removeOption = (i: number) => set({ options: form.options.filter((_, j) => j !== i) });
+  const moveOption = (i: number, dir: -1 | 1) => {
+    const next = [...form.options];
+    const j = i + dir;
+    if (j < 0 || j >= next.length) return;
+    [next[i], next[j]] = [next[j], next[i]];
+    set({ options: next });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="space-y-1.5">
+        <label className="text-sm font-medium">Stem type *</label>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {CONTENT_TYPES.map((t) => {
+            const Icon = t.icon;
+            return (
+              <button
+                key={t.value}
+                type="button"
+                disabled={t.disabled}
+                onClick={() => set({ contentType: t.value })}
+                title={t.disabled ? 'File upload needs object storage — coming later' : undefined}
+                className={cn(
+                  'flex items-center justify-center gap-1.5 rounded-lg border px-2 py-2 text-xs font-medium transition-colors',
+                  form.contentType === t.value
+                    ? 'border-primary bg-primary/10 text-primary'
+                    : 'border-border bg-muted/40 text-muted-foreground hover:text-foreground',
+                  t.disabled && 'opacity-40 cursor-not-allowed hover:text-muted-foreground',
+                )}
+              >
+                <Icon className="h-3.5 w-3.5" />
+                {t.label}
+              </button>
+            );
+          })}
+        </div>
+        <p className="text-[0.6875rem] text-muted-foreground">
+          Image & video need a file upload — disabled until object storage
+          is set up. Use URL for externally hosted media.
+        </p>
+      </div>
+      <div className="space-y-1.5">
+        <label className="text-sm font-medium">Question text *</label>
+        <textarea
+          rows={2}
+          value={form.stem}
+          onChange={(e) => set({ stem: e.target.value })}
+          placeholder="e.g., I enjoy meeting new people."
+          className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+        />
+      </div>
+      {form.contentType !== 'TEXT' && (
+        <div className="space-y-1.5">
+          <label className="text-sm font-medium">Media URL *</label>
+          <input
+            value={form.mediaUrl}
+            onChange={(e) => set({ mediaUrl: e.target.value })}
+            placeholder="https://… (link to an image or video)"
+            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+          />
+        </div>
+      )}
+
+      <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+        <input
+          type="checkbox"
+          checked={form.riskFlag}
+          onChange={(e) => set({ riskFlag: e.target.checked })}
+          className="h-4 w-4 rounded border-border accent-primary"
+        />
+        <span className="font-medium inline-flex items-center gap-1">
+          <Flag className="h-3.5 w-3.5 text-red-500" /> Risk flag
+        </span>
+        <span className="text-muted-foreground">— responses to this question are surfaced for risk review</span>
+      </label>
+
+      {/* Question-level MQT scoring */}
+      <div className="rounded-lg border border-border/70 p-3">
+        <ScoreEditor
+          title="Question → MQT scores"
+          rows={form.mqtScores}
+          choices={choices}
+          onChange={(rows) => set({ mqtScores: rows })}
+        />
+      </div>
+
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between">
+          <label className="text-sm font-medium">Options</label>
+          <Button variant="outline" size="sm" onClick={addOption}>
+            <Plus className="h-3 w-3" /> Add option
+          </Button>
+        </div>
+        {form.options.length === 0 ? (
+          <p className="text-xs text-muted-foreground italic">
+            No options yet — add the choices the respondent picks from.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {form.options.map((opt, i) => (
+              <div key={i} className="rounded-lg border border-border/70 p-2 space-y-1.5">
+                <div className="flex items-center gap-1.5">
+                  <select
+                    value={opt.contentType}
+                    onChange={(e) => patchOption(i, { contentType: e.target.value as QuestionContentType })}
+                    className="h-8 rounded-md border border-border bg-background px-1.5 text-xs focus:outline-none focus:border-primary"
+                    title="Option type"
+                  >
+                    {CONTENT_TYPES.map((t) => (
+                      <option key={t.value} value={t.value} disabled={t.disabled && opt.contentType !== t.value}>
+                        {t.label}{t.disabled ? ' (soon)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    value={opt.optionText}
+                    onChange={(e) => patchOption(i, { optionText: e.target.value })}
+                    placeholder={`Option ${i + 1} text${opt.contentType !== 'TEXT' ? ' (caption, optional)' : ''}`}
+                    className="flex-1 rounded-lg border border-border bg-background px-3 py-1.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                  />
+                  <button type="button" onClick={() => moveOption(i, -1)} disabled={i === 0} className="text-muted-foreground hover:text-foreground disabled:opacity-30 p-1" title="Move up">
+                    <ArrowUp className="h-3.5 w-3.5" />
+                  </button>
+                  <button type="button" onClick={() => moveOption(i, 1)} disabled={i === form.options.length - 1} className="text-muted-foreground hover:text-foreground disabled:opacity-30 p-1" title="Move down">
+                    <ArrowDown className="h-3.5 w-3.5" />
+                  </button>
+                  <button type="button" onClick={() => removeOption(i)} className="text-muted-foreground hover:text-red-500 p-1" title="Remove option">
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+                {opt.contentType !== 'TEXT' && (
+                  <input
+                    value={opt.mediaUrl}
+                    onChange={(e) => patchOption(i, { mediaUrl: e.target.value })}
+                    placeholder="https://… (link to an image or video)"
+                    className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                  />
+                )}
+                <ScoreEditor
+                  title={`Option ${i + 1} → MQT scores`}
+                  rows={opt.mqtScores}
+                  choices={choices}
+                  onChange={(rows) => patchOption(i, { mqtScores: rows })}
+                />
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 /**
  * Create/edit modal for a bank question. Mount it to open (state resets on
@@ -235,52 +451,10 @@ export function QuestionFormModal({
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
 
-  // --- Option list editing ---
-  const patchOption = (i: number, patch: Partial<OptionForm>) =>
-    setForm((p) => ({ ...p, options: p.options.map((o, j) => (j === i ? { ...o, ...patch } : o)) }));
-  const addOption = () => setForm((p) => ({ ...p, options: [...p.options, emptyOption()] }));
-  const removeOption = (i: number) =>
-    setForm((p) => ({ ...p, options: p.options.filter((_, j) => j !== i) }));
-  const moveOption = (i: number, dir: -1 | 1) =>
-    setForm((p) => {
-      const next = [...p.options];
-      const j = i + dir;
-      if (j < 0 || j >= next.length) return p;
-      [next[i], next[j]] = [next[j], next[i]];
-      return { ...p, options: next };
-    });
-
   const submit = async () => {
-    const stem = form.stem.trim();
-    if (!stem) { setFormError('Question text is required'); return; }
-    if (form.contentType !== 'TEXT' && !form.mediaUrl.trim()) {
-      setFormError(`A ${form.contentType.toLowerCase()} question needs a media URL`);
-      return;
-    }
-    // Keep option rows that carry text or media; each non-TEXT option needs
-    // its media URL. Row order is the display order.
-    const rows = form.options
-      .map((o) => ({ ...o, optionText: o.optionText.trim(), mediaUrl: o.mediaUrl.trim() }))
-      .filter((o) => o.optionText || o.mediaUrl);
-    for (let i = 0; i < rows.length; i++) {
-      if (rows[i].contentType !== 'TEXT' && !rows[i].mediaUrl) {
-        setFormError(`Option ${i + 1} is ${rows[i].contentType.toLowerCase()} — it needs a media URL`);
-        return;
-      }
-    }
-    const payload: QuestionPayload = {
-      contentType: form.contentType,
-      stem,
-      mediaUrl: form.contentType === 'TEXT' ? null : form.mediaUrl.trim(),
-      riskFlag: form.riskFlag,
-      options: rows.map((o) => ({
-        optionText: o.optionText || null,
-        contentType: o.contentType,
-        mediaUrl: o.contentType === 'TEXT' ? null : o.mediaUrl,
-        mqtScores: rowsToPayload(o.mqtScores),
-      })),
-      mqtScores: rowsToPayload(form.mqtScores),
-    };
+    const problem = validateQuestionForm(form);
+    if (problem) { setFormError(problem); return; }
+    const payload = questionPayloadFrom(form);
     setSaving(true);
     try {
       const res = form.id != null
@@ -308,145 +482,7 @@ export function QuestionFormModal({
               <span>{formError}</span>
             </div>
           )}
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium">Stem type *</label>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              {CONTENT_TYPES.map((t) => {
-                const Icon = t.icon;
-                return (
-                  <button
-                    key={t.value}
-                    type="button"
-                    disabled={t.disabled}
-                    onClick={() => setForm({ ...form, contentType: t.value })}
-                    title={t.disabled ? 'File upload needs object storage — coming later' : undefined}
-                    className={cn(
-                      'flex items-center justify-center gap-1.5 rounded-lg border px-2 py-2 text-xs font-medium transition-colors',
-                      form.contentType === t.value
-                        ? 'border-primary bg-primary/10 text-primary'
-                        : 'border-border bg-muted/40 text-muted-foreground hover:text-foreground',
-                      t.disabled && 'opacity-40 cursor-not-allowed hover:text-muted-foreground',
-                    )}
-                  >
-                    <Icon className="h-3.5 w-3.5" />
-                    {t.label}
-                  </button>
-                );
-              })}
-            </div>
-            <p className="text-[0.6875rem] text-muted-foreground">
-              Image & video need a file upload — disabled until object storage
-              is set up. Use URL for externally hosted media.
-            </p>
-          </div>
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium">Question text *</label>
-            <textarea
-              rows={2}
-              value={form.stem}
-              onChange={(e) => setForm({ ...form, stem: e.target.value })}
-              placeholder="e.g., I enjoy meeting new people."
-              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-            />
-          </div>
-          {form.contentType !== 'TEXT' && (
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium">Media URL *</label>
-              <input
-                value={form.mediaUrl}
-                onChange={(e) => setForm({ ...form, mediaUrl: e.target.value })}
-                placeholder="https://… (link to an image or video)"
-                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-              />
-            </div>
-          )}
-
-          <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={form.riskFlag}
-              onChange={(e) => setForm({ ...form, riskFlag: e.target.checked })}
-              className="h-4 w-4 rounded border-border accent-primary"
-            />
-            <span className="font-medium inline-flex items-center gap-1">
-              <Flag className="h-3.5 w-3.5 text-red-500" /> Risk flag
-            </span>
-            <span className="text-muted-foreground">— responses to this question are surfaced for risk review</span>
-          </label>
-
-          {/* Question-level MQT scoring */}
-          <div className="rounded-lg border border-border/70 p-3">
-            <ScoreEditor
-              title="Question → MQT scores"
-              rows={form.mqtScores}
-              choices={choices}
-              onChange={(rows) => setForm((p) => ({ ...p, mqtScores: rows }))}
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <label className="text-sm font-medium">Options</label>
-              <Button variant="outline" size="sm" onClick={addOption}>
-                <Plus className="h-3 w-3" /> Add option
-              </Button>
-            </div>
-            {form.options.length === 0 ? (
-              <p className="text-xs text-muted-foreground italic">
-                No options yet — add the choices the respondent picks from.
-              </p>
-            ) : (
-              <div className="space-y-2">
-                {form.options.map((opt, i) => (
-                  <div key={i} className="rounded-lg border border-border/70 p-2 space-y-1.5">
-                    <div className="flex items-center gap-1.5">
-                      <select
-                        value={opt.contentType}
-                        onChange={(e) => patchOption(i, { contentType: e.target.value as QuestionContentType })}
-                        className="h-8 rounded-md border border-border bg-background px-1.5 text-xs focus:outline-none focus:border-primary"
-                        title="Option type"
-                      >
-                        {CONTENT_TYPES.map((t) => (
-                          <option key={t.value} value={t.value} disabled={t.disabled && opt.contentType !== t.value}>
-                            {t.label}{t.disabled ? ' (soon)' : ''}
-                          </option>
-                        ))}
-                      </select>
-                      <input
-                        value={opt.optionText}
-                        onChange={(e) => patchOption(i, { optionText: e.target.value })}
-                        placeholder={`Option ${i + 1} text${opt.contentType !== 'TEXT' ? ' (caption, optional)' : ''}`}
-                        className="flex-1 rounded-lg border border-border bg-background px-3 py-1.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-                      />
-                      <button type="button" onClick={() => moveOption(i, -1)} disabled={i === 0} className="text-muted-foreground hover:text-foreground disabled:opacity-30 p-1" title="Move up">
-                        <ArrowUp className="h-3.5 w-3.5" />
-                      </button>
-                      <button type="button" onClick={() => moveOption(i, 1)} disabled={i === form.options.length - 1} className="text-muted-foreground hover:text-foreground disabled:opacity-30 p-1" title="Move down">
-                        <ArrowDown className="h-3.5 w-3.5" />
-                      </button>
-                      <button type="button" onClick={() => removeOption(i)} className="text-muted-foreground hover:text-red-500 p-1" title="Remove option">
-                        <X className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                    {opt.contentType !== 'TEXT' && (
-                      <input
-                        value={opt.mediaUrl}
-                        onChange={(e) => patchOption(i, { mediaUrl: e.target.value })}
-                        placeholder="https://… (link to an image or video)"
-                        className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-                      />
-                    )}
-                    <ScoreEditor
-                      title={`Option ${i + 1} → MQT scores`}
-                      rows={opt.mqtScores}
-                      choices={choices}
-                      onChange={(rows) => patchOption(i, { mqtScores: rows })}
-                    />
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          <QuestionFormFields form={form} onChange={setForm} choices={choices} />
         </CardContent>
         <div className="flex justify-end gap-2 p-4 border-t border-border shrink-0">
           <Button variant="outline" onClick={onClose}>Cancel</Button>

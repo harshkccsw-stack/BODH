@@ -1,269 +1,107 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import {
   AlertTriangle,
+  ArrowDown,
   ArrowLeft,
+  ArrowUp,
   Check,
   ChevronLeft,
   ChevronRight,
-  Copy,
   Eye,
-  GripVertical,
-  Image as ImageIcon,
-  Layers,
-  Link2,
+  Library,
+  Loader2,
   Plus,
-  Save,
   Search as SearchIcon,
   Trash2,
   Upload as UploadIcon,
-  Video,
   X,
-  Youtube,
 } from 'lucide-react';
-import { getMQs, getQuestionnaires, type MQ as StoredMQ, type StoredQuestionnaire } from '@/lib/data-store';
-import { API_BASE } from '@/lib/api';
-import { questionnairesApi, type SectionResponse } from '@/pages/questionnaires/questionnairesApi';
+import {
+  questionnairesApi,
+  type QuestionnaireResponse,
+  type SectionResponse,
+} from '@/pages/questionnaires/questionnairesApi';
 import { demographicsApi, type DemographicFieldResponse } from '@/pages/questionnaires/demographicsApi';
-import { questionApis, type QuestionResponse as BankQuestion } from './questionApis';
+import { questionApis, type QuestionResponse } from './questionApis';
 import { qualitiesApi } from '@/pages/MeasuredQuality/qualitiesApi';
-// Step 2's add-to-bank modal is the SAME full editor the Questions page
-// uses — stem type, media URL, risk flag, options and both MQT score levels.
-import { QuestionFormModal, choicesFromQualities, type MqtChoice } from './question-form-modal';
+// Step 2 authors questions INLINE with the same field set the Questions page
+// shows in its modal — stem type, media URL, risk flag, options and both MQT
+// score levels — so the whole question is editable on the page.
+import {
+  QuestionFormFields,
+  choicesFromQualities,
+  formFrom,
+  questionPayloadFrom,
+  validateQuestionForm,
+  type MqtChoice,
+  type QuestionForm,
+} from './question-form-modal';
 // Same XLSX template as the Questions page — here the `section` column maps
 // each row onto one of THIS questionnaire's existing sections by name.
 import { BulkUploadModal } from './question-bulk-upload';
+// The Preview popup renders exactly what /questionnaires/:id/preview renders,
+// but fed from the editor's current (possibly unsaved) state.
+import {
+  QuestionnairePreviewView,
+  type PreviewQuestion,
+} from '@/pages/questionnaires/questionnaire-preview-view';
 
-// --- Types ---
-
-type MediaType = 'none' | 'image' | 'video' | 'youtube' | 'audio';
-
-interface MQT {
-  id: string;
-  name: string;
-  children?: MQT[];
+// ── Draft model ────────────────────────────────────────────────────────────
+/**
+ * One question as it sits in THIS questionnaire while authoring.
+ *
+ * `questionId` null means it does not exist in the bank yet — it is created
+ * on save. A non-null id is a real bank question: edits go out as a PUT, and
+ * because questions are shared bank items, those edits land in every other
+ * questionnaire using it (`usedIn` says which).
+ *
+ * `baseline` is the JSON of `form` as last written to the backend, so a save
+ * only PUTs questions the user actually touched.
+ */
+interface DraftQuestion {
+  key: string;
+  questionId: number | null;
+  sectionId: number | null;
+  form: QuestionForm;
+  baseline: string;
+  usedIn: Array<{ questionnaireId: number; name: string }>;
+  expanded: boolean;
 }
 
-interface MQ {
-  id: string;
-  name: string;
-  mqts: MQT[];
-}
+const newDraft = (sectionId: number | null): DraftQuestion => ({
+  key: crypto.randomUUID(),
+  questionId: null,
+  sectionId,
+  form: formFrom(null),
+  baseline: '',
+  usedIn: [],
+  expanded: true,
+});
 
-// Flatten the MQT tree under each MQ into one row per MQT with a breadcrumb
-// path ("MQ > Parent > Leaf") for the option-score picker.
-// When an MQ has a single trait with the same name (the "MQ-level scoring"
-// shape produced by bulk imports that only specify MQ), the path collapses
-// to just the MQ name so the user sees and operates at the MQ level.
-function flattenMqtsForPicker(
-  mqs: MQ[],
-): Array<{ mq: MQ; mqt: MQT; path: string }> {
-  const out: Array<{ mq: MQ; mqt: MQT; path: string }> = [];
-  const walk = (mq: MQ, nodes: MQT[], parentLabels: string[]) => {
-    for (const n of nodes) {
-      const isMqLevel =
-        parentLabels.length === 0 &&
-        mq.mqts.length === 1 &&
-        n.name.toLowerCase() === mq.name.toLowerCase() &&
-        !n.children?.length;
-      const label = isMqLevel
-        ? mq.name
-        : [mq.name, ...parentLabels, n.name].join(' > ');
-      out.push({ mq, mqt: n, path: label });
-      if (n.children?.length) walk(mq, n.children, [...parentLabels, n.name]);
-    }
-  };
-  mqs.forEach((mq) => walk(mq, mq.mqts, []));
-  return out;
-}
-
-interface OptionMqtScore {
-  mqt_id: string;
-  score: number;
-}
-
-// Stable, case-insensitive map key for a nested trait path under an MQ —
-// e.g. ("Wellbeing", ["Stress", "Acute"]). Used by the bulk importer to match
-// a parsed scoring entry to the leaf-trait id created while walking the tree.
-function scorePathKey(mq: string, path: string[]): string {
-  return [mq, ...path].map((s) => s.toLowerCase()).join('›');
-}
-
-// MQ/MQT coverage tags for a question. Which qualities/traits the question
-// measures, independent of the option/question scoring above.
-interface Coverage {
-  mqs: string[];
-  mqts: string[];
-}
-
-interface QuestionOption {
-  text: string;
-  scores: OptionMqtScore[];
-  media_url?: string;
-  media_type?: MediaType;
-}
-
-interface Question {
-  id: string;
-  stem: string;
-  format: string;
-  media_url: string;
-  media_type: MediaType;
-  options: QuestionOption[];
-  // Question-level scores, applied on any answer regardless of which option
-  // (or free-text response) was given. Stored at the same shape as option
-  // scores so the picker UI and resolver can be reused.
-  question_scores: OptionMqtScore[];
-  coverage: Coverage;
-  clinical_risk_flag: boolean;
-  risk_flag_rule: string;
-  sectionId?: string;
-  sectionTitle?: string;
-}
-
-// Normalize a possibly-missing coverage object from stored/imported data.
-function normalizeCoverage(c: any): Coverage {
+/**
+ * A bank question as a draft. `copy` clones the content into a brand-new bank
+ * question (created on save) instead of linking the shared original.
+ */
+const draftFromQuestion = (
+  q: QuestionResponse,
+  sectionId: number | null,
+  copy = false,
+): DraftQuestion => {
+  const form = formFrom(q);
+  if (copy) form.id = null;
   return {
-    mqs: Array.isArray(c?.mqs) ? c.mqs.map(String) : [],
-    mqts: Array.isArray(c?.mqts) ? c.mqts.map(String) : [],
+    key: crypto.randomUUID(),
+    questionId: copy ? null : q.questionId,
+    sectionId,
+    form,
+    baseline: copy ? '' : JSON.stringify(form),
+    usedIn: copy ? [] : q.usedIn,
+    expanded: false,
   };
-}
-
-const FORMATS = ['MCQ', 'RATING_SCALE', 'LIKERT', 'SJT', 'FREE_TEXT', 'IMAGE_CHOICE', 'RANKING', 'MATRIX'];
-const VERTICALS = ['CLINICAL', 'INDUSTRIAL', 'COUNSELLING', 'EXPERIMENTS'];
-const TIERS = ['T1', 'T2', 'T3', 'T4', 'T5'];
-const LANGUAGES = [
-  { code: 'en', label: 'English' },
-  { code: 'hi', label: 'Hindi' },
-  { code: 'ta', label: 'Tamil' },
-  { code: 'te', label: 'Telugu' },
-  { code: 'mr', label: 'Marathi' },
-  { code: 'kn', label: 'Kannada' },
-  { code: 'bn', label: 'Bengali' },
-  { code: 'gu', label: 'Gujarati' },
-  { code: 'ml', label: 'Malayalam' },
-  { code: 'or', label: 'Odia' },
-  { code: 'pa', label: 'Punjabi' },
-];
-
-// Best-effort display name for a vertical when only its code is known
-// (e.g. orphan verticals recovered from questionnaires whose original name
-// was lost because the POST to /verticals silently failed).
-function humanizeVerticalCode(code: string): string {
-  const lowered = code.toLowerCase().replace(/_/g, ' ');
-  return lowered.charAt(0).toUpperCase() + lowered.slice(1);
-}
-
-// --- Upload helper ---
-async function uploadFile(file: File): Promise<{ url: string; media_type: string }> {
-  const fd = new FormData();
-  fd.append('file', file);
-  const res = await fetch(`${API_BASE}/upload`, { method: 'POST', body: fd });
-  if (!res.ok) throw new Error('Upload failed');
-  return res.json();
-}
-
-function extractYouTubeId(url: string): string | null {
-  const match = url.match(/(?:youtube\.com\/(?:[^/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/);
-  return match ? match[1] : null;
-}
-
-function MediaPreview({ url, type }: { url: string; type: MediaType }) {
-  if (!url || type === 'none') return null;
-  if (type === 'image') return <img src={url} alt="" className="max-h-40 rounded-lg border border-border" />;
-  if (type === 'video') return <video src={url} controls className="max-h-40 rounded-lg border border-border" />;
-  if (type === 'youtube') {
-    const id = extractYouTubeId(url);
-    if (!id) return <p className="text-xs text-red-500">Invalid YouTube URL</p>;
-    return (
-      <iframe
-        src={`https://www.youtube.com/embed/${id}`}
-        className="w-full max-w-md aspect-video rounded-lg border border-border"
-        allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-        allowFullScreen
-      />
-    );
-  }
-  if (type === 'audio') return <audio src={url} controls className="w-full max-w-md" />;
-  return null;
-}
-
-function MediaPicker({
-  url,
-  type,
-  onChange,
-}: {
-  url: string;
-  type: MediaType;
-  onChange: (url: string, type: MediaType) => void;
-}) {
-  const [mode, setMode] = useState<MediaType>(type);
-  const [youtubeUrl, setYoutubeUrl] = useState(type === 'youtube' ? url : '');
-  const [uploading, setUploading] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setUploading(true);
-    try {
-      const res = await uploadFile(file);
-      onChange(res.url, res.media_type as MediaType);
-    } catch (err) {
-      alert('Upload failed: ' + (err as Error).message);
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  return (
-    <div className="space-y-2 p-3 border border-dashed border-border rounded-lg bg-muted/30">
-      <div className="flex items-center gap-1 flex-wrap">
-        <button type="button" onClick={() => { setMode('none'); onChange('', 'none'); }} className={cn('px-2 py-1 text-xs rounded border', mode === 'none' ? 'bg-primary text-primary-foreground border-primary' : 'bg-background text-muted-foreground border-border')}>
-          No Media
-        </button>
-        <button type="button" onClick={() => setMode('image')} className={cn('px-2 py-1 text-xs rounded border flex items-center gap-1', mode === 'image' ? 'bg-primary text-primary-foreground border-primary' : 'bg-background text-muted-foreground border-border')}>
-          <ImageIcon className="h-3 w-3" /> Image
-        </button>
-        <button type="button" onClick={() => setMode('video')} className={cn('px-2 py-1 text-xs rounded border flex items-center gap-1', mode === 'video' ? 'bg-primary text-primary-foreground border-primary' : 'bg-background text-muted-foreground border-border')}>
-          <Video className="h-3 w-3" /> Video
-        </button>
-        <button type="button" onClick={() => setMode('youtube')} className={cn('px-2 py-1 text-xs rounded border flex items-center gap-1', mode === 'youtube' ? 'bg-primary text-primary-foreground border-primary' : 'bg-background text-muted-foreground border-border')}>
-          <Youtube className="h-3 w-3" /> YouTube
-        </button>
-        <button type="button" onClick={() => setMode('audio')} className={cn('px-2 py-1 text-xs rounded border flex items-center gap-1', mode === 'audio' ? 'bg-primary text-primary-foreground border-primary' : 'bg-background text-muted-foreground border-border')}>
-          🎵 Audio
-        </button>
-      </div>
-
-      {(mode === 'image' || mode === 'video' || mode === 'audio') && (
-        <div className="flex items-center gap-2">
-          <input type="file" ref={inputRef} onChange={handleFileChange} accept={mode === 'image' ? 'image/*' : mode === 'video' ? 'video/*' : 'audio/*'} className="hidden" />
-          <Button variant="outline" size="sm" onClick={() => inputRef.current?.click()} disabled={uploading}>
-            <UploadIcon className="h-3 w-3" />
-            {uploading ? 'Uploading...' : `Upload ${mode}`}
-          </Button>
-          {url && mode === type && <span className="text-xs text-muted-foreground truncate">✓ Uploaded</span>}
-        </div>
-      )}
-
-      {mode === 'youtube' && (
-        <div className="flex gap-2">
-          <input value={youtubeUrl} onChange={(e) => setYoutubeUrl(e.target.value)} placeholder="https://youtube.com/watch?v=..." className="flex-1 rounded-lg border border-border bg-background px-3 py-1.5 text-sm outline-none focus:border-primary" />
-          <Button variant="outline" size="sm" onClick={() => onChange(youtubeUrl, 'youtube')}>
-            <Link2 className="h-3 w-3" /> Attach
-          </Button>
-        </div>
-      )}
-
-      {url && type === mode && type !== 'none' && (
-        <div className="mt-2"><MediaPreview url={url} type={type} /></div>
-      )}
-    </div>
-  );
-}
+};
 
 // --- Component ---
 
@@ -278,25 +116,9 @@ export default function CreateAssessmentPage() {
   const [instVertical, setInstVertical] = useState('CLINICAL');
   const [instCategory, setInstCategory] = useState('');
   const [instDescription, setInstDescription] = useState('');
-  const [instDisclaimer, setInstDisclaimer] = useState('');
-  const [instShowInstructions, setInstShowInstructions] = useState(false);
   const [instInstructions, setInstInstructions] = useState('');
   const [instDuration, setInstDuration] = useState(10);
-  const [instTier, setInstTier] = useState('T1');
-  const [instLanguages, setInstLanguages] = useState<string[]>(['en']);
-  const [instIsAdaptive, setInstIsAdaptive] = useState(false);
-  const [instIsFixed, setInstIsFixed] = useState(true);
   const [useSections, setUseSections] = useState(false);
-  const [sections, setSections] = useState<Array<{ id: string; title: string }>>([]);
-
-  // Measured Qualities are managed on the /qualities page. Every defined MQ
-  // and its MQTs are made available here automatically — no per-assessment
-  // selection step.
-  const [catalog, setCatalog] = useState<StoredMQ[]>([]);
-
-  useEffect(() => {
-    getMQs().then(setCatalog).catch(() => setCatalog([]));
-  }, []);
 
   // Demographic field registry (spring-social) — Step 1 maps a subset onto
   // this questionnaire. Selection order becomes the form's sortOrder.
@@ -309,61 +131,97 @@ export default function CreateAssessmentPage() {
       .catch(() => setDemoFieldCatalog([]));
   }, []);
 
-  // ── Step 2: question bank + placement ─────────────────────────────────
-  // placement: questionId → where it sits (sectionId null on flat
-  // questionnaires) and its position within that scope.
-  const [bankQuestions, setBankQuestions] = useState<BankQuestion[]>([]);
-  const [bankLoading, setBankLoading] = useState(false);
-  const [bankError, setBankError] = useState('');
-  const [qSections, setQSections] = useState<SectionResponse[]>([]);
-  const [placement, setPlacement] = useState<Record<number, { sectionId: number | null; sortOrder: number }>>({});
-  const [newSectionName, setNewSectionName] = useState('');
-  const [addQOpen, setAddQOpen] = useState(false);
-  const [bulkUploadOpen, setBulkUploadOpen] = useState(false);
-  const [bankMqtChoices, setBankMqtChoices] = useState<MqtChoice[]>([]);
-  const [bankSearch, setBankSearch] = useState('');
+  // Status
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
 
-  const loadBank = async (qid: number) => {
-    setBankLoading(true);
-    setBankError('');
+  // ── Step 2: inline question authoring ─────────────────────────────────
+  const [drafts, setDrafts] = useState<DraftQuestion[]>([]);
+  const [qSections, setQSections] = useState<SectionResponse[]>([]);
+  const [mqtChoices, setMqtChoices] = useState<MqtChoice[]>([]);
+  const [step2Loading, setStep2Loading] = useState(false);
+  const [step2Error, setStep2Error] = useState('');
+  const [newSectionName, setNewSectionName] = useState('');
+  const [bulkUploadOpen, setBulkUploadOpen] = useState(false);
+  // Which questionnaire's questions are already loaded — going back to Step 1
+  // and forward again must NOT wipe unsaved authoring.
+  const [loadedForQid, setLoadedForQid] = useState<number | null>(null);
+
+  const loadStep2 = async (qid: number) => {
+    setStep2Loading(true);
+    setStep2Error('');
     try {
-      const [qs, secs, mine, mq] = await Promise.all([
-        questionApis.getAllQuestions(),
+      const [secs, mine, mq] = await Promise.all([
         questionnairesApi.getQuestionnaireSections(qid),
         questionApis.getQuestionsByQuestionnaireId(qid),
         qualitiesApi.getQualities(),
       ]);
-      setBankQuestions(qs.data);
       setQSections(secs.data);
-      setBankMqtChoices(choicesFromQualities(mq.data));
-      const p: Record<number, { sectionId: number | null; sortOrder: number }> = {};
-      mine.data.forEach((q, i) => {
-        p[q.questionId] = { sectionId: q.sectionId, sortOrder: q.sortOrder ?? i };
-      });
-      setPlacement(p);
+      setMqtChoices(choicesFromQualities(mq.data));
+      const sorted = [...mine.data].sort(
+        (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.questionId - b.questionId,
+      );
+      setDrafts(sorted.map((q) => draftFromQuestion(q, q.sectionId)));
+      setLoadedForQid(qid);
     } catch (e: any) {
-      setBankError(e?.message || 'Failed to load the question bank');
+      setStep2Error(e?.response?.data?.message || e?.message || 'Failed to load this questionnaire’s questions');
     } finally {
-      setBankLoading(false);
+      setStep2Loading(false);
     }
   };
 
   useEffect(() => {
-    if (step === 2 && backendQid != null) loadBank(backendQid);
+    if (step === 2 && backendQid != null && loadedForQid !== backendQid) loadStep2(backendQid);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, backendQid]);
+  }, [step, backendQid, loadedForQid]);
 
-  /** Selected question ids of one scope (section or flat root), in order. */
-  const scopeOf = (
-    map: Record<number, { sectionId: number | null; sortOrder: number }>,
-    sectionId: number | null,
-  ) =>
-    Object.entries(map)
-      .filter(([, p]) => p.sectionId === sectionId)
-      .sort((a, b) => a[1].sortOrder - b[1].sortOrder)
-      .map(([qid]) => Number(qid));
+  // --- Draft list helpers ---
 
-  const scopeList = (sectionId: number | null) => scopeOf(placement, sectionId);
+  const patchDraft = (key: string, patch: Partial<DraftQuestion>) =>
+    setDrafts((prev) => prev.map((d) => (d.key === key ? { ...d, ...patch } : d)));
+
+  const setDraftForm = (key: string, form: QuestionForm) =>
+    setDrafts((prev) => prev.map((d) => (d.key === key ? { ...d, form } : d)));
+
+  const addDraft = (sectionId: number | null) =>
+    setDrafts((prev) => [...prev, newDraft(sectionId)]);
+
+  const removeDraft = (key: string) => {
+    const d = drafts.find((x) => x.key === key);
+    if (d?.form.stem.trim() && !window.confirm(
+      d.questionId == null
+        ? 'Discard this question? It has not been saved to the question bank yet.'
+        : 'Remove this question from the questionnaire? It stays in the question bank.',
+    )) return;
+    setDrafts((prev) => prev.filter((x) => x.key !== key));
+  };
+
+  /**
+   * Swap with the neighbouring draft in the same scope — the same section
+   * when sections are on, the whole list when they are off (which is also
+   * how the list renders, so the arrows always move what the user sees).
+   */
+  const moveDraft = (key: string, dir: -1 | 1) => {
+    setDrafts((prev) => {
+      const i = prev.findIndex((d) => d.key === key);
+      if (i < 0) return prev;
+      const scope = prev[i].sectionId;
+      let j = i + dir;
+      while (j >= 0 && j < prev.length && useSections && prev[j].sectionId !== scope) j += dir;
+      if (j < 0 || j >= prev.length) return prev;
+      const next = [...prev];
+      [next[i], next[j]] = [next[j], next[i]];
+      return next;
+    });
+  };
+
+  const setExpandedAll = (expanded: boolean) =>
+    setDrafts((prev) => prev.map((d) => ({ ...d, expanded })));
+
+  /** Drafts of one scope, in list order. */
+  const scopeDrafts = (sectionId: number | null) =>
+    drafts.filter((d) => (useSections ? d.sectionId === sectionId : true));
 
   /** 0 → A … 25 → Z, 26 → AA — mirrors the backend's spreadsheet lettering. */
   const sectionLetter = (index: number) => {
@@ -377,58 +235,17 @@ export default function CreateAssessmentPage() {
   /**
    * The report tag this placement gets on save. Computed exactly like the
    * backend stamps it (per-section 1-based counters; sections with no
-   * selected questions claim no letter) so preview and stored tag agree.
+   * questions claim no letter) so preview and stored tag agree.
    */
   const tagPreview = (sectionId: number | null, position: number) => {
     if (!useSections) return `Q_${position + 1}`;
-    const lettered = qSections.filter((s) => scopeList(s.sectionId).length > 0);
+    const lettered = qSections.filter((s) => drafts.some((d) => d.sectionId === s.sectionId));
     const idx = lettered.findIndex((s) => s.sectionId === sectionId);
+    if (idx < 0) return `Q_${position + 1}`;
     return `Section_${sectionLetter(idx)}_Q_${position + 1}`;
   };
 
-  // Search narrows what the bank list SHOWS (matching stem, option text or a
-  // questionnaire it's used in) — selections outside the match set stay put.
-  const visibleBank = useMemo(() => {
-    const s = bankSearch.trim().toLowerCase();
-    if (!s) return bankQuestions;
-    return bankQuestions.filter(
-      (q) =>
-        q.stem.toLowerCase().includes(s) ||
-        q.usedIn.some((u) => u.name.toLowerCase().includes(s)) ||
-        q.options.some((o) => (o.optionText || '').toLowerCase().includes(s)),
-    );
-  }, [bankQuestions, bankSearch]);
-
-  const toggleQuestion = (questionId: number, sectionId: number | null) => {
-    setPlacement((prev) => {
-      const next = { ...prev };
-      const existing = next[questionId];
-      if (existing && existing.sectionId === sectionId) {
-        delete next[questionId];
-        scopeOf(next, sectionId).forEach((qid, idx) => {
-          next[qid] = { ...next[qid], sortOrder: idx };
-        });
-      } else if (!existing) {
-        next[questionId] = { sectionId, sortOrder: scopeOf(next, sectionId).length };
-      }
-      // Selected in another section: no-op — the row is disabled there.
-      return next;
-    });
-  };
-
-  const moveQuestionTo = (questionId: number, position: number) => {
-    setPlacement((prev) => {
-      const p = prev[questionId];
-      if (!p) return prev;
-      const ids = scopeOf(prev, p.sectionId).filter((id) => id !== questionId);
-      ids.splice(position, 0, questionId);
-      const next = { ...prev };
-      ids.forEach((id, idx) => {
-        next[id] = { ...next[id], sortOrder: idx };
-      });
-      return next;
-    });
-  };
+  // --- Sections (created/removed on the backend immediately) ---
 
   const addQSection = async () => {
     const name = newSectionName.trim();
@@ -438,7 +255,7 @@ export default function CreateAssessmentPage() {
       setQSections((prev) => [...prev, res.data]);
       setNewSectionName('');
     } catch (e: any) {
-      setBankError(e?.response?.data?.message || e?.message || 'Failed to create section');
+      setStep2Error(e?.response?.data?.message || e?.message || 'Failed to create section');
     }
   };
 
@@ -447,104 +264,173 @@ export default function CreateAssessmentPage() {
     try {
       await questionnairesApi.deleteQuestionnaireSection(backendQid, sectionId);
       setQSections((prev) => prev.filter((s) => s.sectionId !== sectionId));
-      // Its selections leave the mapping; re-place them in another section.
-      setPlacement((prev) => {
-        const next = { ...prev };
-        Object.keys(next).forEach((k) => {
-          if (next[Number(k)].sectionId === sectionId) delete next[Number(k)];
-        });
-        return next;
-      });
+      // Its questions survive — they fall back to unassigned until re-placed.
+      setDrafts((prev) => prev.map((d) => (d.sectionId === sectionId ? { ...d, sectionId: null } : d)));
     } catch (e: any) {
-      setBankError(e?.response?.data?.message || e?.message || 'Failed to remove section');
+      setStep2Error(e?.response?.data?.message || e?.message || 'Failed to remove section');
     }
   };
 
   /**
-   * XLSX import finished: the questions already exist in the bank — list
-   * them and auto-select each into its matched section (sectionIds are all
-   * null on flat questionnaires, where the sheet's section column is
-   * ignored), appended at the end of that scope's order. Selection still
-   * saves through the normal "Save Questions & Continue" PUT.
+   * XLSX import finished: the questions already exist in the bank — append
+   * them as linked drafts in their matched section (all null on flat
+   * questionnaires, where the sheet's section column is ignored).
    */
-  const handleBulkCreated = (created: BankQuestion[], sectionIds: (number | null)[]) => {
-    setBankQuestions((prev) => {
-      const known = new Set(prev.map((q) => q.questionId));
-      return [...prev, ...created.filter((q) => !known.has(q.questionId))];
-    });
-    setPlacement((prev) => {
-      const next = { ...prev };
-      created.forEach((q, i) => {
-        const sec = useSections ? sectionIds[i] : null;
-        next[q.questionId] = { sectionId: sec, sortOrder: scopeOf(next, sec).length };
-      });
-      return next;
-    });
+  const handleBulkCreated = (created: QuestionResponse[], sectionIds: (number | null)[]) => {
+    setDrafts((prev) => [
+      ...prev,
+      ...created.map((q, i) => draftFromQuestion(q, useSections ? sectionIds[i] : null)),
+    ]);
     setBulkUploadOpen(false);
   };
 
-  /** Flatten placement into the PUT payload; per-scope order = sortOrder. */
-  const buildMappingEntries = () => {
-    const entries: Array<{ questionId: number; sectionId: number | null; sortOrder: number }> = [];
-    const scopes: Array<number | null> = useSections ? qSections.map((s) => s.sectionId) : [null];
-    scopes.forEach((sec) => {
-      scopeList(sec).forEach((qid, idx) => entries.push({ questionId: qid, sectionId: sec, sortOrder: idx }));
-    });
-    return entries;
+  // ---- Import questions from another questionnaire ----
+
+  const [importOpen, setImportOpen] = useState(false);
+  const [importStage, setImportStage] = useState<'questionnaire' | 'questions'>('questionnaire');
+  const [importLibrary, setImportLibrary] = useState<QuestionnaireResponse[]>([]);
+  const [importSource, setImportSource] = useState<QuestionnaireResponse | null>(null);
+  const [importQuestions, setImportQuestions] = useState<QuestionResponse[]>([]);
+  const [importPicked, setImportPicked] = useState<Set<number>>(new Set());
+  const [importLoading, setImportLoading] = useState(false);
+  const [importError, setImportError] = useState('');
+  const [importSearch, setImportSearch] = useState('');
+  const [importQSearch, setImportQSearch] = useState('');
+  // Link = attach the shared bank question (edits apply everywhere it is
+  // used). Copy = duplicate it into a new, independent bank question.
+  const [importMode, setImportMode] = useState<'link' | 'copy'>('link');
+  const [importSection, setImportSection] = useState<number | null>(null);
+
+  const openImport = async () => {
+    setImportOpen(true);
+    setImportStage('questionnaire');
+    setImportSource(null);
+    setImportQuestions([]);
+    setImportPicked(new Set());
+    setImportSearch('');
+    setImportQSearch('');
+    setImportError('');
+    setImportSection(qSections[0]?.sectionId ?? null);
+    setImportLoading(true);
+    try {
+      const res = await questionnairesApi.getQuestionnaires();
+      setImportLibrary(res.data.filter((q) => q.questionnaireId !== backendQid && q.questionCount > 0));
+    } catch (e: any) {
+      setImportError(e?.response?.data?.message || e?.message || 'Failed to load the questionnaire library');
+    } finally {
+      setImportLoading(false);
+    }
   };
 
-  const renderBankRow = (q: BankQuestion, sectionId: number | null) => {
-    const p = placement[q.questionId];
-    const selectedHere = !!p && p.sectionId === sectionId;
-    const selectedElsewhere = !!p && p.sectionId !== sectionId;
-    const usedElsewhereCount = q.usedIn.filter((u) => u.questionnaireId !== backendQid).length;
-    const disabled = selectedElsewhere;
-    const scope = scopeList(sectionId);
-    return (
-      <div
-        key={q.questionId}
-        className={cn(
-          'flex items-center gap-2.5 rounded-md border px-3 py-2 text-sm transition-colors',
-          selectedHere ? 'border-primary bg-primary/5' : 'border-border',
-          disabled && 'opacity-50',
-        )}
-      >
-        <input
-          type="checkbox"
-          checked={selectedHere}
-          disabled={disabled}
-          onChange={() => toggleQuestion(q.questionId, sectionId)}
-          className="rounded shrink-0"
-        />
-        <div className="min-w-0 flex-1">
-          <p className="truncate">{q.stem || <span className="italic text-muted-foreground">(media question)</span>}</p>
-          <p className="text-[0.6875rem] text-muted-foreground truncate">
-            {q.options.length} option{q.options.length !== 1 ? 's' : ''}
-            {usedElsewhereCount > 0 && ` · also in ${usedElsewhereCount} other questionnaire${usedElsewhereCount !== 1 ? 's' : ''}`}
-            {selectedElsewhere && ' · placed in another section'}
-          </p>
-        </div>
-        {selectedHere && (
-          <span
-            className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-[0.625rem] text-muted-foreground"
-            title="Auto-generated report tag — saved with the questionnaire"
-          >
-            {tagPreview(sectionId, scope.indexOf(q.questionId))}
-          </span>
-        )}
-        {selectedHere && (
-          <select
-            value={scope.indexOf(q.questionId)}
-            onChange={(e) => moveQuestionTo(q.questionId, Number(e.target.value))}
-            className="shrink-0 rounded-md border border-border bg-background px-1.5 py-1 text-xs outline-none focus:border-primary"
-            title="Position in order"
-          >
-            {scope.map((_, i) => <option key={i} value={i}>{i + 1}</option>)}
-          </select>
-        )}
-      </div>
-    );
+  const pickImportSource = async (q: QuestionnaireResponse) => {
+    setImportSource(q);
+    setImportStage('questions');
+    setImportPicked(new Set());
+    setImportQSearch('');
+    setImportError('');
+    setImportLoading(true);
+    try {
+      const res = await questionApis.getQuestionsByQuestionnaireId(q.questionnaireId);
+      setImportQuestions(
+        [...res.data].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.questionId - b.questionId),
+      );
+    } catch (e: any) {
+      setImportError(e?.response?.data?.message || e?.message || 'Failed to load that questionnaire’s questions');
+    } finally {
+      setImportLoading(false);
+    }
   };
+
+  const filteredImportLibrary = useMemo(() => {
+    const s = importSearch.trim().toLowerCase();
+    if (!s) return importLibrary;
+    return importLibrary.filter(
+      (q) =>
+        q.name.toLowerCase().includes(s) ||
+        (q.shortName || '').toLowerCase().includes(s) ||
+        (q.category || '').toLowerCase().includes(s) ||
+        (q.vertical || '').toLowerCase().includes(s),
+    );
+  }, [importLibrary, importSearch]);
+
+  const filteredImportQuestions = useMemo(() => {
+    const s = importQSearch.trim().toLowerCase();
+    if (!s) return importQuestions;
+    return importQuestions.filter(
+      (q) =>
+        q.stem.toLowerCase().includes(s) ||
+        q.options.some((o) => (o.optionText || '').toLowerCase().includes(s)),
+    );
+  }, [importQuestions, importQSearch]);
+
+  /** Bank ids already in this questionnaire — linking one twice is rejected. */
+  const linkedIds = useMemo(
+    () => new Set(drafts.map((d) => d.questionId).filter((id): id is number => id != null)),
+    [drafts],
+  );
+
+  const confirmImport = () => {
+    const picked = importQuestions.filter((q) => importPicked.has(q.questionId));
+    if (picked.length === 0) { setImportOpen(false); return; }
+    const section = useSections ? importSection : null;
+    setDrafts((prev) => [...prev, ...picked.map((q) => draftFromQuestion(q, section, importMode === 'copy'))]);
+    setImportOpen(false);
+  };
+
+  // ---- Preview (respondent view of what's on screen right now) ----
+
+  const [previewOpen, setPreviewOpen] = useState(false);
+
+  const previewMeta = useMemo(
+    () => ({
+      name: instName.trim(),
+      shortName: instShortName.trim() || null,
+      category: instCategory.trim() || null,
+      vertical: instVertical || null,
+      description: instDescription.trim() || null,
+      durationMinutes: Number.isFinite(instDuration) ? instDuration : null,
+      generalInstruction: instInstructions.trim() || null,
+      hasSections: useSections,
+    }),
+    [instName, instShortName, instCategory, instVertical, instDescription, instDuration, instInstructions, useSections],
+  );
+
+  const previewDemoFields = useMemo(
+    () =>
+      demoSelection
+        .map((e) => {
+          const f = demoFieldCatalog.find((c) => c.demographicFieldId === e.demographicFieldId);
+          return f ? { demographicFieldId: f.demographicFieldId, label: f.label, fieldType: f.fieldType, required: e.required } : null;
+        })
+        .filter((f): f is NonNullable<typeof f> => f != null),
+    [demoSelection, demoFieldCatalog],
+  );
+
+  const previewQuestions = useMemo<PreviewQuestion[]>(() => {
+    const counters = new Map<string, number>();
+    return drafts.map((d, i) => {
+      const scope = String(useSections ? d.sectionId ?? 'none' : 'flat');
+      const position = counters.get(scope) ?? 0;
+      counters.set(scope, position + 1);
+      return {
+        questionId: d.questionId ?? -(i + 1),
+        sectionId: useSections ? d.sectionId : null,
+        sortOrder: position,
+        contentType: d.form.contentType,
+        stem: d.form.stem.trim(),
+        mediaUrl: d.form.mediaUrl.trim() || null,
+        options: d.form.options
+          .map((o) => ({ ...o, optionText: o.optionText.trim(), mediaUrl: o.mediaUrl.trim() }))
+          .filter((o) => o.optionText || o.mediaUrl)
+          .map((o, oi) => ({
+            optionId: oi,
+            optionText: o.optionText || null,
+            contentType: o.contentType,
+            mediaUrl: o.mediaUrl || null,
+          })),
+      };
+    });
+  }, [drafts, useSections]);
 
   // ---- Edit mode: ?edit=<id> loads the catalog entry from the new API ----
   const [editMode, setEditMode] = useState(false);
@@ -570,7 +456,6 @@ export default function CreateAssessmentPage() {
         setInstDuration(q.durationMinutes ?? 10);
         setUseSections(q.hasSections);
         setBackendQid(q.questionnaireId);
-        setQuestionnaireId(String(q.questionnaireId));
         try {
           const m = await questionnairesApi.getQuestionnaireDemographicFields(id);
           setDemoSelection(m.data.map((e) => ({ demographicFieldId: e.demographicFieldId, required: e.required })));
@@ -594,1272 +479,12 @@ export default function CreateAssessmentPage() {
     { code: 'OTHER', name: 'Other' },
   ];
 
-  const mqs: MQ[] = useMemo(
-    () => catalog.map((m) => ({
-      id: m.id,
-      name: m.name,
-      mqts: m.mqts as MQT[], // already-recursive shape from /qualities
-    })),
-    [catalog],
-  );
-
-  // Questions
-  const [questions, setQuestions] = useState<Question[]>([]);
-  const [instrumentId, setQuestionnaireId] = useState<string | null>(null);
-
-  // Status
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
-
-  // Flat row per MQT (across the whole tree) for the option-score picker.
-  // Each row carries the breadcrumb path so the dropdown can render it.
-  const allMqts = useMemo(() => flattenMqtsForPicker(mqs), [mqs]);
-
-  const mqtIndex = useMemo(() => {
-    const map: Record<string, { mq: MQ; mqt: MQT; path: string }> = {};
-    allMqts.forEach((row) => { map[row.mqt.id] = row; });
-    return map;
-  }, [allMqts]);
-
-  const mqNameById = useMemo(() => {
-    const map: Record<string, string> = {};
-    mqs.forEach((m) => { map[m.id] = m.name; });
-    return map;
-  }, [mqs]);
-
-  // Traits grouped under their parent MQ, each carrying an outline number
-  // (1, 1.1, 1.1.1 …) and depth so the coverage UI can render the
-  // MQ › MQT › sub-MQT hierarchy instead of a flat wall of full-path pills.
-  type MqtRow = { mqt: MQT; path: string; label: string; number: string; depth: number };
-  const mqtsByMq = useMemo(() => {
-    const map: Record<string, MqtRow[]> = {};
-    mqs.forEach((mq) => {
-      const rows: MqtRow[] = [];
-      const walk = (nodes: MQT[], parentLabels: string[], parentNumber: string, depth: number) => {
-        nodes.forEach((n, i) => {
-          const number = parentNumber ? `${parentNumber}.${i + 1}` : `${i + 1}`;
-          // The MQ-level single trait (same name as its MQ, no children) is
-          // represented by the MQ chip itself, so label it "Overall".
-          const isMqLevel =
-            depth === 0 && mq.mqts.length === 1 &&
-            n.name.toLowerCase() === mq.name.toLowerCase() && !n.children?.length;
-          const path = isMqLevel ? mq.name : [mq.name, ...parentLabels, n.name].join(' > ');
-          rows.push({ mqt: n, path, label: isMqLevel ? 'Overall' : n.name, number, depth });
-          if (n.children?.length) walk(n.children, [...parentLabels, n.name], number, depth + 1);
-        });
-      };
-      walk(mq.mqts, [], '', 0);
-      map[mq.id] = rows;
-    });
-    return map;
-  }, [mqs]);
-
-  // Which MQ groups are collapsed in the coverage UI (shared across every
-  // question's selector and the Coverage Map so the view stays consistent).
-  const [collapsedMqs, setCollapsedMqs] = useState<Set<string>>(new Set());
-  const toggleMqCollapse = (id: string) =>
-    setCollapsedMqs((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
-
-  // Per-question accordion: which question cards are expanded. Empty by
-  // default so every card starts collapsed; the side navigator and the card
-  // header chevron toggle membership.
-  const [expandedQs, setExpandedQs] = useState<Set<string>>(new Set());
-  const toggleQuestionExpand = (id: string) =>
-    setExpandedQs((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
-  // Expand a question (if collapsed) and scroll its card into view.
-  const goToQuestion = (id: string) => {
-    setExpandedQs((prev) => new Set(prev).add(id));
-    // Defer so the body is mounted before we scroll to it.
-    requestAnimationFrame(() => {
-      document.getElementById(`question-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    });
-  };
-
-  // Coverage summary: how many questions tag each MQ and each MQT.
-  const coverageSummary = useMemo(() => {
-    const mqCounts: Record<string, number> = {};
-    const mqtCounts: Record<string, number> = {};
-    questions.forEach((q) => {
-      q.coverage.mqs.forEach((id) => { mqCounts[id] = (mqCounts[id] || 0) + 1; });
-      q.coverage.mqts.forEach((id) => { mqtCounts[id] = (mqtCounts[id] || 0) + 1; });
-    });
-    const taggedCount = questions.filter((q) => q.coverage.mqs.length > 0 || q.coverage.mqts.length > 0).length;
-    return { mqCounts, mqtCounts, taggedCount };
-  }, [questions]);
-
-  // ---- Preview (whole questionnaire review) ----
-
-  const [previewOpen, setPreviewOpen] = useState(false);
-
-  const openPreview = () => {
-    if (questions.length === 0) {
-      setError('Add at least one question before previewing.');
-      return;
-    }
-    setPreviewOpen(true);
-  };
-
-  // ---- Import questions from another questionnaire ----
-
-  const [importOpen, setImportOpen] = useState(false);
-  const [importStage, setImportStage] = useState<'instrument' | 'questions'>('instrument');
-  const [importQuestionnaireSearch, setImportQuestionnaireSearch] = useState('');
-  const [importQuestionSearch, setImportQuestionSearch] = useState('');
-  const [importSource, setImportSource] = useState<StoredQuestionnaire | null>(null);
-  const [importPicked, setImportPicked] = useState<Set<string>>(new Set());
-  const [importLibrary, setImportLibrary] = useState<StoredQuestionnaire[]>([]);
-
-  const openImport = async () => {
-    setImportSource(null);
-    setImportPicked(new Set());
-    setImportQuestionnaireSearch('');
-    setImportQuestionSearch('');
-    setImportStage('instrument');
-    setImportOpen(true);
-    try {
-      const { questionnairesApi } = await import('@/lib/api');
-      const list = await questionnairesApi.list();
-      setImportLibrary(list.filter((i) => Array.isArray(i.questions) && i.questions.length > 0) as any);
-    } catch {
-      setImportLibrary([]);
-    }
-  };
-
-  const filteredImportQuestionnaires = useMemo(() => {
-    const q = importQuestionnaireSearch.trim().toLowerCase();
-    if (!q) return importLibrary;
-    return importLibrary.filter(
-      (i) =>
-        (i.name || '').toLowerCase().includes(q) ||
-        (i.shortName || '').toLowerCase().includes(q) ||
-        (i.vertical || '').toLowerCase().includes(q),
-    );
-  }, [importLibrary, importQuestionnaireSearch]);
-
-  const filteredImportQuestions = useMemo(() => {
-    if (!importSource?.questions) return [];
-    const q = importQuestionSearch.trim().toLowerCase();
-    if (!q) return importSource.questions as any[];
-    return (importSource.questions as any[]).filter((qq) => String(qq.stem || '').toLowerCase().includes(q));
-  }, [importSource, importQuestionSearch]);
-
-  const toggleImportPick = (qid: string) => {
-    setImportPicked((prev) => {
-      const next = new Set(prev);
-      if (next.has(qid)) next.delete(qid);
-      else next.add(qid);
-      return next;
-    });
-  };
-
-  const confirmImport = () => {
-    if (!importSource?.questions || importPicked.size === 0) { setImportOpen(false); return; }
-    const toCopy = (importSource.questions as any[]).filter((qq) => importPicked.has(qq.id));
-    const cloned: Question[] = toCopy.map((q) => ({
-      id: crypto.randomUUID(),
-      stem: String(q.stem || ''),
-      format: String(q.format || 'MCQ'),
-      media_url: String(q.media_url || ''),
-      media_type: (q.media_type || 'none') as MediaType,
-      options: Array.isArray(q.options)
-        ? q.options.map((o: any) => ({
-            text: String(o.text || ''),
-            scores: Array.isArray(o.scores) ? o.scores.map((s: any) => ({ mqt_id: s.mqt_id, score: Number(s.score) || 0 })) : [],
-            media_url: o.media_url,
-            media_type: o.media_type,
-          }))
-        : [],
-      question_scores: Array.isArray(q.question_scores)
-        ? q.question_scores.map((s: any) => ({ mqt_id: s.mqt_id, score: Number(s.score) || 0 }))
-        : [],
-      coverage: normalizeCoverage(q.coverage),
-      clinical_risk_flag: !!q.clinical_risk_flag,
-      risk_flag_rule: String(q.risk_flag_rule || ''),
-    }));
-    setQuestions((prev) => [...prev, ...cloned]);
-    setImportOpen(false);
-  };
-
-  // ---- Bulk import from CSV / XLSX ----
-  // Expected columns (case-insensitive):
-  //   stem (required), format, section, risk_flag, risk_rule,
-  //   coverage_mqs, coverage_mqts (semicolon-separated names; tags only)
-  //
-  // Scoring uses NUMBERED MQ BLOCKS per scope — each block is one MQ and its
-  // trait path, one value per cell:
-  //   question_mq1, question_mqt1, question_submqt1, question_subsubmqt1, question_score1
-  //   question_mq2, …  (add _mq2/_mq3… to score the question against more MQs)
-  //   option1..option8
-  //   option{n}_mq1, option{n}_mqt1, option{n}_submqt1, option{n}_subsubmqt1, option{n}_score1
-  //   option{n}_mq2, …  (per option, per MQ block)
-  //
-  // Each block is the four-level trait hierarchy MQ › MQT › sub-MQT › sub-sub-MQT.
-  // The score attaches to the DEEPEST level filled in (so leave sub-MQT /
-  // sub-sub-MQT blank for a shallow trait). Every level below the MQ that
-  // doesn't exist yet is created in the catalog on import; the MQ itself is
-  // created too. Filling a sub-level while its parent is blank is flagged.
-  //
-  // Back-compat: the legacy un-numbered columns (question_mq, option{n}_mq, …)
-  // are still read as an extra block, and each such cell may carry a ';'- (or
-  // '|'-) separated list whose items pair up positionally.
-  //
-  // Coverage names are resolved against the catalog for tagging only and
-  // dropped if they don't match.
-
-  // A single scoring entry: an MQ and the trait path beneath it
-  // (mqt → submqt → subsubmqt), plus the score. mqtPath holds that hierarchy —
-  // e.g. ["Stress", "Acute", "Panic"]. An empty mqtPath with a present mq
-  // defaults to a single trait named after the MQ; an empty mq with only a
-  // score is a bare score that falls back to the first catalog trait.
-  interface ParsedScore {
-    mq: string;
-    mqtPath: string[];
-    score: number | null;
-  }
-  interface ParsedOption {
-    text: string;
-    // One option can score against several MQTs at once — the source cells
-    // option{n}_mq / _mqt / _score may each carry a ';'-separated list.
-    scores: ParsedScore[];
-  }
-  interface ParsedRow {
-    stem: string;
-    format: string;
-    section: string;
-    risk_flag: boolean;
-    risk_rule: string;
-    options: ParsedOption[];
-    // Question-level scores — applied to the MQT totals whenever the question
-    // is answered, regardless of which option was picked. Like options, the
-    // question_mq / _mqt / _score columns may carry ';'-separated lists.
-    question_scores: ParsedScore[];
-    // Coverage tags (names; resolved to ids on import). Semicolon-separated
-    // in the source columns coverage_mqs / coverage_mqts.
-    coverage_mqs: string[];
-    coverage_mqts: string[];
-    errors: string[];
-  }
-
-  const [bulkOpen, setBulkOpen] = useState(false);
-  const [bulkFileName, setBulkFileName] = useState('');
-  const [bulkRows, setBulkRows] = useState<ParsedRow[]>([]);
-  const [bulkError, setBulkError] = useState('');
-  const [bulkParsing, setBulkParsing] = useState(false);
-  const [bulkImporting, setBulkImporting] = useState(false);
-
-  const openBulkImport = () => {
-    setBulkFileName('');
-    setBulkRows([]);
-    setBulkError('');
-    setBulkOpen(true);
-  };
-
-  const parseBulkFile = async (file: File) => {
-    setBulkParsing(true);
-    setBulkError('');
-    try {
-      const XLSX = await import('xlsx');
-      const buf = await file.arrayBuffer();
-      const wb = XLSX.read(buf, { type: 'array' });
-      const firstSheet = wb.Sheets[wb.SheetNames[0]];
-      if (!firstSheet) throw new Error('The file has no sheets.');
-
-      // Read as array-of-arrays so we can find the real header row ourselves.
-      // sheet_to_json's default (row 1 = headers) breaks on XLSX files that
-      // have a title row, merged cells, or empty leading cells — those make
-      // every "stem" lookup return undefined and we report a sea of "stem is
-      // empty" errors. CSVs from the same data usually don't hit this because
-      // they have no merged cells and the header is row 1.
-      const aoa: any[][] = XLSX.utils.sheet_to_json(firstSheet, {
-        header: 1,
-        defval: '',
-        raw: false,
-        blankrows: false,
-      }) as any[][];
-      if (aoa.length === 0) throw new Error('No rows found in the first sheet.');
-
-      const normalizeKey = (k: any) =>
-        String(k ?? '')
-          .replace(/^﻿/, '') // BOM
-          .replace(/ /g, ' ') // non-breaking space → space
-          .replace(/\s+/g, ' ')
-          .trim()
-          .toLowerCase();
-
-      // Find the first row that looks like a header — must contain "stem"
-      // (or "question"/"text" as common synonyms).
-      const headerRowIdx = aoa.findIndex((row) =>
-        Array.isArray(row) && row.some((cell) => {
-          const k = normalizeKey(cell);
-          return k === 'stem' || k === 'question' || k === 'text';
-        }),
-      );
-      if (headerRowIdx === -1) {
-        throw new Error('Could not find a header row. The sheet must include a column named "stem" (or "question"/"text").');
-      }
-      const headers: string[] = (aoa[headerRowIdx] || []).map(normalizeKey);
-
-      const rows = aoa
-        .slice(headerRowIdx + 1)
-        .map((arr) => {
-          const norm: Record<string, any> = {};
-          headers.forEach((h, i) => {
-            if (!h) return; // skip empty header cells
-            const v = arr?.[i];
-            norm[h] = typeof v === 'string' ? v.trim() : v;
-          });
-          return norm;
-        })
-        // Skip fully-blank rows — Excel often pads the bottom of a sheet with
-        // empty rows, and we don't want to flag each one as "stem is empty".
-        .filter((row) => Object.values(row).some((v) => v !== '' && v !== undefined && v !== null));
-
-      // Split a scoring cell into a list on ';' or '|' (mirrors coverage cols).
-      const splitCell = (raw: any) => String(raw ?? '').split(/[;|]/).map((s) => s.trim());
-      // Build the scoring entries for one scope from its explicit trait-hierarchy
-      // columns (mq → mqt → submqt → subsubmqt) and the score. Each cell may hold
-      // a ';'-separated list whose items pair up positionally (one option can
-      // score several traits); a single mq broadcasts to every entry. The score
-      // attaches to the DEEPEST trait given, and every missing level below the MQ
-      // is created on import. requireScore=true (question scope) flags an mq with
-      // no score as an error rather than silently skipping it.
-      const parseScoreCells = (
-        cells: { mq: any; mqt: any; submqt: any; subsubmqt: any; score: any },
-        label: string,
-        requireScore: boolean,
-        errors: string[],
-      ): ParsedScore[] => {
-        const mqList = splitCell(cells.mq);
-        const mqtList = splitCell(cells.mqt);
-        const submqtList = splitCell(cells.submqt);
-        const subsubmqtList = splitCell(cells.subsubmqt);
-        const scoreList = splitCell(cells.score);
-        const present = (l: string[]) => l.some((s) => s !== '');
-        const lists = [mqList, mqtList, submqtList, subsubmqtList, scoreList];
-        if (!lists.some(present)) return [];
-        const count = Math.max(...lists.map((l) => (present(l) ? l.length : 0)));
-        const out: ParsedScore[] = [];
-        for (let i = 0; i < count; i++) {
-          // A single MQ broadcasts across every entry; otherwise pair by index.
-          const mq = (mqList.length === 1 ? mqList[0] : mqList[i] ?? '').trim();
-          // Trait hierarchy below the MQ, deepest-last. A level may itself use
-          // '>' for extra depth (back-compat with the older path syntax).
-          const rawLevels = [mqtList[i] ?? '', submqtList[i] ?? '', subsubmqtList[i] ?? ''].map((s) => s.trim());
-          let gap = false;
-          for (let k = 1; k < rawLevels.length; k++) {
-            if (!rawLevels[k - 1] && rawLevels[k]) { gap = true; break; }
-          }
-          if (gap) { errors.push(`${label}: a sub-level is filled without its parent trait`); continue; }
-          const mqtPath: string[] = [];
-          for (const lvl of rawLevels) {
-            if (!lvl) break; // stop at the first empty level
-            mqtPath.push(...lvl.split('>').map((s) => s.trim()).filter(Boolean));
-          }
-          // MQ given but no trait → default to a single trait named after the MQ.
-          if (mqtPath.length === 0 && mq) mqtPath.push(mq);
-          const sStr = (scoreList[i] ?? '').trim();
-          const sNum = sStr === '' ? null : Number(sStr);
-          const score = sStr !== '' && Number.isFinite(sNum as number) ? (sNum as number) : null;
-          if (sStr !== '' && score === null) {
-            errors.push(`${label}: invalid score "${sStr}"`);
-          }
-          if (!mq && rawLevels.some(Boolean)) {
-            errors.push(`${label}: trait given without MQ`);
-            continue;
-          }
-          if (requireScore && mq && score === null) {
-            errors.push(`${label}: MQ given without score`);
-            continue;
-          }
-          // Skip an entirely-empty positional slot (e.g. from a trailing ';').
-          if (!mq && mqtPath.length === 0 && score === null) continue;
-          out.push({ mq, mqtPath, score });
-        }
-        return out;
-      };
-      // Resolve the trait-hierarchy columns for one scope + block suffix,
-      // accepting a few header spellings (sub_mqt / sub-sub-mqt etc.). The
-      // suffix is the numbered block ('1', '2', …) or '' for the legacy
-      // un-numbered columns.
-      const scoreCellsForBlock = (row: Record<string, any>, prefix: string, suffix: string) => ({
-        mq: row[`${prefix}_mq${suffix}`],
-        mqt: row[`${prefix}_mqt${suffix}`],
-        submqt: row[`${prefix}_submqt${suffix}`] ?? row[`${prefix}_sub_mqt${suffix}`],
-        subsubmqt:
-          row[`${prefix}_subsubmqt${suffix}`] ??
-          row[`${prefix}_subsub_mqt${suffix}`] ??
-          row[`${prefix}_sub_sub_mqt${suffix}`],
-        score: row[`${prefix}_score${suffix}`],
-      });
-      // Gather every scoring block for one scope. Each MQ gets its own numbered
-      // column group — {prefix}_mq1 / _mqt1 / _submqt1 / _subsubmqt1 / _score1,
-      // then _mq2…, and so on — so one value lives in one cell (no ';' lists
-      // needed). We read block 1, 2, 3… for as long as a {prefix}_mq{n} column
-      // exists, plus the legacy un-numbered {prefix}_mq columns for back-compat.
-      const collectScores = (
-        row: Record<string, any>,
-        prefix: string,
-        label: string,
-        requireScore: boolean,
-        errors: string[],
-      ): ParsedScore[] => {
-        const suffixes: string[] = [];
-        if (`${prefix}_mq` in row) suffixes.push(''); // legacy un-numbered block
-        for (let n = 1; `${prefix}_mq${n}` in row; n++) suffixes.push(String(n));
-        const out: ParsedScore[] = [];
-        for (const suffix of suffixes) {
-          const blockLabel = suffix ? `${label} (mq${suffix})` : label;
-          out.push(...parseScoreCells(scoreCellsForBlock(row, prefix, suffix), blockLabel, requireScore, errors));
-        }
-        return out;
-      };
-
-      const parsed: ParsedRow[] = rows.map((row) => {
-        const errors: string[] = [];
-        const stem = String(row.stem ?? row.question ?? row.text ?? '').trim();
-        if (!stem) errors.push('stem is empty');
-        const formatRaw = String(row.format ?? 'MCQ').toUpperCase().trim();
-        const format = FORMATS.includes(formatRaw) ? formatRaw : 'MCQ';
-        const section = String(row.section ?? row.section_title ?? '').trim();
-        const riskFlagRaw = String(row.risk_flag ?? row.clinical_risk_flag ?? '').toLowerCase().trim();
-        const risk_flag = ['1', 'true', 'yes', 'y'].includes(riskFlagRaw);
-        const risk_rule = String(row.risk_rule ?? row.risk_flag_rule ?? '').trim();
-        const options: ParsedOption[] = [];
-        for (let n = 1; n <= 8; n++) {
-          const text = String(row[`option${n}`] ?? '').trim();
-          if (!text) continue;
-          const scores = collectScores(row, `option${n}`, `option${n}`, false, errors);
-          options.push({ text, scores });
-        }
-        if (format !== 'FREE_TEXT' && options.length < 2) {
-          errors.push(`format ${format} needs at least 2 options`);
-        }
-        // Optional question-level scores (applied on any answer).
-        const question_scores = collectScores(row, 'question', 'question_score', true, errors);
-        const splitNames = (raw: any) =>
-          String(raw ?? '')
-            .split(/[;|]/)
-            .map((s) => s.trim())
-            .filter(Boolean);
-        const coverage_mqs = splitNames(row.coverage_mqs ?? row.coverage_mq);
-        const coverage_mqts = splitNames(row.coverage_mqts ?? row.coverage_mqt);
-        return { stem, format, section, risk_flag, risk_rule, options, question_scores, coverage_mqs, coverage_mqts, errors };
-      });
-
-      setBulkRows(parsed);
-      setBulkFileName(file.name);
-    } catch (e: any) {
-      setBulkError(e?.message || 'Failed to parse file.');
-    } finally {
-      setBulkParsing(false);
-    }
-  };
-
-  // Collect every distinct (MQ, nested MQT path) reference from valid rows.
-  // `mqt` is the path rendered as a breadcrumb for display; `path` drives
-  // resolution/creation; `isNew` is true when the full path doesn't yet exist.
-  const bulkPendingPairs = useMemo(() => {
-    const pairs = new Map<string, { mq: string; mqt: string; path: string[]; isNew: boolean }>();
-    // Walk the catalog tree to see if a nested trait path already resolves.
-    const pathExists = (mqName: string, path: string[]): boolean => {
-      const mq = mqs.find((m) => m.name.toLowerCase() === mqName.toLowerCase());
-      if (!mq) return false;
-      let level: MQT[] | undefined = mq.mqts;
-      let node: MQT | undefined;
-      for (const seg of path) {
-        node = level?.find((t) => t.name.toLowerCase() === seg.toLowerCase());
-        if (!node) return false;
-        level = node.children;
-      }
-      return !!node;
-    };
-    const addEntry = (mq: string, path: string[]) => {
-      if (!mq || path.length === 0) return;
-      const key = scorePathKey(mq, path);
-      if (pairs.has(key)) return;
-      pairs.set(key, { mq, mqt: path.join(' › '), path, isNew: !pathExists(mq, path) });
-    };
-    bulkRows
-      .filter((r) => r.errors.length === 0)
-      .forEach((r) => {
-        r.question_scores.forEach((s) => addEntry(s.mq, s.mqtPath));
-        r.options.forEach((o) => o.scores.forEach((s) => addEntry(s.mq, s.mqtPath)));
-      });
-    return Array.from(pairs.values());
-  }, [bulkRows, mqs]);
-
-  const confirmBulkImport = async () => {
-    const valid = bulkRows.filter((r) => r.errors.length === 0);
-    if (valid.length === 0) { setBulkError('No valid rows to import.'); return; }
-    setBulkImporting(true);
-    setBulkError('');
-    try {
-      // Resolve / create MQs and nested MQTs against the database before
-      // building questions. Deep-clone the catalog so we can grow trait trees
-      // in place; later paths then find the nodes earlier ones created.
-      const cloneMqt = (t: any): any => ({
-        id: t.id,
-        name: t.name,
-        ...(Array.isArray(t.children) ? { children: t.children.map(cloneMqt) } : {}),
-      });
-      let catalogCopy: StoredMQ[] = catalog.map((m) => ({ ...m, mqts: m.mqts.map(cloneMqt) }));
-      const findMq = (name: string) => catalogCopy.find((m) => m.name.toLowerCase() === name.toLowerCase());
-      const genMqtId = () => `mqt-${Math.random().toString(36).slice(2, 10)}`;
-
-      // resolved: scorePathKey -> leaf-trait id. created/changed track which MQs
-      // need a create vs. an update call so we persist each MQ exactly once.
-      const resolved = new Map<string, string>();
-      const createdMqIds = new Set<string>();
-      const changedMqIds = new Set<string>();
-      const { qualitiesApi } = await import('@/lib/api');
-
-      for (const pending of bulkPendingPairs) {
-        let mq = findMq(pending.mq);
-        if (!mq) {
-          mq = { id: `mq-${Math.random().toString(36).slice(2, 10)}`, name: pending.mq, mqts: [] };
-          catalogCopy = [...catalogCopy, mq];
-          createdMqIds.add(mq.id);
-        }
-        // Walk the path under the MQ, creating each missing segment. The last
-        // segment is the leaf trait that scores actually attach to.
-        let level: any[] = mq.mqts;
-        let leafId = '';
-        pending.path.forEach((seg, d) => {
-          let node = level.find((t: any) => t.name.toLowerCase() === seg.toLowerCase());
-          if (!node) {
-            node = { id: genMqtId(), name: seg };
-            level.push(node);
-            if (!createdMqIds.has(mq!.id)) changedMqIds.add(mq!.id);
-          }
-          leafId = node.id;
-          if (d < pending.path.length - 1) {
-            if (!node.children) node.children = [];
-            level = node.children;
-          }
-        });
-        if (leafId) resolved.set(scorePathKey(pending.mq, pending.path), leafId);
-      }
-
-      // Persist: brand-new MQs via create, existing MQs that gained traits via update.
-      for (const id of createdMqIds) {
-        const mq = catalogCopy.find((m) => m.id === id);
-        if (mq) await qualitiesApi.create(mq);
-      }
-      for (const id of changedMqIds) {
-        const mq = catalogCopy.find((m) => m.id === id);
-        if (mq) await qualitiesApi.update(mq.id, mq);
-      }
-      // Push the updated catalog into state so downstream code (MQT pickers,
-      // upsert payload) sees the newly-created MQs/MQTs without a round-trip.
-      setCatalog(catalogCopy);
-
-      // Sections (created on-the-fly when sections mode is on).
-      const nextSections = [...sections];
-      const sectionIdByTitle = new Map<string, string>();
-      nextSections.forEach((s) => sectionIdByTitle.set(s.title.toLowerCase(), s.id));
-
-      // Fallback: if a row has a score but no MQ/MQT, we default to the first
-      // MQT in the resolved catalog so the score isn't silently dropped.
-      const firstMqtInCatalog = catalogCopy[0]?.mqts[0];
-
-      // Resolve coverage tag names against the (post-creation) catalog.
-      // Coverage-only names that don't match anything are dropped — coverage
-      // is metadata, so we don't auto-create phantom qualities for it.
-      const resolveCoverageMqId = (name: string): string | null =>
-        catalogCopy.find((m) => m.name.toLowerCase() === name.toLowerCase())?.id ?? null;
-      const resolveCoverageMqtId = (name: string): string | null => {
-        const lower = name.toLowerCase();
-        const walk = (nodes: Array<{ id: string; name: string; children?: any[] }>): string | null => {
-          for (const n of nodes) {
-            if (n.name.toLowerCase() === lower) return n.id;
-            if (Array.isArray(n.children)) {
-              const hit = walk(n.children);
-              if (hit) return hit;
-            }
-          }
-          return null;
-        };
-        for (const m of catalogCopy) {
-          const hit = walk(m.mqts as any[]);
-          if (hit) return hit;
-        }
-        return null;
-      };
-
-      const newQuestions: Question[] = valid.map((r) => {
-        let sectionId: string | undefined;
-        let sectionTitle: string | undefined;
-        if (useSections && r.section) {
-          const sKey = r.section.toLowerCase();
-          let id = sectionIdByTitle.get(sKey);
-          if (!id) {
-            id = `sec-${Math.random().toString(36).slice(2, 8)}`;
-            sectionIdByTitle.set(sKey, id);
-            nextSections.push({ id, title: r.section });
-          }
-          sectionId = id;
-          sectionTitle = nextSections.find((s) => s.id === id)?.title;
-        }
-        return {
-          id: crypto.randomUUID(),
-          stem: r.stem,
-          format: r.format,
-          media_url: '',
-          media_type: 'none',
-          options: r.options.map((o) => {
-            const scores: Array<{ mqt_id: string; score: number }> = [];
-            const seen = new Set<string>();
-            o.scores.forEach((s) => {
-              if (s.score === null) return;
-              let mqtId: string | undefined;
-              if (s.mq && s.mqtPath.length) {
-                mqtId = resolved.get(scorePathKey(s.mq, s.mqtPath));
-              } else if (!s.mq && s.mqtPath.length === 0 && firstMqtInCatalog) {
-                // Bare score with no MQ/MQT — fall back to the first trait.
-                mqtId = firstMqtInCatalog.id;
-              }
-              if (mqtId && !seen.has(mqtId)) {
-                seen.add(mqtId);
-                scores.push({ mqt_id: mqtId, score: s.score });
-              }
-            });
-            return { text: o.text, scores };
-          }),
-          question_scores: (() => {
-            const out: Array<{ mqt_id: string; score: number }> = [];
-            const seen = new Set<string>();
-            r.question_scores.forEach((s) => {
-              if (s.score === null || !s.mq || !s.mqtPath.length) return;
-              const mqtId = resolved.get(scorePathKey(s.mq, s.mqtPath));
-              if (mqtId && !seen.has(mqtId)) {
-                seen.add(mqtId);
-                out.push({ mqt_id: mqtId, score: s.score });
-              }
-            });
-            return out;
-          })(),
-          coverage: {
-            mqs: Array.from(new Set(r.coverage_mqs.map(resolveCoverageMqId).filter((id): id is string => !!id))),
-            mqts: Array.from(new Set(r.coverage_mqts.map(resolveCoverageMqtId).filter((id): id is string => !!id))),
-          },
-          clinical_risk_flag: r.risk_flag,
-          risk_flag_rule: r.risk_rule,
-          sectionId,
-          sectionTitle,
-        };
-      });
-
-      if (nextSections.length !== sections.length) setSections(nextSections);
-      setQuestions((prev) => [...prev, ...newQuestions]);
-      setBulkOpen(false);
-    } catch (e: any) {
-      setBulkError(`Import failed: ${e?.message || 'unknown error'}. Some MQs/MQTs may not have been created.`);
-    } finally {
-      setBulkImporting(false);
-    }
-  };
-
-  const downloadBulkTemplate = () => {
-    // Each MQ gets its own numbered block of columns (block 1, block 2, …) so
-    // one value lives in one cell. Add _mq3 / _mqt3 / … to score a scope
-    // against a third MQ, and so on.
-    const block = (prefix: string, n: number) =>
-      [`${prefix}_mq${n}`, `${prefix}_mqt${n}`, `${prefix}_submqt${n}`, `${prefix}_subsubmqt${n}`, `${prefix}_score${n}`];
-    const header = [
-      'stem', 'format', 'section', 'risk_flag', 'risk_rule',
-      'coverage_mqs', 'coverage_mqts',
-      ...block('question', 1), ...block('question', 2),
-      'option1', ...block('option1', 1), ...block('option1', 2),
-      'option2', ...block('option2', 1), ...block('option2', 2),
-      'option3', ...block('option3', 1), ...block('option3', 2),
-      'option4', ...block('option4', 1), ...block('option4', 2),
-    ];
-    // Scoring uses numbered MQ blocks: each block is one MQ and its trait path
-    // (MQ › MQT › sub-MQT › sub-sub-MQT), and the score lands on the DEEPEST
-    // level filled in — leave the deeper columns blank for a shallower trait.
-    // The sample row scores the question against two MQs (block 1 four levels
-    // deep, block 2 only to MQT); option1 also uses two MQs; options 2-4 each
-    // use a single MQ to the MQT level.
-    const sample = [
-      ["My exams are near but I haven't studied much. What would I most likely do?", 'MCQ', 'Coping', 'false', '',
-        'Coping Strategies', 'Coping Style',  // coverage tags
-        // question block 1 (to sub-sub-MQT) + block 2 (to MQT)
-        'Coping Strategies', 'Problem-focused Coping', 'Active problem-focused', 'Planning', '2',
-        'Cognitive Appraisal', 'Challenge', '', '', '1',
-        // option1: block 1 (to sub-sub-MQT) + block 2 (to sub-MQT)
-        'I would plan a schedule, talk to my teacher, and try my best to get good marks.',
-        'Coping Strategies', 'Problem-focused Coping', 'Active problem-focused', 'Instrumental support', '2',
-        'Coping Style', 'Adaptive', 'Engagement', '', '1',
-        // option2: single MQ, to MQT
-        'I would ask a friend or classmate to help me prepare.',
-        'Coping Strategies', 'Social Support', '', '', '1', '', '', '', '', '',
-        // option3: single MQ, to MQT
-        'I would avoid thinking about the exam altogether.',
-        'Coping Strategies', 'Avoidant Coping', '', '', '0', '', '', '', '', '',
-        // option4: single MQ, to MQT
-        'I would panic and assume I will fail.',
-        'Coping Style', 'Maladaptive', '', '', '0', '', '', '', '', ''],
-    ];
-    const csv = [header, ...sample]
-      .map((row) => row.map((cell) => {
-        const s = String(cell);
-        return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-      }).join(','))
-      .join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'questionnaire-template.csv';
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  // ---- Question handlers ----
-
-  const addQuestion = (sectionId?: string, sectionTitle?: string) => {
-    const id = crypto.randomUUID();
-    setQuestions((prev) => [
-      ...prev,
-      {
-        id,
-        stem: '',
-        format: 'MCQ',
-        media_url: '',
-        media_type: 'none',
-        options: [
-          { text: '', scores: [] },
-          { text: '', scores: [] },
-          { text: '', scores: [] },
-          { text: '', scores: [] },
-        ],
-        question_scores: [],
-        coverage: { mqs: [], mqts: [] },
-        clinical_risk_flag: false,
-        risk_flag_rule: '',
-        sectionId,
-        sectionTitle,
-      },
-    ]);
-    // Open the freshly added question so it's ready to edit.
-    setExpandedQs((prev) => new Set(prev).add(id));
-  };
-
-  const addSection = () => {
-    const id = `sec-${Math.random().toString(36).slice(2, 8)}`;
-    const title = `Section ${sections.length + 1}`;
-    setSections((prev) => [...prev, { id, title }]);
-  };
-
-  const renameSection = (sectionId: string, title: string) => {
-    setSections((prev) => prev.map((s) => s.id === sectionId ? { ...s, title } : s));
-    // Keep the denormalized title on each question in sync, so it persists through save.
-    setQuestions((prev) => prev.map((q) => q.sectionId === sectionId ? { ...q, sectionTitle: title } : q));
-  };
-
-  const deleteSection = (sectionId: string) => {
-    if (!confirm('Remove this section and all questions in it?')) return;
-    setSections((prev) => prev.filter((s) => s.id !== sectionId));
-    setQuestions((prev) => prev.filter((q) => q.sectionId !== sectionId));
-  };
-
-  const moveQuestionToSection = (qId: string, sectionId?: string) => {
-    const title = sectionId ? (sections.find((s) => s.id === sectionId)?.title || '') : undefined;
-    setQuestions((prev) => prev.map((q) => q.id === qId ? { ...q, sectionId, sectionTitle: sectionId ? title : undefined } : q));
-  };
-
-  // renderQuestionCard is reused by both the flat list and the per-section groups.
-  const renderQuestionCard = (q: Question, idx: number) => {
-    const expanded = expandedQs.has(q.id);
-    return (
-      <Card key={q.id} id={`question-${q.id}`} className="scroll-mt-24">
-        <CardContent className="p-5 space-y-4">
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex items-center gap-3 min-w-0 flex-1">
-              <button
-                type="button"
-                onClick={() => toggleQuestionExpand(q.id)}
-                className="text-muted-foreground hover:text-foreground shrink-0"
-                title={expanded ? 'Collapse question' : 'Expand question'}
-              >
-                <ChevronRight className={cn('h-4 w-4 transition-transform', expanded && 'rotate-90')} />
-              </button>
-              <GripVertical className="h-4 w-4 text-muted-foreground cursor-grab shrink-0" />
-              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary text-xs font-semibold">{idx + 1}</span>
-              {!expanded && (
-                <button
-                  type="button"
-                  onClick={() => toggleQuestionExpand(q.id)}
-                  className="truncate text-left text-sm text-muted-foreground hover:text-foreground"
-                  title="Expand question"
-                >
-                  {q.stem?.trim() || <span className="italic">Untitled question</span>}
-                </button>
-              )}
-            </div>
-            <div className="flex items-center gap-2 shrink-0">
-              {useSections && sections.length > 0 && (
-                <select
-                  value={q.sectionId || ''}
-                  onChange={(e) => moveQuestionToSection(q.id, e.target.value || undefined)}
-                  className="rounded-lg border border-border bg-background px-2 py-1.5 text-xs outline-none focus:border-primary"
-                  title="Section"
-                >
-                  <option value="">— No section —</option>
-                  {sections.map((s) => (
-                    <option key={s.id} value={s.id}>{s.title || 'Untitled section'}</option>
-                  ))}
-                </select>
-              )}
-              <select value={q.format} onChange={(e) => updateQuestion(q.id, { format: e.target.value })} className="rounded-lg border border-border bg-background px-2 py-1.5 text-xs outline-none focus:border-primary">
-                {FORMATS.map((f) => <option key={f} value={f}>{f}</option>)}
-              </select>
-              <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <input type="checkbox" checked={q.clinical_risk_flag} onChange={(e) => updateQuestion(q.id, { clinical_risk_flag: e.target.checked })} className="rounded" />
-                <AlertTriangle className="h-3 w-3 text-red-500" /> Risk flag
-              </label>
-              <button onClick={() => removeQuestion(q.id)} className="text-muted-foreground hover:text-red-500"><Trash2 className="h-4 w-4" /></button>
-            </div>
-          </div>
-
-          {expanded && (
-          <>
-          <textarea
-            value={q.stem}
-            onChange={(e) => updateQuestion(q.id, { stem: e.target.value })}
-            placeholder={`Question ${idx + 1}: Enter question text...`}
-            rows={2}
-            className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-          />
-
-          <div>
-            <p className="text-xs font-medium text-muted-foreground mb-1.5">Question Media (optional)</p>
-            <MediaPicker
-              url={q.media_url}
-              type={q.media_type}
-              onChange={(url, type) => updateQuestion(q.id, { media_url: url, media_type: type })}
-            />
-          </div>
-
-          {q.clinical_risk_flag && (
-            <input
-              value={q.risk_flag_rule}
-              onChange={(e) => updateQuestion(q.id, { risk_flag_rule: e.target.value })}
-              placeholder="Risk rule (e.g., value >= 2 triggers suicidality alert)"
-              className="w-full rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/20 px-3 py-2 text-xs outline-none focus:border-red-500"
-            />
-          )}
-
-          {allMqts.length > 0 && (
-            <div className="rounded-md border border-border bg-muted/30 px-3 py-2 space-y-2">
-              <p className="text-[0.6875rem] font-medium text-muted-foreground">
-                Question-level scores &mdash; added to these MQs whenever the question is answered, regardless of which option is chosen.
-              </p>
-              {q.question_scores.length === 0 ? (
-                <p className="text-[0.6875rem] text-muted-foreground italic">None &mdash; click "+ Add MQ score" below to attach one.</p>
-              ) : (
-                <div className="space-y-1.5">
-                  {q.question_scores.map((sc) => {
-                    const entry = mqtIndex[sc.mqt_id];
-                    const usedIds = new Set(q.question_scores.map((s) => s.mqt_id).filter((id) => id !== sc.mqt_id));
-                    return (
-                      <div key={sc.mqt_id} className="flex items-center gap-2">
-                        <select
-                          value={sc.mqt_id}
-                          onChange={(e) => {
-                            const newId = e.target.value;
-                            if (newId !== sc.mqt_id) replaceQuestionMqt(q.id, sc.mqt_id, newId);
-                          }}
-                          className="flex-1 min-w-0 rounded-md border border-border bg-background px-2 py-1 text-xs outline-none focus:border-primary"
-                        >
-                          {!entry && <option value={sc.mqt_id}>(missing MQT)</option>}
-                          {allMqts.map(({ mqt, path }) => (
-                            <option key={mqt.id} value={mqt.id} disabled={usedIds.has(mqt.id)}>
-                              {path}{usedIds.has(mqt.id) ? ' (already used)' : ''}
-                            </option>
-                          ))}
-                        </select>
-                        <input
-                          type="number"
-                          step="1"
-                          value={sc.score}
-                          onChange={(e) => setQuestionMqtScore(q.id, sc.mqt_id, Number(e.target.value))}
-                          className="w-16 shrink-0 rounded-md border border-border bg-background px-2 py-1 text-xs text-center outline-none focus:border-primary"
-                          title="Score added on any answer"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => toggleQuestionMqt(q.id, sc.mqt_id)}
-                          className="shrink-0 text-muted-foreground hover:text-red-500"
-                          title="Remove this MQ score"
-                        >
-                          <X className="h-3 w-3" />
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-              {(() => {
-                const unused = allMqts.filter((row) => !q.question_scores.some((s) => s.mqt_id === row.mqt.id));
-                if (unused.length === 0) return null;
-                return (
-                  <button
-                    type="button"
-                    onClick={() => toggleQuestionMqt(q.id, unused[0].mqt.id)}
-                    className="text-[0.6875rem] text-primary hover:underline inline-flex items-center gap-1"
-                  >
-                    <Plus className="h-3 w-3" /> Add MQ score
-                  </button>
-                );
-              })()}
-            </div>
-          )}
-
-          {(mqs.length > 0 || allMqts.length > 0) && (
-            <div className="rounded-md border border-border bg-muted/30 px-3 py-2 space-y-2">
-              <p className="text-[0.6875rem] font-medium text-muted-foreground">
-                Coverage &mdash; which MQs/MQTs this question measures. Used for filtering and reporting; not scored.
-              </p>
-              {mqs.length > 0 && (
-                <div className="space-y-1.5">
-                  {mqs.map((m) => {
-                    const mqOn = q.coverage.mqs.includes(m.id);
-                    const traits = mqtsByMq[m.id] || [];
-                    const collapsed = collapsedMqs.has(m.id);
-                    const selectedCount = traits.filter((t) => q.coverage.mqts.includes(t.mqt.id)).length;
-                    return (
-                      <div key={m.id} className="rounded-md border border-border bg-background/50 px-2 py-1.5">
-                        <div className="flex items-center gap-1.5">
-                          {/* Collapse toggle for the trait list */}
-                          {traits.length > 0 ? (
-                            <button
-                              type="button"
-                              onClick={() => toggleMqCollapse(m.id)}
-                              className="text-muted-foreground hover:text-foreground shrink-0"
-                              title={collapsed ? 'Expand traits' : 'Collapse traits'}
-                            >
-                              <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', !collapsed && 'rotate-90')} />
-                            </button>
-                          ) : (
-                            <span className="w-3.5 shrink-0" />
-                          )}
-                          {/* Measured Quality — the group header chip */}
-                          <button
-                            type="button"
-                            onClick={() => toggleCoverageMq(q.id, m.id)}
-                            className={cn(
-                              'inline-flex items-center gap-1 px-2 py-0.5 text-[0.6875rem] font-medium rounded-full border transition-colors',
-                              mqOn
-                                ? 'bg-primary text-primary-foreground border-primary'
-                                : 'bg-background text-foreground border-border hover:border-primary',
-                            )}
-                          >
-                            {mqOn && <Check className="h-3 w-3" />}
-                            {m.name}
-                          </button>
-                          {traits.length > 0 && (
-                            <span className="text-[0.625rem] text-muted-foreground/70">
-                              {selectedCount}/{traits.length} traits
-                            </span>
-                          )}
-                        </div>
-                        {/* Traits (MQTs / sub-MQTs) — outline-numbered, indented by depth */}
-                        {traits.length > 0 && !collapsed && (
-                          <div className="mt-1.5 flex flex-wrap gap-1 pl-5">
-                            {traits.map(({ mqt, path, label, number, depth }) => {
-                              const on = q.coverage.mqts.includes(mqt.id);
-                              return (
-                                <button
-                                  type="button"
-                                  key={mqt.id}
-                                  onClick={() => toggleCoverageMqt(q.id, mqt.id)}
-                                  title={path}
-                                  style={{ marginLeft: depth * 12 }}
-                                  className={cn(
-                                    'inline-flex items-center gap-1 px-2 py-0.5 text-[0.6875rem] rounded-full border transition-colors',
-                                    on
-                                      ? 'bg-primary/15 text-primary border-primary/40'
-                                      : 'bg-muted/40 text-muted-foreground border-transparent hover:border-primary/40',
-                                  )}
-                                >
-                                  {on && <Check className="h-2.5 w-2.5" />}
-                                  <span className="font-mono text-[0.625rem] opacity-70">{number}</span>
-                                  {label}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          )}
-
-          {['MCQ', 'RATING_SCALE', 'LIKERT', 'SJT', 'IMAGE_CHOICE'].includes(q.format) && (
-            <div className="space-y-3">
-              <p className="text-xs font-medium text-muted-foreground">
-                Answer Options &mdash; check MQTs this option maps to and assign a score. Any option may carry any score for any MQT.
-              </p>
-              {q.options.map((opt, oi) => (
-                <div key={oi} className="rounded-lg border border-border p-3 space-y-3">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-muted-foreground w-6 text-right">{oi + 1}.</span>
-                    <input
-                      value={opt.text}
-                      onChange={(e) => updateOption(q.id, oi, { text: e.target.value })}
-                      placeholder={`Option ${oi + 1}`}
-                      className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary"
-                    />
-                    {q.options.length > 2 && (
-                      <button onClick={() => removeOption(q.id, oi)} className="text-muted-foreground hover:text-red-500">
-                        <X className="h-3 w-3" />
-                      </button>
-                    )}
-                  </div>
-
-                  {allMqts.length > 0 && (
-                    <div className="rounded-md bg-muted/40 border border-border px-3 py-2 space-y-2">
-                      <p className="text-[0.6875rem] font-medium text-muted-foreground">Scores per MQT</p>
-                      {opt.scores.length === 0 ? (
-                        <p className="text-[0.6875rem] text-muted-foreground italic">No MQT scores yet — click "+ Add MQT score" below.</p>
-                      ) : (
-                        <div className="space-y-1.5">
-                          {opt.scores.map((sc) => {
-                            const entry = mqtIndex[sc.mqt_id];
-                            const usedIds = new Set(opt.scores.map((s) => s.mqt_id).filter((id) => id !== sc.mqt_id));
-                            return (
-                              <div key={sc.mqt_id} className="flex items-center gap-2">
-                                <select
-                                  value={sc.mqt_id}
-                                  onChange={(e) => {
-                                    const newId = e.target.value;
-                                    if (newId === sc.mqt_id) return;
-                                    setQuestions((prev) => prev.map((qq) => {
-                                      if (qq.id !== q.id) return qq;
-                                      const opts = [...qq.options];
-                                      opts[oi] = {
-                                        ...opts[oi],
-                                        scores: opts[oi].scores.map((s) => s.mqt_id === sc.mqt_id ? { ...s, mqt_id: newId } : s),
-                                      };
-                                      return { ...qq, options: opts };
-                                    }));
-                                  }}
-                                  className="flex-1 min-w-0 rounded-md border border-border bg-background px-2 py-1 text-xs outline-none focus:border-primary"
-                                >
-                                  {!entry && <option value={sc.mqt_id}>(missing MQT)</option>}
-                                  {allMqts.map(({ mqt, path }) => (
-                                    <option key={mqt.id} value={mqt.id} disabled={usedIds.has(mqt.id)}>
-                                      {path}{usedIds.has(mqt.id) ? ' (already used)' : ''}
-                                    </option>
-                                  ))}
-                                </select>
-                                <input
-                                  type="number"
-                                  step="1"
-                                  value={sc.score}
-                                  onChange={(e) => setOptionMqtScore(q.id, oi, sc.mqt_id, Number(e.target.value))}
-                                  className="w-16 shrink-0 rounded-md border border-border bg-background px-2 py-1 text-xs text-center outline-none focus:border-primary"
-                                  title="Score for this MQT"
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => toggleOptionMqt(q.id, oi, sc.mqt_id)}
-                                  className="shrink-0 text-muted-foreground hover:text-red-500"
-                                  title="Remove this MQT score"
-                                >
-                                  <X className="h-3 w-3" />
-                                </button>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                      {(() => {
-                        const unusedMqts = allMqts.filter((row) => !opt.scores.some((s) => s.mqt_id === row.mqt.id));
-                        if (unusedMqts.length === 0) return null;
-                        return (
-                          <button
-                            type="button"
-                            onClick={() => toggleOptionMqt(q.id, oi, unusedMqts[0].mqt.id)}
-                            className="text-[0.6875rem] text-primary hover:underline inline-flex items-center gap-1"
-                          >
-                            <Plus className="h-3 w-3" /> Add MQT score
-                          </button>
-                        );
-                      })()}
-                    </div>
-                  )}
-
-                  <div>
-                    <MediaPicker
-                      url={opt.media_url || ''}
-                      type={opt.media_type || 'none'}
-                      onChange={(url, type) => updateOption(q.id, oi, { media_url: url, media_type: type })}
-                    />
-                  </div>
-                </div>
-              ))}
-              <button onClick={() => addOption(q.id)} className="text-xs text-primary hover:underline flex items-center gap-1">
-                <Plus className="h-3 w-3" /> Add option
-              </button>
-            </div>
-          )}
-          </>
-          )}
-        </CardContent>
-      </Card>
-    );
-  };
-
-  const updateQuestion = (id: string, patch: Partial<Question>) => {
-    setQuestions(questions.map((q) => (q.id === id ? { ...q, ...patch } : q)));
-  };
-
-  const updateOption = (qId: string, optIdx: number, patch: Partial<QuestionOption>) => {
-    setQuestions(
-      questions.map((q) => {
-        if (q.id !== qId) return q;
-        const opts = [...q.options];
-        opts[optIdx] = { ...opts[optIdx], ...patch };
-        return { ...q, options: opts };
-      }),
-    );
-  };
-
-  const toggleOptionMqt = (qId: string, optIdx: number, mqtId: string) => {
-    setQuestions(
-      questions.map((q) => {
-        if (q.id !== qId) return q;
-        const opts = [...q.options];
-        const existing = opts[optIdx].scores.find((s) => s.mqt_id === mqtId);
-        if (existing) {
-          opts[optIdx] = { ...opts[optIdx], scores: opts[optIdx].scores.filter((s) => s.mqt_id !== mqtId) };
-        } else {
-          opts[optIdx] = { ...opts[optIdx], scores: [...opts[optIdx].scores, { mqt_id: mqtId, score: 0 }] };
-        }
-        return { ...q, options: opts };
-      }),
-    );
-  };
-
-  const setOptionMqtScore = (qId: string, optIdx: number, mqtId: string, score: number) => {
-    setQuestions(
-      questions.map((q) => {
-        if (q.id !== qId) return q;
-        const opts = [...q.options];
-        opts[optIdx] = {
-          ...opts[optIdx],
-          scores: opts[optIdx].scores.map((s) => (s.mqt_id === mqtId ? { ...s, score } : s)),
-        };
-        return { ...q, options: opts };
-      }),
-    );
-  };
-
-  // Question-level scores: applied on any answer, independent of options.
-  const toggleQuestionMqt = (qId: string, mqtId: string) => {
-    setQuestions(
-      questions.map((q) => {
-        if (q.id !== qId) return q;
-        const existing = q.question_scores.find((s) => s.mqt_id === mqtId);
-        if (existing) {
-          return { ...q, question_scores: q.question_scores.filter((s) => s.mqt_id !== mqtId) };
-        }
-        return { ...q, question_scores: [...q.question_scores, { mqt_id: mqtId, score: 0 }] };
-      }),
-    );
-  };
-
-  const setQuestionMqtScore = (qId: string, mqtId: string, score: number) => {
-    setQuestions(
-      questions.map((q) =>
-        q.id === qId
-          ? { ...q, question_scores: q.question_scores.map((s) => (s.mqt_id === mqtId ? { ...s, score } : s)) }
-          : q,
-      ),
-    );
-  };
-
-  const replaceQuestionMqt = (qId: string, oldMqtId: string, newMqtId: string) => {
-    setQuestions(
-      questions.map((q) =>
-        q.id === qId
-          ? { ...q, question_scores: q.question_scores.map((s) => (s.mqt_id === oldMqtId ? { ...s, mqt_id: newMqtId } : s)) }
-          : q,
-      ),
-    );
-  };
-
-  // Coverage tags: which MQs/MQTs the question measures (independent of scoring).
-  const toggleCoverageMq = (qId: string, mqId: string) => {
-    setQuestions(
-      questions.map((q) => {
-        if (q.id !== qId) return q;
-        const has = q.coverage.mqs.includes(mqId);
-        return {
-          ...q,
-          coverage: {
-            ...q.coverage,
-            mqs: has ? q.coverage.mqs.filter((id) => id !== mqId) : [...q.coverage.mqs, mqId],
-          },
-        };
-      }),
-    );
-  };
-
-  const toggleCoverageMqt = (qId: string, mqtId: string) => {
-    setQuestions(
-      questions.map((q) => {
-        if (q.id !== qId) return q;
-        const has = q.coverage.mqts.includes(mqtId);
-        return {
-          ...q,
-          coverage: {
-            ...q.coverage,
-            mqts: has ? q.coverage.mqts.filter((id) => id !== mqtId) : [...q.coverage.mqts, mqtId],
-          },
-        };
-      }),
-    );
-  };
-
-  const addOption = (qId: string) => {
-    setQuestions(questions.map((q) => (q.id === qId ? { ...q, options: [...q.options, { text: '', scores: [] }] } : q)));
-  };
-
-  const removeOption = (qId: string, optIdx: number) => {
-    setQuestions(questions.map((q) => (q.id === qId ? { ...q, options: q.options.filter((_, i) => i !== optIdx) } : q)));
-  };
-
-  const removeQuestion = (id: string) => setQuestions(questions.filter((q) => q.id !== id));
-
   // ---- Create/Save ----
 
   const handleCreateQuestionnaire = async () => {
     if (!instName.trim() || !instVertical) {
       setError('Name and vertical are required');
       return;
-    }
-    // Refresh the catalog so Step 2's MQT scoring picks up any new MQs.
-    // Non-fatal — the existing in-memory catalog is fine if this fails.
-    try {
-      const freshCatalog = await getMQs();
-      if (freshCatalog.length !== catalog.length) setCatalog(freshCatalog);
-    } catch (e) {
-      console.warn('[create-questionnaire] catalog refresh failed:', e);
     }
     // Step 1 persists the catalog entry (payload mirrors QuestionnaireRequest
     // 1:1); Steps 2-3 attach questions and scoring to it.
@@ -1882,7 +507,6 @@ export default function CreateAssessmentPage() {
         const res = await questionnairesApi.createQuestionnaire(payload);
         qid = res.data.questionnaireId;
         setBackendQid(qid);
-        setQuestionnaireId(String(qid));
       }
       // Persist the demographic form mapping (replace-all; order = sortOrder).
       await questionnairesApi.setQuestionnaireDemographicFields(qid, demoSelection);
@@ -1896,18 +520,84 @@ export default function CreateAssessmentPage() {
     }
   };
 
+  /** Flatten drafts into the placement payload; per-scope order = sortOrder. */
+  const buildMappingEntries = (list: DraftQuestion[]) => {
+    const counters = new Map<string, number>();
+    return list.map((d) => {
+      const scope = String(useSections ? d.sectionId : 'flat');
+      const sortOrder = counters.get(scope) ?? 0;
+      counters.set(scope, sortOrder + 1);
+      return { questionId: d.questionId as number, sectionId: useSections ? d.sectionId : null, sortOrder };
+    });
+  };
+
+  /**
+   * Writes everything Step 2 owns, in an order that is safe to retry:
+   *   1. PUT each edited bank question (a 409 on a locked question aborts
+   *      before anything else is written),
+   *   2. bulk-create the new ones (all-or-nothing) and record their ids in
+   *      state immediately, so a retry never creates them twice,
+   *   3. PUT the placement mapping.
+   */
   const handleSaveQuestions = async () => {
     if (backendQid == null) {
       setError('Save Step 1 first — the questionnaire must exist before questions attach to it.');
       return;
     }
-    const entries = buildMappingEntries();
-    if (entries.length === 0) {
-      setError('Select at least one question');
+    if (drafts.length === 0) {
+      setError('Add at least one question');
       return;
+    }
+    // Pass 1 — validate everything before writing anything.
+    const seen = new Set<number>();
+    for (let i = 0; i < drafts.length; i++) {
+      const d = drafts[i];
+      const problem = validateQuestionForm(d.form);
+      if (problem) {
+        patchDraft(d.key, { expanded: true });
+        setError(`Question ${i + 1}: ${problem}`);
+        return;
+      }
+      if (useSections && d.sectionId == null) {
+        setError(`Question ${i + 1} has no section — assign one (this questionnaire uses sections).`);
+        return;
+      }
+      if (d.questionId != null && !seen.add(d.questionId)) {
+        setError(`Question ${i + 1} is already in this questionnaire — a question can appear only once.`);
+        return;
+      }
     }
     setSaving(true);
     try {
+      const next = [...drafts];
+      // 1 — edited bank questions.
+      for (let i = 0; i < next.length; i++) {
+        const d = next[i];
+        if (d.questionId == null) continue;
+        const snapshot = JSON.stringify(d.form);
+        if (snapshot === d.baseline) continue;
+        const res = await questionApis.updateQuestion(d.questionId, questionPayloadFrom(d.form));
+        next[i] = { ...d, baseline: snapshot, usedIn: res.data.usedIn };
+      }
+      // 2 — brand-new questions, in one all-or-nothing call.
+      const newIdx = next.map((d, i) => (d.questionId == null ? i : -1)).filter((i) => i >= 0);
+      if (newIdx.length > 0) {
+        const res = await questionApis.bulkCreateQuestions(newIdx.map((i) => questionPayloadFrom(next[i].form)));
+        res.data.forEach((created, k) => {
+          const i = newIdx[k];
+          const form = { ...next[i].form, id: created.questionId };
+          next[i] = {
+            ...next[i],
+            questionId: created.questionId,
+            form,
+            baseline: JSON.stringify(form),
+            usedIn: created.usedIn,
+          };
+        });
+      }
+      setDrafts(next);
+      // 3 — placement.
+      const entries = buildMappingEntries(next);
       await questionnairesApi.setQuestionnaireQuestions(backendQid, entries);
       setError('');
       setSuccess(`Saved ${entries.length} question${entries.length === 1 ? '' : 's'} to "${instName}".`);
@@ -1919,9 +609,113 @@ export default function CreateAssessmentPage() {
     }
   };
 
-  const toggleLanguage = (code: string) => {
-    setInstLanguages((prev) => (prev.includes(code) ? prev.filter((l) => l !== code) : [...prev, code]));
+  // --- Step 2 rendering ---
+
+  const renderDraftCard = (d: DraftQuestion, position: number) => {
+    const stem = d.form.stem.trim();
+    const optionCount = d.form.options.filter((o) => o.optionText.trim() || o.mediaUrl.trim()).length;
+    const sharedWith = d.usedIn.filter((u) => u.questionnaireId !== backendQid);
+    return (
+      <Card key={d.key} className="overflow-hidden">
+        <div className="flex items-start gap-2 border-b border-border bg-muted/30 px-3 py-2">
+          <button
+            type="button"
+            onClick={() => patchDraft(d.key, { expanded: !d.expanded })}
+            className="mt-0.5 shrink-0 text-muted-foreground hover:text-foreground"
+            title={d.expanded ? 'Collapse question' : 'Expand question'}
+          >
+            <ChevronRight className={cn('h-4 w-4 transition-transform', d.expanded && 'rotate-90')} />
+          </button>
+          <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+            {position + 1}
+          </span>
+          <button
+            type="button"
+            onClick={() => patchDraft(d.key, { expanded: !d.expanded })}
+            className="min-w-0 flex-1 text-left"
+          >
+            <p className="truncate text-sm font-medium">
+              {stem || <span className="italic text-muted-foreground">Untitled question</span>}
+            </p>
+            <p className="truncate text-[0.6875rem] text-muted-foreground">
+              <span className="font-mono" title="Auto-generated report tag — saved with the questionnaire">
+                {tagPreview(d.sectionId, position)}
+              </span>
+              {' · '}{optionCount} option{optionCount !== 1 ? 's' : ''}
+              {d.questionId == null
+                ? ' · new — added to the question bank when you save'
+                : ` · bank question #${d.questionId}`}
+              {sharedWith.length > 0 && ` · shared with ${sharedWith.length} other questionnaire${sharedWith.length !== 1 ? 's' : ''} — edits apply there too`}
+            </p>
+          </button>
+          {useSections && qSections.length > 0 && (
+            <select
+              value={d.sectionId ?? ''}
+              onChange={(e) => patchDraft(d.key, { sectionId: e.target.value ? Number(e.target.value) : null })}
+              className="h-7 shrink-0 rounded-md border border-border bg-background px-1.5 text-xs outline-none focus:border-primary"
+              title="Section"
+            >
+              <option value="">— no section —</option>
+              {qSections.map((s) => (
+                <option key={s.sectionId} value={s.sectionId}>{s.name}</option>
+              ))}
+            </select>
+          )}
+          <button
+            type="button"
+            onClick={() => moveDraft(d.key, -1)}
+            className="mt-0.5 shrink-0 p-1 text-muted-foreground hover:text-foreground"
+            title="Move up"
+          >
+            <ArrowUp className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => moveDraft(d.key, 1)}
+            className="mt-0.5 shrink-0 p-1 text-muted-foreground hover:text-foreground"
+            title="Move down"
+          >
+            <ArrowDown className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => removeDraft(d.key)}
+            className="mt-0.5 shrink-0 p-1 text-muted-foreground hover:text-red-500"
+            title={d.questionId == null ? 'Discard this question' : 'Remove from this questionnaire (stays in the bank)'}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
+        {d.expanded && (
+          <CardContent className="p-4">
+            {sharedWith.length > 0 && (
+              <div className="mb-3 flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-[0.6875rem] text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span>
+                  This is a shared bank question — editing it also changes{' '}
+                  {sharedWith.map((u) => u.name).join(', ')}. Import it as a copy instead if you need
+                  an independent version.
+                </span>
+              </div>
+            )}
+            <QuestionFormFields
+              form={d.form}
+              onChange={(form) => setDraftForm(d.key, form)}
+              choices={mqtChoices}
+            />
+          </CardContent>
+        )}
+      </Card>
+    );
   };
+
+  const addQuestionButton = (sectionId: number | null) => (
+    <Button variant="outline" size="sm" onClick={() => addDraft(sectionId)}>
+      <Plus className="h-3.5 w-3.5" /> Add Question
+    </Button>
+  );
+
+  const unassigned = useSections ? drafts.filter((d) => d.sectionId == null) : [];
 
   return (
     <div className="p-5 lg:p-7.5 space-y-7 max-w-5xl">
@@ -2152,66 +946,67 @@ export default function CreateAssessmentPage() {
       {step === 2 && (
         <>
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
+            <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
               <CardTitle className="text-base">
-                {useSections ? 'Assign Questions to Sections' : 'Select Questions'}
+                {useSections ? 'Add Questions to Sections' : 'Add Questions'}
               </CardTitle>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <span className="text-xs text-muted-foreground">
-                  {Object.keys(placement).length} selected · {bankSearch.trim() ? `${visibleBank.length} of ${bankQuestions.length}` : bankQuestions.length} in bank
+                  {drafts.length} question{drafts.length !== 1 ? 's' : ''}
                 </span>
+                {drafts.length > 0 && (
+                  <>
+                    <button type="button" onClick={() => setExpandedAll(true)} className="text-[0.6875rem] font-medium text-primary hover:underline">
+                      Expand all
+                    </button>
+                    <span className="text-[0.6875rem] text-muted-foreground">·</span>
+                    <button type="button" onClick={() => setExpandedAll(false)} className="text-[0.6875rem] font-medium text-primary hover:underline">
+                      Collapse all
+                    </button>
+                  </>
+                )}
+                <Button variant="outline" size="sm" onClick={openImport}>
+                  <Library className="h-3.5 w-3.5" /> Import from Questionnaire
+                </Button>
                 <Button variant="outline" size="sm" onClick={() => setBulkUploadOpen(true)}>
                   <UploadIcon className="h-3.5 w-3.5" /> Upload XLSX
                 </Button>
-                <Button variant="outline" size="sm" onClick={() => setAddQOpen(true)}>
-                  <Plus className="h-3.5 w-3.5" /> Add Question
-                </Button>
+                {!useSections && addQuestionButton(null)}
               </div>
             </CardHeader>
             <CardContent className="space-y-5">
-              {bankError && (
+              {step2Error && (
                 <div className="rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-3 py-2 text-xs text-red-700 dark:text-red-400">
-                  {bankError}
+                  {step2Error}
                 </div>
               )}
-              {!bankLoading && bankQuestions.length > 0 && (
-                <div className="relative">
-                  <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <input
-                    type="text"
-                    value={bankSearch}
-                    onChange={(e) => setBankSearch(e.target.value)}
-                    placeholder="Search bank questions by text, option or questionnaire..."
-                    className="w-full h-9 rounded-md border border-input bg-background pl-9 pr-8 text-sm placeholder:text-muted-foreground focus:outline-none focus:border-ring focus:ring-[3px] focus:ring-ring/30 transition-shadow"
-                  />
-                  {bankSearch && (
-                    <button
-                      type="button"
-                      onClick={() => setBankSearch('')}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                      title="Clear search"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
+
+              {step2Loading ? (
+                <p className="py-8 text-center text-sm text-muted-foreground">
+                  <Loader2 className="mr-2 inline h-4 w-4 animate-spin" /> Loading questions…
+                </p>
+              ) : !useSections ? (
+                <div className="space-y-3">
+                  {drafts.length === 0 ? (
+                    <div className="rounded-lg border border-dashed border-border bg-muted/20 px-4 py-10 text-center">
+                      <p className="text-sm text-muted-foreground">No questions yet.</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Write one here, import from another questionnaire, or upload an XLSX.
+                      </p>
+                      <div className="mt-4 flex justify-center gap-2">
+                        {addQuestionButton(null)}
+                        <Button variant="outline" size="sm" onClick={openImport}>
+                          <Library className="h-3.5 w-3.5" /> Import from Questionnaire
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      {drafts.map((d, i) => renderDraftCard(d, i))}
+                      <div className="flex justify-center pt-1">{addQuestionButton(null)}</div>
+                    </>
                   )}
                 </div>
-              )}
-              {bankLoading ? (
-                <p className="text-sm text-muted-foreground py-8 text-center">Loading question bank…</p>
-              ) : !useSections ? (
-                bankQuestions.length === 0 ? (
-                  <p className="text-sm text-muted-foreground py-8 text-center">
-                    The question bank is empty — add your first question.
-                  </p>
-                ) : visibleBank.length === 0 ? (
-                  <p className="text-sm text-muted-foreground py-8 text-center">
-                    No bank questions match “{bankSearch.trim()}”.
-                  </p>
-                ) : (
-                  <div className="space-y-1.5">
-                    {visibleBank.map((q) => renderBankRow(q, null))}
-                  </div>
-                )
               ) : (
                 <>
                   <div className="flex gap-2">
@@ -2227,76 +1022,82 @@ export default function CreateAssessmentPage() {
                     </Button>
                   </div>
                   {qSections.length === 0 ? (
-                    <p className="text-sm text-muted-foreground py-6 text-center">
-                      This questionnaire uses sections — add the first section to start placing questions.
+                    <p className="py-6 text-center text-sm text-muted-foreground">
+                      This questionnaire uses sections — add the first section to start writing questions.
                     </p>
                   ) : (
-                    qSections.map((sec) => (
-                      <div key={sec.sectionId} className="rounded-lg border border-border">
-                        <div className="flex items-center justify-between gap-2 border-b border-border bg-muted/40 px-3 py-2">
-                          <p className="text-sm font-medium">{sec.name}</p>
-                          <div className="flex items-center gap-2">
-                            <span className="text-[0.6875rem] text-muted-foreground">
-                              {scopeList(sec.sectionId).length} question{scopeList(sec.sectionId).length !== 1 ? 's' : ''}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => removeQSection(sec.sectionId)}
-                              className="text-muted-foreground hover:text-red-500"
-                              title="Remove section (its selected questions go back to unplaced)"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
+                    qSections.map((sec) => {
+                      const list = scopeDrafts(sec.sectionId);
+                      return (
+                        <div key={sec.sectionId} className="rounded-lg border border-border">
+                          <div className="flex items-center justify-between gap-2 border-b border-border bg-muted/40 px-3 py-2">
+                            <p className="text-sm font-medium">{sec.name}</p>
+                            <div className="flex items-center gap-2">
+                              <span className="text-[0.6875rem] text-muted-foreground">
+                                {list.length} question{list.length !== 1 ? 's' : ''}
+                              </span>
+                              {addQuestionButton(sec.sectionId)}
+                              <button
+                                type="button"
+                                onClick={() => removeQSection(sec.sectionId)}
+                                className="text-muted-foreground hover:text-red-500"
+                                title="Remove section (its questions become unassigned)"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                          <div className="space-y-3 p-3">
+                            {list.length === 0 ? (
+                              <p className="py-3 text-center text-xs text-muted-foreground">
+                                No questions in this section yet.
+                              </p>
+                            ) : (
+                              list.map((d, i) => renderDraftCard(d, i))
+                            )}
                           </div>
                         </div>
-                        <div className="p-3 space-y-1.5">
-                          {bankQuestions.length === 0 ? (
-                            <p className="text-xs text-muted-foreground text-center py-3">Question bank is empty.</p>
-                          ) : visibleBank.length === 0 ? (
-                            <p className="text-xs text-muted-foreground text-center py-3">
-                              No bank questions match “{bankSearch.trim()}”.
-                            </p>
-                          ) : (
-                            visibleBank.map((q) => renderBankRow(q, sec.sectionId))
-                          )}
-                        </div>
+                      );
+                    })
+                  )}
+                  {unassigned.length > 0 && (
+                    <div className="rounded-lg border border-amber-300 dark:border-amber-900">
+                      <div className="flex items-center justify-between gap-2 border-b border-amber-300 bg-amber-50 px-3 py-2 dark:border-amber-900 dark:bg-amber-950/30">
+                        <p className="text-sm font-medium text-amber-900 dark:text-amber-300">Unassigned</p>
+                        <span className="text-[0.6875rem] text-amber-800 dark:text-amber-400">
+                          Pick a section for each — saving needs every question placed.
+                        </span>
                       </div>
-                    ))
+                      <div className="space-y-3 p-3">
+                        {unassigned.map((d, i) => renderDraftCard(d, i))}
+                      </div>
+                    </div>
                   )}
                 </>
               )}
             </CardContent>
           </Card>
 
-          <div className="flex justify-between">
+          <div className="flex flex-wrap justify-between gap-2">
             <Button variant="outline" onClick={() => { setStep(1); setError(''); }}>
               <ChevronLeft className="h-4 w-4" /> Previous Step
             </Button>
-            <Button variant="primary" onClick={handleSaveQuestions} disabled={saving || Object.keys(placement).length === 0}>
-              {saving ? 'Saving…' : 'Save Questions & Continue'}
-              <ChevronRight className="h-4 w-4" />
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setPreviewOpen(true)} disabled={drafts.length === 0}>
+                <Eye className="h-4 w-4" /> Preview
+              </Button>
+              <Button variant="primary" onClick={handleSaveQuestions} disabled={saving || drafts.length === 0}>
+                {saving ? 'Saving…' : 'Save Questions & Continue'}
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
 
-          {/* Add-question-to-bank modal — the same full editor as the Questions page */}
-          {addQOpen && (
-            <QuestionFormModal
-              initial={null}
-              choices={bankMqtChoices}
-              onClose={() => setAddQOpen(false)}
-              onSaved={(q) => {
-                setBankQuestions((prev) => [...prev, q]);
-                setAddQOpen(false);
-              }}
-            />
-          )}
-
           {/* Bulk XLSX upload — same modal/template as the Questions page,
-              plus section matching + auto-select into this questionnaire.
-              Unmounts on close so its state resets each time. */}
+              plus section matching. Unmounts on close so its state resets. */}
           {bulkUploadOpen && (
             <BulkUploadModal
-              choices={bankMqtChoices}
+              choices={mqtChoices}
               onClose={() => setBulkUploadOpen(false)}
               questionnaire={{
                 hasSections: useSections,
@@ -2317,7 +1118,7 @@ export default function CreateAssessmentPage() {
             </div>
             <h2 className="text-xl font-semibold">Saved to Questionnaire Library</h2>
             <p className="text-muted-foreground max-w-md mx-auto">
-              <strong>{instName}</strong> is live with {Object.keys(placement).length} question{Object.keys(placement).length !== 1 ? 's' : ''}
+              <strong>{instName}</strong> is live with {drafts.length} question{drafts.length !== 1 ? 's' : ''}
               {useSections ? ` across ${qSections.length} section${qSections.length !== 1 ? 's' : ''}` : ''}
               {demoSelection.length > 0 ? ` and ${demoSelection.length} demographic field${demoSelection.length !== 1 ? 's' : ''}` : ''}.
             </p>
@@ -2345,169 +1146,258 @@ export default function CreateAssessmentPage() {
         </Card>
       )}
 
-      {/* ===== Bulk import from CSV/XLSX ===== */}
-      {bulkOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={() => setBulkOpen(false)}>
-          <Card className="w-full max-w-3xl max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
-            <CardHeader className="flex flex-row items-center justify-between pb-3 shrink-0">
-              <CardTitle className="text-base">Import Questions from CSV or Excel</CardTitle>
-              <button onClick={() => setBulkOpen(false)} className="text-muted-foreground hover:text-foreground">
+      {/* ===== Preview popup — respondent view of the current draft ===== */}
+      {previewOpen && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4" onClick={() => setPreviewOpen(false)}>
+          <Card className="my-auto flex max-h-[90vh] w-full max-w-3xl flex-col" onClick={(e) => e.stopPropagation()}>
+            <CardHeader className="flex shrink-0 flex-row items-center justify-between border-b border-border pb-3">
+              <div>
+                <CardTitle className="text-base">Preview</CardTitle>
+                <p className="text-[0.6875rem] uppercase tracking-wider text-muted-foreground">
+                  Respondent view · unsaved edits included
+                </p>
+              </div>
+              <button onClick={() => setPreviewOpen(false)} className="text-muted-foreground hover:text-foreground">
                 <X className="h-4 w-4" />
               </button>
             </CardHeader>
-            <CardContent className="flex-1 min-h-0 overflow-y-auto space-y-4">
-              <div className="rounded-lg border border-border bg-muted/30 p-3 text-xs text-muted-foreground">
-                <p className="font-medium text-foreground mb-1">Expected columns (case-insensitive)</p>
-                <p>
-                  <code className="font-mono">stem</code> (required),{' '}
-                  <code className="font-mono">format</code>,{' '}
-                  <code className="font-mono">section</code>,{' '}
-                  <code className="font-mono">risk_flag</code>,{' '}
-                  <code className="font-mono">risk_rule</code>,{' '}
-                  <code className="font-mono">option1</code>…<code className="font-mono">option8</code>,{' '}
-                  <code className="font-mono">option1_mq1</code>,{' '}
-                  <code className="font-mono">option1_mqt1</code>,{' '}
-                  <code className="font-mono">option1_submqt1</code>,{' '}
-                  <code className="font-mono">option1_subsubmqt1</code>,{' '}
-                  <code className="font-mono">option1_score1</code> (repeat per option; add{' '}
-                  <code className="font-mono">_mq2</code>… to score against more than one MQ)
-                </p>
-                <p className="mt-2">
-                  Format defaults to <strong>MCQ</strong>. Sections mode must be on for the{' '}
-                  <code className="font-mono">section</code> column to take effect. Each numbered MQ block
-                  (<code className="font-mono">_mq1</code>, <code className="font-mono">_mq2</code>, …) maps one MQ ›
-                  MQT › sub-MQT › sub-sub-MQT path; the score lands on the deepest level filled in. Missing MQs/MQTs are
-                  created in the database on import. If no MQ/MQT is given but a score is, it applies to the first MQT in
-                  the catalog (backward-compatible).
-                </p>
-                <div className="mt-2">
-                  <button onClick={downloadBulkTemplate} className="text-primary hover:underline text-xs inline-flex items-center gap-1">
-                    <UploadIcon className="h-3 w-3 rotate-180" /> Download CSV template
-                  </button>
-                </div>
-              </div>
+            <CardContent className="min-h-0 flex-1 overflow-y-auto p-5">
+              <QuestionnairePreviewView
+                meta={previewMeta}
+                sections={qSections}
+                demoFields={previewDemoFields}
+                questions={previewQuestions}
+              />
+            </CardContent>
+            <div className="flex shrink-0 justify-end border-t border-border px-5 py-3">
+              <Button variant="outline" onClick={() => setPreviewOpen(false)}>Close</Button>
+            </div>
+          </Card>
+        </div>
+      )}
 
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium">Choose file</label>
-                <input
-                  type="file"
-                  accept=".csv,.xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (f) parseBulkFile(f);
-                  }}
-                  className="block w-full text-sm file:mr-3 file:rounded-md file:border file:border-border file:bg-background file:px-3 file:py-1.5 file:text-xs file:font-medium hover:file:border-primary/50"
-                />
-                {bulkFileName && (
-                  <p className="text-[0.6875rem] text-muted-foreground">
-                    Parsed <strong>{bulkFileName}</strong> — {bulkRows.length} row{bulkRows.length !== 1 ? 's' : ''} found,{' '}
-                    {bulkRows.filter((r) => r.errors.length === 0).length} valid.
-                  </p>
-                )}
+      {/* ===== Import questions from another questionnaire ===== */}
+      {importOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={() => setImportOpen(false)}>
+          <Card className="flex max-h-[85vh] w-full max-w-3xl flex-col" onClick={(e) => e.stopPropagation()}>
+            <CardHeader className="flex shrink-0 flex-row items-center justify-between pb-3">
+              <div className="min-w-0">
+                <CardTitle className="text-base">
+                  {importStage === 'questionnaire' ? 'Import from another questionnaire' : importSource?.name}
+                </CardTitle>
+                <p className="truncate text-[0.6875rem] text-muted-foreground">
+                  {importStage === 'questionnaire'
+                    ? 'Pick the questionnaire to take questions from.'
+                    : 'Tick the questions to add to this questionnaire.'}
+                </p>
               </div>
-
-              {bulkError && (
-                <div className="rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-3 py-2 text-xs text-red-700 dark:text-red-400 flex items-start gap-2">
-                  <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                  <span>{bulkError}</span>
+              <button onClick={() => setImportOpen(false)} className="text-muted-foreground hover:text-foreground">
+                <X className="h-4 w-4" />
+              </button>
+            </CardHeader>
+            <CardContent className="min-h-0 flex-1 space-y-3 overflow-y-auto">
+              {importError && (
+                <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-400">
+                  {importError}
                 </div>
               )}
 
-              {bulkParsing && (
-                <p className="text-xs text-muted-foreground">Parsing…</p>
-              )}
-
-              {bulkRows.length > 0 && (
-                <div className="rounded-lg border border-border overflow-hidden">
-                  <div className="max-h-72 overflow-y-auto">
-                    <table className="w-full text-xs">
-                      <thead className="bg-muted/50 sticky top-0">
-                        <tr className="text-left">
-                          <th className="px-2 py-1.5 w-8">#</th>
-                          <th className="px-2 py-1.5">Stem</th>
-                          <th className="px-2 py-1.5 w-20">Format</th>
-                          <th className="px-2 py-1.5 w-24">Section</th>
-                          <th className="px-2 py-1.5 w-16">Options</th>
-                          <th className="px-2 py-1.5 w-24">Status</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {bulkRows.map((r, i) => (
-                          <tr key={i} className={cn('border-t border-border', r.errors.length > 0 && 'bg-red-50 dark:bg-red-950/20')}>
-                            <td className="px-2 py-1.5 text-muted-foreground">{i + 1}</td>
-                            <td className="px-2 py-1.5 truncate max-w-xs" title={r.stem}>{r.stem || <em className="text-muted-foreground">(empty)</em>}</td>
-                            <td className="px-2 py-1.5 font-mono">{r.format}</td>
-                            <td className="px-2 py-1.5 truncate" title={r.section}>{r.section || '—'}</td>
-                            <td className="px-2 py-1.5">{r.options.length}</td>
-                            <td className="px-2 py-1.5">
-                              {r.errors.length === 0 ? (
-                                <span className="text-green-600">Ready</span>
-                              ) : (
-                                <span className="text-red-600" title={r.errors.join('; ')}>{r.errors[0]}</span>
+              {importStage === 'questionnaire' ? (
+                <>
+                  <div className="relative">
+                    <SearchIcon className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <input
+                      value={importSearch}
+                      onChange={(e) => setImportSearch(e.target.value)}
+                      placeholder="Search questionnaires…"
+                      className="h-9 w-full rounded-md border border-input bg-background pl-9 pr-3 text-sm outline-none focus:border-ring"
+                    />
+                  </div>
+                  {importLoading ? (
+                    <p className="py-8 text-center text-sm text-muted-foreground">
+                      <Loader2 className="mr-2 inline h-4 w-4 animate-spin" /> Loading library…
+                    </p>
+                  ) : filteredImportLibrary.length === 0 ? (
+                    <p className="py-8 text-center text-sm text-muted-foreground">
+                      {importLibrary.length === 0
+                        ? 'No other questionnaire has questions yet.'
+                        : `No questionnaire matches “${importSearch.trim()}”.`}
+                    </p>
+                  ) : (
+                    <div className="divide-y divide-border rounded-lg border border-border">
+                      {filteredImportLibrary.map((q) => (
+                        <button
+                          key={q.questionnaireId}
+                          type="button"
+                          onClick={() => pickImportSource(q)}
+                          className="flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-muted/50"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-medium">
+                              {q.name}
+                              {q.shortName && (
+                                <span className="ml-2 rounded border border-border bg-muted/40 px-1.5 py-0.5 text-[0.625rem] font-medium text-muted-foreground">
+                                  {q.shortName}
+                                </span>
                               )}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                            </p>
+                            <p className="truncate text-[0.6875rem] text-muted-foreground">
+                              {q.questionCount} question{q.questionCount !== 1 ? 's' : ''}
+                              {q.vertical && ` · ${q.vertical.charAt(0) + q.vertical.slice(1).toLowerCase()}`}
+                              {q.category && ` · ${q.category}`}
+                            </p>
+                          </div>
+                          <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button variant="outline" size="sm" onClick={() => setImportStage('questionnaire')}>
+                      <ChevronLeft className="h-3.5 w-3.5" /> Other questionnaire
+                    </Button>
+                    <div className="relative flex-1 min-w-48">
+                      <SearchIcon className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                      <input
+                        value={importQSearch}
+                        onChange={(e) => setImportQSearch(e.target.value)}
+                        placeholder="Search questions…"
+                        className="h-9 w-full rounded-md border border-input bg-background pl-9 pr-3 text-sm outline-none focus:border-ring"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setImportPicked(new Set(
+                        filteredImportQuestions
+                          .filter((q) => importMode === 'copy' || !linkedIds.has(q.questionId))
+                          .map((q) => q.questionId),
+                      ))}
+                      className="text-[0.6875rem] font-medium text-primary hover:underline"
+                    >
+                      Select all
+                    </button>
+                    <span className="text-[0.6875rem] text-muted-foreground">·</span>
+                    <button
+                      type="button"
+                      onClick={() => setImportPicked(new Set())}
+                      className="text-[0.6875rem] font-medium text-primary hover:underline"
+                    >
+                      Clear
+                    </button>
                   </div>
-                </div>
-              )}
 
-              {bulkPendingPairs.length > 0 && (
-                <div className="rounded-lg border border-border p-3 space-y-2">
-                  <p className="text-xs font-medium">MQ / MQT references ({bulkPendingPairs.length})</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {bulkPendingPairs.map((p, i) => (
-                      <span
-                        key={i}
-                        className={cn(
-                          'inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[0.6875rem]',
-                          p.isNew
-                            ? 'border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300'
-                            : 'border-border bg-muted/40 text-muted-foreground',
-                        )}
-                        title={p.isNew ? 'Will be created in the database on import' : 'Already exists in the catalog'}
-                      >
-                        <strong className="font-mono">{p.mq}</strong>
-                        <span className="opacity-60">›</span>
-                        <span className="font-mono">{p.mqt}</span>
-                        {p.isNew && <span className="ml-1 opacity-80">new</span>}
-                      </span>
-                    ))}
-                  </div>
-                  <p className="text-[0.6875rem] text-muted-foreground">
-                    Amber = will be created on import. Plain = already in the catalog.
-                  </p>
-                </div>
+                  {importLoading ? (
+                    <p className="py-8 text-center text-sm text-muted-foreground">
+                      <Loader2 className="mr-2 inline h-4 w-4 animate-spin" /> Loading questions…
+                    </p>
+                  ) : filteredImportQuestions.length === 0 ? (
+                    <p className="py-8 text-center text-sm text-muted-foreground">
+                      {importQuestions.length === 0
+                        ? 'That questionnaire has no questions.'
+                        : `No question matches “${importQSearch.trim()}”.`}
+                    </p>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {filteredImportQuestions.map((q) => {
+                        const already = importMode === 'link' && linkedIds.has(q.questionId);
+                        const checked = importPicked.has(q.questionId);
+                        return (
+                          <label
+                            key={q.questionId}
+                            className={cn(
+                              'flex cursor-pointer items-start gap-2.5 rounded-md border px-3 py-2 text-sm transition-colors',
+                              checked ? 'border-primary bg-primary/5' : 'border-border',
+                              already && 'cursor-not-allowed opacity-50',
+                            )}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              disabled={already}
+                              onChange={() => setImportPicked((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(q.questionId)) next.delete(q.questionId);
+                                else next.add(q.questionId);
+                                return next;
+                              })}
+                              className="mt-1 shrink-0 rounded"
+                            />
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm">
+                                {q.stem || <span className="italic text-muted-foreground">(media question)</span>}
+                              </p>
+                              <p className="text-[0.6875rem] text-muted-foreground">
+                                {q.options.length} option{q.options.length !== 1 ? 's' : ''}
+                                {q.mqtScores.length > 0 && ` · ${q.mqtScores.length} question-level score${q.mqtScores.length !== 1 ? 's' : ''}`}
+                                {q.riskFlag && ' · risk flag'}
+                                {already && ' · already in this questionnaire'}
+                              </p>
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+                </>
               )}
             </CardContent>
-            <div className="shrink-0 border-t border-border px-5 py-3 flex items-center justify-between gap-2">
-              <p className="text-[0.6875rem] text-muted-foreground">
-                {useSections ? 'Sections will be created from the section column.' : 'Turn on sections in Step 1 to use the section column.'}
-                {bulkPendingPairs.some((p) => p.isNew) && (
-                  <>
-                    {' '}
-                    <span className="text-amber-700 dark:text-amber-400">
-                      {bulkPendingPairs.filter((p) => p.isNew).length} new MQ/MQT entr
-                      {bulkPendingPairs.filter((p) => p.isNew).length === 1 ? 'y' : 'ies'} will be created in the catalog.
-                    </span>
-                  </>
-                )}
-              </p>
-              <div className="flex gap-2">
-                <Button variant="outline" onClick={() => setBulkOpen(false)} disabled={bulkImporting}>Cancel</Button>
-                <Button
-                  variant="primary"
-                  onClick={confirmBulkImport}
-                  disabled={bulkImporting || bulkRows.length === 0 || bulkRows.every((r) => r.errors.length > 0)}
-                >
-                  {bulkImporting
-                    ? 'Importing…'
-                    : `Import ${bulkRows.filter((r) => r.errors.length === 0).length} Question${bulkRows.filter((r) => r.errors.length === 0).length !== 1 ? 's' : ''}`}
-                </Button>
+
+            {importStage === 'questions' && (
+              <div className="shrink-0 space-y-2 border-t border-border px-5 py-3">
+                <div className="flex flex-wrap items-center gap-3">
+                  <span className="text-xs font-medium">Add as</span>
+                  <div className="flex overflow-hidden rounded-md border border-border">
+                    {(['link', 'copy'] as const).map((m) => (
+                      <button
+                        key={m}
+                        type="button"
+                        onClick={() => setImportMode(m)}
+                        className={cn(
+                          'px-2.5 py-1 text-xs font-medium transition-colors',
+                          importMode === m ? 'bg-primary text-primary-foreground' : 'bg-background text-muted-foreground hover:text-foreground',
+                        )}
+                      >
+                        {m === 'link' ? 'Linked' : 'Copy'}
+                      </button>
+                    ))}
+                  </div>
+                  <span className="flex-1 text-[0.6875rem] text-muted-foreground">
+                    {importMode === 'link'
+                      ? 'The same bank question — later edits change it in every questionnaire that uses it.'
+                      : 'An independent duplicate — added to the question bank as a new question when you save.'}
+                  </span>
+                  {useSections && (
+                    <label className="flex items-center gap-1.5 text-xs">
+                      Into section
+                      <select
+                        value={importSection ?? ''}
+                        onChange={(e) => setImportSection(e.target.value ? Number(e.target.value) : null)}
+                        className="h-8 rounded-md border border-border bg-background px-1.5 text-xs outline-none focus:border-primary"
+                      >
+                        <option value="">— unassigned —</option>
+                        {qSections.map((s) => (
+                          <option key={s.sectionId} value={s.sectionId}>{s.name}</option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[0.6875rem] text-muted-foreground">
+                    {importPicked.size} selected
+                  </span>
+                  <div className="flex gap-2">
+                    <Button variant="outline" onClick={() => setImportOpen(false)}>Cancel</Button>
+                    <Button variant="primary" onClick={confirmImport} disabled={importPicked.size === 0}>
+                      Add {importPicked.size > 0 ? importPicked.size : ''} Question{importPicked.size !== 1 ? 's' : ''}
+                    </Button>
+                  </div>
+                </div>
               </div>
-            </div>
+            )}
           </Card>
         </div>
       )}

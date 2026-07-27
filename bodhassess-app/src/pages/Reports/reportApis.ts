@@ -46,6 +46,42 @@ export interface RespondentRow {
   completedAssessments: number;
 }
 
+export type AttemptStatus = 'NOT_STARTED' | 'ONGOING' | 'COMPLETED';
+
+/**
+ * Matches ReportRespondentAssessmentRow on the backend — one assessment a
+ * respondent holds, with how far the attempt got. answeredQuestions and
+ * demographicResponses are what a reset wipes.
+ */
+export interface RespondentAssessmentRow {
+  respondentAssessmentMappingId: number;
+  assessmentId: number;
+  assessmentName: string;
+  assessmentStatus: AssessmentStatus;
+  questionnaireId: number;
+  questionnaireName: string;
+  attemptStatus: AttemptStatus;
+  isPersisted: boolean;
+  answeredQuestions: number;
+  totalQuestions: number;
+  demographicResponses: number;
+}
+
+/** Matches ReportRespondentDetail on the backend — the info popup's payload. */
+export interface RespondentDetail {
+  respondentUserId: number;
+  serialId: string | null;
+  name: string | null;
+  email: string;
+  phone: string | null;
+  gender: string | null;
+  consented: boolean;
+  consentedAt: string | null;
+  organizationId: number | null;
+  organizationName: string | null;
+  assessments: RespondentAssessmentRow[];
+}
+
 export interface PagedQuery {
   search?: string;
   page?: number;
@@ -73,8 +109,26 @@ function getRespondents(query: RespondentQuery) {
   return axios.get<ReportPage<RespondentRow>>(`${API_URL}/reports/getRespondents`, { params: query });
 }
 
+// The info popup: profile + every assessment allotted to one respondent.
+function getRespondentDetail(respondentUserId: number) {
+  return axios.get<RespondentDetail>(`${API_URL}/reports/getRespondentDetail/${respondentUserId}`);
+}
+
+/**
+ * Wipes the respondent's answers and demographic responses for that one
+ * assessment and drops the allotment back to NOT_STARTED, so they take it
+ * again from scratch. Destructive — confirm before calling.
+ */
+function resetAssessment(respondentAssessmentMappingId: number) {
+  return axios.post<RespondentAssessmentRow>(
+    `${API_URL}/reports/resetAssessment/${respondentAssessmentMappingId}`,
+  );
+}
+
 export const reportApis = {
   getOrganizations,
   getAssessments,
   getRespondents,
+  getRespondentDetail,
+  resetAssessment,
 };
