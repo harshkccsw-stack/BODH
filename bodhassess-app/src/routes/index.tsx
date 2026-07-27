@@ -131,7 +131,7 @@ const QuestionnairePreview       = lazyPage(() => import('@/pages/questionnaires
 
 const Reports             = lazyPage(() => import('@/pages/reports/all-reports'));
 // New-dialect respondent report listing wired to spring-social (/api/reports).
-const ReportsHub          = lazyPage(() => import('@/pages/reports/ReportsHub'));
+const ReportsHub          = lazyPage(() => import('@/pages/Reports/ReportsHub'));
 const ReportsResponses    = lazyPage(() => import('@/pages/reports/response-sheets'));
 const ReportsClinical     = lazyPage(() => import('@/pages/reports/clinical'));
 const ReportsCounselling  = lazyPage(() => import('@/pages/reports/counselling'));
