@@ -14,6 +14,20 @@ function getActiveToken(): string | null {
   return localStorage.getItem(config.authStorageKey);
 }
 
+// Failed request. `message` keeps the legacy "[API 401] ..." shape older
+// catch sites regex against; new code should branch on `status` and show
+// `serverMessage` (the backend's {"message": ...} body) to the user.
+export class ApiError extends Error {
+  readonly status: number;
+  readonly serverMessage: string;
+
+  constructor(status: number, path: string, serverMessage: string) {
+    super(`[API ${status}] ${path}: ${serverMessage}`);
+    this.status = status;
+    this.serverMessage = serverMessage;
+  }
+}
+
 async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -27,7 +41,14 @@ async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, { ...init, headers });
   if (!res.ok) {
     const text = await res.text().catch(() => res.statusText);
-    throw new Error(`[API ${res.status}] ${path}: ${text}`);
+    let serverMessage = text;
+    try {
+      const parsed = JSON.parse(text);
+      if (typeof parsed?.message === 'string') serverMessage = parsed.message;
+    } catch {
+      /* non-JSON error body — keep the raw text */
+    }
+    throw new ApiError(res.status, path, serverMessage);
   }
   if (res.status === 204) return null as T;
   const ct = res.headers.get('content-type') || '';
@@ -35,7 +56,145 @@ async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json();
 }
 
-// ---------- Auth (unified login) ----------
+// ---------- Portal auth (spring-social /api/portal) ----------
+// One allotted assessment. Matches RespondentAssessmentResponse on the
+// backend — one row per (respondent, assessment) pair, no re-attempts.
+export interface AllottedAssessment {
+  respondentAssessmentMappingId: number;
+  respondentUserId: number;
+  respondentName: string;
+  respondentEmail: string;
+  serialId: string;
+  organizationId: number | null;
+  organizationName: string | null;
+  assessmentId: number;
+  assessmentName: string;
+  assessmentStatus: 'NOT_STARTED' | 'ONGOING' | 'COMPLETED';
+  /** True once the submitted answers are committed to MySQL. */
+  isPersisted: boolean;
+}
+// The signed-in respondent + their allotted assessments. Matches
+// PortalAuthResponse on the backend.
+export interface PortalRespondent {
+  userId: number;
+  respondentUserId: number;
+  serialId: string;
+  email: string;
+  name: string;
+  isConsented: boolean;
+  organizationId: number | null;
+  organizationName: string | null;
+  allottedAssessments: AllottedAssessment[];
+}
+// Matches PortalLoginResponse on the backend.
+export interface PortalLoginResult {
+  token: string;
+  respondent: PortalRespondent;
+}
+export const portalAuthApi = {
+  // Same email + dob credential as the dashboard; only accounts holding a
+  // respondent profile get in (403 otherwise).
+  login: (email: string, dob: string) =>
+    jsonFetch<PortalLoginResult>('/portal/login', { method: 'POST', body: JSON.stringify({ email, dob }) }),
+  // Session restore: bearer token in, respondent + allotted assessments out.
+  me: () => jsonFetch<PortalRespondent>('/portal/me'),
+};
+
+// ---------- Portal assessment delivery (take-flow read side) ----------
+// What a stem or option is made of. Matches ContentType on the backend.
+export type PortalContentType = 'TEXT' | 'IMAGE' | 'VIDEO' | 'URL';
+
+// Matches PortalAssessmentDetailResponse.PortalOption on the backend.
+export interface PortalOption {
+  optionId: number;
+  optionText: string | null;
+  contentType: PortalContentType;
+  mediaUrl: string | null;
+  sortOrder: number;
+}
+// Matches PortalAssessmentDetailResponse.PortalQuestion on the backend.
+export interface PortalQuestion {
+  questionId: number;
+  sectionId: number | null;
+  sortOrder: number;
+  contentType: PortalContentType;
+  stem: string | null;
+  mediaUrl: string | null;
+  options: PortalOption[];
+}
+// Matches PortalAssessmentDetailResponse.PortalSection on the backend.
+export interface PortalSection {
+  sectionId: number;
+  name: string;
+  instruction: string | null;
+}
+// Matches PortalAssessmentDetailResponse.PortalDemographicField on the backend.
+export interface PortalDemographicField {
+  demographicFieldId: number;
+  label: string;
+  fieldType: 'TEXT' | 'NUMBER' | 'DATE' | 'DROPDOWN';
+  placeholder: string | null;
+  options: string[];
+  required: boolean;
+  sortOrder: number;
+}
+// Matches PortalAssessmentDetailResponse on the backend. Deliberately carries
+// no scoring data — the server never sends it to respondents.
+export interface PortalAssessmentDetail {
+  respondentAssessmentMappingId: number;
+  assessmentStatus: 'NOT_STARTED' | 'ONGOING' | 'COMPLETED';
+  isPersisted: boolean;
+  assessmentId: number;
+  assessmentName: string;
+  showTermsAndConditions: boolean;
+  autoNext: boolean;
+  questionnaireId: number;
+  questionnaireName: string;
+  description: string | null;
+  durationMinutes: number | null;
+  generalInstruction: string | null;
+  hasSections: boolean;
+  demographicFields: PortalDemographicField[];
+  sections: PortalSection[];
+  questions: PortalQuestion[];
+}
+// Matches PortalBeginRequest.DemographicEntry on the backend.
+export interface PortalDemographicEntry {
+  demographicFieldId: number;
+  value: string;
+}
+// Matches PortalSubmitRequest.AnswerEntry on the backend.
+export interface PortalAnswerEntry {
+  questionId: number;
+  optionId: number;
+}
+// Matches PortalAttemptStatusResponse on the backend. isPersisted is the
+// durability fact check — true once the answers reached MySQL.
+export interface PortalAttemptStatus {
+  respondentAssessmentMappingId: number;
+  assessmentStatus: 'NOT_STARTED' | 'ONGOING' | 'COMPLETED';
+  isPersisted: boolean;
+}
+export const portalAssessmentsApi = {
+  // The id is the allotment (respondentAssessmentMappingId), not the Assessment.
+  get: (mappingId: number | string) =>
+    jsonFetch<PortalAssessmentDetail>(`/portal/assessments/getById/${encodeURIComponent(mappingId)}`),
+  // Starts the attempt: stores the demographic form (replace-all), records
+  // consent, flips NOT_STARTED → ONGOING. Idempotent while un-completed.
+  begin: (mappingId: number | string, demographics: PortalDemographicEntry[]) =>
+    jsonFetch<PortalAttemptStatus>(`/portal/assessments/begin/${encodeURIComponent(mappingId)}`, {
+      method: 'POST',
+      body: JSON.stringify({ demographics }),
+    }),
+  // The once-and-for-all submission: every answer at once, ONGOING → COMPLETED.
+  submit: (mappingId: number | string, answers: PortalAnswerEntry[]) =>
+    jsonFetch<PortalAttemptStatus>(`/portal/assessments/submit/${encodeURIComponent(mappingId)}`, {
+      method: 'POST',
+      body: JSON.stringify({ answers }),
+    }),
+};
+
+// ---------- Auth (LEGACY unified login — old v2 backend only) ----------
 export interface AuthUser {
   id: string;
   email: string;
@@ -50,8 +209,8 @@ export interface AuthLoginResponse {
   user: AuthUser;
 }
 export const authApi = {
-  // Unified identity login (email + dob). Returns a respondent JWT that works
-  // across every endpoint the portal calls.
+  // Old unified identity login — still referenced by the registration flow,
+  // which has not been rewired to spring-social yet.
   login: (email: string, dob: string) =>
     jsonFetch<AuthLoginResponse>('/auth/login', { method: 'POST', body: JSON.stringify({ email, dob }) }),
 };

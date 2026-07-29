@@ -82,6 +82,8 @@ const AdminDataGrid      = lazyPage(() => import('@/pages/admin/data-grid'));
 const Assessments              = lazyPage(() => import('@/pages/assessments/all-assessments'));
 // New-dialect catalog page wired to spring-social (Assessment Library group).
 const AssessmentLibrary        = lazyPage(() => import('@/pages/assessments/assessment-library'));
+// Direct assessment→respondent assignment for unaffiliated respondents.
+const AssessmentMapping        = lazyPage(() => import('@/pages/AssessmentMapping/assessment-mapping'));
 const AssessmentsCreate        = lazyPage(() => import('@/pages/assessments/create-assessment'));
 const AssessmentsEdit          = lazyPage(() => import('@/pages/assessments/edit-assessment'));
 const AssessmentsBatch         = lazyPage(() => import('@/pages/assessments/batch-upload'));
@@ -128,6 +130,8 @@ const QuestionnairesDemographics = lazyPage(() => import('@/pages/questionnaires
 const QuestionnairePreview       = lazyPage(() => import('@/pages/questionnaires/preview'));
 
 const Reports             = lazyPage(() => import('@/pages/reports/all-reports'));
+// New-dialect respondent report listing wired to spring-social (/api/reports).
+const ReportsHub          = lazyPage(() => import('@/pages/Reports/ReportsHub'));
 const ReportsResponses    = lazyPage(() => import('@/pages/reports/response-sheets'));
 const ReportsClinical     = lazyPage(() => import('@/pages/reports/clinical'));
 const ReportsCounselling  = lazyPage(() => import('@/pages/reports/counselling'));
@@ -229,6 +233,7 @@ const routes: RouteObject[] = [
       { path: '/admin/data-grid', element: <AdminDataGrid /> },
 
       { path: '/assessment-library/assessments', element: <AssessmentLibrary /> },
+      { path: '/assessment-library/mapping', element: <AssessmentMapping /> },
       // { path: '/assessments', element: <Assessments /> },
       // { path: '/assessments/create', element: <AssessmentsCreate /> },
       { path: '/assessments/edit/:id', element: <AssessmentsEdit /> },
@@ -283,6 +288,7 @@ const routes: RouteObject[] = [
       { path: '/questionnaires/industrial', element: <Questionnaires /> },
 
       { path: '/reports', element: <Reports /> },
+      { path: '/reports/hub', element: <ReportsHub /> },
       { path: '/reports/responses', element: <ReportsResponses /> },
       { path: '/reports/clinical', element: <ReportsClinical /> },
       { path: '/reports/counselling', element: <ReportsCounselling /> },

@@ -11,9 +11,9 @@ services:
       - /etc/letsencrypt:/etc/letsencrypt:ro
       - /var/www/certbot:/var/www/certbot:ro
     networks:
-      - bodh
+      - bodhpsychometric
 
 networks:
-  bodh:
-    name: bodhassess-api_bodh
+  bodhpsychometric:
+    name: bodhassess-api_bodhpsychometric
     external: true

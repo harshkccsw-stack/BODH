@@ -22,6 +22,7 @@ import com.bodhpsychometric.model.assessment.Assessment;
 import com.bodhpsychometric.model.assessment.enums.AssessmentStatus;
 import com.bodhpsychometric.model.questionnaire.Questionnaire;
 import com.bodhpsychometric.repository.assessment.AssessmentRepository;
+import com.bodhpsychometric.repository.assessment.OrganizationAssessmentMappingRepository;
 import com.bodhpsychometric.repository.assessment.RespondentAssessmentMappingRepository;
 import com.bodhpsychometric.repository.questionnaire.QuestionnaireRepository;
 
@@ -46,6 +47,9 @@ public class AssessmentController {
 
     @Autowired
     private RespondentAssessmentMappingRepository respondentAssessmentMappingRepository;
+
+    @Autowired
+    private OrganizationAssessmentMappingRepository organizationAssessmentMappingRepository;
 
     private int respondentCountOf(Long assessmentId) {
         return (int) respondentAssessmentMappingRepository.countByAssessmentAssessmentId(assessmentId);
@@ -111,6 +115,9 @@ public class AssessmentController {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("message",
                     "assessment has " + attempts + " respondent attempt(s) — set it INACTIVE instead of deleting"));
         }
+        // Org catalog rows are meaningless without the assessment — clean them
+        // with it (attempt-free by the check above, so nothing is orphaned).
+        organizationAssessmentMappingRepository.deleteByAssessment_AssessmentId(id);
         assessmentRepository.delete(assessment);
         return ResponseEntity.noContent().build();
     }

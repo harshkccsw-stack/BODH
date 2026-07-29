@@ -6,9 +6,29 @@ re-read a file before editing; expect it to have changed):
 - **spring-social/** — the NEW backend. Spring Boot 4.1, Java 25, Maven,
   project `bodhpsychometric`, port 8080. MySQL dev DB: 127.0.0.1:3309, db
   `bodhpsychometric`, user/pass `bodh`/`bodh` (mysql client available).
-  Physical tables are snake_case (default naming strategy). `ddl-auto:
-  update` — it NEVER relaxes NOT NULL or drops constraints; do those with a
-  manual `ALTER` against 3309. Tests run on H2 (`auto_quote_keyword: true`).
+  Physical tables are snake_case (default naming strategy). Tests run on H2
+  (`auto_quote_keyword: true`).
+
+  **Schema changes go through Flyway** (since 2026-07-27). `ddl-auto` is
+  `validate`, so Hibernate only checks the schema and refuses to start on
+  drift — it will not silently patch anything any more. Every structural
+  change ships as a new `V<n>__description.sql` in
+  `src/main/resources/db/migration/`, applied on startup before JPA. Rules:
+  - NEVER edit an applied migration — Flyway checksums them and a changed
+    file fails every later boot. Corrections go in a new `V<n>`.
+  - MySQL commits DDL implicitly, so a migration cannot roll back. Put any
+    "refuse to run" guard at the very top (see V2's duplicate check) so a
+    bad state aborts before the first ALTER.
+  - Backfill before tightening: add the column NULL, `UPDATE` it, then
+    `MODIFY ... NOT NULL`. Adding a NOT NULL column straight onto a
+    populated table fills it with zeros and orphans the rows.
+  - Adding a unique key that an FK's index depends on? Add the new key
+    BEFORE dropping the old one (errno 1553).
+  - Flyway is DISABLED for tests (`src/test/resources/application.yml`) —
+    the migrations are MySQL-flavoured and tests build from the entities.
+  - Adopting an existing database: `baseline-on-migrate` stamps it at
+    `baseline-version` without running V1. A database already ahead of that
+    is stamped once with `SPRING_FLYWAY_BASELINE_VERSION=<n>`.
 - **bodhassess-app/** — the dashboard frontend. Vite + React 19 + TS, port
   3000, single `src/` root, alias `@` → `./src`. Router:
   `src/routes/index.tsx` (lazyPage pattern); aside menu:

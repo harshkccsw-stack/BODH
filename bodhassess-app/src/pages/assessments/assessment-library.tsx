@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router';
 import {
   AlertTriangle,
   BookOpen,
@@ -86,6 +87,19 @@ export default function AssessmentLibraryPage() {
     }
   };
   useEffect(() => { refresh(true); }, []);
+
+  // Deep link from the questionnaire wizard's finish screen:
+  // ?create=<questionnaireId> opens the create modal with it preselected.
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    const qid = searchParams.get('create');
+    if (qid == null) return;
+    setForm({ ...EMPTY_FORM, questionnaireId: /^\d+$/.test(qid) ? qid : '' });
+    setFormError('');
+    setModalOpen(true);
+    setSearchParams({}, { replace: true }); // consume — refresh/back shouldn't reopen it
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const filtered = useMemo(() => {
     let list = items;

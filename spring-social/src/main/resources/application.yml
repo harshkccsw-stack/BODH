@@ -1,16 +1,43 @@
 spring:
   application:
     name: bodhpsychometric
+  profiles:
+    # Pick the active profile with SPRING_PROFILES_ACTIVE (defaults to development).
+    active: ${SPRING_PROFILES_ACTIVE:development}
+
+---
+# ============================================================================
+# development
+# ============================================================================
+spring:
+  config:
+    activate:
+      on-profile: development
 
   datasource:
-    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3309}/${DB_NAME:bodhpsychometric}?createDatabaseIfNotExist=true&allowPublicKeyRetrieval=true&useSSL=false&serverTimezone=UTC
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:bodhpsychometric}?createDatabaseIfNotExist=true&allowPublicKeyRetrieval=true&useSSL=false&serverTimezone=UTC
     username: ${DB_USERNAME:bodh}
     password: ${DB_PASSWORD:bodh}
     driver-class-name: com.mysql.cj.jdbc.Driver
 
+  # ── Schema changes ──────────────────────────────────────────────────────
+  # V1 is the current model's full schema. An empty database is built by it;
+  # a database that already holds this schema is stamped at version 1 by
+  # baseline-on-migrate and skips it. Either way both land at v1, and every
+  # change from here ships as V<n>__description.sql in
+  # src/main/resources/db/migration/, applied on startup before JPA.
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    baseline-version: 1
+    baseline-description: "schema matching the entity model at v1"
+
   jpa:
     hibernate:
-      ddl-auto: update
+      # Hibernate still builds/extends the schema from the entities — there
+      # is no baseline migration, so a fresh database is created here. Switch
+      # to validate once Flyway owns a full schema from V1.
+      ddl-auto: validate
     show-sql: true
     open-in-view: false
     properties:
@@ -25,7 +52,63 @@ server:
 
 app:
   cors:
-    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173}
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173,http://localhost:3002}
+  superadmin:
+    email: superadmin@bodh.biz
+    dob: 1990-01-01
+  jwt:
+    # HS256 needs >= 32 bytes; override in every real environment.
+    secret: ${JWT_SECRET:eb36fabf9a4245f0e94e981537361065878f2b21d557f75b0137343b7de06f80}
+    expiry-minutes: ${JWT_EXPIRY_MINUTES:720}
+
+---
+# ============================================================================
+# production
+# ============================================================================
+spring:
+  config:
+    activate:
+      on-profile: production
+
+  datasource:
+    url: jdbc:mysql://bodhpsychometric-mysql:3306/bodhpsychometric?createDatabaseIfNotExist=true&allowPublicKeyRetrieval=true&useSSL=false&serverTimezone=UTC
+    username: ${DB_USERNAME:bodh}
+    password: ${DB_PASSWORD:bodh}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  # ── Schema changes ──────────────────────────────────────────────────────
+  # V1 is the current model's full schema. An empty database is built by it;
+  # a database that already holds this schema is stamped at version 1 by
+  # baseline-on-migrate and skips it. Either way both land at v1, and every
+  # change from here ships as V<n>__description.sql in
+  # src/main/resources/db/migration/, applied on startup before JPA.
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    baseline-version: 1
+    baseline-description: "schema matching the entity model at v1"
+
+  jpa:
+    hibernate:
+      # Hibernate still builds/extends the schema from the entities — there
+      # is no baseline migration, so a fresh database is created here. Switch
+      # to validate once Flyway owns a full schema from V1.
+      ddl-auto: validate
+    show-sql: true
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+        # Quote identifiers that collide with the dialect's reserved words
+        # (e.g. the User table on H2), so entity names stay portable.
+        auto_quote_keyword: true
+
+server:
+  port: ${SERVER_PORT:8080}
+
+app:
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173,https://admin.bodh.biz,https://*.bodh.biz,https://portal.bodh.biz}
   superadmin:
     email: superadmin@bodh.biz
     dob: 1990-01-01

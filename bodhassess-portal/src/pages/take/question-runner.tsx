@@ -3,56 +3,43 @@ import { Check, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { BrandHeader } from '@/components/brand-header';
-import { Media } from '@/components/media';
+import { Media, mediaTypeFor } from '@/components/media';
 import { cn } from '@/lib/utils';
-import { useHeartbeat } from '@/hooks/use-heartbeat';
-import { useFirstAnswerPing } from '@/hooks/use-first-answer-ping';
-import type { PortalSession, Questionnaire } from '@/lib/api';
+import type { PortalAssessmentDetail } from '@/lib/api';
 
+// Answers are keyed by questionId and hold the selected optionId — the shape
+// the answer-saving endpoint will take verbatim later.
 export function QuestionRunner({
-  instrument,
-  session,
+  detail,
   title,
   subtitle,
   answers,
   setAnswers,
   onSubmit,
   submitting,
-  alreadyStarted,
+  submitError,
 }: {
-  instrument: Questionnaire;
-  session: PortalSession;
+  detail: PortalAssessmentDetail;
   title: string;
   subtitle?: string;
-  answers: Record<string, number | string>;
-  setAnswers: (a: Record<string, number | string>) => void;
+  answers: Record<number, number>;
+  setAnswers: (a: Record<number, number>) => void;
   onSubmit: () => void;
   submitting: boolean;
-  alreadyStarted: boolean;
+  submitError?: string;
 }) {
   const [index, setIndex] = useState(0);
-  const total = instrument.questions.length;
+  const questions = detail.questions;
+  const total = questions.length;
 
-  // Best-effort live-tracking + first-answer started_at stamp.
-  useHeartbeat(session.id, index, total, !submitting);
-  useFirstAnswerPing(session.id, answers, submitting, alreadyStarted);
-
-  const q = instrument.questions[index];
+  const q = questions[index];
   const progress = Math.round(((index + 1) / total) * 100);
-  const isFreeText = String(q.format || '').toUpperCase().replace(/_/g, '') === 'FREETEXT';
-  const selected = answers[q.id];
-  const answered = isFreeText
-    ? typeof selected === 'string' && selected.trim().length > 0
-    : selected !== undefined;
+  const selected = answers[q.questionId];
+  const answered = selected !== undefined;
   const isLast = index === total - 1;
-  // The question index panel is always shown in the portal so respondents can
-  // see their progress and jump between questions. (The legacy
-  // session.showQuestionIndex flag is no longer used to gate it.)
-  const showIndex = true;
   // Per-assessment setting: advance to the next question automatically a beat
-  // after an option is picked (option questions only — never free-text, never
-  // an auto-submit on the last question).
-  const autoNext = !!session.autoNext;
+  // after an option is picked (never an auto-submit on the last question).
+  const autoNext = detail.autoNext;
 
   // Pending auto-advance timer. Cleared on any manual navigation, on a fresh
   // selection, and on unmount so it can never fire against a stale question.
@@ -70,8 +57,8 @@ export function QuestionRunner({
     setIndex(Math.max(0, Math.min(total - 1, qi)));
   };
 
-  const selectOption = (oi: number) => {
-    setAnswers({ ...answers, [q.id]: oi });
+  const selectOption = (optionId: number) => {
+    setAnswers({ ...answers, [q.questionId]: optionId });
     if (!autoNext || isLast) return;
     clearAdvance();
     advanceTimer.current = window.setTimeout(() => {
@@ -81,32 +68,35 @@ export function QuestionRunner({
   };
 
   const isQuestionAnswered = (qi: number): boolean => {
-    const qq = instrument.questions[qi];
-    if (!qq) return false;
-    const a = answers[qq.id];
-    if (a === undefined) return false;
-    if (typeof a === 'string') return a.trim().length > 0;
-    return true;
+    const qq = questions[qi];
+    return qq !== undefined && answers[qq.questionId] !== undefined;
   };
-  const answeredCount = instrument.questions.reduce((n, _, i) => n + (isQuestionAnswered(i) ? 1 : 0), 0);
+  const answeredCount = questions.reduce((n, _, i) => n + (isQuestionAnswered(i) ? 1 : 0), 0);
 
   // Group questions into ordered sections (preserving first-appearance order),
-  // keeping each question's absolute index so navigation still works. When no
-  // question carries a section, this collapses to a single untitled group and
-  // the panel renders as a flat grid.
-  const sections: { id: string; title: string | null; indices: number[] }[] = [];
+  // keeping each question's absolute index so navigation still works. Flat
+  // questionnaires collapse to a single untitled group.
+  const sectionNames = new Map(detail.sections.map((s) => [s.sectionId, s.name]));
+  const sections: { key: string; title: string | null; indices: number[] }[] = [];
   const sectionByKey = new Map<string, number>();
-  instrument.questions.forEach((qq, qi) => {
-    const key = qq.sectionId || qq.sectionTitle || '__none__';
+  questions.forEach((qq, qi) => {
+    const key = qq.sectionId !== null ? String(qq.sectionId) : '__none__';
     let pos = sectionByKey.get(key);
     if (pos === undefined) {
       pos = sections.length;
       sectionByKey.set(key, pos);
-      sections.push({ id: key, title: qq.sectionTitle?.trim() || null, indices: [] });
+      sections.push({
+        key,
+        title: qq.sectionId !== null ? sectionNames.get(qq.sectionId)?.trim() || null : null,
+        indices: [],
+      });
     }
     sections[pos].indices.push(qi);
   });
   const hasSections = sections.some((s) => s.title);
+  // The question index panel is always shown so respondents can see their
+  // progress and jump between questions.
+  const showIndex = true;
 
   return (
     <div className="flex-1 min-h-screen w-full bg-muted/20">
@@ -138,7 +128,7 @@ export function QuestionRunner({
                   {sections.map((sec) => {
                     const secAnswered = sec.indices.reduce((n, qi) => n + (isQuestionAnswered(qi) ? 1 : 0), 0);
                     return (
-                      <div key={sec.id}>
+                      <div key={sec.key}>
                         {hasSections && (
                           <div className="flex items-center justify-between mb-1.5">
                             <p className="text-[0.6875rem] font-semibold text-foreground truncate pr-2">
@@ -151,12 +141,12 @@ export function QuestionRunner({
                         )}
                         <div className="grid grid-cols-5 gap-1.5">
                           {sec.indices.map((qi) => {
-                            const qq = instrument.questions[qi];
+                            const qq = questions[qi];
                             const isCurrent = qi === index;
                             const isAnswered = isQuestionAnswered(qi);
                             return (
                               <button
-                                key={qq.id}
+                                key={qq.questionId}
                                 type="button"
                                 onClick={() => goTo(qi)}
                                 title={`Question ${qi + 1}${isAnswered ? ' — answered' : ''}`}
@@ -198,56 +188,47 @@ export function QuestionRunner({
           <Card>
             <CardContent className="p-6 space-y-5">
               {q.stem && <p className="text-base font-medium leading-relaxed">{q.stem}</p>}
-              <Media url={q.media_url} type={q.media_type} />
+              <Media url={q.mediaUrl ?? undefined} type={mediaTypeFor(q.contentType, q.mediaUrl)} />
 
-              {isFreeText ? (
-                <div className="space-y-1.5">
-                  <textarea
-                    rows={7}
-                    value={typeof selected === 'string' ? selected : ''}
-                    onChange={(e) => setAnswers({ ...answers, [q.id]: e.target.value })}
-                    placeholder="Type your answer here…"
-                    className="w-full rounded-lg border border-border bg-background px-3 py-3 text-sm leading-relaxed outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 resize-y"
-                  />
-                  <p className="text-xs text-muted-foreground text-right">
-                    {typeof selected === 'string' ? selected.length : 0} characters
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {q.options.map((opt, oi) => {
-                    const on = selected === oi;
-                    return (
-                      <button
-                        key={oi}
-                        type="button"
-                        onClick={() => selectOption(oi)}
-                        className={cn(
-                          'w-full text-left rounded-lg border p-4 transition-colors',
-                          on ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40',
-                        )}
-                      >
-                        <div className="flex items-start gap-3">
-                          <span
-                            className={cn(
-                              'mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border',
-                              on ? 'border-primary bg-primary text-primary-foreground' : 'border-border',
-                            )}
-                          >
-                            {on && <Check className="h-3 w-3" />}
-                          </span>
-                          <div className="flex-1 space-y-2">
-                            <p className="text-sm">{opt.text || `Option ${oi + 1}`}</p>
-                            <Media url={opt.media_url} type={opt.media_type} />
-                          </div>
+              <div className="space-y-2">
+                {q.options.map((opt, oi) => {
+                  const on = selected === opt.optionId;
+                  return (
+                    <button
+                      key={opt.optionId}
+                      type="button"
+                      onClick={() => selectOption(opt.optionId)}
+                      className={cn(
+                        'w-full text-left rounded-lg border p-4 transition-colors',
+                        on ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40',
+                      )}
+                    >
+                      <div className="flex items-start gap-3">
+                        <span
+                          className={cn(
+                            'mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border',
+                            on ? 'border-primary bg-primary text-primary-foreground' : 'border-border',
+                          )}
+                        >
+                          {on && <Check className="h-3 w-3" />}
+                        </span>
+                        <div className="flex-1 space-y-2">
+                          <p className="text-sm">{opt.optionText || `Option ${oi + 1}`}</p>
+                          <Media url={opt.mediaUrl ?? undefined} type={mediaTypeFor(opt.contentType, opt.mediaUrl)} />
                         </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             </CardContent>
           </Card>
+
+          {submitError && (
+            <div className="mt-5 rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-3 py-2 text-xs text-red-700 dark:text-red-400">
+              {submitError}
+            </div>
+          )}
 
           <div className="flex items-center justify-between mt-5">
             <Button variant="outline" onClick={() => goTo(index - 1)} disabled={index === 0}>

@@ -240,6 +240,7 @@ public class QuestionController {
         return QuestionResponse.from(q, usedIn,
                 placement == null || placement.getSection() == null ? null : placement.getSection().getSectionId(),
                 placement == null ? null : placement.getSortOrder(),
+                placement == null ? null : placement.getQuestionTag(),
                 options, questionScores);
     }
 

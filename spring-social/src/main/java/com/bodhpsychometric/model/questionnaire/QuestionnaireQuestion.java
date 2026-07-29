@@ -56,6 +56,16 @@ public class QuestionnaireQuestion implements java.io.Serializable {
     @Column(name = "sortOrder", nullable = false)
     private int sortOrder;
 
+    /**
+     * Report identifier of this placement, unique within its questionnaire:
+     * "Section_A_Q_1" on sectioned questionnaires, "Q_1" on flat ones. The
+     * same bank question tags differently in every questionnaire it appears
+     * in. Regenerated wholesale on every placement save; nullable because
+     * rows written before the tag existed stay null until re-saved.
+     */
+    @Column(name = "questionTag", length = 50)
+    private String questionTag;
+
     public Long getQuestionnaireQuestionId() {
         return questionnaireQuestionId;
     }
@@ -94,5 +104,13 @@ public class QuestionnaireQuestion implements java.io.Serializable {
 
     public void setSortOrder(int sortOrder) {
         this.sortOrder = sortOrder;
+    }
+
+    public String getQuestionTag() {
+        return questionTag;
+    }
+
+    public void setQuestionTag(String questionTag) {
+        this.questionTag = questionTag;
     }
 }

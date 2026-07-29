@@ -1,0 +1,131 @@
+# Top-level orchestrator — brings up the full BodhAssess stack:
+#   mysql (DB) + api (Spring Boot) + web (built Vite SPA behind nginx).
+#
+# The `web` service is gated behind the `prod` profile so dev mode (mysql
+# only) doesn't build the frontend image. See run.sh for usage.
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: bodhpsychometric-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-Google.com1}
+      MYSQL_DATABASE: ${DB_NAME:-bodhpsychometric}
+      MYSQL_USER: ${DB_USERNAME:-bodh}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-bodh}
+    ports:
+      # host 3309 -> container 3306 (MySQL always listens on 3306 inside the
+      # container; 3306/3307 on this machine belong to career-nine and the
+      # legacy bodhassess DB)
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./docker/mysql-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_ROOT_PASSWORD:-Google.com1}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+
+
+  redis:
+    image: redis:7-alpine
+    container_name: bodhassess-redis
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "${REDIS_PORT:-6390}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - bodh
+
+  api:
+    profiles: ["prod"]
+    build:
+      context: ./bodhassess-api-spring
+      dockerfile: Dockerfile
+    image: bodhassess-api:latest
+    container_name: bodhassess-api
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      DB_URL: jdbc:mysql://mysql:3306/${DB_NAME:-bodhassess}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&characterEncoding=UTF-8
+      DB_USERNAME: ${DB_USERNAME:-bodh}
+      DB_PASSWORD: ${DB_PASSWORD:-bodh}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      APP_AUTH_TOKEN_SECRET: ${APP_AUTH_TOKEN_SECRET:-926D96C90030DD58429D2751AC1BDBBC555134AB8E61D53A55DCE7D44BD7E55D9E83AEE0B65E5F5BA48D40C09E3F24DE1A05C8E3EF57BD7CF85F8B2C6B9D2A1C}
+      APP_AUTH_TOKEN_EXPIRATION_MSEC: ${APP_AUTH_TOKEN_EXPIRATION_MSEC:-604800000}
+      # Includes the standalone respondent portal origins (separate subdomain →
+      # own origin → must be explicitly allow-listed; credentials are sent).
+      APP_CORS_ALLOWED_ORIGINS: ${APP_CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:3001,http://localhost:3002,https://admin.bodh.biz,https://portal.bodh.biz}
+      APP_UPLOADS_DIR: /app/uploads
+      APP_UPLOADS_BASE_URL: ${APP_UPLOADS_BASE_URL:-http://localhost:4000}
+      APP_ADMIN_USERNAME: ${APP_ADMIN_USERNAME:-superadmin@bodh.biz}
+      APP_ADMIN_PASSWORD: ${APP_ADMIN_PASSWORD:-01/01/1990}
+    ports:
+      - "127.0.0.1:${APP_PORT:-4000}:4000"
+    volumes:
+      - app-uploads:/app/uploads
+    networks:
+      - bodh
+
+  # web:
+  #   profiles: ["prod"]
+  #   build:
+  #     context: ./bodhassess-app
+  #     dockerfile: Dockerfile
+  #     args:
+  #       VITE_API_URL: ${VITE_API_URL:-http://localhost:4000/api/v1}
+  #       VITE_BASE_PATH: ${VITE_BASE_PATH:-/}
+  #       VITE_APP_NAME: ${VITE_APP_NAME:-BodhAssess}
+  #   image: bodhassess-web:latest
+  #   container_name: bodhassess-web
+  #   restart: unless-stopped
+  #   depends_on:
+  #     - api
+  #   ports:
+  #     - "${WEB_PORT:-3000}:3000"
+  #   networks:
+  #     - bodh
+
+  # Standalone respondent portal (Vite SPA behind nginx). Served on its own
+  # subdomain (portal.bodh.biz) — the production nginx (see nginx/conf.d)
+  # proxies that host to this container on the shared `bodh` network.
+  portal:
+    profiles: ["prod"]
+    build:
+      context: ./bodhassess-portal
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${PORTAL_VITE_API_URL:-https://api.bodh.biz/api/v1}
+        VITE_BASE_PATH: ${PORTAL_VITE_BASE_PATH:-/}
+        VITE_APP_NAME: ${VITE_APP_NAME:-BodhAssess}
+        VITE_AUTH_STORAGE_KEY: ${VITE_AUTH_STORAGE_KEY:-bodhassess.auth.token}
+    image: bodhassess-portal:latest
+    container_name: bodhassess-portal
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "${PORTAL_PORT:-3001}:3000"
+    networks:
+      - bodh
+
+networks:
+  bodh:
+    driver: bridge
+
+volumes:
+  mysql-data:
+  app-uploads:

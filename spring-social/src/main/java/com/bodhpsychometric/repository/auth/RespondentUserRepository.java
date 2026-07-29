@@ -2,7 +2,10 @@
 package com.bodhpsychometric.repository.auth;
 
 import java.util.List;
+import java.util.Optional;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 
@@ -20,6 +23,10 @@ public interface RespondentUserRepository extends JpaRepository<RespondentUser, 
     /** Does this identity also hold a respondent profile? */
     boolean existsByUser_Id(Long userId);
 
+    /** Portal sign-in fetch — user + organization eagerly, so the auth DTO never lazy-loads. */
+    @Query("select r from RespondentUser r join fetch r.user u left join fetch r.organization where u.id = :userId")
+    Optional<RespondentUser> findByUserIdForPortal(Long userId);
+
     // ── Organization membership (respondents are an org's "members") ──────
     long countByOrganization_OrganizationId(Long organizationId);
 
@@ -32,4 +39,24 @@ public interface RespondentUserRepository extends JpaRepository<RespondentUser, 
     /** Everyone not yet in an org — feeds the org page's assign picker. */
     @Query("select r from RespondentUser r join fetch r.user where r.organization is null")
     List<RespondentUser> findUnassignedForPicker();
+
+    /**
+     * Report listing — every filter is optional: organizationId (null = all
+     * orgs), assessmentId (null = all; set = only respondents holding at
+     * least one attempt of it), search (pre-lowercased %pattern% against
+     * name/email, or null). Ordered in the query, so pass an unsorted page.
+     */
+    @Query(value = "select r from RespondentUser r join fetch r.user u left join fetch r.organization o "
+            + "where (:organizationId is null or o.organizationId = :organizationId) "
+            + "and (:assessmentId is null or exists (select m from RespondentAssessmentMapping m "
+            + "where m.respondent = r and m.assessment.assessmentId = :assessmentId)) "
+            + "and (:search is null or lower(r.name) like :search or lower(u.email) like :search) "
+            + "order by r.name, r.id",
+            countQuery = "select count(r) from RespondentUser r join r.user u left join r.organization o "
+            + "where (:organizationId is null or o.organizationId = :organizationId) "
+            + "and (:assessmentId is null or exists (select m from RespondentAssessmentMapping m "
+            + "where m.respondent = r and m.assessment.assessmentId = :assessmentId)) "
+            + "and (:search is null or lower(r.name) like :search or lower(u.email) like :search)")
+    Page<RespondentUser> findForReport(Long organizationId,
+            Long assessmentId, String search, Pageable pageable);
 }

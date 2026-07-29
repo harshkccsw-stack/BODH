@@ -1,5 +1,6 @@
 package com.bodhpsychometric.model.assessment;
 
+import com.bodhpsychometric.model.auth.RespondentUser;
 import com.bodhpsychometric.model.question.Option;
 import com.bodhpsychometric.model.question.Question;
 
@@ -17,10 +18,12 @@ import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 
 /**
- * One marked answer inside a respondent's run of an assessment. Parent is the
- * {@link RespondentAssessmentMapping} — not the respondent directly — so an
- * answer can never disagree with its allotment about who was answering which
- * assessment.
+ * One marked answer of one respondent's single answer set for an assessment.
+ * Parent is the (respondent, assessment) pair — NOT the attempt row — so a
+ * pair holds exactly one answer set, never one per attempt. Attempt rows
+ * ({@link RespondentAssessmentMapping}) keep only delivery status; a granted
+ * re-attempt REPLACES the pair's answer set on submit (latest wins,
+ * longitudinal waves are deliberately not stored here).
  *
  * One row per selected option. answerText and rankOrder are reserved
  * payloads for response styles that are not modelled yet (free-text answers,
@@ -31,9 +34,10 @@ import jakarta.persistence.UniqueConstraint;
  */
 @Entity
 @Table(name = "AssessmentAnswer",
-        uniqueConstraints = @UniqueConstraint(name = "uqAaMappingQuestionOption",
-                columnNames = {"respondentAssessmentMappingId", "questionId", "optionId"}),
+        uniqueConstraints = @UniqueConstraint(name = "uqAaRespondentAssessmentQuestionOption",
+                columnNames = {"respondentUserId", "assessmentId", "questionId", "optionId"}),
         indexes = {
+                @Index(name = "idxAaAssessment", columnList = "assessmentId"),
                 @Index(name = "idxAaQuestion", columnList = "questionId"),
                 @Index(name = "idxAaOption", columnList = "optionId")
         })
@@ -46,9 +50,14 @@ public class AssessmentAnswer implements java.io.Serializable {
     private Long assessmentAnswerId;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "respondentAssessmentMappingId", nullable = false,
-            foreignKey = @ForeignKey(name = "fkAaMapping"))
-    private RespondentAssessmentMapping mapping;
+    @JoinColumn(name = "respondentUserId", nullable = false,
+            foreignKey = @ForeignKey(name = "fkAaRespondent"))
+    private RespondentUser respondent;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "assessmentId", nullable = false,
+            foreignKey = @ForeignKey(name = "fkAaAssessment"))
+    private Assessment assessment;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "questionId", nullable = false,
@@ -77,12 +86,20 @@ public class AssessmentAnswer implements java.io.Serializable {
         this.assessmentAnswerId = assessmentAnswerId;
     }
 
-    public RespondentAssessmentMapping getMapping() {
-        return mapping;
+    public RespondentUser getRespondent() {
+        return respondent;
     }
 
-    public void setMapping(RespondentAssessmentMapping mapping) {
-        this.mapping = mapping;
+    public void setRespondent(RespondentUser respondent) {
+        this.respondent = respondent;
+    }
+
+    public Assessment getAssessment() {
+        return assessment;
+    }
+
+    public void setAssessment(Assessment assessment) {
+        this.assessment = assessment;
     }
 
     public Question getQuestion() {

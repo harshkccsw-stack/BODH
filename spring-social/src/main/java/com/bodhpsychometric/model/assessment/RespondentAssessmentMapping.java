@@ -19,16 +19,25 @@ import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 
 /**
- * One attempt: this respondent taking this assessment once. A re-attempt is a
- * new row with the next attemptNumber, so every attempt keeps its own status
- * and its own answers (answers reference this row). The unique triple stops
- * two rows claiming the same attempt slot; the service assigns attemptNumber
- * as highest-so-far + 1.
+ * The allotment: this respondent may take this assessment. Exactly one row
+ * per pair — the unique key enforces it, and there are no re-attempts, so a
+ * respondent answers a given assessment once. Answers and demographic
+ * responses hang off the same (respondent, assessment) pair.
+ *
+ * The two flags are the delivery state machine, and they are deliberately
+ * independent because a Redis-backed take flow will later set them at
+ * different moments:
+ *   - assessmentStatus — where the respondent is: NOT_STARTED → ONGOING on
+ *     begin, ONGOING → COMPLETED once answers are submitted.
+ *   - isPersisted — the fact check that those answers actually reached
+ *     MySQL. Today the submit writes both in one transaction, so COMPLETED
+ *     implies persisted; once submissions land in Redis first, this is what
+ *     proves the durable write happened.
  */
 @Entity
 @Table(name = "RespondentAssessmentMapping",
-        uniqueConstraints = @UniqueConstraint(name = "uqRamRespondentAssessmentAttempt",
-                columnNames = {"respondentUserId", "assessmentId", "attemptNumber"}),
+        uniqueConstraints = @UniqueConstraint(name = "uqRamRespondentAssessment",
+                columnNames = {"respondentUserId", "assessmentId"}),
         indexes = @Index(name = "idxRamAssessment", columnList = "assessmentId"))
 public class RespondentAssessmentMapping implements java.io.Serializable {
 
@@ -48,15 +57,11 @@ public class RespondentAssessmentMapping implements java.io.Serializable {
             foreignKey = @ForeignKey(name = "fkRamAssessment"))
     private Assessment assessment;
 
-    // 1-based; a re-attempt gets the next number.
-    @Column(name = "attemptNumber", nullable = false)
-    private int attemptNumber = 1;
-
     @Enumerated(EnumType.STRING)
     @Column(name = "assessmentStatus", nullable = false, length = 16)
     private RespondentAssessmentStatus assessmentStatus = RespondentAssessmentStatus.NOT_STARTED;
 
-    // Reserved for later use.
+    /** Set by the submit once the answers are committed to MySQL. */
     @Column(name = "isPersisted", nullable = false)
     private boolean persisted;
 
@@ -82,14 +87,6 @@ public class RespondentAssessmentMapping implements java.io.Serializable {
 
     public void setAssessment(Assessment assessment) {
         this.assessment = assessment;
-    }
-
-    public int getAttemptNumber() {
-        return attemptNumber;
-    }
-
-    public void setAttemptNumber(int attemptNumber) {
-        this.attemptNumber = attemptNumber;
     }
 
     public RespondentAssessmentStatus getAssessmentStatus() {
