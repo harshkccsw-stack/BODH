@@ -36,6 +36,7 @@ interface AssessmentForm {
   status: AssessmentStatus;
   showTermsAndConditions: boolean;
   autoNext: boolean;
+  showQuestionIndex: boolean;
 }
 
 const EMPTY_FORM: AssessmentForm = {
@@ -45,6 +46,7 @@ const EMPTY_FORM: AssessmentForm = {
   status: 'INACTIVE',
   showTermsAndConditions: true,
   autoNext: false,
+  showQuestionIndex: true,
 };
 
 const statusChip = (s: AssessmentStatus) =>
@@ -131,6 +133,7 @@ export default function AssessmentLibraryPage() {
       status: a.status,
       showTermsAndConditions: a.showTermsAndConditions,
       autoNext: a.autoNext,
+      showQuestionIndex: a.showQuestionIndex,
     });
     setFormError('');
     setModalOpen(true);
@@ -146,6 +149,7 @@ export default function AssessmentLibraryPage() {
       status: form.status,
       showTermsAndConditions: form.showTermsAndConditions,
       autoNext: form.autoNext,
+      showQuestionIndex: form.showQuestionIndex,
     };
     setSaving(true);
     try {
@@ -422,6 +426,15 @@ export default function AssessmentLibraryPage() {
                   className="rounded"
                 />
                 Auto-advance to the next question after an option is selected
+              </label>
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={form.showQuestionIndex}
+                  onChange={(e) => setForm({ ...form, showQuestionIndex: e.target.checked })}
+                  className="rounded"
+                />
+                Show the question index (navigator) while attempting
               </label>
               {formError && (
                 <div className="rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-3 py-2 text-sm text-red-700 dark:text-red-400">

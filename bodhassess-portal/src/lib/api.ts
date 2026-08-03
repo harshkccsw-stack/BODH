@@ -148,6 +148,7 @@ export interface PortalAssessmentDetail {
   assessmentName: string;
   showTermsAndConditions: boolean;
   autoNext: boolean;
+  showQuestionIndex: boolean;
   questionnaireId: number;
   questionnaireName: string;
   description: string | null;

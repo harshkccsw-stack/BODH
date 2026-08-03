@@ -94,9 +94,9 @@ export function QuestionRunner({
     sections[pos].indices.push(qi);
   });
   const hasSections = sections.some((s) => s.title);
-  // The question index panel is always shown so respondents can see their
-  // progress and jump between questions.
-  const showIndex = true;
+  // The question index panel lets respondents see their progress and jump
+  // between questions. Per-assessment toggle (create/edit form); defaults on.
+  const showIndex = detail.showQuestionIndex;
 
   return (
     <div className="flex-1 min-h-screen w-full bg-muted/20">

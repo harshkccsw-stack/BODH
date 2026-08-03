@@ -143,6 +143,8 @@ export default function CreateAssessmentPage() {
   const [step2Loading, setStep2Loading] = useState(false);
   const [step2Error, setStep2Error] = useState('');
   const [newSectionName, setNewSectionName] = useState('');
+  // Optional per-section instruction, shown above the section's questions.
+  const [newSectionInstruction, setNewSectionInstruction] = useState('');
   const [bulkUploadOpen, setBulkUploadOpen] = useState(false);
   // Which questionnaire's questions are already loaded — going back to Step 1
   // and forward again must NOT wipe unsaved authoring.
@@ -250,10 +252,12 @@ export default function CreateAssessmentPage() {
   const addQSection = async () => {
     const name = newSectionName.trim();
     if (!name || backendQid == null) return;
+    const instruction = newSectionInstruction.trim() || null;
     try {
-      const res = await questionnairesApi.createQuestionnaireSection(backendQid, { name, instruction: null });
+      const res = await questionnairesApi.createQuestionnaireSection(backendQid, { name, instruction });
       setQSections((prev) => [...prev, res.data]);
       setNewSectionName('');
+      setNewSectionInstruction('');
     } catch (e: any) {
       setStep2Error(e?.response?.data?.message || e?.message || 'Failed to create section');
     }
@@ -1009,17 +1013,26 @@ export default function CreateAssessmentPage() {
                 </div>
               ) : (
                 <>
-                  <div className="flex gap-2">
-                    <input
-                      value={newSectionName}
-                      onChange={(e) => setNewSectionName(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === 'Enter') addQSection(); }}
-                      placeholder="New section name — e.g., Part A"
-                      className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                  <div className="space-y-2 rounded-lg border border-border bg-muted/20 p-3">
+                    <div className="flex gap-2">
+                      <input
+                        value={newSectionName}
+                        onChange={(e) => setNewSectionName(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') addQSection(); }}
+                        placeholder="New section name — e.g., Part A"
+                        className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                      />
+                      <Button variant="outline" onClick={addQSection} disabled={!newSectionName.trim()}>
+                        <Plus className="h-4 w-4" /> Add Section
+                      </Button>
+                    </div>
+                    <textarea
+                      value={newSectionInstruction}
+                      onChange={(e) => setNewSectionInstruction(e.target.value)}
+                      placeholder="Section instruction (optional) — shown above this section's questions"
+                      rows={2}
+                      className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 resize-y"
                     />
-                    <Button variant="outline" onClick={addQSection} disabled={!newSectionName.trim()}>
-                      <Plus className="h-4 w-4" /> Add Section
-                    </Button>
                   </div>
                   {qSections.length === 0 ? (
                     <p className="py-6 text-center text-sm text-muted-foreground">
@@ -1031,8 +1044,13 @@ export default function CreateAssessmentPage() {
                       return (
                         <div key={sec.sectionId} className="rounded-lg border border-border">
                           <div className="flex items-center justify-between gap-2 border-b border-border bg-muted/40 px-3 py-2">
-                            <p className="text-sm font-medium">{sec.name}</p>
-                            <div className="flex items-center gap-2">
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium">{sec.name}</p>
+                              {sec.instruction && (
+                                <p className="text-xs text-muted-foreground whitespace-pre-wrap">{sec.instruction}</p>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
                               <span className="text-[0.6875rem] text-muted-foreground">
                                 {list.length} question{list.length !== 1 ? 's' : ''}
                               </span>

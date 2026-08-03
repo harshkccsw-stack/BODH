@@ -12,6 +12,7 @@ public record OrganizationResponse(
         String name,
         String orgEmail,
         String description,
+        String logoBase64,
         long staffCount,
         long memberCount,
         long assessmentCount) {
@@ -23,6 +24,7 @@ public record OrganizationResponse(
                 organization.getName(),
                 organization.getOrgEmail(),
                 organization.getDescription(),
+                organization.getLogoBase64(),
                 staffCount,
                 memberCount,
                 assessmentCount);

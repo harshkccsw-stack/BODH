@@ -26,4 +26,17 @@ public interface AssessmentAnswerRepository extends JpaRepository<AssessmentAnsw
     @Query("select a.assessment.assessmentId, count(a) from AssessmentAnswer a "
             + "where a.respondent.id = :respondentUserId group by a.assessment.assessmentId")
     List<Object[]> tallyAnswersByAssessment(Long respondentUserId);
+
+    /**
+     * Export fetch — every marked answer of the given respondents for one
+     * assessment, with question and (nullable) option eager so the sheet
+     * builder never lazy-loads. One row per selected option: multi-select and
+     * ranking questions return several rows for the same question.
+     */
+    @Query("select a from AssessmentAnswer a "
+            + "join fetch a.question left join fetch a.option o "
+            + "where a.assessment.assessmentId = :assessmentId "
+            + "and a.respondent.id in :respondentUserIds "
+            + "order by o.sortOrder asc, a.assessmentAnswerId asc")
+    List<AssessmentAnswer> findForExport(Long assessmentId, List<Long> respondentUserIds);
 }

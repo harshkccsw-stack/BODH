@@ -16,6 +16,7 @@ public record AssessmentResponse(
         boolean showTermsAndConditions,
         AssessmentStatus status,
         boolean autoNext,
+        boolean showQuestionIndex,
         int respondentCount) {
 
     public static AssessmentResponse from(Assessment a, int respondentCount) {
@@ -27,6 +28,7 @@ public record AssessmentResponse(
                 a.isShowTermsAndConditions(),
                 a.getStatus(),
                 a.isAutoNext(),
+                a.isShowQuestionIndex(),
                 respondentCount);
     }
 }

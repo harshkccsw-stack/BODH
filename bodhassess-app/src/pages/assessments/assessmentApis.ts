@@ -14,6 +14,8 @@ export interface AssessmentPayload {
   showTermsAndConditions: boolean;
   status: AssessmentStatus;
   autoNext: boolean;
+  /** Show the portal question index/navigator during the attempt. */
+  showQuestionIndex: boolean;
 }
 
 /** Matches AssessmentResponse on the backend. */
@@ -25,6 +27,7 @@ export interface AssessmentResponse {
   showTermsAndConditions: boolean;
   status: AssessmentStatus;
   autoNext: boolean;
+  showQuestionIndex: boolean;
   respondentCount: number;
 }
 

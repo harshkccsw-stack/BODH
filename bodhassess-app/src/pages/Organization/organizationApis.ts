@@ -14,6 +14,8 @@ export interface OrganizationPayload {
   name: string;
   orgEmail: string | null;
   description: string | null;
+  /** Logo as a base64 data URL ("data:image/png;base64,…"), or null to clear it. */
+  logoBase64: string | null;
   /** Initial catalog — only read on CREATE; null on edit (catalog is managed via the map modal). */
   assessmentIds: number[] | null;
 }
@@ -24,6 +26,8 @@ export interface OrganizationResponse {
   name: string;
   orgEmail: string | null;
   description: string | null;
+  /** Logo as a base64 data URL, or null if none was uploaded. */
+  logoBase64: string | null;
   /** Practitioners in the org — the authority side. */
   staffCount: number;
   /** Respondents in the org — the assessed side. */
@@ -56,6 +60,8 @@ export interface OrganizationDetailResponse {
   name: string;
   orgEmail: string | null;
   description: string | null;
+  /** Logo as a base64 data URL, or null if none was uploaded. */
+  logoBase64: string | null;
   staff: OrgStaffRef[];
   members: OrgMemberRef[];
 }

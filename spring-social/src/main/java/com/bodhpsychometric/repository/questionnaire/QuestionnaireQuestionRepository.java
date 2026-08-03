@@ -19,6 +19,16 @@ public interface QuestionnaireQuestionRepository extends JpaRepository<Questionn
             + "order by qq.sortOrder asc, qq.questionnaireQuestionId asc")
     List<QuestionnaireQuestion> findForPortalDelivery(Long questionnaireId);
 
+    /**
+     * Export columns — placements of a questionnaire in display order with the
+     * question fetched (NOT its options, so no row fan-out). questionTag is the
+     * column header; question stem/id label it.
+     */
+    @Query("select qq from QuestionnaireQuestion qq join fetch qq.question "
+            + "where qq.questionnaire.questionnaireId = :questionnaireId "
+            + "order by qq.sortOrder asc, qq.questionnaireQuestionId asc")
+    List<QuestionnaireQuestion> findForExportColumns(Long questionnaireId);
+
     List<QuestionnaireQuestion> findByQuestionQuestionId(Long questionId);
 
     List<QuestionnaireQuestion> findBySectionSectionId(Long sectionId);

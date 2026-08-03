@@ -4,6 +4,7 @@ import {
   Building2,
   Check,
   ClipboardList,
+  ImagePlus,
   Loader2,
   Mail,
   Pencil,
@@ -44,11 +45,19 @@ interface OrganizationForm {
   name: string;
   orgEmail: string;
   description: string;
+  /** Logo as a base64 data URL, or '' for none. */
+  logoBase64: string;
   /** Initial catalog — create only; the map modal owns it afterwards. */
   assessmentIds: number[];
 }
 
-const EMPTY_FORM: OrganizationForm = { id: null, name: '', orgEmail: '', description: '', assessmentIds: [] };
+const EMPTY_FORM: OrganizationForm = { id: null, name: '', orgEmail: '', description: '', logoBase64: '', assessmentIds: [] };
+
+// Client-side guard: reject anything that isn't a reasonable logo before we
+// base64-encode it into the row. 2 MB matches the backend's @Size cap once
+// base64 inflates the bytes by ~⅓.
+const LOGO_MAX_BYTES = 2 * 1024 * 1024;
+const LOGO_ACCEPT = 'image/png,image/jpeg,image/svg+xml,image/webp';
 
 export default function OrganizationsPage() {
   const [organizations, setOrganizations] = useState<OrganizationResponse[]>([]);
@@ -147,6 +156,7 @@ export default function OrganizationsPage() {
       name: o.name,
       orgEmail: o.orgEmail || '',
       description: o.description || '',
+      logoBase64: o.logoBase64 || '',
       assessmentIds: [],
     });
     setFormError('');
@@ -314,6 +324,28 @@ export default function OrganizationsPage() {
     }
   };
 
+  // Read a picked image into a base64 data URL for inline storage. Validates
+  // type + size here so an oversized file never reaches the API. Clearing the
+  // picker (no file) leaves the current logo untouched — use "Remove" for that.
+  const onLogoPick = (file: File | null) => {
+    if (!file) return;
+    if (!LOGO_ACCEPT.split(',').includes(file.type)) {
+      setFormError('Logo must be a PNG, JPG, SVG or WebP image');
+      return;
+    }
+    if (file.size > LOGO_MAX_BYTES) {
+      setFormError('Logo image is too large — use one under 2 MB');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      setFormError('');
+      setForm((p) => ({ ...p, logoBase64: String(reader.result) }));
+    };
+    reader.onerror = () => setFormError('Could not read that image — try another file');
+    reader.readAsDataURL(file);
+  };
+
   const submit = async () => {
     const name = form.name.trim();
     if (!name) { setFormError('Name is required'); return; }
@@ -328,6 +360,7 @@ export default function OrganizationsPage() {
       name,
       orgEmail: orgEmail || null,
       description: form.description.trim() || null,
+      logoBase64: form.logoBase64 || null,
       assessmentIds: form.id == null ? form.assessmentIds : null,
     };
     setSaving(true);
@@ -446,7 +479,15 @@ export default function OrganizationsPage() {
                 key={o.organizationId}
                 className="flex items-center justify-between gap-4 px-4 py-3 hover:bg-muted/40 transition-colors"
               >
-                <div className="min-w-0">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="h-9 w-9 shrink-0 rounded-md border border-border bg-muted/40 overflow-hidden flex items-center justify-center">
+                    {o.logoBase64 ? (
+                      <img src={o.logoBase64} alt="" className="h-full w-full object-contain" />
+                    ) : (
+                      <Building2 className="h-4 w-4 text-muted-foreground/50" />
+                    )}
+                  </div>
+                  <div className="min-w-0">
                   <p className="text-sm font-medium truncate">{o.name}</p>
                   <div className="flex items-center gap-3 mt-0.5 text-xs text-muted-foreground">
                     {o.orgEmail && (
@@ -456,6 +497,7 @@ export default function OrganizationsPage() {
                       </span>
                     )}
                     {o.description && <span className="truncate">{o.description}</span>}
+                  </div>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
@@ -567,6 +609,42 @@ export default function OrganizationsPage() {
                   rows={3}
                   className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 resize-y"
                 />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">
+                  Logo <span className="text-muted-foreground font-normal">(optional)</span>
+                </label>
+                <div className="flex items-center gap-4">
+                  <div className="h-16 w-16 shrink-0 rounded-lg border border-border bg-muted/40 overflow-hidden flex items-center justify-center">
+                    {form.logoBase64 ? (
+                      <img src={form.logoBase64} alt="Logo preview" className="h-full w-full object-contain" />
+                    ) : (
+                      <Building2 className="h-6 w-6 text-muted-foreground/50" />
+                    )}
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="inline-flex items-center gap-1.5 cursor-pointer rounded-lg border border-border bg-background px-3 py-1.5 text-sm hover:bg-muted/50 transition-colors w-fit">
+                      <ImagePlus className="h-3.5 w-3.5" />
+                      {form.logoBase64 ? 'Change logo' : 'Upload logo'}
+                      <input
+                        type="file"
+                        accept={LOGO_ACCEPT}
+                        className="hidden"
+                        onChange={(e) => { onLogoPick(e.target.files?.[0] ?? null); e.target.value = ''; }}
+                      />
+                    </label>
+                    {form.logoBase64 && (
+                      <button
+                        type="button"
+                        onClick={() => setForm((p) => ({ ...p, logoBase64: '' }))}
+                        className="text-xs text-red-600 hover:underline w-fit"
+                      >
+                        Remove logo
+                      </button>
+                    )}
+                    <p className="text-[0.6875rem] text-muted-foreground">PNG, JPG, SVG or WebP · up to 2 MB.</p>
+                  </div>
+                </div>
               </div>
               {form.id == null && (
                 <div className="space-y-1.5">
@@ -1067,7 +1145,11 @@ export default function OrganizationsPage() {
           <Card className="w-full max-w-xl max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
             <CardHeader className="flex flex-row items-center justify-between pb-3 shrink-0">
               <CardTitle className="text-base flex items-center gap-2">
-                <Building2 className="h-4 w-4 text-primary" />
+                {detailTarget.logoBase64 ? (
+                  <img src={detailTarget.logoBase64} alt="" className="h-5 w-5 rounded object-contain" />
+                ) : (
+                  <Building2 className="h-4 w-4 text-primary" />
+                )}
                 {detailTarget.name}
               </CardTitle>
               <button onClick={() => setDetailTarget(null)} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>

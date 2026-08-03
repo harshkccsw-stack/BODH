@@ -13,6 +13,11 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.bodhpsychometric.dto.ExportSheetResponse;
+import com.bodhpsychometric.dto.ExportSheetResponse.DemographicColumn;
+import com.bodhpsychometric.dto.ExportSheetResponse.ExportAssessmentRef;
+import com.bodhpsychometric.dto.ExportSheetResponse.ExportRow;
+import com.bodhpsychometric.dto.ExportSheetResponse.QuestionColumn;
 import com.bodhpsychometric.dto.ReportAssessmentOption;
 import com.bodhpsychometric.dto.ReportOrganizationOption;
 import com.bodhpsychometric.dto.ReportPageResponse;
@@ -20,15 +25,22 @@ import com.bodhpsychometric.dto.ReportRespondentAssessmentRow;
 import com.bodhpsychometric.dto.ReportRespondentDetail;
 import com.bodhpsychometric.dto.ReportRespondentRow;
 import com.bodhpsychometric.model.assessment.Assessment;
+import com.bodhpsychometric.model.assessment.AssessmentAnswer;
 import com.bodhpsychometric.model.assessment.RespondentAssessmentMapping;
 import com.bodhpsychometric.model.assessment.enums.RespondentAssessmentStatus;
 import com.bodhpsychometric.model.auth.RespondentUser;
+import com.bodhpsychometric.model.demographics.DemographicResponse;
+import com.bodhpsychometric.model.demographics.QuestionnaireDemographicField;
 import com.bodhpsychometric.model.organization.Organization;
+import com.bodhpsychometric.model.question.Option;
+import com.bodhpsychometric.model.questionnaire.Questionnaire;
+import com.bodhpsychometric.model.questionnaire.QuestionnaireQuestion;
 import com.bodhpsychometric.repository.assessment.AssessmentAnswerRepository;
 import com.bodhpsychometric.repository.assessment.AssessmentRepository;
 import com.bodhpsychometric.repository.assessment.RespondentAssessmentMappingRepository;
 import com.bodhpsychometric.repository.auth.RespondentUserRepository;
 import com.bodhpsychometric.repository.demographics.DemographicResponseRepository;
+import com.bodhpsychometric.repository.demographics.QuestionnaireDemographicFieldRepository;
 import com.bodhpsychometric.repository.organization.OrganizationRepository;
 import com.bodhpsychometric.repository.questionnaire.QuestionnaireQuestionRepository;
 
@@ -53,6 +65,7 @@ public class AssessmentReportService {
     private final AssessmentAnswerRepository answers;
     private final DemographicResponseRepository demographicResponses;
     private final QuestionnaireQuestionRepository placements;
+    private final QuestionnaireDemographicFieldRepository demographicFields;
 
     public AssessmentReportService(OrganizationRepository organizations,
             AssessmentRepository assessments,
@@ -60,7 +73,8 @@ public class AssessmentReportService {
             RespondentAssessmentMappingRepository allotments,
             AssessmentAnswerRepository answers,
             DemographicResponseRepository demographicResponses,
-            QuestionnaireQuestionRepository placements) {
+            QuestionnaireQuestionRepository placements,
+            QuestionnaireDemographicFieldRepository demographicFields) {
         this.organizations = organizations;
         this.assessments = assessments;
         this.respondents = respondents;
@@ -68,6 +82,7 @@ public class AssessmentReportService {
         this.answers = answers;
         this.demographicResponses = demographicResponses;
         this.placements = placements;
+        this.demographicFields = demographicFields;
     }
 
     @Transactional(readOnly = true)
@@ -145,6 +160,136 @@ public class AssessmentReportService {
                     demographics.getOrDefault(assessmentId, 0L)));
         }
         return Optional.of(ReportRespondentDetail.from(respondent, rows));
+    }
+
+    /**
+     * Export sheet for one assessment: one row per COMPLETED respondent, with
+     * demographic and question-tag columns. An organizationId scopes the rows
+     * to that org's members; null = every organization. Empty (→ 404) only
+     * when the assessment itself does not exist — an assessment with no
+     * completed attempts returns a sheet with columns and zero rows.
+     */
+    @Transactional(readOnly = true)
+    public Optional<ExportSheetResponse> exportAssessment(Long assessmentId, Long organizationId) {
+        Assessment assessment = assessments.findById(assessmentId).orElse(null);
+        if (assessment == null) {
+            return Optional.empty();
+        }
+        return Optional.of(buildSheet(assessment, organizationId,
+                allotments.findCompletedForExport(assessmentId, organizationId, null)));
+    }
+
+    /**
+     * Export sheet for a single respondent on one assessment — same shape, one
+     * row. Empty (→ 404) when the assessment does not exist, or the respondent
+     * has no COMPLETED attempt for it (optionally within the given org).
+     */
+    @Transactional(readOnly = true)
+    public Optional<ExportSheetResponse> exportRespondent(Long assessmentId, Long respondentUserId,
+            Long organizationId) {
+        Assessment assessment = assessments.findById(assessmentId).orElse(null);
+        if (assessment == null) {
+            return Optional.empty();
+        }
+        List<RespondentAssessmentMapping> completed =
+                allotments.findCompletedForExport(assessmentId, organizationId, respondentUserId);
+        if (completed.isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(buildSheet(assessment, organizationId, completed));
+    }
+
+    /**
+     * Assemble the sheet: columns come from the assessment's questionnaire (its
+     * demographic fields in form order, its question placements in display
+     * order keyed by questionTag); each COMPLETED allotment becomes a row whose
+     * cells are looked up by fieldId / questionTag. Multi-select questions join
+     * their chosen options with "; " in option order.
+     */
+    private ExportSheetResponse buildSheet(Assessment assessment, Long organizationId,
+            List<RespondentAssessmentMapping> completed) {
+        Long assessmentId = assessment.getAssessmentId();
+        Questionnaire questionnaire = assessment.getQuestionnaire();
+        Long questionnaireId = questionnaire.getQuestionnaireId();
+
+        // ── Columns ──────────────────────────────────────────────────────
+        List<DemographicColumn> demographicColumns = demographicFields
+                .findForPortalDelivery(questionnaireId).stream()
+                .map(QuestionnaireDemographicField::getDemographicField)
+                .map(f -> new DemographicColumn(f.getDemographicFieldId(), f.getLabel()))
+                .toList();
+
+        // questionId → column tag, so an answer row (keyed by questionId) finds
+        // its column. Legacy placements with no tag fall back to "Q_<id>".
+        Map<Long, String> tagByQuestionId = new HashMap<>();
+        List<QuestionColumn> questionColumns = new ArrayList<>();
+        for (QuestionnaireQuestion qq : placements.findForExportColumns(questionnaireId)) {
+            Long questionId = qq.getQuestion().getQuestionId();
+            String tag = qq.getQuestionTag() != null ? qq.getQuestionTag() : ("Q_" + questionId);
+            tagByQuestionId.put(questionId, tag);
+            questionColumns.add(new QuestionColumn(tag, questionId, qq.getQuestion().getQuestionTexString()));
+        }
+
+        // ── Row data (two group-bys over the whole page) ──────────────────
+        List<Long> respondentIds = completed.stream().map(m -> m.getRespondent().getId()).toList();
+
+        // respondentId → questionId → chosen cell strings (already option-ordered)
+        Map<Long, Map<Long, List<String>>> answersByRespondent = new HashMap<>();
+        // respondentId → fieldId → value
+        Map<Long, Map<Long, String>> demographicsByRespondent = new HashMap<>();
+        if (!respondentIds.isEmpty()) {
+            for (AssessmentAnswer a : answers.findForExport(assessmentId, respondentIds)) {
+                Option option = a.getOption();
+                String cell = option != null ? option.getOptionText() : a.getAnswerText();
+                if (cell == null) {
+                    continue;
+                }
+                answersByRespondent
+                        .computeIfAbsent(a.getRespondent().getId(), k -> new HashMap<>())
+                        .computeIfAbsent(a.getQuestion().getQuestionId(), k -> new ArrayList<>())
+                        .add(cell);
+            }
+            for (DemographicResponse d : demographicResponses.findForExport(assessmentId, respondentIds)) {
+                demographicsByRespondent
+                        .computeIfAbsent(d.getRespondent().getId(), k -> new HashMap<>())
+                        .put(d.getDemographicField().getDemographicFieldId(), d.getResponseValue());
+            }
+        }
+
+        // ── Rows ──────────────────────────────────────────────────────────
+        List<ExportRow> rows = new ArrayList<>();
+        for (RespondentAssessmentMapping mapping : completed) {
+            RespondentUser respondent = mapping.getRespondent();
+            Long respondentUserId = respondent.getId();
+            Organization organization = respondent.getOrganization();
+
+            Map<String, String> answerCells = new HashMap<>();
+            for (Map.Entry<Long, List<String>> entry
+                    : answersByRespondent.getOrDefault(respondentUserId, Map.of()).entrySet()) {
+                String tag = tagByQuestionId.get(entry.getKey());
+                if (tag == null) {
+                    // Answer's question is no longer placed in this questionnaire — no column for it.
+                    continue;
+                }
+                answerCells.put(tag, String.join("; ", entry.getValue()));
+            }
+
+            rows.add(new ExportRow(
+                    respondentUserId,
+                    respondent.getUser().getSerialId(),
+                    respondent.getName(),
+                    respondent.getUser().getEmail(),
+                    organization == null ? null : organization.getOrganizationId(),
+                    organization == null ? null : organization.getName(),
+                    mapping.getAssessmentStatus(),
+                    demographicsByRespondent.getOrDefault(respondentUserId, Map.of()),
+                    answerCells));
+        }
+
+        return new ExportSheetResponse(
+                new ExportAssessmentRef(assessmentId, assessment.getName(),
+                        questionnaireId, questionnaire.getName()),
+                organizationId, demographicColumns, questionColumns, rows);
     }
 
     /**
