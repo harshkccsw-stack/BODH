@@ -46,8 +46,11 @@ function useDebounced<T>(value: T, delayMs: number): T {
 
 // ── Paginated filter dropdown ───────────────────────────────────────────────
 // One reusable control for both filters: a trigger button showing the current
-// selection ("All …" when none), opening a panel with its own search box, a
-// paged option list fed by the server, and prev/next paging in the footer.
+// selection (a placeholder when none), opening a panel with its own search
+// box, a paged option list fed by the server, and prev/next paging in the
+// footer. `open` is controlled by the page, which is what lets it hold the
+// options query back until the dropdown is actually opened — landing on the
+// page fires no dropdown request at all.
 
 interface DropdownItem {
   id: number;
@@ -57,10 +60,12 @@ interface DropdownItem {
 
 interface FilterDropdownProps {
   icon: LucideIcon;
-  allLabel: string;
+  placeholder: string;
   searchPlaceholder: string;
   selected: DropdownItem | null;
   onSelect: (item: DropdownItem | null) => void;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   data: ReportPage<DropdownItem> | null;
   loading: boolean;
   error: string;
@@ -70,38 +75,37 @@ interface FilterDropdownProps {
 }
 
 function FilterDropdown({
-  icon: Icon, allLabel, searchPlaceholder, selected, onSelect,
+  icon: Icon, placeholder, searchPlaceholder, selected, onSelect, open, onOpenChange,
   data, loading, error, search, onSearch, onPage,
 }: FilterDropdownProps) {
-  const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false);
+        onOpenChange(false);
       }
     };
     document.addEventListener('mousedown', onDown);
     return () => document.removeEventListener('mousedown', onDown);
-  }, [open]);
+  }, [open, onOpenChange]);
 
   const pick = (item: DropdownItem | null) => {
     onSelect(item);
-    setOpen(false);
+    onOpenChange(false);
   };
 
   return (
     <div className="relative flex-1 min-w-56" ref={containerRef}>
       <button
         type="button"
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => onOpenChange(!open)}
         className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 flex items-center gap-2"
       >
         <Icon className="h-4 w-4 text-muted-foreground shrink-0" />
         <span className={cn('flex-1 truncate text-left', !selected && 'text-muted-foreground')}>
-          {selected ? selected.label : allLabel}
+          {selected ? selected.label : placeholder}
         </span>
         {selected && (
           <span
@@ -109,7 +113,7 @@ function FilterDropdown({
             tabIndex={-1}
             onClick={(e) => { e.stopPropagation(); pick(null); }}
             className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-            title={`Reset to ${allLabel}`}
+            title="Clear selection"
           >
             <X className="h-3.5 w-3.5" />
           </span>
@@ -133,16 +137,17 @@ function FilterDropdown({
           </div>
 
           <div className="max-h-64 overflow-y-auto py-1">
-            <button
-              type="button"
-              onClick={() => pick(null)}
-              className={cn(
-                'w-full px-3 py-2 text-left text-sm hover:bg-muted/60',
-                !selected && 'bg-primary/5 font-medium text-primary',
-              )}
-            >
-              {allLabel}
-            </button>
+            {/* Only offered once something is picked — nothing selected is
+                already the unfiltered state. */}
+            {selected && (
+              <button
+                type="button"
+                onClick={() => pick(null)}
+                className="w-full border-b border-border px-3 py-2 text-left text-sm text-muted-foreground hover:bg-muted/60"
+              >
+                Clear selection
+              </button>
+            )}
             {loading && (
               <div className="flex items-center justify-center gap-2 px-3 py-4 text-xs text-muted-foreground">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading…
@@ -221,20 +226,26 @@ function isUntouched(row: RespondentAssessmentRow) {
 // ── Page ────────────────────────────────────────────────────────────────────
 
 export default function ReportsHubPage() {
-  // Organization dropdown state.
+  // Organization dropdown state. Both filters start unselected and unloaded:
+  // `opened` flips on the first open and is what unblocks the options query,
+  // so landing on the page costs one request (the listing) instead of three.
+  const [orgOpen, setOrgOpen] = useState(false);
+  const [orgOpened, setOrgOpened] = useState(false);
   const [orgSearch, setOrgSearch] = useState('');
   const [orgPage, setOrgPage] = useState(0);
   const [orgData, setOrgData] = useState<ReportPage<DropdownItem> | null>(null);
-  const [orgLoading, setOrgLoading] = useState(true);
+  const [orgLoading, setOrgLoading] = useState(false);
   const [orgError, setOrgError] = useState('');
   const [selectedOrg, setSelectedOrg] = useState<DropdownItem | null>(null);
   const debouncedOrgSearch = useDebounced(orgSearch, 300);
 
   // Assessment dropdown state.
+  const [asmtOpen, setAsmtOpen] = useState(false);
+  const [asmtOpened, setAsmtOpened] = useState(false);
   const [asmtSearch, setAsmtSearch] = useState('');
   const [asmtPage, setAsmtPage] = useState(0);
   const [asmtData, setAsmtData] = useState<ReportPage<DropdownItem> | null>(null);
-  const [asmtLoading, setAsmtLoading] = useState(true);
+  const [asmtLoading, setAsmtLoading] = useState(false);
   const [asmtError, setAsmtError] = useState('');
   const [selectedAsmt, setSelectedAsmt] = useState<DropdownItem | null>(null);
   const debouncedAsmtSearch = useDebounced(asmtSearch, 300);
@@ -260,6 +271,17 @@ export default function ReportsHubPage() {
   const [resetting, setResetting] = useState(false);
   const [resetError, setResetError] = useState('');
 
+  // Opening a dropdown for the first time is what loads its options; after
+  // that the panel keeps what it has and only re-queries on search/paging.
+  const openOrgDropdown = (next: boolean) => {
+    setOrgOpen(next);
+    if (next) setOrgOpened(true);
+  };
+  const openAsmtDropdown = (next: boolean) => {
+    setAsmtOpen(next);
+    if (next) setAsmtOpened(true);
+  };
+
   // New dropdown search → back to its first page.
   useEffect(() => { setOrgPage(0); }, [debouncedOrgSearch]);
   useEffect(() => { setAsmtPage(0); }, [debouncedAsmtSearch]);
@@ -267,6 +289,7 @@ export default function ReportsHubPage() {
   useEffect(() => { setRespPage(0); }, [selectedOrg, selectedAsmt, debouncedRespSearch, respSize]);
 
   useEffect(() => {
+    if (!orgOpened) return;
     let cancelled = false;
     setOrgLoading(true);
     setOrgError('');
@@ -287,9 +310,10 @@ export default function ReportsHubPage() {
       })
       .finally(() => { if (!cancelled) setOrgLoading(false); });
     return () => { cancelled = true; };
-  }, [debouncedOrgSearch, orgPage]);
+  }, [orgOpened, debouncedOrgSearch, orgPage]);
 
   useEffect(() => {
+    if (!asmtOpened) return;
     let cancelled = false;
     setAsmtLoading(true);
     setAsmtError('');
@@ -314,9 +338,22 @@ export default function ReportsHubPage() {
       })
       .finally(() => { if (!cancelled) setAsmtLoading(false); });
     return () => { cancelled = true; };
-  }, [debouncedAsmtSearch, asmtPage]);
+  }, [asmtOpened, debouncedAsmtSearch, asmtPage]);
+
+  // The listing waits for a filter too: no organization, no assessment and no
+  // search means no query at all, so opening the page costs nothing and never
+  // dumps every respondent in the system.
+  const filtersApplied = selectedOrg !== null || selectedAsmt !== null
+    || debouncedRespSearch.trim() !== '';
 
   useEffect(() => {
+    if (!filtersApplied) {
+      // Back to the resting state — drop whatever the last filter listed.
+      setRespData(null);
+      setRespError('');
+      setRespLoading(false);
+      return;
+    }
     let cancelled = false;
     setRespLoading(true);
     setRespError('');
@@ -333,7 +370,7 @@ export default function ReportsHubPage() {
       })
       .finally(() => { if (!cancelled) setRespLoading(false); });
     return () => { cancelled = true; };
-  }, [selectedOrg, selectedAsmt, debouncedRespSearch, respPage, respSize, respReload]);
+  }, [filtersApplied, selectedOrg, selectedAsmt, debouncedRespSearch, respPage, respSize, respReload]);
 
   // Info popup: (re)fetch whenever a respondent is opened. Reset writes its
   // own row back into state, so nothing else re-fetches this.
@@ -402,9 +439,7 @@ export default function ReportsHubPage() {
     return { from, to };
   }, [respData]);
 
-  const emptyMessage = hasFilters
-    ? 'No respondents match the current filters.'
-    : 'No respondents yet — they appear here once registered.';
+  const emptyMessage = 'No respondents match the current filters.';
 
   return (
     <div className="p-5 lg:p-7.5 space-y-7">
@@ -421,9 +456,9 @@ export default function ReportsHubPage() {
               Reports Hub
             </h1>
             <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
-              Every respondent in one place. Narrow by organization and
-              assessment (or keep "All"), search by name or email, then drill
-              into their assessments. Exports land here next.
+              Pick an organization or an assessment, or search by name or
+              email, to list the respondents behind it — then drill into their
+              assessments. Exports land here next.
             </p>
           </div>
           <Button variant="outline" disabled title="Export is coming soon">
@@ -443,19 +478,25 @@ export default function ReportsHubPage() {
         <Card>
           <CardContent className="p-5">
             <p className="text-sm text-muted-foreground">Respondents in View</p>
-            <p className="text-2xl font-semibold mt-1">{respLoading && !respData ? '…' : respData?.totalItems ?? 0}</p>
+            <p className={cn('text-2xl font-semibold mt-1', !filtersApplied && 'text-muted-foreground')}>
+              {!filtersApplied ? '—' : respLoading && !respData ? '…' : respData?.totalItems ?? 0}
+            </p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-5">
             <p className="text-sm text-muted-foreground">Organization Filter</p>
-            <p className="text-2xl font-semibold mt-1 truncate">{selectedOrg ? selectedOrg.label : 'All'}</p>
+            <p className={cn('text-2xl font-semibold mt-1 truncate', !selectedOrg && 'text-muted-foreground')}>
+              {selectedOrg ? selectedOrg.label : '—'}
+            </p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-5">
             <p className="text-sm text-muted-foreground">Assessment Filter</p>
-            <p className="text-2xl font-semibold mt-1 truncate">{selectedAsmt ? selectedAsmt.label : 'All'}</p>
+            <p className={cn('text-2xl font-semibold mt-1 truncate', !selectedAsmt && 'text-muted-foreground')}>
+              {selectedAsmt ? selectedAsmt.label : '—'}
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -466,10 +507,12 @@ export default function ReportsHubPage() {
           <div className="flex flex-wrap items-center gap-3">
             <FilterDropdown
               icon={Building2}
-              allLabel="All organizations"
+              placeholder="Select an organization…"
               searchPlaceholder="Search organizations…"
               selected={selectedOrg}
               onSelect={setSelectedOrg}
+              open={orgOpen}
+              onOpenChange={openOrgDropdown}
               data={orgData}
               loading={orgLoading}
               error={orgError}
@@ -479,10 +522,12 @@ export default function ReportsHubPage() {
             />
             <FilterDropdown
               icon={ClipboardList}
-              allLabel="All assessments"
+              placeholder="Select an assessment…"
               searchPlaceholder="Search assessments…"
               selected={selectedAsmt}
               onSelect={setSelectedAsmt}
+              open={asmtOpen}
+              onOpenChange={openAsmtDropdown}
               data={asmtData}
               loading={asmtLoading}
               error={asmtError}
@@ -529,13 +574,25 @@ export default function ReportsHubPage() {
             </div>
           </div>
 
-          {respLoading && !respData && (
+          {/* Resting state — nothing is fetched, and nothing is listed. */}
+          {!filtersApplied && (
+            <div className="flex flex-col items-center gap-2 py-14 px-5 text-center">
+              <Search className="h-5 w-5 text-muted-foreground" />
+              <p className="text-sm font-medium">Choose what to report on</p>
+              <p className="max-w-md text-sm text-muted-foreground">
+                Select an organization or an assessment above, or search by name or email.
+                Respondents are listed once one of those narrows it down.
+              </p>
+            </div>
+          )}
+
+          {filtersApplied && respLoading && !respData && (
             <div className="flex items-center justify-center gap-2 py-14 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" /> Loading respondents…
             </div>
           )}
 
-          {respData && respData.items.length === 0 && !respLoading && (
+          {filtersApplied && respData && respData.items.length === 0 && !respLoading && (
             <div className="py-14 text-center text-sm text-muted-foreground">{emptyMessage}</div>
           )}
 
@@ -600,9 +657,11 @@ export default function ReportsHubPage() {
 
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-5 py-3">
             <span className="text-xs text-muted-foreground">
-              {shownRange
-                ? `Showing ${shownRange.from}–${shownRange.to} of ${respData?.totalItems}`
-                : 'Showing 0 of 0'}
+              {!filtersApplied
+                ? 'No filter applied'
+                : shownRange
+                  ? `Showing ${shownRange.from}–${shownRange.to} of ${respData?.totalItems}`
+                  : 'Showing 0 of 0'}
             </span>
             <div className="flex items-center gap-2">
               <Button
