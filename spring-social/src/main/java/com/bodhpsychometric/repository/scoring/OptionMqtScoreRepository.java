@@ -11,4 +11,10 @@ public interface OptionMqtScoreRepository extends JpaRepository<OptionMqtScore, 
     java.util.List<OptionMqtScore> findByOptionQuestionQuestionId(Long questionId);
 
     void deleteByOptionQuestionQuestionId(Long questionId);
+
+    /** Any option scored against a trait belonging to this MQ — blocks its delete. */
+    boolean existsByMeasuredQualityType_MeasuredQuality_MeasuredQualityId(Long measuredQualityId);
+
+    /** Any option scored against one of these traits — blocks an MQT subtree delete. */
+    boolean existsByMeasuredQualityType_MeasuredQualityTypeIdIn(java.util.Collection<Long> measuredQualityTypeIds);
 }
