@@ -51,6 +51,8 @@ public record ExportSheetResponse(
             Long organizationId,
             String organizationName,
             RespondentAssessmentStatus status,
+            /** Inactivity "focus" popups dismissed during the attempt. */
+            int popUpCount,
             Map<Long, String> demographics,
             Map<String, String> answers) {
     }

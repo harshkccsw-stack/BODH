@@ -282,6 +282,7 @@ public class AssessmentReportService {
                     organization == null ? null : organization.getOrganizationId(),
                     organization == null ? null : organization.getName(),
                     mapping.getAssessmentStatus(),
+                    mapping.getPopUpCount(),
                     demographicsByRespondent.getOrDefault(respondentUserId, Map.of()),
                     answerCells));
         }
@@ -322,6 +323,7 @@ public class AssessmentReportService {
 
         mapping.setAssessmentStatus(RespondentAssessmentStatus.NOT_STARTED);
         mapping.setPersisted(false);
+        mapping.setPopUpCount(0);
         RespondentAssessmentMapping saved = allotments.save(mapping);
 
         long totalQuestions = placements.countByQuestionnaireQuestionnaireId(

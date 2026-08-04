@@ -46,6 +46,10 @@ export default function TakePage() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
   const [done, setDone] = useState(false);
+  // Attempt-level tally of inactivity "focus" popups dismissed in the runner.
+  // In-memory only — a refresh restarts the whole attempt, so this resets to 0
+  // with it (consistent). Sent to the backend with the final submission.
+  const [popUpCount, setPopUpCount] = useState(0);
 
   const backToList = () => navigate('/portal/assessment', { replace: true });
   const current: GateStep = steps[stepIndex] ?? 'questions';
@@ -157,7 +161,7 @@ export default function TakePage() {
       optionId,
     }));
     try {
-      await portalAssessmentsApi.submit(detail.respondentAssessmentMappingId, entries);
+      await portalAssessmentsApi.submit(detail.respondentAssessmentMappingId, entries, popUpCount);
       setDone(true);
     } catch (e) {
       setSubmitError(e instanceof ApiError ? e.serverMessage : 'Failed to submit — please try again.');
@@ -209,6 +213,7 @@ export default function TakePage() {
           onSubmit={submit}
           submitting={submitting}
           submitError={submitError}
+          onFocusPopup={() => setPopUpCount((n) => n + 1)}
         />
       );
   }

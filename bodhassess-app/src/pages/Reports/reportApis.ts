@@ -117,6 +117,8 @@ export interface ExportRow {
   organizationId: number | null;
   organizationName: string | null;
   status: AttemptStatus;
+  /** Inactivity "focus" popups dismissed during the attempt. */
+  popUpCount: number;
   /** demographicFieldId → value (JSON object keys arrive as strings). */
   demographics: Record<string, string>;
   /** questionTag → chosen option text ("A; B" when multi-select). */
@@ -209,12 +211,12 @@ export async function downloadExportSheet(sheet: ExportSheet): Promise<void> {
   const XLSX = await import('xlsx');
 
   const header = [
-    'Serial ID', 'Name', 'Email', 'Organization', 'Status',
+    'Serial ID', 'Name', 'Email', 'Organization', 'Status', 'Pop-up Count',
     ...sheet.demographicColumns.map((c) => c.label),
     ...sheet.questionColumns.map((c) => c.questionTag),
   ];
   const body = sheet.rows.map((r) => [
-    r.serialId ?? '', r.name ?? '', r.email, r.organizationName ?? '', r.status,
+    r.serialId ?? '', r.name ?? '', r.email, r.organizationName ?? '', r.status, r.popUpCount ?? 0,
     ...sheet.demographicColumns.map((c) => r.demographics[String(c.demographicFieldId)] ?? ''),
     ...sheet.questionColumns.map((c) => r.answers[c.questionTag] ?? ''),
   ]);
