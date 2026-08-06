@@ -75,7 +75,11 @@ const AdminRespondents          = lazyPage(() => import('@/pages/Respondent/resp
 // Takes over the old entity-registrations route; the v1 entity pages are
 // parked in bodh/deleted/.
 const AdminOrganizations        = lazyPage(() => import('@/pages/Organization/organizations'));
-const AdminRoles         = lazyPage(() => import('@/pages/admin/roles'));
+// Roles & access, super-admin only (see SUPERADMIN_ONLY_PATHS). The old
+// /admin/roles mock is parked in bodh/deleted/.
+const AdminRoleGroups    = lazyPage(() => import('@/pages/admin/role-groups'));
+const AdminAssignRoleGroup = lazyPage(() => import('@/pages/admin/assign-role-group'));
+const PermissionError    = lazyPage(() => import('@/pages/permission-error'));
 const AdminLiveTracking  = lazyPage(() => import('@/pages/admin/live-tracking'));
 const AdminDataGrid      = lazyPage(() => import('@/pages/admin/data-grid'));
 
@@ -131,7 +135,7 @@ const QuestionnairePreview       = lazyPage(() => import('@/pages/questionnaires
 
 const Reports             = lazyPage(() => import('@/pages/reports/all-reports'));
 // New-dialect respondent report listing wired to spring-social (/api/reports).
-const ReportsHub          = lazyPage(() => import('@/pages/Reports/ReportsHub'));
+const ReportsHub          = lazyPage(() => import('@/pages/reports/ReportsHub'));
 const ReportsResponses    = lazyPage(() => import('@/pages/reports/response-sheets'));
 const ReportsClinical     = lazyPage(() => import('@/pages/reports/clinical'));
 const ReportsCounselling  = lazyPage(() => import('@/pages/reports/counselling'));
@@ -228,7 +232,11 @@ const routes: RouteObject[] = [
       { path: '/admin/practitioners', element: <AdminPractitioners /> },
       { path: '/admin/respondents', element: <AdminRespondents /> },
       { path: '/admin/entity-registrations', element: <AdminOrganizations /> },
-      { path: '/admin/roles', element: <AdminRoles /> },
+      { path: '/admin/role-groups', element: <AdminRoleGroups /> },
+      { path: '/admin/assign-role-group', element: <AdminAssignRoleGroup /> },
+      // Always reachable once signed in — canAccess never denies it, or the
+      // denial screen would redirect to itself.
+      { path: '/permission-error', element: <PermissionError /> },
       { path: '/admin/live-tracking', element: <AdminLiveTracking /> },
       { path: '/admin/data-grid', element: <AdminDataGrid /> },
 

@@ -3,14 +3,13 @@
 
 import {
   respondentsApi, practitionersApi, groupsApi,
-  qualitiesApi, verticalsApi, rolesApi,
+  qualitiesApi, verticalsApi,
   type Respondent as ApiRespondent,
   type Practitioner as ApiPractitioner,
   type Group as ApiGroup,
   type MQ as ApiMQ,
   type MQT as ApiMQT,
   type Vertical as ApiVertical,
-  type Role as ApiRole,
   type BulkRespondentRow,
   type BulkRespondentResult,
 } from './api';
@@ -24,7 +23,6 @@ export type Group = ApiGroup;
 export type MQ = ApiMQ;
 export type MQT = ApiMQT;
 export type Vertical = ApiVertical;
-export type Role = ApiRole;
 
 // Legacy shape used by a handful of pages (sessions list, reports, etc.)
 export interface StoredSession {
@@ -105,25 +103,9 @@ export async function deletePractitioner(id: string): Promise<boolean> {
 }
 
 // ---- Roles ----
-export async function getRoles(): Promise<Role[]> {
-  try { return await rolesApi.list(); } catch (e) { console.error(e); return []; }
-}
-// Role authoring is not served yet — the API exposes the seeded roles
-// read-only until the roles & permissions phase. These keep the Permissions
-// screen compiling and make it fail loudly rather than appear to save.
-const ROLE_WRITES_UNAVAILABLE = 'Role authoring is not available yet — roles are seeded server-side.';
-export async function createRole(_r: Role): Promise<Role | null> {
-  console.error(ROLE_WRITES_UNAVAILABLE);
-  return null;
-}
-export async function updateRole(_id: string, _r: Partial<Role>): Promise<Role | null> {
-  console.error(ROLE_WRITES_UNAVAILABLE);
-  return null;
-}
-export async function deleteRole(_id: string): Promise<boolean> {
-  console.error(ROLE_WRITES_UNAVAILABLE);
-  return false;
-}
+// Roles, role groups and their assignment moved to spring-social and are
+// called directly from @/pages/admin/rolesApi (axios, like every other page's
+// colocated client). The stubs that used to sit here are gone with them.
 
 // ---- Groups ----
 export async function getGroups(): Promise<Group[]> {

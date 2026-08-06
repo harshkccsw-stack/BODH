@@ -114,7 +114,9 @@ export function PractitionerAuthProvider({ children }: { children: ReactNode }) 
     logout,
     login,
     canAccess: (p: string) =>
-      state.status === 'authenticated' ? canAccess(p, state.me.url_paths) : isPublicPath(p),
+      state.status === 'authenticated'
+        ? canAccess(p, state.me.url_paths, state.me.isSuperAdmin)
+        : isPublicPath(p),
   }), [state, logout, login]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

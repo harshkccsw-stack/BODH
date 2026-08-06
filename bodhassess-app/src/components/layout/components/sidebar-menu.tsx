@@ -70,6 +70,7 @@ export function SidebarMenu() {
   // Headings are dropped when the section that follows them becomes empty.
   const allowedMenu = useMemo<MenuConfig>(() => {
     const urlPaths = auth.status === 'authenticated' ? auth.me.url_paths : [];
+    const isSuperAdmin = auth.status === 'authenticated' && auth.me.isSuperAdmin;
     const itemAllowed = (item: MenuItem): boolean => {
       if (item.heading) return true;
       if (item.children) {
@@ -77,7 +78,7 @@ export function SidebarMenu() {
         return kept.length > 0;
       }
       if (!item.path) return true;
-      return canAccess(item.path, urlPaths);
+      return canAccess(item.path, urlPaths, isSuperAdmin);
     };
     const filterChildren = (items: MenuConfig): MenuConfig =>
       items
