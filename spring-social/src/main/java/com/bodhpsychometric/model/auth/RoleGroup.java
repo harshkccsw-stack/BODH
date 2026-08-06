@@ -4,7 +4,6 @@ import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.Set;
 
-import jakarta.annotation.Generated;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -53,6 +52,8 @@ public class RoleGroup implements java.io.Serializable {
                     foreignKey = @ForeignKey(name = "fkRoleGroupRoleRole")))
     private Set<Role> roles = new HashSet<>();
 
+    public Long getRoleGroupId() { return roleGroupId; }
+    public void setRoleGroupId(Long roleGroupId) { this.roleGroupId = roleGroupId; }
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }
     public String getDescription() { return description; }

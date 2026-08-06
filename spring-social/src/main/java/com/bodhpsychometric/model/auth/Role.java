@@ -3,7 +3,6 @@ package com.bodhpsychometric.model.auth;
 import java.util.HashSet;
 import java.util.Set;
 
-import jakarta.annotation.Generated;
 import jakarta.persistence.CollectionTable;
 import jakarta.persistence.Column;
 import jakarta.persistence.ElementCollection;
@@ -56,6 +55,8 @@ public class Role implements java.io.Serializable {
     @Column(name = "urlPath", nullable = false, length = 255)
     private Set<String> urlPaths = new HashSet<>();
 
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }
     public String getDescription() { return description; }

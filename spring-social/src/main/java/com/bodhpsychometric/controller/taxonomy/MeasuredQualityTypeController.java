@@ -1,6 +1,8 @@
 package com.bodhpsychometric.controller.taxonomy;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -21,6 +23,8 @@ import com.bodhpsychometric.model.taxonomy.MeasuredQuality;
 import com.bodhpsychometric.model.taxonomy.MeasuredQualityType;
 import com.bodhpsychometric.repository.measures.MeasuredQualityRepository;
 import com.bodhpsychometric.repository.measures.MeasuredQualityTypeRepository;
+import com.bodhpsychometric.repository.scoring.OptionMqtScoreRepository;
+import com.bodhpsychometric.repository.scoring.QuestionMqtScoreRepository;
 
 import jakarta.validation.Valid;
 
@@ -51,6 +55,12 @@ public class MeasuredQualityTypeController {
 
     @Autowired
     private MeasuredQualityRepository measuredQualityRepository;
+
+    @Autowired
+    private QuestionMqtScoreRepository questionMqtScoreRepository;
+
+    @Autowired
+    private OptionMqtScoreRepository optionMqtScoreRepository;
 
     @GetMapping("/getAll")
     public List<MqtFlat> getAllQualityTypes() {
@@ -105,10 +115,20 @@ public class MeasuredQualityTypeController {
     }
 
     @DeleteMapping("/delete/{id}")
-    public ResponseEntity<Void> deleteQualityType(@PathVariable Long id) {
+    public ResponseEntity<?> deleteQualityType(@PathVariable Long id) {
         MeasuredQualityType node = measuredQualityTypeRepository.findById(id).orElse(null);
         if (node == null) {
             return ResponseEntity.notFound().build();
+        }
+        // The delete cascades to the whole subtree, so ANY node under this one
+        // that's still used in question/option scoring would trip an FK at
+        // commit (500). Gather the subtree ids and pre-check; warn with a 409.
+        List<Long> subtreeIds = new ArrayList<>();
+        collectSubtreeIds(node, subtreeIds);
+        if (questionMqtScoreRepository.existsByMeasuredQualityType_MeasuredQualityTypeIdIn(subtreeIds)
+                || optionMqtScoreRepository.existsByMeasuredQualityType_MeasuredQualityTypeIdIn(subtreeIds)) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                    "message", "This quality type is in use by question scoring and can't be deleted."));
         }
         // Detach from the parent's collection so orphanRemoval and the direct
         // delete agree; children go with the node via cascade.
@@ -117,5 +137,13 @@ public class MeasuredQualityTypeController {
         }
         measuredQualityTypeRepository.delete(node);
         return ResponseEntity.noContent().build();
+    }
+
+    /** This node's id plus every descendant's — the set the cascade would delete. */
+    private void collectSubtreeIds(MeasuredQualityType node, List<Long> ids) {
+        ids.add(node.getMeasuredQualityTypeId());
+        for (MeasuredQualityType child : node.getChildren()) {
+            collectSubtreeIds(child, ids);
+        }
     }
 }

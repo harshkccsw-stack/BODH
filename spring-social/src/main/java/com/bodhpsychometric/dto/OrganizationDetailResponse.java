@@ -17,6 +17,7 @@ public record OrganizationDetailResponse(
         String name,
         String orgEmail,
         String description,
+        String logoBase64,
         List<StaffRef> staff,
         List<MemberRef> members) {
 
@@ -61,6 +62,7 @@ public record OrganizationDetailResponse(
                 organization.getName(),
                 organization.getOrgEmail(),
                 organization.getDescription(),
+                organization.getLogoBase64(),
                 staff.stream().map(StaffRef::from).toList(),
                 members.stream().map(MemberRef::from).toList());
     }

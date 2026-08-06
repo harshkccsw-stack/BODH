@@ -1,3 +1,8 @@
+import { AppShell } from '@/components/app-shell';
+import { PrivateRoute } from '@/components/guards/private-route';
+import { PublicRoute } from '@/components/guards/public-route';
+import { ScreenLoader } from '@/components/screen-loader';
+import { PractitionerAuthProvider } from '@/lib/practitioner-auth';
 import { lazy, Suspense, type ComponentType } from 'react';
 import {
   createBrowserRouter,
@@ -5,11 +10,6 @@ import {
   Outlet,
   type RouteObject,
 } from 'react-router';
-import { ScreenLoader } from '@/components/screen-loader';
-import { PractitionerAuthProvider } from '@/lib/practitioner-auth';
-import { PrivateRoute } from '@/components/guards/private-route';
-import { PublicRoute } from '@/components/guards/public-route';
-import { AppShell } from '@/components/app-shell';
 
 // Root mounts the auth provider once, above every route, so the same auth
 // state survives navigation. Must live INSIDE the router because the provider
@@ -75,7 +75,11 @@ const AdminRespondents          = lazyPage(() => import('@/pages/Respondent/resp
 // Takes over the old entity-registrations route; the v1 entity pages are
 // parked in bodh/deleted/.
 const AdminOrganizations        = lazyPage(() => import('@/pages/Organization/organizations'));
-const AdminRoles         = lazyPage(() => import('@/pages/admin/roles'));
+// Roles & access, super-admin only (see SUPERADMIN_ONLY_PATHS). The old
+// /admin/roles mock is parked in bodh/deleted/.
+const AdminRoleGroups    = lazyPage(() => import('@/pages/admin/role-groups'));
+const AdminAssignRoleGroup = lazyPage(() => import('@/pages/admin/assign-role-group'));
+const PermissionError    = lazyPage(() => import('@/pages/permission-error'));
 const AdminLiveTracking  = lazyPage(() => import('@/pages/admin/live-tracking'));
 const AdminDataGrid      = lazyPage(() => import('@/pages/admin/data-grid'));
 
@@ -228,7 +232,11 @@ const routes: RouteObject[] = [
       { path: '/admin/practitioners', element: <AdminPractitioners /> },
       { path: '/admin/respondents', element: <AdminRespondents /> },
       { path: '/admin/entity-registrations', element: <AdminOrganizations /> },
-      { path: '/admin/roles', element: <AdminRoles /> },
+      { path: '/admin/role-groups', element: <AdminRoleGroups /> },
+      { path: '/admin/assign-role-group', element: <AdminAssignRoleGroup /> },
+      // Always reachable once signed in — canAccess never denies it, or the
+      // denial screen would redirect to itself.
+      { path: '/permission-error', element: <PermissionError /> },
       { path: '/admin/live-tracking', element: <AdminLiveTracking /> },
       { path: '/admin/data-grid', element: <AdminDataGrid /> },
 

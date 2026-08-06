@@ -2,6 +2,7 @@ package com.bodhpsychometric.service;
 
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.util.LinkedHashSet;
 import java.util.Set;
 
 import org.springframework.http.HttpStatus;
@@ -57,13 +58,9 @@ public class DashboardAuthService {
             throw noDashboardAccess();
         }
 
-        Set<String> urlPaths = user.getRoleGroup() != null
-                ? user.getRoleGroup().allUrlPaths()
-                : Set.of();
-
         user.setLastLoginAt(OffsetDateTime.now());
 
-        return new LoginResponse(jwt.issueToken(user), toAuthUser(user, urlPaths));
+        return new LoginResponse(jwt.issueToken(user), toAuthUser(user, effectivePaths(user)));
     }
 
     /**
@@ -91,10 +88,29 @@ public class DashboardAuthService {
             throw noDashboardAccess();
         }
 
-        Set<String> urlPaths = user.getRoleGroup() != null
-                ? user.getRoleGroup().allUrlPaths()
-                : Set.of();
-        return toAuthUser(user, urlPaths);
+        return toAuthUser(user, effectivePaths(user));
+    }
+
+    /**
+     * Everything this identity may open, as the frontend will use it — the
+     * effective set, not the raw group. Two rules live here and nowhere else:
+     * a superadmin gets the "/*" wildcard (the flag overrides path checks, so
+     * saying so beats returning an empty set the client has to reinterpret),
+     * and every dashboard user gets /dashboard whether or not a role grants
+     * it. Without that second rule someone with no group — or with a group
+     * covering only, say, /reports — has nowhere to land and no way back from
+     * the permission-error page.
+     */
+    private static Set<String> effectivePaths(User user) {
+        if (user.isSuperAdmin()) {
+            return Set.of("/*");
+        }
+        Set<String> paths = new LinkedHashSet<>();
+        paths.add("/dashboard");
+        if (user.getRoleGroup() != null) {
+            paths.addAll(user.getRoleGroup().allUrlPaths());
+        }
+        return paths;
     }
 
     private static AuthUserResponse toAuthUser(User user, Set<String> urlPaths) {

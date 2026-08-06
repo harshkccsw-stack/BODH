@@ -128,12 +128,16 @@ export const MENU_SIDEBAR: MenuConfig = [
       { title: 'Groups', path: '/admin/groups' },
     ],
   },
+  // Super-admin only — SUPERADMIN_ONLY_PATHS in practitioner-auth-utils
+  // denies these to everyone else even if a role grants /admin/*, and the
+  // sidebar drops the whole group with them.
   {
     title: 'Roles',
     icon: ShieldCheck,
     children: [
       { title: 'Roles & Permissions', path: '/admin/permissions' },
-      { title: 'Permissions', path: '/admin/roles' },
+      { title: 'Role Groups', path: '/admin/role-groups' },
+      { title: 'Assign Role Group', path: '/admin/assign-role-group' },
     ],
   },
   {

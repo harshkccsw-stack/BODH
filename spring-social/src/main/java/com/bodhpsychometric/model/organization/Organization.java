@@ -34,6 +34,13 @@ public class Organization implements java.io.Serializable {
     @Column(name = "org_email",  length = 200)
     private String orgEmail;
 
+    // Logo stored inline as a base64 data URL (e.g. "data:image/png;base64,…")
+    // so the frontend can bind it straight to an <img src>. LONGTEXT because a
+    // data URL for even a small logo overruns TEXT's 64 KB. No object storage
+    // yet — this is the agreed interim (see the create/edit org form).
+    @Column(name = "logo_base64", columnDefinition = "LONGTEXT")
+    private String logoBase64;
+
     public Long getOrganizationId() {
         return organizationId;
     }
@@ -64,5 +71,13 @@ public class Organization implements java.io.Serializable {
 
     public void setOrgEmail(String orgEmail) {
         this.orgEmail = orgEmail;
+    }
+
+    public String getLogoBase64() {
+        return logoBase64;
+    }
+
+    public void setLogoBase64(String logoBase64) {
+        this.logoBase64 = logoBase64;
     }
 }

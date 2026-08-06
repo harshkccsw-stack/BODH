@@ -26,4 +26,14 @@ public interface DemographicResponseRepository extends JpaRepository<Demographic
     @Query("select d.assessment.assessmentId, count(d) from DemographicResponse d "
             + "where d.respondent.id = :respondentUserId group by d.assessment.assessmentId")
     List<Object[]> tallyDemographicsByAssessment(Long respondentUserId);
+
+    /**
+     * Export fetch — every demographic response of the given respondents for
+     * one assessment, with the field eager so the sheet builder can key each
+     * value by demographicFieldId without a lazy load.
+     */
+    @Query("select d from DemographicResponse d join fetch d.demographicField "
+            + "where d.assessment.assessmentId = :assessmentId "
+            + "and d.respondent.id in :respondentUserIds")
+    List<DemographicResponse> findForExport(Long assessmentId, List<Long> respondentUserIds);
 }

@@ -7,8 +7,8 @@ import {
   ChevronLeft,
   ChevronRight,
   ClipboardList,
-  Download,
   FileBarChart2,
+  FileSpreadsheet,
   Info,
   Loader2,
   Mail,
@@ -23,6 +23,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import {
+  downloadExportSheet,
   reportApis,
   type AttemptStatus,
   type ReportPage,
@@ -271,6 +272,14 @@ export default function ReportsHubPage() {
   const [resetting, setResetting] = useState(false);
   const [resetError, setResetError] = useState('');
 
+  // Raw-data export. Header export needs an assessment selected; the popup's
+  // per-assessment export runs per (assessment, respondent) and only makes
+  // sense once that attempt is COMPLETED.
+  const [headerExporting, setHeaderExporting] = useState(false);
+  const [exportError, setExportError] = useState('');
+  const [rowExportId, setRowExportId] = useState<number | null>(null);
+  const [rowExportError, setRowExportError] = useState('');
+
   // Opening a dropdown for the first time is what loads its options; after
   // that the panel keeps what it has and only re-queries on search/paging.
   const openOrgDropdown = (next: boolean) => {
@@ -390,16 +399,18 @@ export default function ReportsHubPage() {
     setDetail(null);
     setConfirmReset(null);
     setResetError('');
+    setRowExportError('');
     loadDetail(row.respondentUserId);
   };
 
   const closeDetail = () => {
-    if (resetting) return;
+    if (resetting || rowExportId !== null) return;
     setDetailFor(null);
     setDetail(null);
     setDetailError('');
     setConfirmReset(null);
     setResetError('');
+    setRowExportError('');
   };
 
   const doReset = () => {
@@ -422,6 +433,43 @@ export default function ReportsHubPage() {
         setResetError(e?.response?.data?.message || e?.message || 'Failed to reset this assessment');
       })
       .finally(() => setResetting(false));
+  };
+
+  // Header "Export Raw Data": all completed respondents for the selected
+  // assessment, scoped to the selected organization when one is picked.
+  const doExportAssessment = async () => {
+    if (!selectedAsmt) return;
+    setHeaderExporting(true);
+    setExportError('');
+    try {
+      const res = await reportApis.exportAssessment(selectedAsmt.id, selectedOrg?.id);
+      if (res.data.rows.length === 0) {
+        setExportError('No completed respondents to export for this selection.');
+        return;
+      }
+      await downloadExportSheet(res.data);
+    } catch (e: any) {
+      setExportError(e?.response?.data?.message || e?.message || 'Failed to export raw data');
+    } finally {
+      setHeaderExporting(false);
+    }
+  };
+
+  // Popup per-assessment "Export Raw Data": this respondent's single row for
+  // that assessment. Backend 404s unless the attempt is COMPLETED, which is
+  // also why the button is only enabled for completed rows.
+  const doExportRespondentRow = async (row: RespondentAssessmentRow) => {
+    if (!detailFor) return;
+    setRowExportId(row.respondentAssessmentMappingId);
+    setRowExportError('');
+    try {
+      const res = await reportApis.exportRespondent(row.assessmentId, detailFor.respondentUserId);
+      await downloadExportSheet(res.data);
+    } catch (e: any) {
+      setRowExportError(e?.response?.data?.message || e?.message || 'Failed to export this respondent');
+    } finally {
+      setRowExportId(null);
+    }
   };
 
   const hasFilters = selectedOrg !== null || selectedAsmt !== null || respSearch.trim() !== '';
@@ -458,14 +506,31 @@ export default function ReportsHubPage() {
             <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
               Pick an organization or an assessment, or search by name or
               email, to list the respondents behind it — then drill into their
-              assessments. Exports land here next.
+              assessments. Select an assessment to export its raw data.
             </p>
           </div>
-          <Button variant="outline" disabled title="Export is coming soon">
-            <Download /> Export
+          <Button
+            variant="outline"
+            onClick={doExportAssessment}
+            disabled={!selectedAsmt || headerExporting}
+            title={selectedAsmt
+              ? `Export completed respondents of "${selectedAsmt.label}"${selectedOrg ? ` in ${selectedOrg.label}` : ''} to Excel`
+              : 'Select an assessment to export its raw data'}
+          >
+            {headerExporting ? <Loader2 className="animate-spin" /> : <FileSpreadsheet />}
+            Export Raw Data
           </Button>
         </div>
       </div>
+
+      {exportError && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30 px-4 py-3 text-sm text-amber-700 dark:text-amber-400 flex items-center justify-between gap-3">
+          <span>{exportError}</span>
+          <button onClick={() => setExportError('')} className="shrink-0 text-muted-foreground hover:text-foreground">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
 
       {respError && (
         <div className="rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-4 py-3 text-sm text-red-700 dark:text-red-400">
@@ -741,6 +806,15 @@ export default function ReportsHubPage() {
                 </div>
               )}
 
+              {rowExportError && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30 px-4 py-3 text-sm text-amber-700 dark:text-amber-400 flex items-center justify-between gap-3">
+                  <span>{rowExportError}</span>
+                  <button onClick={() => setRowExportError('')} className="shrink-0 text-muted-foreground hover:text-foreground">
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              )}
+
               {!detailLoading && !detailError && detail && detail.assessments.length === 0 && (
                 <div className="py-10 text-center text-sm text-muted-foreground">
                   No assessments assigned to this respondent yet.
@@ -770,18 +844,33 @@ export default function ReportsHubPage() {
                         <span className="truncate">{a.questionnaireName}</span>
                       </div>
                     </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="shrink-0"
-                      disabled={isUntouched(a)}
-                      title={isUntouched(a)
-                        ? 'Nothing to reset — this attempt has not been started'
-                        : 'Wipe the answers and let this respondent take it again'}
-                      onClick={() => { setConfirmReset(a); setResetError(''); }}
-                    >
-                      <RotateCcw /> Reset
-                    </Button>
+                    <div className="flex flex-col gap-2 shrink-0">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={a.attemptStatus !== 'COMPLETED' || rowExportId !== null}
+                        title={a.attemptStatus === 'COMPLETED'
+                          ? 'Export this respondent’s answers for this assessment to Excel'
+                          : 'Only completed attempts can be exported'}
+                        onClick={() => doExportRespondentRow(a)}
+                      >
+                        {rowExportId === a.respondentAssessmentMappingId
+                          ? <Loader2 className="animate-spin" />
+                          : <FileSpreadsheet />}
+                        Export Raw Data
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={isUntouched(a)}
+                        title={isUntouched(a)
+                          ? 'Nothing to reset — this attempt has not been started'
+                          : 'Wipe the answers and let this respondent take it again'}
+                        onClick={() => { setConfirmReset(a); setResetError(''); }}
+                      >
+                        <RotateCcw /> Reset
+                      </Button>
+                    </div>
                   </div>
                   <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
                     <span>

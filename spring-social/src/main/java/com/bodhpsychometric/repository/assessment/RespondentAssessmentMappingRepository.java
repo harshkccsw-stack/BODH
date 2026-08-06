@@ -73,4 +73,21 @@ public interface RespondentAssessmentMappingRepository extends JpaRepository<Res
             + "join fetch m.assessment a join fetch a.questionnaire "
             + "where m.respondentAssessmentMappingId = :id")
     Optional<RespondentAssessmentMapping> findForPortalDelivery(Long id);
+
+    /**
+     * Export rows: the COMPLETED allotments for one assessment, with respondent
+     * identity fetched. Both optional filters narrow it — an organizationId
+     * scopes to that org's members (respondents with no org are excluded), a
+     * respondentUserId picks the single respondent's row. Ordered by name so
+     * the sheet is stable. Only COMPLETED attempts have a settled answer set.
+     */
+    @Query("select m from RespondentAssessmentMapping m "
+            + "join fetch m.respondent r join fetch r.user left join fetch r.organization o "
+            + "where m.assessment.assessmentId = :assessmentId "
+            + "and m.assessmentStatus = com.bodhpsychometric.model.assessment.enums.RespondentAssessmentStatus.COMPLETED "
+            + "and (:organizationId is null or o.organizationId = :organizationId) "
+            + "and (:respondentUserId is null or r.id = :respondentUserId) "
+            + "order by r.name asc, r.id asc")
+    List<RespondentAssessmentMapping> findCompletedForExport(Long assessmentId, Long organizationId,
+            Long respondentUserId);
 }

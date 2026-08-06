@@ -21,6 +21,27 @@ export function isPublicPath(pathname: string): boolean {
   return PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + '/'));
 }
 
+// Where a signed-in user lands, and where "you don't have access" sends them.
+export const DASHBOARD_PATH = '/dashboard';
+export const PERMISSION_ERROR_PATH = '/permission-error';
+
+// Managing roles is not a grantable page — it is the thing that grants pages.
+// Anyone holding /admin/* would otherwise inherit the ability to widen their
+// own access, so these three are reserved for super admins no matter what a
+// role says, and the page catalog never offers them.
+//
+// This is a navigation rule, not a security boundary: the API itself is still
+// unauthenticated, so it only closes properly when the JWT filter lands.
+export const SUPERADMIN_ONLY_PATHS = [
+  '/admin/permissions',
+  '/admin/role-groups',
+  '/admin/assign-role-group',
+];
+
+export function isSuperAdminOnlyPath(pathname: string): boolean {
+  return SUPERADMIN_ONLY_PATHS.some((p) => pathname === p || pathname.startsWith(p + '/'));
+}
+
 // Match a pathname against one of the role.url_paths patterns.
 //   "/*"           → matches everything
 //   "/admin/*"     → matches "/admin", "/admin/foo", "/admin/foo/bar"
@@ -35,8 +56,19 @@ export function pathMatchesPattern(pathname: string, pattern: string): boolean {
   return pathname === pattern;
 }
 
-export function canAccess(pathname: string, urlPaths: string[]): boolean {
+export function canAccess(
+  pathname: string,
+  urlPaths: string[],
+  isSuperAdmin = false,
+): boolean {
   if (isPublicPath(pathname)) return true;
+  // The denial screen itself must never be deniable, or it redirects to
+  // itself forever. Same reason /dashboard is always open: it is where the
+  // "Return to dashboard" button goes, and the backend grants it to every
+  // dashboard user anyway — this is the belt to that braces.
+  if (pathname === PERMISSION_ERROR_PATH || pathname === DASHBOARD_PATH) return true;
+  if (isSuperAdminOnlyPath(pathname)) return isSuperAdmin;
+  if (isSuperAdmin) return true;
   return urlPaths.some((p) => pathMatchesPattern(pathname, p));
 }
 
@@ -58,17 +90,19 @@ export function clearDashboardToken() {
 }
 
 // Adapt the unified /auth identity onto the PractitionerMe shape the dashboard
-// is built around. RBAC (roles + url_paths) comes straight from /auth; a super
-// admin carries `url_paths: ['/*']` which grants every route via canAccess().
+// is built around. url_paths arrives already resolved: the backend expands a
+// super admin to ['/*'] and unions /dashboard into everyone else, so nothing
+// is re-derived here.
 export function authUserToPractitionerMe(user: AuthUser): PractitionerMe {
   return {
     id: user.id,
     serialId: user.serialId,
     name: user.name || (user.isSuperAdmin ? 'Administrator' : user.email),
     email: user.email,
+    isSuperAdmin: user.isSuperAdmin,
     roles: user.roles ?? (user.isSuperAdmin ? ['SUPER_ADMIN'] : []),
     verticals: [],
     status: 'Active',
-    url_paths: user.url_paths ?? (user.isSuperAdmin ? ['/*'] : []),
+    url_paths: user.url_paths ?? [],
   };
 }

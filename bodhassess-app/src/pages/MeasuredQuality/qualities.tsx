@@ -56,6 +56,10 @@ export default function QualitiesPage() {
   const [mqtError, setMqtError] = useState('');
 
   const [confirmDeleteMq, setConfirmDeleteMq] = useState<MQ | null>(null);
+  // Delete "in use" warnings (backend 409): one for the MQ delete modal, one
+  // for the MQT tree removed inline from the edit popup.
+  const [mqDeleteError, setMqDeleteError] = useState('');
+  const [mqtTreeError, setMqtTreeError] = useState('');
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
   const refresh = async (showLoading = false) => {
@@ -110,6 +114,7 @@ export default function QualitiesPage() {
   const openEditMq = (mq: MQ) => {
     setMqForm({ id: mq.id, name: mq.name, description: mq.description || '' });
     setMqError('');
+    setMqtTreeError('');
     setEditMqId(mq.id);
   };
   const submitMq = async () => {
@@ -136,9 +141,14 @@ export default function QualitiesPage() {
   };
   const deleteMq = async () => {
     if (!confirmDeleteMq) return;
-    await qualitiesApi.deleteQuality(Number(confirmDeleteMq.id));
-    setConfirmDeleteMq(null);
-    await refresh();
+    setMqDeleteError('');
+    try {
+      await qualitiesApi.deleteQuality(Number(confirmDeleteMq.id));
+      setConfirmDeleteMq(null);
+      await refresh();
+    } catch (e: any) {
+      setMqDeleteError(e?.response?.data?.message || e?.message || 'Failed to delete');
+    }
   };
 
   // --- MQT CRUD (recursive — persisted as part of the parent MQ document) ---
@@ -217,9 +227,16 @@ export default function QualitiesPage() {
     }
   };
   const removeMqt = async (_mqId: string, mqtId: string) => {
-    // Deleting a node takes its whole subtree with it (backend cascade).
-    await qualitiesApi.deleteQualityType(Number(mqtId));
-    await refresh();
+    // Deleting a node takes its whole subtree with it (backend cascade). The
+    // backend blocks (409) any node still used in question scoring — surface
+    // that warning above the tree.
+    setMqtTreeError('');
+    try {
+      await qualitiesApi.deleteQualityType(Number(mqtId));
+      await refresh();
+    } catch (e: any) {
+      setMqtTreeError(e?.response?.data?.message || e?.message || 'Failed to delete quality type');
+    }
   };
 
   return (
@@ -331,7 +348,7 @@ export default function QualitiesPage() {
                       variant="ghost"
                       size="sm"
                       mode="icon"
-                      onClick={(e) => { e.stopPropagation(); setConfirmDeleteMq(mq); }}
+                      onClick={(e) => { e.stopPropagation(); setMqDeleteError(''); setConfirmDeleteMq(mq); }}
                       title="Delete MQ"
                     >
                       <Trash2 className="h-3.5 w-3.5 text-red-600" />
@@ -432,6 +449,12 @@ export default function QualitiesPage() {
                     Add MQT
                   </Button>
                 </div>
+                {mqtTreeError && (
+                  <div className="mb-2 rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-3 py-2 text-xs text-red-700 dark:text-red-400 flex items-start gap-2">
+                    <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                    <span>{mqtTreeError}</span>
+                  </div>
+                )}
                 {editingMq.mqts.length === 0 ? (
                   <p className="text-xs text-muted-foreground italic">
                     No MQTs defined. Add at least one so this MQ is usable in assessments.
@@ -517,6 +540,12 @@ export default function QualitiesPage() {
                 Remove <strong>{confirmDeleteMq.name}</strong> and its {flattenMqts(confirmDeleteMq.mqts).length} MQT{flattenMqts(confirmDeleteMq.mqts).length !== 1 ? 's' : ''}?
                 Existing assessments that reference these MQT IDs will keep their scores but the labels will disappear.
               </p>
+              {mqDeleteError && (
+                <div className="rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-3 py-2 text-xs text-red-700 dark:text-red-400 flex items-start gap-2">
+                  <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  <span>{mqDeleteError}</span>
+                </div>
+              )}
               <div className="flex justify-end gap-2">
                 <Button variant="outline" onClick={() => setConfirmDeleteMq(null)}>Cancel</Button>
                 <Button variant="primary" onClick={deleteMq} className="bg-red-600 hover:bg-red-700 text-white">

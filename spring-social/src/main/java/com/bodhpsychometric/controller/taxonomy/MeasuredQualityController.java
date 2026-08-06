@@ -1,6 +1,7 @@
 package com.bodhpsychometric.controller.taxonomy;
 
 import java.util.List;
+import java.util.Map;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -20,6 +21,8 @@ import com.bodhpsychometric.dto.MeasuredQualityRequest;
 import com.bodhpsychometric.dto.MeasuredQualityResponse;
 import com.bodhpsychometric.model.taxonomy.MeasuredQuality;
 import com.bodhpsychometric.repository.measures.MeasuredQualityRepository;
+import com.bodhpsychometric.repository.scoring.OptionMqtScoreRepository;
+import com.bodhpsychometric.repository.scoring.QuestionMqtScoreRepository;
 
 import jakarta.validation.Valid;
 
@@ -36,6 +39,12 @@ public class MeasuredQualityController {
 
     @Autowired
     private MeasuredQualityRepository measuredQualityRepository;
+
+    @Autowired
+    private QuestionMqtScoreRepository questionMqtScoreRepository;
+
+    @Autowired
+    private OptionMqtScoreRepository optionMqtScoreRepository;
 
     @GetMapping("/getAll")
     public List<MeasuredQualityResponse> getAllMeasuredQualities() {
@@ -73,9 +82,17 @@ public class MeasuredQualityController {
     }
 
     @DeleteMapping("/delete/{id}")
-    public ResponseEntity<Void> deleteMeasuredQuality(@PathVariable Long id) {
+    public ResponseEntity<?> deleteMeasuredQuality(@PathVariable Long id) {
         if (!measuredQualityRepository.existsById(id)) {
             return ResponseEntity.notFound().build();
+        }
+        // Deleting the MQ cascade-deletes its whole MQT tree, so a trait still
+        // used in question/option scoring would trip an FK at commit (500).
+        // Pre-check and warn with a 409 instead.
+        if (questionMqtScoreRepository.existsByMeasuredQualityType_MeasuredQuality_MeasuredQualityId(id)
+                || optionMqtScoreRepository.existsByMeasuredQualityType_MeasuredQuality_MeasuredQualityId(id)) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                    "message", "This measured quality is in use by question scoring and can't be deleted."));
         }
         measuredQualityRepository.deleteById(id);
         return ResponseEntity.noContent().build();

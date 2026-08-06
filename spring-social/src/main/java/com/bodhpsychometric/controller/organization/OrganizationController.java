@@ -417,6 +417,10 @@ public class OrganizationController {
                 ? null : request.orgEmail().trim());
         organization.setDescription(request.description() == null || request.description().isBlank()
                 ? null : request.description().trim());
+        // Blank → null clears the logo; a data URL replaces it. Not trimmed —
+        // base64 has no meaningful surrounding whitespace to strip.
+        organization.setLogoBase64(request.logoBase64() == null || request.logoBase64().isBlank()
+                ? null : request.logoBase64());
     }
 
     private ResponseEntity<Map<String, String>> duplicateName() {

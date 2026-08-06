@@ -148,6 +148,7 @@ export interface PortalAssessmentDetail {
   assessmentName: string;
   showTermsAndConditions: boolean;
   autoNext: boolean;
+  showQuestionIndex: boolean;
   questionnaireId: number;
   questionnaireName: string;
   description: string | null;
@@ -187,10 +188,11 @@ export const portalAssessmentsApi = {
       body: JSON.stringify({ demographics }),
     }),
   // The once-and-for-all submission: every answer at once, ONGOING → COMPLETED.
-  submit: (mappingId: number | string, answers: PortalAnswerEntry[]) =>
+  // popUpCount is the attempt-level inactivity-popup tally (defaults to 0).
+  submit: (mappingId: number | string, answers: PortalAnswerEntry[], popUpCount = 0) =>
     jsonFetch<PortalAttemptStatus>(`/portal/assessments/submit/${encodeURIComponent(mappingId)}`, {
       method: 'POST',
-      body: JSON.stringify({ answers }),
+      body: JSON.stringify({ answers, popUpCount }),
     }),
 };
 

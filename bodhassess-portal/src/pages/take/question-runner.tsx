@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Check, ChevronLeft, ChevronRight } from 'lucide-react';
+import { AlertTriangle, Check, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { BrandHeader } from '@/components/brand-header';
@@ -18,6 +18,7 @@ export function QuestionRunner({
   onSubmit,
   submitting,
   submitError,
+  onFocusPopup,
 }: {
   detail: PortalAssessmentDetail;
   title: string;
@@ -27,6 +28,8 @@ export function QuestionRunner({
   onSubmit: () => void;
   submitting: boolean;
   submitError?: string;
+  /** Called once each time the inactivity popup is dismissed (OKAY). */
+  onFocusPopup: () => void;
 }) {
   const [index, setIndex] = useState(0);
   const questions = detail.questions;
@@ -51,6 +54,63 @@ export function QuestionRunner({
     }
   };
   useEffect(() => clearAdvance, []);
+
+  // ── Inactivity "focus" popup ────────────────────────────────────────────
+  // If the respondent doesn't interact for 30s, a popup nudges them to focus;
+  // dismissing it (OKAY) bumps the attempt's popup count (persisted at submit)
+  // and restarts the countdown. Any activity resets the countdown. The timer
+  // only runs on this questions screen — the gate steps are separate pages —
+  // and pauses while the browser tab is hidden (leaving the tab isn't counted).
+  const INACTIVITY_MS = 30_000;
+  const [showFocusModal, setShowFocusModal] = useState(false);
+  const focusTimer = useRef<number | null>(null);
+  // Ref mirror of the modal state so timer/visibility callbacks read it without
+  // being re-created — while the popup is up, activity must NOT reset anything.
+  const modalOpenRef = useRef(false);
+
+  const clearFocusTimer = () => {
+    if (focusTimer.current !== null) {
+      window.clearTimeout(focusTimer.current);
+      focusTimer.current = null;
+    }
+  };
+  const armFocusTimer = () => {
+    clearFocusTimer();
+    focusTimer.current = window.setTimeout(() => {
+      focusTimer.current = null;
+      modalOpenRef.current = true;
+      setShowFocusModal(true);
+    }, INACTIVITY_MS);
+  };
+  // Any respondent activity restarts the countdown — unless the popup is up,
+  // when the only way forward is the OKAY button.
+  const noteActivity = () => {
+    if (modalOpenRef.current) return;
+    armFocusTimer();
+  };
+  const dismissFocusPopup = () => {
+    modalOpenRef.current = false;
+    setShowFocusModal(false);
+    onFocusPopup();
+    armFocusTimer();
+  };
+
+  useEffect(() => {
+    armFocusTimer();
+    const onVisibility = () => {
+      if (document.hidden) {
+        clearFocusTimer();
+      } else if (!modalOpenRef.current) {
+        armFocusTimer();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      clearFocusTimer();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const goTo = (qi: number) => {
     clearAdvance();
@@ -94,12 +154,16 @@ export function QuestionRunner({
     sections[pos].indices.push(qi);
   });
   const hasSections = sections.some((s) => s.title);
-  // The question index panel is always shown so respondents can see their
-  // progress and jump between questions.
-  const showIndex = true;
+  // The question index panel lets respondents see their progress and jump
+  // between questions. Per-assessment toggle (create/edit form); defaults on.
+  const showIndex = detail.showQuestionIndex;
 
   return (
-    <div className="flex-1 min-h-screen w-full bg-muted/20">
+    <div
+      className="flex-1 min-h-screen w-full bg-muted/20"
+      onPointerDown={noteActivity}
+      onKeyDown={noteActivity}
+    >
       <BrandHeader
         title={title}
         subtitle={subtitle}
@@ -249,6 +313,31 @@ export function QuestionRunner({
           </div>
         </main>
       </div>
+
+      {showFocusModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          role="dialog"
+          aria-modal="true"
+        >
+          <Card className="w-full max-w-sm">
+            <CardContent className="p-6 space-y-4 text-center">
+              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-950/40">
+                <AlertTriangle className="h-6 w-6 text-amber-600 dark:text-amber-400" />
+              </div>
+              <div className="space-y-1">
+                <h2 className="text-lg font-semibold">Focus on your assessment</h2>
+                <p className="text-sm text-muted-foreground">
+                  You've been inactive for a little while. Tap OKAY to continue.
+                </p>
+              </div>
+              <Button variant="primary" className="w-full" onClick={dismissFocusPopup}>
+                OKAY
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }
