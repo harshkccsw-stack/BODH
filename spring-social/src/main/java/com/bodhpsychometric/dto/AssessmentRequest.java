@@ -19,5 +19,8 @@ public record AssessmentRequest(
         Long questionnaireId,
         Boolean showTermsAndConditions,
         AssessmentStatus status,
-        Boolean autoNext) {
+        Boolean autoNext,
+        // Show the portal question index/navigator during the attempt.
+        // Null falls back to the entity default (true).
+        Boolean showQuestionIndex) {
 }

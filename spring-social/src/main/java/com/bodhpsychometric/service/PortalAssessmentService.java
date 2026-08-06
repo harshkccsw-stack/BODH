@@ -259,6 +259,10 @@ public class PortalAssessmentService {
 
         mapping.setAssessmentStatus(RespondentAssessmentStatus.COMPLETED);
         mapping.setPersisted(true);
+        // Attempt-level focus-popup tally. Null (older clients) or negative
+        // clamps to 0 rather than rejecting the whole submission.
+        Integer popUpCount = request == null ? null : request.popUpCount();
+        mapping.setPopUpCount(popUpCount == null ? 0 : Math.max(0, popUpCount));
         return PortalAttemptStatusResponse.from(mappings.save(mapping));
     }
 

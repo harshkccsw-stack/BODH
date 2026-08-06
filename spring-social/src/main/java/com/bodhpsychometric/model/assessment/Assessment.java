@@ -54,6 +54,12 @@ public class Assessment implements java.io.Serializable {
     @Column(name = "autoNext", nullable = false)
     private boolean autoNext;
 
+    // Portal UX: show the question index/navigator panel (jump between
+    // questions) during the attempt. Defaults true — the panel was always
+    // shown before this became configurable.
+    @Column(name = "showQuestionIndex", nullable = false)
+    private boolean showQuestionIndex = true;
+
     public Long getAssessmentId() {
         return assessmentId;
     }
@@ -100,5 +106,13 @@ public class Assessment implements java.io.Serializable {
 
     public void setAutoNext(boolean autoNext) {
         this.autoNext = autoNext;
+    }
+
+    public boolean isShowQuestionIndex() {
+        return showQuestionIndex;
+    }
+
+    public void setShowQuestionIndex(boolean showQuestionIndex) {
+        this.showQuestionIndex = showQuestionIndex;
     }
 }

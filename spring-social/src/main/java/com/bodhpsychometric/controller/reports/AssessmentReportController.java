@@ -78,6 +78,38 @@ public class AssessmentReportController {
     }
 
     /**
+     * Export sheet for one assessment — one row per COMPLETED respondent, with
+     * demographic and question-tag columns, for the dashboard to render as
+     * XLSX. Optional organizationId scopes the rows to that org's members;
+     * omit it for every organization. 404 only when the assessment does not
+     * exist (an assessment with no completed attempts returns empty rows).
+     */
+    @GetMapping("/export/assessment/{assessmentId}")
+    public ResponseEntity<?> exportAssessment(@PathVariable Long assessmentId,
+            @RequestParam(required = false) Long organizationId) {
+        return assessmentReportService.exportAssessment(assessmentId, organizationId)
+                .<ResponseEntity<?>>map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(Map.of("message", "Assessment " + assessmentId + " not found")));
+    }
+
+    /**
+     * Export sheet for a single respondent on one assessment — same shape, one
+     * row. Optional organizationId narrows to that org. 404 when the assessment
+     * is missing or the respondent has no COMPLETED attempt for it.
+     */
+    @GetMapping("/export/assessment/{assessmentId}/respondent/{respondentUserId}")
+    public ResponseEntity<?> exportRespondent(@PathVariable Long assessmentId,
+            @PathVariable Long respondentUserId,
+            @RequestParam(required = false) Long organizationId) {
+        return assessmentReportService.exportRespondent(assessmentId, respondentUserId, organizationId)
+                .<ResponseEntity<?>>map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(Map.of("message", "No completed attempt for respondent " + respondentUserId
+                                + " on assessment " + assessmentId)));
+    }
+
+    /**
      * Reset one allotment: the respondent's answers and demographic responses
      * for that assessment are deleted and the allotment drops back to
      * NOT_STARTED, so they take it again from scratch. Destructive and not

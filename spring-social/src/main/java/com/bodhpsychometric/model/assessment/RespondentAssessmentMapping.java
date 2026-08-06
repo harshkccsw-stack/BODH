@@ -65,6 +65,14 @@ public class RespondentAssessmentMapping implements java.io.Serializable {
     @Column(name = "isPersisted", nullable = false)
     private boolean persisted;
 
+    /**
+     * How many times the portal's inactivity "focus" popup was dismissed during
+     * this attempt. Written by the submit, zeroed by a reset. Attempt-level, so
+     * it lives here and not on the per-option AssessmentAnswer rows.
+     */
+    @Column(name = "popUpCount", nullable = false)
+    private int popUpCount = 0;
+
     public Long getRespondentAssessmentMappingId() {
         return respondentAssessmentMappingId;
     }
@@ -103,5 +111,13 @@ public class RespondentAssessmentMapping implements java.io.Serializable {
 
     public void setPersisted(boolean persisted) {
         this.persisted = persisted;
+    }
+
+    public int getPopUpCount() {
+        return popUpCount;
+    }
+
+    public void setPopUpCount(int popUpCount) {
+        this.popUpCount = popUpCount;
     }
 }

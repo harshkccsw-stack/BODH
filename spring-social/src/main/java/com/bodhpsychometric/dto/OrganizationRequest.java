@@ -17,5 +17,10 @@ public record OrganizationRequest(
         @Size(max = 200, message = "Name must be at most 200 characters") String name,
         @Size(max = 200, message = "Email must be at most 200 characters") String orgEmail,
         String description,
+        // Logo as a base64 data URL ("data:image/png;base64,…"), or null to
+        // clear it. Capped at ~3 MB of characters (≈2 MB image once base64
+        // inflates it) so one upload can't bloat the row; the form should
+        // also reject oversized files before they reach here.
+        @Size(max = 3_000_000, message = "Logo image is too large — use one under 2 MB") String logoBase64,
         List<Long> assessmentIds) {
 }

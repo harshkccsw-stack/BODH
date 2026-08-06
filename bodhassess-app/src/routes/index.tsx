@@ -1,3 +1,8 @@
+import { AppShell } from '@/components/app-shell';
+import { PrivateRoute } from '@/components/guards/private-route';
+import { PublicRoute } from '@/components/guards/public-route';
+import { ScreenLoader } from '@/components/screen-loader';
+import { PractitionerAuthProvider } from '@/lib/practitioner-auth';
 import { lazy, Suspense, type ComponentType } from 'react';
 import {
   createBrowserRouter,
@@ -5,11 +10,6 @@ import {
   Outlet,
   type RouteObject,
 } from 'react-router';
-import { ScreenLoader } from '@/components/screen-loader';
-import { PractitionerAuthProvider } from '@/lib/practitioner-auth';
-import { PrivateRoute } from '@/components/guards/private-route';
-import { PublicRoute } from '@/components/guards/public-route';
-import { AppShell } from '@/components/app-shell';
 
 // Root mounts the auth provider once, above every route, so the same auth
 // state survives navigation. Must live INSIDE the router because the provider
@@ -131,7 +131,7 @@ const QuestionnairePreview       = lazyPage(() => import('@/pages/questionnaires
 
 const Reports             = lazyPage(() => import('@/pages/reports/all-reports'));
 // New-dialect respondent report listing wired to spring-social (/api/reports).
-const ReportsHub          = lazyPage(() => import('@/pages/reports/ReportsHub'));
+const ReportsHub          = lazyPage(() => import('@/pages/Reports/ReportsHub'));
 const ReportsResponses    = lazyPage(() => import('@/pages/reports/response-sheets'));
 const ReportsClinical     = lazyPage(() => import('@/pages/reports/clinical'));
 const ReportsCounselling  = lazyPage(() => import('@/pages/reports/counselling'));

@@ -129,5 +129,8 @@ public class AssessmentController {
                 request.showTermsAndConditions() == null || request.showTermsAndConditions());
         assessment.setStatus(request.status() == null ? AssessmentStatus.INACTIVE : request.status());
         assessment.setAutoNext(Boolean.TRUE.equals(request.autoNext()));
+        // Default true (like showTermsAndConditions): null keeps the index on.
+        assessment.setShowQuestionIndex(
+                request.showQuestionIndex() == null || request.showQuestionIndex());
     }
 }

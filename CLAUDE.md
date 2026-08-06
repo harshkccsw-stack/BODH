@@ -84,9 +84,17 @@ re-read a file before editing; expect it to have changed):
   `DemographicResponse` (per attempt, value always TEXT).
 - Content typing: `ContentType` TEXT/IMAGE/VIDEO/URL on Question stems AND
   Options. IMAGE/VIDEO are DISABLED in the UI until object storage exists
-  (no video in MySQL, no base64 images) — URL is the workaround.
+  (no video in MySQL, no base64 images) — URL is the workaround. EXCEPTION
+  (2026-08-03): the Organization logo is stored as an inline base64 data URL
+  in `Organization.logoBase64` (`logo_base64 LONGTEXT`, nullable; added by
+  `V2__add_organization_logo.sql`). Deliberate deviation from the URL-only
+  rule for this one small image — set/cleared through the create/edit org
+  form. Request field `@Size(max=3_000_000)` (~2 MB image) is the backstop;
+  the real guard is client-side (type + 2 MB) in organizations.tsx. Do NOT
+  generalize this to question/option media — those stay URL-only.
 - Organization: profile-level M:1 (PractitionerUser/RespondentUser each carry
-  a nullable organizationId; one org per member).
+  a nullable organizationId; one org per member). Carries an optional inline
+  base64 logo (see the ContentType exception above).
 
 ## Frontend conventions
 
