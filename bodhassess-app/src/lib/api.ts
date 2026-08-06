@@ -181,6 +181,8 @@ export interface Practitioner {
 // hold. The dashboard uses url_paths to gate page access and trim the sidebar.
 export interface PractitionerMe extends Practitioner {
   url_paths: string[];
+  /** Bypasses every path check — carried through so guards can say so. */
+  isSuperAdmin: boolean;
 }
 // Unified login over the single User identity table (api-v2). Both login
 // pages (dashboard + assessment portal) call this; the response's
@@ -203,8 +205,8 @@ export interface AuthLoginResponse {
 }
 // spring-social wire shape: DashboardAuthController returns { token, user }
 // where user is AuthUserResponse; /auth/me returns the user object alone.
-// urlPaths is the role group's union — empty for a super admin, whose flag
-// overrides path checks (authUserToPractitionerMe turns that into '/*').
+// urlPaths is the EFFECTIVE set the backend resolved — the role group's union
+// plus /dashboard, or ['/*'] for a super admin — so it is used as sent.
 interface ApiAuthUser {
   id: number;
   serialId: string | null;
@@ -224,9 +226,7 @@ function toAuthUser(u: ApiAuthUser): AuthUser {
     email: u.email,
     isSuperAdmin: u.superAdmin,
     dashboardAccess: u.dashboardAccess,
-    // Leave empty path lists undefined so authUserToPractitionerMe applies
-    // its super-admin '/*' fallback instead of seeing "no routes allowed".
-    url_paths: u.urlPaths && u.urlPaths.length > 0 ? u.urlPaths : undefined,
+    url_paths: u.urlPaths ?? [],
   };
 }
 export const authApi = {
@@ -301,36 +301,10 @@ export const practitionersApi = {
 };
 
 // ---------- Roles (page-access bundles) ----------
-export interface Role {
-  id: string;
-  name: string;
-  description?: string;
-  url_paths: string[];
-}
-// v2 splits a role's allow-list by matcher: apiPaths gate requests
-// server-side, pagePaths gate dashboard routes. The dashboard only ever
-// reasons about page paths, so that is what url_paths carries here.
-interface V2Role {
-  id: number;
-  name: string;
-  description: string | null;
-  apiPaths: string[];
-  pagePaths: string[];
-}
-function toRole(r: V2Role): Role {
-  return {
-    id: String(r.id),
-    name: r.name,
-    description: r.description ?? undefined,
-    url_paths: r.pagePaths,
-  };
-}
-export const rolesApi = {
-  list: async () => (await jsonFetch<V2Role[]>('/roles')).map(toRole),
-  get: async (name: string) => toRole(await jsonFetch<V2Role>(`/roles/${encodeURIComponent(name)}`)),
-  // Role authoring lands with the roles & permissions phase; v2 serves the
-  // seeded roles read-only for now.
-};
+// Roles, role groups and assignment now live in spring-social and are served
+// by their own colocated client, @/pages/admin/rolesApi. The old read-only v2
+// shim that used to sit here (V2Role with apiPaths/pagePaths) is parked in
+// bodh/deleted/ along with the mock page it fed.
 
 // ---------- Groups ----------
 export interface Group {

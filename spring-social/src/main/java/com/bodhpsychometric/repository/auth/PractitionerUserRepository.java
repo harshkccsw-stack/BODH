@@ -16,6 +16,9 @@ public interface PractitionerUserRepository extends JpaRepository<PractitionerUs
     /** Does this identity also hold a practitioner profile? */
     boolean existsByUser_Id(Long userId);
 
+    /** The profile behind an identity — used to label a user by name. */
+    java.util.Optional<PractitionerUser> findByUser_Id(Long userId);
+
     /** Listing fetch — user + organization eagerly, so DTO mapping never lazy-loads per row. */
     @Query("select p from PractitionerUser p join fetch p.user left join fetch p.organization")
     List<PractitionerUser> findAllForListing();
