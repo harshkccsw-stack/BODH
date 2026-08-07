@@ -25,6 +25,7 @@ function lazyPage(loader: () => Promise<{ default: ComponentType }>) {
 
 const Login = () => lazyPage(() => import('@/pages/login'));
 const Register = () => lazyPage(() => import('@/pages/register'));
+const RegisterToken = () => lazyPage(() => import('@/pages/register-token'));
 const Assessments = () => lazyPage(() => import('@/pages/assessments'));
 const Take = () => lazyPage(() => import('@/pages/take/take'));
 
@@ -38,6 +39,14 @@ const routes: RouteObject[] = [
       // Public
       { path: '/portal/login', element: <Login /> },
       { path: '/portal/register', element: <Register /> },
+
+      // Self-registration from a shared link. Mounted at the bare /register
+      // as well as under /portal, because this is the one URL that gets
+      // printed, QR-coded and pasted into messages — the short form is what
+      // people will be given, and the /portal form keeps it consistent with
+      // every other route here.
+      { path: '/register/:token', element: <RegisterToken /> },
+      { path: '/portal/register/:token', element: <RegisterToken /> },
 
       // Authenticated respondent surface
       {

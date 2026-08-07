@@ -19,6 +19,11 @@ public interface OrganizationAssessmentMappingRepository
     boolean existsByOrganization_OrganizationIdAndAssessment_AssessmentId(
             Long organizationId, Long assessmentId);
 
+    /** The catalog row for a pair — what an assessment-scoped link points at. */
+    java.util.Optional<OrganizationAssessmentMapping>
+            findByOrganization_OrganizationIdAndAssessment_AssessmentId(
+                    Long organizationId, Long assessmentId);
+
     long countByOrganization_OrganizationId(Long organizationId);
 
     /** Org delete cleans its catalog rows; assessment delete mirrors this. */

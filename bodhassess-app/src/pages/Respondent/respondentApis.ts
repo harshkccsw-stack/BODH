@@ -18,6 +18,12 @@ export interface RespondentPayload {
   /** dd-MM-yyyy (wire format everywhere) — doubles as the login password. */
   dob: string;
   phone: string | null;
+  /**
+   * Optional employer code, unique per organization. Alphanumeric only —
+   * the portal accepts it in place of the email at login, and the backend
+   * tells the two apart by looking for '@'.
+   */
+  employeeId: string | null;
   gender: Gender | null;
   isConsented: boolean;
   organizationId: number | null;
@@ -33,6 +39,7 @@ export interface RespondentResponse {
   /** dd-MM-yyyy, same format the payload sends. */
   dob: string;
   phone: string | null;
+  employeeId: string | null;
   gender: Gender | null;
   isConsented: boolean;
   consentedAt: string | null;

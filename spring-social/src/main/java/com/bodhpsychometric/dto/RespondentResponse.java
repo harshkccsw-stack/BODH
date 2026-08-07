@@ -21,6 +21,8 @@ public record RespondentResponse(
         String email,
         @JsonFormat(pattern = "dd-MM-yyyy") LocalDate dob,
         String phone,
+        /** Optional employer code — the alternative login identifier. */
+        String employeeId,
         Gender gender,
         boolean isConsented,
         OffsetDateTime consentedAt,
@@ -38,6 +40,7 @@ public record RespondentResponse(
                 user.getEmail(),
                 user.getDob(),
                 respondent.getPhone(),
+                respondent.getEmployeeId(),
                 respondent.getGender(),
                 respondent.isConsented(),
                 respondent.getConsentedAt(),

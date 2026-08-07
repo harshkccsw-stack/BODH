@@ -80,6 +80,8 @@ export interface PortalRespondent {
   respondentUserId: number;
   serialId: string;
   email: string;
+  /** Optional employer code — null unless an admin set one. Also a login identifier. */
+  employeeId: string | null;
   name: string;
   isConsented: boolean;
   organizationId: number | null;
@@ -92,10 +94,15 @@ export interface PortalLoginResult {
   respondent: PortalRespondent;
 }
 export const portalAuthApi = {
-  // Same email + dob credential as the dashboard; only accounts holding a
-  // respondent profile get in (403 otherwise).
-  login: (email: string, dob: string) =>
-    jsonFetch<PortalLoginResult>('/portal/login', { method: 'POST', body: JSON.stringify({ email, dob }) }),
+  // dob is the password; the identifier is either the email or the
+  // respondent's employee id (the backend splits on '@', which employee ids
+  // can never contain). Only accounts holding a respondent profile get in
+  // (403 otherwise).
+  login: (identifier: string, dob: string) =>
+    jsonFetch<PortalLoginResult>('/portal/login', {
+      method: 'POST',
+      body: JSON.stringify({ identifier, dob }),
+    }),
   // Session restore: bearer token in, respondent + allotted assessments out.
   me: () => jsonFetch<PortalRespondent>('/portal/me'),
 };
@@ -193,6 +200,63 @@ export const portalAssessmentsApi = {
     jsonFetch<PortalAttemptStatus>(`/portal/assessments/submit/${encodeURIComponent(mappingId)}`, {
       method: 'POST',
       body: JSON.stringify({ answers, popUpCount }),
+    }),
+};
+
+// ---------- Self-registration links (public /register/{token}) ----------
+// Which of the token row's two targets was set. ASSESSMENT fixes the
+// assessment; ORGANIZATION lets the respondent pick from the org's catalog.
+export type RegistrationTokenScope = 'ORGANIZATION' | 'ASSESSMENT';
+
+// Matches RegistrationTokenDetailResponse.AssessmentOption on the backend.
+export interface RegistrationAssessmentOption {
+  assessmentId: number;
+  name: string;
+}
+// Matches RegistrationTokenDetailResponse on the backend. `assessments` is
+// populated for BOTH scopes so the form has one thing to render: on an
+// ASSESSMENT link it holds the single fixed assessment and `assessmentId` is
+// set (show it chosen and locked); on an ORGANIZATION link it holds the whole
+// ACTIVE catalog and `assessmentId` is null (show a dropdown).
+export interface RegistrationTokenDetail {
+  token: string;
+  scope: RegistrationTokenScope;
+  organizationId: number;
+  organizationName: string;
+  /** Inline base64 data URL, bindable straight to an <img src>. Null if unset. */
+  organizationLogoBase64: string | null;
+  assessmentId: number | null;
+  assessmentName: string | null;
+  assessments: RegistrationAssessmentOption[];
+}
+// Matches RegistrationSubmitRequest on the backend. No organizationId — the
+// token decides that, and a body must not be able to pick one.
+export interface RegistrationSubmitPayload {
+  name: string;
+  email: string;
+  /** ISO yyyy-MM-dd, same as the login endpoint. Also the sign-in password. */
+  dob: string;
+  phone?: string;
+  employeeId?: string;
+  /** Required on an ORGANIZATION link; omitted on an ASSESSMENT one. */
+  assessmentId?: number;
+}
+export const registrationTokensApi = {
+  // Public — the token in the path is the credential. 404 covers unknown,
+  // revoked, expired and used-up alike (deliberately indistinguishable); 409
+  // means the link is real but its assessments are not open right now.
+  getByToken: (token: string) =>
+    jsonFetch<RegistrationTokenDetail>(
+      `/registration-tokens/getByToken/${encodeURIComponent(token)}`,
+    ),
+  // Registers AND signs in: the reply is the same {token, respondent} shape
+  // as /portal/login, so the caller stores the bearer and is authenticated.
+  // 409 means an account already exists (or a race lost); 400 a bad choice
+  // of assessment; 403 a disabled account.
+  register: (token: string, body: RegistrationSubmitPayload) =>
+    jsonFetch<PortalLoginResult>(`/portal/register/${encodeURIComponent(token)}`, {
+      method: 'POST',
+      body: JSON.stringify(body),
     }),
 };
 

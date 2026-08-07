@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   AlertTriangle,
   Building2,
@@ -11,8 +12,7 @@ import {
   Users,
   X,
 } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
+import { useEffect, useMemo, useState } from 'react';
 import {
   respondentApis,
   type Gender,
@@ -51,6 +51,7 @@ interface RespondentForm {
   email: string;
   dob: string;
   phone: string;
+  employeeId: string;
   gender: Gender | '';
   isConsented: boolean;
   organizationId: number | null;
@@ -62,6 +63,7 @@ const EMPTY_FORM: RespondentForm = {
   email: '',
   dob: '',
   phone: '',
+  employeeId: '',
   gender: '',
   isConsented: false,
   organizationId: null,
@@ -112,6 +114,7 @@ export default function RespondentsPage() {
         r.email.toLowerCase().includes(s) ||
         (r.serialId || '').toLowerCase().includes(s) ||
         (r.phone || '').toLowerCase().includes(s) ||
+        (r.employeeId || '').toLowerCase().includes(s) ||
         (r.organizationName || '').toLowerCase().includes(s),
     );
   }, [respondents, search]);
@@ -128,6 +131,7 @@ export default function RespondentsPage() {
       email: r.email,
       dob: r.dob,
       phone: r.phone || '',
+      employeeId: r.employeeId || '',
       gender: r.gender || '',
       isConsented: r.isConsented,
       organizationId: r.organizationId,
@@ -150,6 +154,17 @@ export default function RespondentsPage() {
       setFormError('Date of birth must be a real date in DD-MM-YYYY format');
       return;
     }
+    // Optional, but when present it must match the backend's @Pattern. The
+    // alphanumeric rule is what guarantees no '@', which is how the portal
+    // tells an employee ID from an email at login.
+    // Stored in capital letters (the backend upper-cases it too); alphanumeric
+    // is what guarantees no '@', which is how the portal tells an employee ID
+    // from an email at login.
+    const employeeId = form.employeeId.trim().toUpperCase();
+    if (employeeId && !/^[A-Z0-9]+$/.test(employeeId)) {
+      setFormError('Employee ID must contain only letters and numbers');
+      return;
+    }
     // Payload mirrors the backend's RespondentRequest — dob is the login
     // credential, so it is required even though phone/gender/org are not.
     const payload: RespondentPayload = {
@@ -157,6 +172,7 @@ export default function RespondentsPage() {
       email,
       dob: form.dob,
       phone: form.phone.trim() || null,
+      employeeId: employeeId || null,
       gender: form.gender || null,
       isConsented: form.isConsented,
       organizationId: form.organizationId,
@@ -234,7 +250,7 @@ export default function RespondentsPage() {
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <input
           type="text"
-          placeholder="Search name, email, serial, phone or organization..."
+          placeholder="Search name, email, serial, employee ID, phone or organization..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="w-full h-9 rounded-md border border-input bg-background pl-9 pr-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:border-ring focus:ring-[3px] focus:ring-ring/30 transition-shadow"
@@ -284,6 +300,14 @@ export default function RespondentsPage() {
                     {r.serialId && (
                       <span className="font-mono text-[0.6875rem] text-muted-foreground bg-muted rounded px-1.5 py-0.5 shrink-0">
                         {r.serialId}
+                      </span>
+                    )}
+                    {r.employeeId && (
+                      <span
+                        title="Employee ID — can be used to sign in"
+                        className="font-mono text-[0.6875rem] text-primary bg-primary/10 rounded px-1.5 py-0.5 shrink-0"
+                      >
+                        {r.employeeId}
                       </span>
                     )}
                   </div>
@@ -384,8 +408,26 @@ export default function RespondentsPage() {
                 </div>
               </div>
               <p className="text-[0.6875rem] text-muted-foreground -mt-2">
-                Email + date of birth are the respondent's sign-in credentials.
+                Email + date of birth are the respondent's sign-in credentials. An Employee ID, if
+                set below, works in place of the email.
               </p>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">
+                  Employee ID 
+                </label>
+                <input
+                  type="text"
+                  value={form.employeeId}
+                  onChange={(e) => setForm({ ...form, employeeId: e.target.value.toUpperCase() })}
+                  placeholder="EMP1042"
+                  maxLength={32}
+                  style={{ textTransform: 'uppercase' }}
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                />
+                <p className="text-[0.6875rem] text-muted-foreground">
+                  Letters and numbers only. Must be unique within the respondent's organization.
+                </p>
+              </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
                   <label className="text-sm font-medium">Phone</label>

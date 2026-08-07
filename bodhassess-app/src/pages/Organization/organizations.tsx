@@ -4,7 +4,6 @@ import {
   Building2,
   Check,
   ClipboardList,
-  ImagePlus,
   Loader2,
   Mail,
   Pencil,
@@ -27,10 +26,10 @@ import {
   type OrgAssessmentRef,
   type OrgMemberRef,
   type OrganizationDetailResponse,
-  type OrganizationPayload,
   type OrganizationResponse,
   type UnassignedPeopleResponse,
 } from './organizationApis';
+import OrganizationWizard from './OrganizationWizard';
 
 const STATUS_BADGE: Record<string, string> = {
   ACTIVE:
@@ -40,35 +39,18 @@ const STATUS_BADGE: Record<string, string> = {
     'border-red-300 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-400',
 };
 
-interface OrganizationForm {
-  id: number | null;
-  name: string;
-  orgEmail: string;
-  description: string;
-  /** Logo as a base64 data URL, or '' for none. */
-  logoBase64: string;
-  /** Initial catalog — create only; the map modal owns it afterwards. */
-  assessmentIds: number[];
-}
-
-const EMPTY_FORM: OrganizationForm = { id: null, name: '', orgEmail: '', description: '', logoBase64: '', assessmentIds: [] };
-
-// Client-side guard: reject anything that isn't a reasonable logo before we
-// base64-encode it into the row. 2 MB matches the backend's @Size cap once
-// base64 inflates the bytes by ~⅓.
-const LOGO_MAX_BYTES = 2 * 1024 * 1024;
-const LOGO_ACCEPT = 'image/png,image/jpeg,image/svg+xml,image/webp';
-
 export default function OrganizationsPage() {
   const [organizations, setOrganizations] = useState<OrganizationResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [search, setSearch] = useState('');
 
-  const [modalOpen, setModalOpen] = useState(false);
-  const [form, setForm] = useState<OrganizationForm>(EMPTY_FORM);
-  const [formError, setFormError] = useState('');
-  const [saving, setSaving] = useState(false);
+  /**
+   * The inline 3-step flow — replaces the list while it is open. Both adding
+   * and editing go through it: `null` in the wizard's `existing` slot means
+   * add, an organization means edit. `wizard` itself being null means closed.
+   */
+  const [wizard, setWizard] = useState<{ existing: OrganizationResponse | null } | null>(null);
 
   const [confirmDelete, setConfirmDelete] = useState<OrganizationResponse | null>(null);
   const [deleteError, setDeleteError] = useState('');
@@ -80,8 +62,7 @@ export default function OrganizationsPage() {
   // Which detail row's unassign is in flight — 'p-3' / 'r-5' style keys.
   const [unassignBusy, setUnassignBusy] = useState<string | null>(null);
 
-  // Full assessment catalog — lazily loaded for the create-modal picker and
-  // the map-assessments modal.
+  // Full assessment catalog — lazily loaded for the map-assessments modal.
   const [allAssessments, setAllAssessments] = useState<AssessmentRef[] | null>(null);
   const loadAllAssessments = async () => {
     try {
@@ -145,23 +126,10 @@ export default function OrganizationsPage() {
   }, [organizations, search]);
 
   const openCreate = () => {
-    setForm(EMPTY_FORM);
-    setFormError('');
-    setModalOpen(true);
-    if (!allAssessments) loadAllAssessments();
+    setSearch('');
+    setWizard({ existing: null });
   };
-  const openEdit = (o: OrganizationResponse) => {
-    setForm({
-      id: o.organizationId,
-      name: o.name,
-      orgEmail: o.orgEmail || '',
-      description: o.description || '',
-      logoBase64: o.logoBase64 || '',
-      assessmentIds: [],
-    });
-    setFormError('');
-    setModalOpen(true);
-  };
+  const openEdit = (o: OrganizationResponse) => setWizard({ existing: o });
 
   const openCatalog = async (o: OrganizationResponse) => {
     setCatalogTarget(o);
@@ -324,61 +292,6 @@ export default function OrganizationsPage() {
     }
   };
 
-  // Read a picked image into a base64 data URL for inline storage. Validates
-  // type + size here so an oversized file never reaches the API. Clearing the
-  // picker (no file) leaves the current logo untouched — use "Remove" for that.
-  const onLogoPick = (file: File | null) => {
-    if (!file) return;
-    if (!LOGO_ACCEPT.split(',').includes(file.type)) {
-      setFormError('Logo must be a PNG, JPG, SVG or WebP image');
-      return;
-    }
-    if (file.size > LOGO_MAX_BYTES) {
-      setFormError('Logo image is too large — use one under 2 MB');
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = () => {
-      setFormError('');
-      setForm((p) => ({ ...p, logoBase64: String(reader.result) }));
-    };
-    reader.onerror = () => setFormError('Could not read that image — try another file');
-    reader.readAsDataURL(file);
-  };
-
-  const submit = async () => {
-    const name = form.name.trim();
-    if (!name) { setFormError('Name is required'); return; }
-    const orgEmail = form.orgEmail.trim();
-    if (orgEmail && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(orgEmail)) {
-      setFormError('That does not look like a valid email address');
-      return;
-    }
-    // Payload mirrors the backend's OrganizationRequest. assessmentIds only
-    // on create — afterwards the map-assessments modal owns the catalog.
-    const payload: OrganizationPayload = {
-      name,
-      orgEmail: orgEmail || null,
-      description: form.description.trim() || null,
-      logoBase64: form.logoBase64 || null,
-      assessmentIds: form.id == null ? form.assessmentIds : null,
-    };
-    setSaving(true);
-    try {
-      if (form.id != null) {
-        await organizationApis.updateOrganization(form.id, payload);
-      } else {
-        await organizationApis.createOrganization(payload);
-      }
-      await refresh();
-      setModalOpen(false);
-    } catch (e: any) {
-      setFormError(e?.response?.data?.message || e?.message || 'Failed to save');
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const doDelete = async () => {
     if (!confirmDelete) return;
     setDeleteError('');
@@ -408,18 +321,33 @@ export default function OrganizationsPage() {
               Organizations
             </h1>
             <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
-              Schools, clinics and companies. Staff (practitioners) run the
-              org's assessments; members (respondents) take them. People are
-              attached from their own pages — this catalog owns the org itself.
+              {wizard
+                ? 'Three steps: the organization itself, the assessments it may use, then the respondents who belong to it. Each step saves on its own.'
+                : "Schools, clinics and companies. Staff (practitioners) run the org's assessments; members (respondents) take them. People are attached from their own pages — this catalog owns the org itself."}
             </p>
           </div>
-          <Button variant="primary" onClick={openCreate}>
-            <Plus className="h-4 w-4" />
-            Add Organization
-          </Button>
+          {!wizard && (
+            <Button variant="primary" onClick={openCreate}>
+              <Plus className="h-4 w-4" />
+              Add Organization
+            </Button>
+          )}
         </div>
       </div>
 
+      {/* Add and edit both take over the page — the list comes back on exit.
+          Keying on the org id remounts the wizard when you switch rows, so it
+          never carries the previous org's step or form state across. */}
+      {wizard && (
+        <OrganizationWizard
+          key={wizard.existing?.organizationId ?? 'new'}
+          existing={wizard.existing}
+          onChanged={() => refresh()}
+          onExit={() => setWizard(null)}
+        />
+      )}
+
+      {!wizard && (<>
       {loadError && (
         <div className="rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-4 py-3 text-sm text-red-700 dark:text-red-400">
           {loadError} — is the API running?
@@ -564,155 +492,10 @@ export default function OrganizationsPage() {
           </ul>
         </Card>
       )}
+      </>)}
 
-      {/* Create / edit modal */}
-      {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={() => setModalOpen(false)}>
-          <Card className="w-full max-w-lg max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
-            <CardHeader className="flex flex-row items-center justify-between pb-3 shrink-0">
-              <CardTitle className="text-base">{form.id != null ? 'Edit Organization' : 'Add Organization'}</CardTitle>
-              <button onClick={() => setModalOpen(false)} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
-            </CardHeader>
-            <CardContent className="space-y-4 overflow-y-auto">
-              {formError && (
-                <div className="rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-3 py-2 text-xs text-red-700 dark:text-red-400 flex items-start gap-2">
-                  <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                  <span>{formError}</span>
-                </div>
-              )}
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium">Name *</label>
-                <input
-                  value={form.name}
-                  onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  placeholder="e.g., Apollo Hospitals"
-                  maxLength={200}
-                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium">Organization Email</label>
-                <input
-                  type="email"
-                  value={form.orgEmail}
-                  onChange={(e) => setForm({ ...form, orgEmail: e.target.value })}
-                  placeholder="contact@organization.com"
-                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium">Description</label>
-                <textarea
-                  value={form.description}
-                  onChange={(e) => setForm({ ...form, description: e.target.value })}
-                  placeholder="What this organization is — school, clinic, company…"
-                  rows={3}
-                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 resize-y"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium">
-                  Logo <span className="text-muted-foreground font-normal">(optional)</span>
-                </label>
-                <div className="flex items-center gap-4">
-                  <div className="h-16 w-16 shrink-0 rounded-lg border border-border bg-muted/40 overflow-hidden flex items-center justify-center">
-                    {form.logoBase64 ? (
-                      <img src={form.logoBase64} alt="Logo preview" className="h-full w-full object-contain" />
-                    ) : (
-                      <Building2 className="h-6 w-6 text-muted-foreground/50" />
-                    )}
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <label className="inline-flex items-center gap-1.5 cursor-pointer rounded-lg border border-border bg-background px-3 py-1.5 text-sm hover:bg-muted/50 transition-colors w-fit">
-                      <ImagePlus className="h-3.5 w-3.5" />
-                      {form.logoBase64 ? 'Change logo' : 'Upload logo'}
-                      <input
-                        type="file"
-                        accept={LOGO_ACCEPT}
-                        className="hidden"
-                        onChange={(e) => { onLogoPick(e.target.files?.[0] ?? null); e.target.value = ''; }}
-                      />
-                    </label>
-                    {form.logoBase64 && (
-                      <button
-                        type="button"
-                        onClick={() => setForm((p) => ({ ...p, logoBase64: '' }))}
-                        className="text-xs text-red-600 hover:underline w-fit"
-                      >
-                        Remove logo
-                      </button>
-                    )}
-                    <p className="text-[0.6875rem] text-muted-foreground">PNG, JPG, SVG or WebP · up to 2 MB.</p>
-                  </div>
-                </div>
-              </div>
-              {form.id == null && (
-                <div className="space-y-1.5">
-                  <label className="text-sm font-medium">
-                    Map Assessments <span className="text-muted-foreground font-normal">(optional)</span>
-                  </label>
-                  {!allAssessments ? (
-                    <p className="text-xs text-muted-foreground italic">Loading assessments…</p>
-                  ) : allAssessments.length === 0 ? (
-                    <p className="text-xs text-muted-foreground italic">No assessments in the catalog yet.</p>
-                  ) : (
-                    <div className="border border-border rounded-lg max-h-44 overflow-y-auto">
-                      {allAssessments.map((a) => {
-                        const checked = form.assessmentIds.includes(a.assessmentId);
-                        return (
-                          <button
-                            key={a.assessmentId}
-                            type="button"
-                            onClick={() => setForm((p) => ({
-                              ...p,
-                              assessmentIds: checked
-                                ? p.assessmentIds.filter((x) => x !== a.assessmentId)
-                                : [...p.assessmentIds, a.assessmentId],
-                            }))}
-                            className={cn(
-                              'w-full flex items-center gap-3 px-3 py-2 text-sm text-left border-b border-border last:border-0 transition-colors',
-                              checked ? 'bg-primary/5' : 'hover:bg-muted/50',
-                            )}
-                          >
-                            <span className={cn(
-                              'flex h-4 w-4 shrink-0 items-center justify-center rounded border',
-                              checked ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-background',
-                            )}>
-                              {checked && <Check className="h-3 w-3" />}
-                            </span>
-                            <div className="min-w-0">
-                              <p className="font-medium truncate">{a.name}</p>
-                              <p className="text-[0.6875rem] text-muted-foreground truncate">
-                                {a.questionnaireName} · {a.status}
-                              </p>
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                  <p className="text-[0.6875rem] text-muted-foreground">
-                    The org's members can only be assigned assessments mapped here.
-                  </p>
-                </div>
-              )}
-              <p className="text-[0.6875rem] text-muted-foreground">
-                Staff and members are attached from the Practitioners and
-                Respondents pages via their Organization picker.
-              </p>
-            </CardContent>
-            <div className="flex justify-end gap-2 p-4 border-t border-border shrink-0">
-              <Button variant="outline" onClick={() => setModalOpen(false)}>Cancel</Button>
-              <Button variant="primary" onClick={submit} disabled={saving}>
-                {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                {form.id != null ? 'Save' : 'Add Organization'}
-              </Button>
-            </div>
-          </Card>
-        </div>
-      )}
-
-      {/* Map assessments (org catalog) */}
+      {/* Map assessments (org catalog) — quick action from a row; the same
+          job also lives as step 2 of the wizard. */}
       {catalogTarget && (() => {
         const mappedIds = new Set((catalog ?? []).map((c) => c.assessmentId));
         const q = mapSearch.trim().toLowerCase();

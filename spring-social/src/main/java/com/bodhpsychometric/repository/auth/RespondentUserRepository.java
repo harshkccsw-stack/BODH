@@ -27,6 +27,28 @@ public interface RespondentUserRepository extends JpaRepository<RespondentUser, 
     @Query("select r from RespondentUser r join fetch r.user u left join fetch r.organization where u.id = :userId")
     Optional<RespondentUser> findByUserIdForPortal(Long userId);
 
+    /**
+     * Portal sign-in by employee id. Returns a LIST, not an Optional: the code
+     * is only unique per organization, so the same one may legitimately exist
+     * in two organizations. PortalAuthService narrows the result with the
+     * submitted dob — see there for why that is enough.
+     */
+    @Query("select r from RespondentUser r join fetch r.user u left join fetch r.organization "
+            + "where lower(r.employeeId) = lower(:employeeId)")
+    List<RespondentUser> findByEmployeeIdForPortal(String employeeId);
+
+    /**
+     * Duplicate pre-checks for the create/edit form, one per org branch —
+     * Spring Data cannot express "organization is null" and "organization =
+     * :id" in a single derived name. Case-insensitive on purpose: the column's
+     * collation already is, and the login lookup matches that way too.
+     */
+    @Query("select count(r) from RespondentUser r left join r.organization o "
+            + "where lower(r.employeeId) = lower(:employeeId) "
+            + "and ((:organizationId is null and o is null) or o.organizationId = :organizationId) "
+            + "and (:excludeId is null or r.id <> :excludeId)")
+    long countByEmployeeIdInOrganization(String employeeId, Long organizationId, Long excludeId);
+
     // ── Organization membership (respondents are an org's "members") ──────
     long countByOrganization_OrganizationId(Long organizationId);
 

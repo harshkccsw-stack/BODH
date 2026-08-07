@@ -24,7 +24,11 @@ import jakarta.persistence.UniqueConstraint;
  */
 @Entity
 @Table(name = "RespondentUser",
-        uniqueConstraints = @UniqueConstraint(name = "uqRespondentUserUser", columnNames = "userId"))
+        uniqueConstraints = {
+                @UniqueConstraint(name = "uqRespondentUserUser", columnNames = "userId"),
+                @UniqueConstraint(name = "uqRespondentUserOrgEmployeeId",
+                        columnNames = { "organizationId", "employeeId" })
+        })
 public class RespondentUser implements java.io.Serializable {
 
     public static final long serialVersionUID = 1L;
@@ -49,6 +53,20 @@ public class RespondentUser implements java.io.Serializable {
 
     @Column(name = "phone")
     private String phone;
+
+    /**
+     * Optional employer-issued code, the second thing a respondent may sign in
+     * with (portal login takes email OR employeeId, both against dob). Unique
+     * per organization, not globally — two clients may each issue "EMP001" —
+     * which is why it lives here next to organizationId and not on User, whose
+     * rows carry no organization.
+     *
+     * Alphanumeric by validation, so it can never contain '@'. That is what
+     * lets PortalAuthService split one login field into "email" vs "employee
+     * id" with no chance of the two namespaces colliding.
+     */
+    @Column(name = "employeeId", length = 32)
+    private String employeeId;
 
     @Enumerated(value = jakarta.persistence.EnumType.STRING)
     @Column(name = "gender")
@@ -97,6 +115,14 @@ public class RespondentUser implements java.io.Serializable {
 
     public void setPhone(String phone) {
         this.phone = phone;
+    }
+
+    public String getEmployeeId() {
+        return employeeId;
+    }
+
+    public void setEmployeeId(String employeeId) {
+        this.employeeId = employeeId;
     }
 
     public Gender getGender() {

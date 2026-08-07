@@ -93,6 +93,86 @@ class PortalAuthControllerTest {
                 .andExpect(status().isForbidden());
     }
 
+    /**
+     * The second credential: the same dob password, but the identifier is the
+     * respondent's employee id instead of their email. Case-insensitive,
+     * matching the column's collation.
+     */
+    @Test
+    void respondentCanLogInWithEmployeeId() throws Exception {
+        mvc.perform(post("/api/respondents/create")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Portal Emp\",\"email\":\"portal.emp@test.local\",\"dob\":\"05-05-1995\","
+                                + "\"phone\":null,\"employeeId\":\"EMP1042\",\"gender\":null,"
+                                + "\"isConsented\":false,\"organizationId\":null}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.employeeId").value("EMP1042"));
+
+        mvc.perform(post("/api/portal/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"identifier\":\"emp1042\",\"dob\":\"1995-05-05\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.token").isNotEmpty())
+                .andExpect(jsonPath("$.respondent.employeeId").value("EMP1042"))
+                .andExpect(jsonPath("$.respondent.email").value("portal.emp@test.local"));
+
+        // The email identifier still works for the same account.
+        mvc.perform(post("/api/portal/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"identifier\":\"portal.emp@test.local\",\"dob\":\"1995-05-05\"}"))
+                .andExpect(status().isOk());
+
+        // Right code, wrong password.
+        mvc.perform(post("/api/portal/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"identifier\":\"EMP1042\",\"dob\":\"1995-05-06\"}"))
+                .andExpect(status().isUnauthorized());
+
+        // No such code.
+        mvc.perform(post("/api/portal/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"identifier\":\"EMP9999\",\"dob\":\"1995-05-05\"}"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    /** Optional means optional: no code on file, email login unaffected. */
+    @Test
+    void employeeIdIsOptionalAndValidated() throws Exception {
+        mvc.perform(post("/api/respondents/create")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Portal Blank\",\"email\":\"portal.blank@test.local\",\"dob\":\"09-09-1989\","
+                                + "\"phone\":null,\"employeeId\":\"  \",\"gender\":null,"
+                                + "\"isConsented\":false,\"organizationId\":null}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.employeeId").doesNotExist());
+
+        // Alphanumeric is what keeps '@' out, so the login split stays unambiguous.
+        mvc.perform(post("/api/respondents/create")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Portal Bad\",\"email\":\"portal.bad@test.local\",\"dob\":\"09-09-1989\","
+                                + "\"phone\":null,\"employeeId\":\"EMP-104@2\",\"gender\":null,"
+                                + "\"isConsented\":false,\"organizationId\":null}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    /** Unique per organization — these two share the null (unaffiliated) scope. */
+    @Test
+    void duplicateEmployeeIdIsRejected() throws Exception {
+        mvc.perform(post("/api/respondents/create")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Portal Dup A\",\"email\":\"portal.dupa@test.local\",\"dob\":\"01-01-1990\","
+                                + "\"phone\":null,\"employeeId\":\"DUP7\",\"gender\":null,"
+                                + "\"isConsented\":false,\"organizationId\":null}"))
+                .andExpect(status().isCreated());
+
+        mvc.perform(post("/api/respondents/create")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Portal Dup B\",\"email\":\"portal.dupb@test.local\",\"dob\":\"02-02-1990\","
+                                + "\"phone\":null,\"employeeId\":\"dup7\",\"gender\":null,"
+                                + "\"isConsented\":false,\"organizationId\":null}"))
+                .andExpect(status().isConflict());
+    }
+
     @Test
     void wrongDobAndUnknownEmailAreRejected() throws Exception {
         mvc.perform(post("/api/respondents/create")
