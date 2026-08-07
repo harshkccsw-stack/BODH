@@ -8,7 +8,7 @@ const read = (key: string, fallback = ''): string => {
 
 export const config = {
   /** Full URL of the shared Spring backend, including the `/api` prefix. */
-  apiBase: read('VITE_API_URL', 'http://localhost:8080/api'),
+  apiBase: read('VITE_API_URL', 'https://api.bodh.biz/api'),
 
   /** Brand name shown in page titles, headers, and messages. */
   appName: read('VITE_APP_NAME', 'BodhAssess'),
