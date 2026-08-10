@@ -78,6 +78,9 @@ const AdminOrganizations        = lazyPage(() => import('@/pages/Organization/or
 // Roles & access, super-admin only (see SUPERADMIN_ONLY_PATHS). The old
 // /admin/roles mock is parked in bodh/deleted/.
 const AdminRoleGroups    = lazyPage(() => import('@/pages/admin/role-groups'));
+// Super-admin only, twice over: SUPERADMIN_ONLY_PATHS hides/denies the route,
+// and the API refuses non-super-admins on its own regardless of that.
+const AdminActivityLog   = lazyPage(() => import('@/pages/admin/activity-log'));
 const AdminAssignRoleGroup = lazyPage(() => import('@/pages/admin/assign-role-group'));
 const PermissionError    = lazyPage(() => import('@/pages/permission-error'));
 const AdminLiveTracking  = lazyPage(() => import('@/pages/admin/live-tracking'));
@@ -135,7 +138,7 @@ const QuestionnairePreview       = lazyPage(() => import('@/pages/questionnaires
 
 const Reports             = lazyPage(() => import('@/pages/reports/all-reports'));
 // New-dialect respondent report listing wired to spring-social (/api/reports).
-const ReportsHub          = lazyPage(() => import('@/pages/Reports/ReportsHub'));
+const ReportsHub          = lazyPage(() => import('@/pages/reports/ReportsHub'));
 const ReportsResponses    = lazyPage(() => import('@/pages/reports/response-sheets'));
 const ReportsClinical     = lazyPage(() => import('@/pages/reports/clinical'));
 const ReportsCounselling  = lazyPage(() => import('@/pages/reports/counselling'));
@@ -234,6 +237,7 @@ const routes: RouteObject[] = [
       { path: '/admin/entity-registrations', element: <AdminOrganizations /> },
       { path: '/admin/role-groups', element: <AdminRoleGroups /> },
       { path: '/admin/assign-role-group', element: <AdminAssignRoleGroup /> },
+      { path: '/admin/activity-log', element: <AdminActivityLog /> },
       // Always reachable once signed in — canAccess never denies it, or the
       // denial screen would redirect to itself.
       { path: '/permission-error', element: <PermissionError /> },

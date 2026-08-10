@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Brain, LogIn, AlertTriangle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { authApi } from '@/lib/api';
+import { authApi } from '@/lib/authApis';
 import { config } from '@/lib/config';
 import { autoFormatDdmmyyyy, ddmmyyyyToIso } from '@/lib/helpers';
 
@@ -36,8 +36,8 @@ export default function PortalLoginPage() {
       localStorage.setItem(AUTH_KEY, res.token);
       window.location.href = '/portal/assessments';
     } catch (e: any) {
-      const msg = String(e?.message || '');
-      if (msg.includes('401')) setError('Invalid email/phone or date of birth.');
+      // Status off the response — authApi is axios now.
+      if (e?.response?.status === 401) setError('Invalid email/phone or date of birth.');
       else setError('Login failed — the API may be unreachable.');
       setLoading(false);
     }

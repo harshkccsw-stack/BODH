@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 
 import com.bodhpsychometric.model.auth.User;
 
+import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 
@@ -29,18 +30,36 @@ public class JwtService {
     }
 
     /**
+     * Everything issueToken puts in the token. Enough to identify the caller
+     * on every request without a database round trip — which is what makes
+     * per-request actor resolution free.
+     */
+    public record TokenClaims(Long userId, String email, boolean superAdmin) {
+    }
+
+    /**
+     * Validates signature and expiry, then returns the claims. Throws
+     * {@link io.jsonwebtoken.JwtException} on any invalid or expired token.
+     */
+    public TokenClaims parseClaims(String token) {
+        Claims claims = Jwts.parser()
+                .verifyWith(key)
+                .build()
+                .parseSignedClaims(token)
+                .getPayload();
+        return new TokenClaims(
+                Long.valueOf(claims.getSubject()),
+                claims.get("email", String.class),
+                Boolean.TRUE.equals(claims.get("superAdmin", Boolean.class)));
+    }
+
+    /**
      * Validates signature and expiry, then returns the user id from the
      * subject claim. Throws {@link io.jsonwebtoken.JwtException} on any
      * invalid or expired token.
      */
     public Long parseUserId(String token) {
-        String subject = Jwts.parser()
-                .verifyWith(key)
-                .build()
-                .parseSignedClaims(token)
-                .getPayload()
-                .getSubject();
-        return Long.valueOf(subject);
+        return parseClaims(token).userId();
     }
 
     public String issueToken(User user) {

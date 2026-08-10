@@ -1,8 +1,4 @@
-import axios from 'axios';
-
-// import.meta.env, not process.env — process does not exist in the browser
-// bundle Vite produces.
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api';
+import { api } from '@/lib/apiClient';
 
 export type DemographicFieldType = 'TEXT' | 'NUMBER' | 'DATE' | 'DROPDOWN';
 
@@ -26,23 +22,23 @@ export interface DemographicFieldResponse {
 }
 
 function getDemographicFields() {
-  return axios.get<DemographicFieldResponse[]>(`${API_URL}/demographic-fields/getAll`);
+  return api.get<DemographicFieldResponse[]>(`/demographic-fields/getAll`);
 }
 
 function getDemographicFieldById(id: number) {
-  return axios.get<DemographicFieldResponse>(`${API_URL}/demographic-fields/getById/${id}`);
+  return api.get<DemographicFieldResponse>(`/demographic-fields/getById/${id}`);
 }
 
 function createDemographicField(payload: DemographicFieldPayload) {
-  return axios.post<DemographicFieldResponse>(`${API_URL}/demographic-fields/create`, payload);
+  return api.post<DemographicFieldResponse>(`/demographic-fields/create`, payload);
 }
 
 function updateDemographicField(id: number, payload: DemographicFieldPayload) {
-  return axios.put<DemographicFieldResponse>(`${API_URL}/demographic-fields/update/${id}`, payload);
+  return api.put<DemographicFieldResponse>(`/demographic-fields/update/${id}`, payload);
 }
 
 function deleteDemographicField(id: number) {
-  return axios.delete<void>(`${API_URL}/demographic-fields/delete/${id}`);
+  return api.delete<void>(`/demographic-fields/delete/${id}`);
 }
 
 export const demographicsApi = {

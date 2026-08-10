@@ -177,68 +177,16 @@ export interface Practitioner {
   last_login?: string;
   dob?: string;
 }
-// /me returns the practitioner plus the merged url_paths from every role they
-// hold. The dashboard uses url_paths to gate page access and trim the sidebar.
-export interface PractitionerMe extends Practitioner {
-  url_paths: string[];
-  /** Bypasses every path check — carried through so guards can say so. */
-  isSuperAdmin: boolean;
-}
-// Unified login over the single User identity table (api-v2). Both login
-// pages (dashboard + assessment portal) call this; the response's
-// isSuperAdmin decides which surface the caller routes to.
-export interface AuthUser {
-  id: string;
-  /** Account code shown on screens, e.g. USR-000012. */
-  serialId?: string;
-  email: string;
-  name?: string;
-  isSuperAdmin: boolean;
-  /** May this identity use the admin/practitioner dashboard at all. */
-  dashboardAccess?: boolean;
-  roles?: string[];
-  url_paths?: string[];
-}
-export interface AuthLoginResponse {
-  token: string;
-  user: AuthUser;
-}
-// spring-social wire shape: DashboardAuthController returns { token, user }
-// where user is AuthUserResponse; /auth/me returns the user object alone.
-// urlPaths is the EFFECTIVE set the backend resolved — the role group's union
-// plus /dashboard, or ['/*'] for a super admin — so it is used as sent.
-interface ApiAuthUser {
-  id: number;
-  serialId: string | null;
-  email: string;
-  superAdmin: boolean;
-  dashboardAccess: boolean;
-  urlPaths: string[];
-}
-interface ApiLoginResponse {
-  token: string;
-  user: ApiAuthUser;
-}
-function toAuthUser(u: ApiAuthUser): AuthUser {
-  return {
-    id: String(u.id),
-    serialId: u.serialId ?? undefined,
-    email: u.email,
-    isSuperAdmin: u.superAdmin,
-    dashboardAccess: u.dashboardAccess,
-    url_paths: u.urlPaths ?? [],
-  };
-}
-export const authApi = {
-  login: async (email: string, dob: string): Promise<AuthLoginResponse> => {
-    const res = await jsonFetch<ApiLoginResponse>('/auth/login', { method: 'POST', body: JSON.stringify({ email, dob }) });
-    return { token: res.token ?? '', user: toAuthUser(res.user) };
-  },
-  me: async (token: string): Promise<AuthUser> =>
-    toAuthUser(await jsonFetch<ApiAuthUser>('/auth/me', { headers: { Authorization: `Bearer ${token}` } })),
-  // No logout endpoint: v2 sessions are stateless JWTs — logging out is
-  // purely client-side (drop the stored token).
-};
+// MOVED to lib/authApis.ts (2026-08-10). /auth/login and /auth/me were the
+// only two calls in this file that still exist on spring-social; every other
+// one here targets the retired v2 API. They now live in the same axios
+// dialect as the per-page api files, and nothing in that module imports this
+// one — so sign-in no longer depends on anything below.
+//
+// The types are re-exported (not redefined) so the v2 pages still importing
+// them from here keep compiling. The dependency points at the live module,
+// never back.
+export type { AuthUser, AuthLoginResponse, PractitionerMe } from './authApis';
 
 // api-v2 keeps the shared identity (User) and the practitioner-only detail
 // (PractitionerProfile: verticals) in two tables but serves them as one

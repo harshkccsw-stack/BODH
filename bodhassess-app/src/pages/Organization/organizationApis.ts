@@ -1,9 +1,5 @@
-import axios from 'axios';
+import { api } from '@/lib/apiClient';
 import { config } from '@/lib/config';
-
-// import.meta.env, not process.env — process does not exist in the browser
-// bundle Vite produces.
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api';
 
 // ── Wire shapes — mirror spring-social's DTOs 1:1 ──────────────────────────
 /**
@@ -107,60 +103,60 @@ export interface AssessmentRef {
 
 //organization apis
 function getAllOrganizations() {
-  return axios.get<OrganizationResponse[]>(`${API_URL}/organizations/getAll`);
+  return api.get<OrganizationResponse[]>(`/organizations/getAll`);
 }
 
 /** Drill-in: the org plus its full staff and member lists. */
 function getOrganizationById(id: number) {
-  return axios.get<OrganizationDetailResponse>(`${API_URL}/organizations/getById/${id}`);
+  return api.get<OrganizationDetailResponse>(`/organizations/getById/${id}`);
 }
 
 function createOrganization(organization: OrganizationPayload) {
-  return axios.post<OrganizationResponse>(`${API_URL}/organizations/create`, organization);
+  return api.post<OrganizationResponse>(`/organizations/create`, organization);
 }
 
 function updateOrganization(id: number, organization: OrganizationPayload) {
-  return axios.put<OrganizationResponse>(`${API_URL}/organizations/update/${id}`, organization);
+  return api.put<OrganizationResponse>(`/organizations/update/${id}`, organization);
 }
 
 /** 409 while the org still has staff or members. */
 function deleteOrganization(id: number) {
-  return axios.delete<void>(`${API_URL}/organizations/delete/${id}`);
+  return api.delete<void>(`/organizations/delete/${id}`);
 }
 
 //assign picker + bulk assign
 function getUnassignedPeople() {
-  return axios.get<UnassignedPeopleResponse>(`${API_URL}/organizations/getUnassigned`);
+  return api.get<UnassignedPeopleResponse>(`/organizations/getUnassigned`);
 }
 
 /** All-or-nothing: 400 on unknown ids, 409 if someone got an org meanwhile. */
 function assignPeople(id: number, payload: OrganizationAssignPayload) {
-  return axios.put<OrganizationDetailResponse>(`${API_URL}/organizations/assign/${id}`, payload);
+  return api.put<OrganizationDetailResponse>(`/organizations/assign/${id}`, payload);
 }
 
 /** Mirror of assign — 409 if someone in the batch is not in this org. */
 function unassignPeople(id: number, payload: OrganizationAssignPayload) {
-  return axios.put<OrganizationDetailResponse>(`${API_URL}/organizations/unassign/${id}`, payload);
+  return api.put<OrganizationDetailResponse>(`/organizations/unassign/${id}`, payload);
 }
 
 //assessment catalog (data segregation)
 function getOrganizationAssessments(id: number) {
-  return axios.get<OrgAssessmentRef[]>(`${API_URL}/organizations/getAssessments/${id}`);
+  return api.get<OrgAssessmentRef[]>(`/organizations/getAssessments/${id}`);
 }
 
 /** All-or-nothing: already-mapped → 409, unknown id → 400. */
 function assignAssessments(id: number, assessmentIds: number[]) {
-  return axios.put<OrgAssessmentRef[]>(`${API_URL}/organizations/assign-assessments/${id}`, { assessmentIds });
+  return api.put<OrgAssessmentRef[]>(`/organizations/assign-assessments/${id}`, { assessmentIds });
 }
 
 /** 409 while org members hold attempt rows for that assessment. */
 function unassignAssessments(id: number, assessmentIds: number[]) {
-  return axios.put<OrgAssessmentRef[]>(`${API_URL}/organizations/unassign-assessments/${id}`, { assessmentIds });
+  return api.put<OrgAssessmentRef[]>(`/organizations/unassign-assessments/${id}`, { assessmentIds });
 }
 
 /** The full assessment catalog — feeds the mapping pickers. */
 function getAllAssessments() {
-  return axios.get<AssessmentRef[]>(`${API_URL}/assessments/getAll`);
+  return api.get<AssessmentRef[]>(`/assessments/getAll`);
 }
 
 //assigning a mapped assessment to the org's members (attempt rows)
@@ -172,8 +168,7 @@ export interface AssessmentAssignmentRef {
 }
 
 function getAssessmentAssignments(assessmentId: number) {
-  return axios.get<AssessmentAssignmentRef[]>(
-    `${API_URL}/respondent-assessments/getByAssessmentId/${assessmentId}`);
+  return api.get<AssessmentAssignmentRef[]>(`/respondent-assessments/getByAssessmentId/${assessmentId}`);
 }
 
 /**
@@ -181,8 +176,7 @@ function getAssessmentAssignments(assessmentId: number) {
  * may only receive assessments mapped to their org.
  */
 function assignAssessmentToMembers(assessmentId: number, respondentUserIds: number[]) {
-  return axios.post<AssessmentAssignmentRef[]>(
-    `${API_URL}/respondent-assessments/assign`, { assessmentId, respondentUserIds });
+  return api.post<AssessmentAssignmentRef[]>(`/respondent-assessments/assign`, { assessmentId, respondentUserIds });
 }
 
 //self-registration links (wizard step 3, "Registration links")
@@ -247,28 +241,26 @@ export interface RegistrationLinkPayload {
 }
 
 function getOrganizationRegistrationLinks(organizationId: number) {
-  return axios.get<OrganizationRegistrationLinks>(
-    `${API_URL}/registration-tokens/getByOrganization/${organizationId}`);
+  return api.get<OrganizationRegistrationLinks>(`/registration-tokens/getByOrganization/${organizationId}`);
 }
 
 /** 409 if the target already has a link, 400 if the assessment is not mapped. */
 function generateRegistrationLink(payload: RegistrationLinkPayload) {
-  return axios.post<RegistrationLinkRef>(`${API_URL}/registration-tokens/generate`, payload);
+  return api.post<RegistrationLinkRef>(`/registration-tokens/generate`, payload);
 }
 
 /** New token string on the same row — the old URL stops working at once. */
 function rotateRegistrationLink(registrationTokenId: number) {
-  return axios.post<RegistrationLinkRef>(`${API_URL}/registration-tokens/rotate/${registrationTokenId}`);
+  return api.post<RegistrationLinkRef>(`/registration-tokens/rotate/${registrationTokenId}`);
 }
 
 /** Pause/resume without destroying the URL. */
 function setRegistrationLinkStatus(registrationTokenId: number, status: RegistrationLinkStatus) {
-  return axios.put<RegistrationLinkRef>(
-    `${API_URL}/registration-tokens/setStatus/${registrationTokenId}`, { status });
+  return api.put<RegistrationLinkRef>(`/registration-tokens/setStatus/${registrationTokenId}`, { status });
 }
 
 function deleteRegistrationLink(registrationTokenId: number) {
-  return axios.delete<void>(`${API_URL}/registration-tokens/delete/${registrationTokenId}`);
+  return api.delete<void>(`/registration-tokens/delete/${registrationTokenId}`);
 }
 
 /**
@@ -313,7 +305,7 @@ export interface CreatedRespondentRef {
 
 /** 409 on a duplicate email or an employee id already used in this org. */
 function createRespondent(payload: OrgRespondentCreatePayload) {
-  return axios.post<CreatedRespondentRef>(`${API_URL}/respondents/create`, payload);
+  return api.post<CreatedRespondentRef>(`/respondents/create`, payload);
 }
 
 export const organizationApis = {

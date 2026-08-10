@@ -121,11 +121,17 @@ public class QuestionController {
      * All-or-nothing: every item is validated BEFORE anything is written.
      * Returning a 400 mid-loop would still COMMIT the items already saved
      * (a normal return from a @Transactional method commits), leaving a
-     * partial bulk behind an error response. Note @Valid on a List does not
-     * cascade into its elements, so stem is checked by hand here.
+     * partial bulk behind an error response.
+     *
+     * `List<@Valid QuestionRequest>` — NOT `@Valid List<…>`, which does not
+     * cascade into elements and silently validates nothing. The element form
+     * makes Spring validate each item against QuestionRequest's own
+     * constraints and answer 400 with the failing item's position. The
+     * hand-written checks below stay for the rules bean validation cannot
+     * express (a referenced MQT must exist).
      */
     @PostMapping("/bulk-create")
-    public ResponseEntity<?> bulkCreateQuestions(@RequestBody List<QuestionRequest> requests) {
+    public ResponseEntity<?> bulkCreateQuestions(@RequestBody List<@Valid QuestionRequest> requests) {
         if (requests == null || requests.isEmpty()) {
             return ResponseEntity.badRequest().body(Map.of("message", "no questions in payload"));
         }

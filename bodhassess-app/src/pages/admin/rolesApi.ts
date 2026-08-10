@@ -1,8 +1,4 @@
-import axios from 'axios';
-
-// import.meta.env, not process.env — process does not exist in the browser
-// bundle Vite produces.
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api';
+import { api } from '@/lib/apiClient';
 
 // ── Wire shapes — mirror spring-social's DTOs 1:1 ──────────────────────────
 
@@ -68,44 +64,44 @@ export interface DashboardUserResponse {
 
 // ── Roles ─────────────────────────────────────────────────────────────────
 function getAllRoles() {
-  return axios.get<RoleResponse[]>(`${API_URL}/roles/getAll`);
+  return api.get<RoleResponse[]>(`/roles/getAll`);
 }
 
 function createRole(role: RolePayload) {
-  return axios.post<RoleResponse>(`${API_URL}/roles/create`, role);
+  return api.post<RoleResponse>(`/roles/create`, role);
 }
 
 function updateRole(id: number, role: RolePayload) {
-  return axios.put<RoleResponse>(`${API_URL}/roles/update/${id}`, role);
+  return api.put<RoleResponse>(`/roles/update/${id}`, role);
 }
 
 /** 409 while any group still bundles this role. */
 function deleteRole(id: number) {
-  return axios.delete<void>(`${API_URL}/roles/delete/${id}`);
+  return api.delete<void>(`/roles/delete/${id}`);
 }
 
 // ── Role groups ───────────────────────────────────────────────────────────
 function getAllRoleGroups() {
-  return axios.get<RoleGroupResponse[]>(`${API_URL}/role-groups/getAll`);
+  return api.get<RoleGroupResponse[]>(`/role-groups/getAll`);
 }
 
 function createRoleGroup(group: RoleGroupPayload) {
-  return axios.post<RoleGroupResponse>(`${API_URL}/role-groups/create`, group);
+  return api.post<RoleGroupResponse>(`/role-groups/create`, group);
 }
 
 function updateRoleGroup(id: number, group: RoleGroupPayload) {
-  return axios.put<RoleGroupResponse>(`${API_URL}/role-groups/update/${id}`, group);
+  return api.put<RoleGroupResponse>(`/role-groups/update/${id}`, group);
 }
 
 /** 409 while any user still holds this group. */
 function deleteRoleGroup(id: number) {
-  return axios.delete<void>(`${API_URL}/role-groups/delete/${id}`);
+  return api.delete<void>(`/role-groups/delete/${id}`);
 }
 
 // ── Assignment ────────────────────────────────────────────────────────────
 /** Everyone who can open the dashboard, with the group they hold. */
 function getDashboardUsers() {
-  return axios.get<DashboardUserResponse[]>(`${API_URL}/user-access/getAll`);
+  return api.get<DashboardUserResponse[]>(`/user-access/getAll`);
 }
 
 /**
@@ -114,8 +110,7 @@ function getDashboardUsers() {
  * Takes effect on that person's next /auth/me, i.e. their next page load.
  */
 function assignRoleGroup(userId: number, roleGroupId: number | null) {
-  return axios.put<DashboardUserResponse>(
-    `${API_URL}/user-access/assign-role-group/${userId}`,
+  return api.put<DashboardUserResponse>(`/user-access/assign-role-group/${userId}`,
     { roleGroupId },
   );
 }

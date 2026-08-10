@@ -159,7 +159,7 @@ public class QuestionnaireController {
      */
     @PutMapping("/{id}/demographic-fields")
     public ResponseEntity<?> setDemographicFields(@PathVariable Long id,
-            @RequestBody List<QuestionnaireDemographicFieldRequest> entries) {
+            @RequestBody List<@Valid QuestionnaireDemographicFieldRequest> entries) {
         Questionnaire questionnaire = questionnaireRepository.findById(id).orElse(null);
         if (questionnaire == null) {
             return ResponseEntity.notFound().build();
@@ -257,7 +257,7 @@ public class QuestionnaireController {
      */
     @PutMapping("/{id}/questions")
     public ResponseEntity<?> setQuestions(@PathVariable Long id,
-            @RequestBody List<QuestionnaireQuestionRequest> entries) {
+            @RequestBody List<@Valid QuestionnaireQuestionRequest> entries) {
         Questionnaire questionnaire = questionnaireRepository.findById(id).orElse(null);
         if (questionnaire == null) {
             return ResponseEntity.notFound().build();

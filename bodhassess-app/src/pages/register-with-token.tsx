@@ -4,9 +4,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
   publicTokensApi,
-  authApi,
   type AssessmentToken,
 } from '@/lib/api';
+import { authApi } from '@/lib/authApis';
 import { config } from '@/lib/config';
 import { autoFormatDdmmyyyy, ddmmyyyyToIso } from '@/lib/helpers';
 import { PublicRoute } from '@/components/guards/public-route';
@@ -119,10 +119,12 @@ function RegisterWithTokenPage() {
           : '/portal/assessments';
       }, 1000);
     } catch (err: any) {
-      if (/\[API 401\]|unauthor/i.test(err?.message || '')) {
+      // authApi is axios now: the status is on the response, and the "[API
+      // 401] …" string the old fetch client produced no longer exists.
+      if (err?.response?.status === 401) {
         setError("Email or date of birth doesn't match our records.");
       } else {
-        setError(err?.message || 'Failed to sign in.');
+        setError(err?.response?.data?.message || err?.message || 'Failed to sign in.');
       }
       setSaving(false);
     }

@@ -1,8 +1,4 @@
-import axios from 'axios';
-
-// import.meta.env, not process.env — process does not exist in the browser
-// bundle Vite produces.
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api';
+import { api } from '@/lib/apiClient';
 
 export type AssessmentStatus = 'ACTIVE' | 'INACTIVE';
 
@@ -150,21 +146,21 @@ export interface RespondentQuery extends PagedQuery {
 
 // Dropdown data — paged + searchable by name (axios drops undefined params).
 function getOrganizations(query: PagedQuery) {
-  return axios.get<ReportPage<OrganizationOption>>(`${API_URL}/reports/getOrganizations`, { params: query });
+  return api.get<ReportPage<OrganizationOption>>(`/reports/getOrganizations`, { params: query });
 }
 
 function getAssessments(query: PagedQuery) {
-  return axios.get<ReportPage<AssessmentOption>>(`${API_URL}/reports/getAssessments`, { params: query });
+  return api.get<ReportPage<AssessmentOption>>(`/reports/getAssessments`, { params: query });
 }
 
 // The listing itself — org/assessment filters + name/email search, paged.
 function getRespondents(query: RespondentQuery) {
-  return axios.get<ReportPage<RespondentRow>>(`${API_URL}/reports/getRespondents`, { params: query });
+  return api.get<ReportPage<RespondentRow>>(`/reports/getRespondents`, { params: query });
 }
 
 // The info popup: profile + every assessment allotted to one respondent.
 function getRespondentDetail(respondentUserId: number) {
-  return axios.get<RespondentDetail>(`${API_URL}/reports/getRespondentDetail/${respondentUserId}`);
+  return api.get<RespondentDetail>(`/reports/getRespondentDetail/${respondentUserId}`);
 }
 
 /**
@@ -173,9 +169,7 @@ function getRespondentDetail(respondentUserId: number) {
  * again from scratch. Destructive — confirm before calling.
  */
 function resetAssessment(respondentAssessmentMappingId: number) {
-  return axios.post<RespondentAssessmentRow>(
-    `${API_URL}/reports/resetAssessment/${respondentAssessmentMappingId}`,
-  );
+  return api.post<RespondentAssessmentRow>(`/reports/resetAssessment/${respondentAssessmentMappingId}`);
 }
 
 /**
@@ -184,7 +178,7 @@ function resetAssessment(respondentAssessmentMappingId: number) {
  * 404 only when the assessment does not exist.
  */
 function exportAssessment(assessmentId: number, organizationId?: number) {
-  return axios.get<ExportSheet>(`${API_URL}/reports/export/assessment/${assessmentId}`, {
+  return api.get<ExportSheet>(`/reports/export/assessment/${assessmentId}`, {
     params: { organizationId }, // axios drops undefined
   });
 }
@@ -194,8 +188,7 @@ function exportAssessment(assessmentId: number, organizationId?: number) {
  * the respondent has no COMPLETED attempt for it.
  */
 function exportRespondent(assessmentId: number, respondentUserId: number, organizationId?: number) {
-  return axios.get<ExportSheet>(
-    `${API_URL}/reports/export/assessment/${assessmentId}/respondent/${respondentUserId}`,
+  return api.get<ExportSheet>(`/reports/export/assessment/${assessmentId}/respondent/${respondentUserId}`,
     { params: { organizationId } },
   );
 }

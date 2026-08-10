@@ -1,8 +1,4 @@
-import axios from 'axios';
-
-// import.meta.env, not process.env — process does not exist in the browser
-// bundle Vite produces.
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api';
+import { api } from '@/lib/apiClient';
 
 export type PractitionerStatus = 'ACTIVE' | 'INACTIVE' | 'SUSPENDED';
 export type Vertical =
@@ -60,38 +56,38 @@ export interface OrganizationResponse {
 
 //practitioner apis
 function getAllPractitioners() {
-  return axios.get<PractitionerResponse[]>(`${API_URL}/practitioners/getAll`);
+  return api.get<PractitionerResponse[]>(`/practitioners/getAll`);
 }
 
 function getPractitionerById(id: number) {
-  return axios.get<PractitionerResponse>(`${API_URL}/practitioners/getById/${id}`);
+  return api.get<PractitionerResponse>(`/practitioners/getById/${id}`);
 }
 
 function createPractitioner(practitioner: PractitionerPayload) {
-  return axios.post<PractitionerResponse>(`${API_URL}/practitioners/create`, practitioner);
+  return api.post<PractitionerResponse>(`/practitioners/create`, practitioner);
 }
 
 function updatePractitioner(id: number, practitioner: PractitionerPayload) {
-  return axios.put<PractitionerResponse>(`${API_URL}/practitioners/update/${id}`, practitioner);
+  return api.put<PractitionerResponse>(`/practitioners/update/${id}`, practitioner);
 }
 
 function deletePractitioner(id: number) {
-  return axios.delete<void>(`${API_URL}/practitioners/delete/${id}`);
+  return api.delete<void>(`/practitioners/delete/${id}`);
 }
 
 //superadmin flag on the practitioner's identity
 function assignSuperAdmin(id: number) {
-  return axios.put<PractitionerResponse>(`${API_URL}/practitioners/assign-superadmin/${id}`);
+  return api.put<PractitionerResponse>(`/practitioners/assign-superadmin/${id}`);
 }
 
 /** 409 when this is the last superadmin left. */
 function revokeSuperAdmin(id: number) {
-  return axios.put<PractitionerResponse>(`${API_URL}/practitioners/revoke-superadmin/${id}`);
+  return api.put<PractitionerResponse>(`/practitioners/revoke-superadmin/${id}`);
 }
 
 //organization picker for the create/edit form
 function getAllOrganizations() {
-  return axios.get<OrganizationResponse[]>(`${API_URL}/organizations/getAll`);
+  return api.get<OrganizationResponse[]>(`/organizations/getAll`);
 }
 
 export const practitionerApis = {
