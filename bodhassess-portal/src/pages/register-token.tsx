@@ -1,14 +1,19 @@
-import { useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router';
-import { AlertTriangle, Brain, ClipboardList, Loader2, Lock, UserPlus } from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { ScreenLoader } from '@/components/screen-loader';
 import { ErrorCard } from '@/components/error-card';
-import { ApiError, registrationTokensApi, type RegistrationTokenDetail } from '@/lib/api';
+import { ScreenLoader } from '@/components/screen-loader';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
 import { config } from '@/config';
+import {
+  ApiError,
+  registrationTokensApi,
+  type RegistrationGender,
+  type RegistrationTokenDetail,
+} from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { autoFormatDdmmyyyy, ddmmyyyyToIso } from '@/lib/helpers';
+import { AlertTriangle, Brain, ClipboardList, Loader2, Lock, UserPlus } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { useNavigate, useParams } from 'react-router';
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
@@ -43,8 +48,9 @@ export default function RegisterTokenPage() {
     email: '',
     dob: '',
     phone: '',
+    /** '' means "prefer not to say" — sent as absent, stored as null. */
+    gender: '',
     employeeId: '',
-    assessmentId: '',
   });
 
   useEffect(() => {
@@ -54,14 +60,6 @@ export default function RegisterTokenPage() {
         const t = await registrationTokensApi.getByToken(token);
         if (cancelled) return;
         setDetail(t);
-        // Assessment-scoped links arrive with the choice already made. An
-        // org-wide link with exactly one open assessment is pre-selected too —
-        // a dropdown of one is a decision the visitor cannot get wrong.
-        const preselected =
-          t.assessmentId ?? (t.assessments.length === 1 ? t.assessments[0].assessmentId : null);
-        if (preselected !== null) {
-          setForm((f) => ({ ...f, assessmentId: String(preselected) }));
-        }
       } catch (e) {
         if (cancelled) return;
         setLoadError(
@@ -81,27 +79,17 @@ export default function RegisterTokenPage() {
   /**
    * Register and land signed in. The reply carries the same bearer that
    * /portal/login issues, so storing it and refreshing the auth context is a
-   * real sign-in — /portal/assessment is behind RequireAuth and will let us
+   * real sign-in — the destination is behind RequireAuth and will let us
    * through on the strength of it. `replace` so Back cannot return to a link
-   * that has now been spent.
+   * that has now been used.
    */
   const submit = async (e?: React.FormEvent) => {
     e?.preventDefault();
     if (!detail) return;
     setSubmitError('');
 
-    // Derived here rather than read from the `locked` below: that const is
-    // declared after the early returns, so reading it from this closure would
-    // depend on render order to be initialised.
-    const isLocked = detail.scope === 'ASSESSMENT';
-
     // Client-side checks are only to save a round trip — the backend
     // re-validates all of it, and owns the rules the form cannot see.
-    const assessmentId = isLocked ? detail.assessmentId : Number(form.assessmentId) || null;
-    if (!assessmentId) {
-      setSubmitError('Choose an assessment to continue.');
-      return;
-    }
     if (!form.name.trim()) {
       setSubmitError('Name is required.');
       return;
@@ -129,14 +117,23 @@ export default function RegisterTokenPage() {
         email,
         dob: isoDob,
         phone: form.phone.trim() || undefined,
+        // Omitted when left blank, so the backend stores null rather than a
+        // guess — and so a returning respondent's existing answer survives.
+        gender: (form.gender as RegistrationGender) || undefined,
         employeeId: employeeId || undefined,
-        // Omitted on a locked link: the link fixes the assessment, and
-        // sending a different one there is rejected rather than honoured.
-        assessmentId: isLocked ? undefined : assessmentId,
       });
       localStorage.setItem(config.authStorageKey, result.token);
       await refresh();
-      navigate('/portal/assessment', { replace: true });
+      // An assessment-scoped link granted exactly one thing to do, so open it
+      // rather than making them find it on a dashboard of one. An org-wide
+      // link granted nothing yet — the dashboard's empty state explains that
+      // an administrator will assign something.
+      navigate(
+        result.respondentAssessmentMappingId
+          ? `/portal/assessment/${result.respondentAssessmentMappingId}`
+          : '/portal/assessment',
+        { replace: true },
+      );
     } catch (err) {
       setSubmitError(
         err instanceof ApiError
@@ -189,7 +186,13 @@ export default function RegisterTokenPage() {
             <h1 className="text-xl font-semibold tracking-tight truncate">
               {detail.organizationName}
             </h1>
-            <p className="text-sm text-muted-foreground">Register to take your assessment</p>
+            {/* An org-wide link grants no assessment, so promising one would
+                be a lie — it says what the link actually does. */}
+            <p className="text-sm text-muted-foreground truncate">
+              {locked
+                ? 'Register to take your assessment'
+                : `Register to join ${detail.organizationName}`}
+            </p>
           </div>
         </div>
 
@@ -203,31 +206,22 @@ export default function RegisterTokenPage() {
                   worse than a scrollbar. Fields that read as a full sentence
                   (the assessment, the optional code) span both columns. */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3">
-                <Field
-                  className="sm:col-span-2"
-                  label="Assessment *"
-                  hint={locked ? 'Set by the link you followed.' : undefined}
-                >
-                  {locked ? (
+                {/* Only on an assessment-scoped link, and read-only even then
+                    — the link fixed the choice. An org-wide link shows no
+                    assessment field at all: it grants none, so offering one
+                    would promise something this form cannot deliver. */}
+                {locked && (
+                  <Field
+                    className="sm:col-span-2"
+                    label="Assessment"
+                    hint="Set by the link you followed."
+                  >
                     <div className="relative">
                       <input value={detail.assessmentName ?? ''} readOnly className={INPUT_LOCKED} />
                       <Lock className="pointer-events-none absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
                     </div>
-                  ) : (
-                    <select
-                      value={form.assessmentId}
-                      onChange={(e) => setForm({ ...form, assessmentId: e.target.value })}
-                      className={INPUT}
-                    >
-                      <option value="">Select an assessment…</option>
-                      {detail.assessments.map((a) => (
-                        <option key={a.assessmentId} value={a.assessmentId}>
-                          {a.name}
-                        </option>
-                      ))}
-                    </select>
-                  )}
-                </Field>
+                  </Field>
+                )}
 
                 <Field label="Full Name *">
                   <input
@@ -262,6 +256,22 @@ export default function RegisterTokenPage() {
                   />
                 </Field>
 
+                {/* Paired with the date of birth rather than given a row of
+                    its own: both are personal details, and it keeps the form
+                    at four rows so it still fits without scrolling. */}
+                <Field label="Gender">
+                  <select
+                    value={form.gender}
+                    onChange={(e) => setForm({ ...form, gender: e.target.value })}
+                    className={INPUT}
+                  >
+                    
+                    <option value="MALE">Male</option>
+                    <option value="FEMALE">Female</option>
+                    <option value="OTHER">Other</option>
+                  </select>
+                </Field>
+
                 <Field label="Phone">
                   <input
                     type="tel"
@@ -273,13 +283,16 @@ export default function RegisterTokenPage() {
                   />
                 </Field>
 
-                {/* "(optional)" in the label and the rest in the placeholder,
-                    so this needs no hint line of its own. */}
-                <Field className="sm:col-span-2" label="Employee ID (optional)">
+                {/* Half-width now that gender took the other half of its row,
+                    so the explanation moves from the placeholder to a hint. */}
+                <Field
+                  label="Employee ID"
+                  hint="Optional — sign in with it instead of your email."
+                >
                   <input
                     value={form.employeeId}
                     onChange={(e) => setForm({ ...form, employeeId: e.target.value })}
-                    placeholder="EMP1042 — if your organization issued you one, you can sign in with it"
+                    placeholder="EMP1042"
                     className={INPUT}
                   />
                 </Field>
@@ -304,7 +317,11 @@ export default function RegisterTokenPage() {
                 </p>
                 <Button type="submit" variant="primary" size="md" disabled={saving}>
                   {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
-                  {saving ? 'Registering…' : 'Register & begin assessment'}
+                  {saving
+                    ? 'Registering…'
+                    : locked
+                      ? 'Register & begin assessment'
+                      : 'Register'}
                 </Button>
               </div>
             </form>

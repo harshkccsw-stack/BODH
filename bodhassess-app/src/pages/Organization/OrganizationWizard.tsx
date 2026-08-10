@@ -930,8 +930,9 @@ export default function OrganizationWizard({
               </div>
               <p className="text-xs text-muted-foreground mb-2">
                 Share a link and respondents register themselves straight into
-                this organization. The organization-wide link lets them pick
-                any active assessment; a per-assessment link fixes the choice.
+                this organization. The organization-wide link only makes them a
+                member — you assign assessments afterwards; a per-assessment
+                link also grants that one assessment on the spot.
               </p>
 
               {linkError && errorBox(linkError)}
@@ -945,7 +946,7 @@ export default function OrganizationWizard({
                 <ul className="divide-y divide-border border border-border rounded-lg">
                   <RegistrationLinkRow
                     title="Organization-wide link"
-                    subtitle="Respondent picks any active assessment in the catalog"
+                    subtitle="Joins this organization only — assign assessments afterwards"
                     link={links.organizationLink}
                     busy={linkBusy === 'org'}
                     disabled={busy || linkBusy !== null}
@@ -961,7 +962,7 @@ export default function OrganizationWizard({
                       key={a.assessmentId}
                       title={a.assessmentName}
                       subtitle={a.assessmentStatus === 'ACTIVE'
-                        ? 'Assessment fixed by the link'
+                        ? 'Joins this organization and grants this assessment'
                         : 'Assessment is INACTIVE — this link will not open until it is activated'}
                       warn={a.assessmentStatus !== 'ACTIVE'}
                       link={a.link}

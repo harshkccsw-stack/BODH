@@ -28,7 +28,6 @@ import com.bodhpsychometric.dto.RegistrationLinkRequest;
 import com.bodhpsychometric.dto.RegistrationLinkResponse;
 import com.bodhpsychometric.dto.RegistrationLinkStatusRequest;
 import com.bodhpsychometric.dto.RegistrationTokenDetailResponse;
-import com.bodhpsychometric.dto.RegistrationTokenDetailResponse.AssessmentOption;
 import com.bodhpsychometric.dto.RegistrationTokenDetailResponse.Scope;
 import com.bodhpsychometric.model.assessment.Assessment;
 import com.bodhpsychometric.model.assessment.OrganizationAssessmentMapping;
@@ -49,7 +48,8 @@ import jakarta.validation.Valid;
  * getByToken is UNAUTHENTICATED BY DESIGN — the token in the path IS the
  * credential, and a respondent following the link has no account yet to
  * authenticate with. It only reads, and only the two facts the form needs
- * (which organization, which assessments); lifecycle metadata such as the use
+ * (which organization, and which assessment if the link names one); lifecycle
+ * metadata such as the use
  * count and expiry is withheld there and returned only by the admin reads
  * below.
  *
@@ -84,9 +84,8 @@ public class RegistrationTokenController {
     // ── Public: the respondent's link ─────────────────────────────────────
 
     /**
-     * Resolve a link into the page's contents. One query for the token and its
-     * target; org-wide links take a second for the catalog, which is a list
-     * either way.
+     * Resolve a link into the page's contents — a single query for the token
+     * and whichever of its two targets is set, for both scopes.
      */
     @GetMapping("/getByToken/{token}")
     @Transactional(readOnly = true)
@@ -124,26 +123,20 @@ public class RegistrationTokenController {
                 organization.getName(),
                 organization.getLogoBase64(),
                 assessment.getAssessmentId(),
-                assessment.getName(),
-                List.of(new AssessmentOption(assessment.getAssessmentId(), assessment.getName()))));
+                assessment.getName()));
     }
 
     /**
-     * Org-wide link: the respondent picks from the organization's catalog.
-     * INACTIVE assessments are filtered out rather than shown and rejected.
+     * Org-wide link: joining the organization, nothing more. No assessment is
+     * named because none is granted — an administrator assigns afterwards.
+     *
+     * Note what is NOT here: the organization's catalog is not read and an
+     * empty one is not an error. It used to 409 with "no assessments open for
+     * registration", which was exactly backwards for this flow — it would kill
+     * the link for a newly-created organization, the case that most needs one.
      */
     private ResponseEntity<?> organizationWide(RegistrationToken link) {
         Organization organization = link.getOrganization();
-        List<AssessmentOption> options = organizationAssessmentMappingRepository
-                .findForOrganizationCatalog(organization.getOrganizationId()).stream()
-                .map(OrganizationAssessmentMapping::getAssessment)
-                .filter(a -> a.getStatus() == AssessmentStatus.ACTIVE)
-                .sorted(Comparator.comparing(Assessment::getName, String.CASE_INSENSITIVE_ORDER))
-                .map(a -> new AssessmentOption(a.getAssessmentId(), a.getName()))
-                .toList();
-        if (options.isEmpty()) {
-            return unavailable("This organization has no assessments open for registration right now.");
-        }
         return ResponseEntity.ok(new RegistrationTokenDetailResponse(
                 link.getToken(),
                 Scope.ORGANIZATION,
@@ -151,8 +144,7 @@ public class RegistrationTokenController {
                 organization.getName(),
                 organization.getLogoBase64(),
                 null,
-                null,
-                options));
+                null));
     }
 
     // ── Admin: minting and managing links ─────────────────────────────────

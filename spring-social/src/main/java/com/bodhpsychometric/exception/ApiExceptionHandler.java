@@ -5,6 +5,7 @@ import java.util.Map;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -51,6 +52,24 @@ public class ApiExceptionHandler {
                 ? "Some of the details are invalid"
                 : first.getDefaultMessage();
         return ResponseEntity.badRequest().body(Map.of("message", message));
+    }
+
+    /**
+     * A body the parser could not read at all — malformed JSON, or a value
+     * that is not one of an enum's constants (a bad `gender`, say).
+     *
+     * The parser's own message is deliberately NOT passed through: it names
+     * the Java class and lists the enum's constants
+     * ("Cannot deserialize value of type ...Gender from String \"WOMBAT\":
+     * not one of the values accepted for Enum class: [OTHER, FEMALE, MALE]"),
+     * which is internal detail on an endpoint anyone with a link can reach.
+     * Both frontends constrain these fields with a select, so a request that
+     * lands here is a malformed client rather than a user mistake to explain.
+     */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<Map<String, String>> handleUnreadableBody(HttpMessageNotReadableException e) {
+        return ResponseEntity.badRequest()
+                .body(Map.of("message", "Some of the details sent were not valid"));
     }
 
     /** A blank reason still has to say something the user can act on. */
