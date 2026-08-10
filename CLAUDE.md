@@ -4,8 +4,13 @@ Two active codebases, built in parallel (user edits files mid-task — ALWAYS
 re-read a file before editing; expect it to have changed):
 
 - **spring-social/** — the NEW backend. Spring Boot 4.1, Java 25, Maven,
-  project `bodhpsychometric`, port 8080. MySQL dev DB: 127.0.0.1:3309, db
+  project `bodhpsychometric`, port 8080. MySQL dev DB: **127.0.0.1:3307**, db
   `bodhpsychometric`, user/pass `bodh`/`bodh` (mysql client available).
+  As of 2026-08-07 that port is an SSH TUNNEL to a **shared staging** MySQL,
+  not a local instance — so a migration applied by starting the app lands on
+  a database other people are using, and DDL in MySQL cannot be rolled back.
+  Confirm before writing to it. Smoke data (`__smoke__` prefix) must be
+  deleted afterwards. `DB_PORT` in application.yml is what selects this.
   Physical tables are snake_case (default naming strategy). Tests run on H2
   (`auto_quote_keyword: true`).
 
@@ -82,6 +87,17 @@ re-read a file before editing; expect it to have changed):
   isPersisted reserved) → `AssessmentAnswer` (one row per selected option;
   option must belong to the question — service rule) and
   `DemographicResponse` (per attempt, value always TEXT).
+- Portal credential (2026-08-07): dob is the password; the identifier is the
+  email OR `RespondentUser.employeeId` — an optional employer code, unique
+  PER ORGANIZATION (`V5`, `uqRespondentUserOrgEmployeeId`). It lives on the
+  profile, not `User`, because only that row carries organizationId. Validated
+  ALPHANUMERIC, which is load-bearing: no '@' means PortalAuthService can
+  split one login field on '@' with no chance of namespace collision. Because
+  the code is not globally unique the lookup can return several rows — the
+  submitted dob narrows it, and a >1 match is a generic 401 (email still
+  works for those people). MySQL NULLs are never equal, so the unique key
+  enforces nothing for unaffiliated respondents; the real guard is the
+  `existsBy`-style pre-check in RespondentController.
 - Content typing: `ContentType` TEXT/IMAGE/VIDEO/URL on Question stems AND
   Options. IMAGE/VIDEO are DISABLED in the UI until object storage exists
   (no video in MySQL, no base64 images) — URL is the workaround. EXCEPTION

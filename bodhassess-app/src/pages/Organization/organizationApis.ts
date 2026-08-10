@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { config } from '@/lib/config';
 
 // import.meta.env, not process.env — process does not exist in the browser
 // bundle Vite produces.
@@ -16,7 +17,12 @@ export interface OrganizationPayload {
   description: string | null;
   /** Logo as a base64 data URL ("data:image/png;base64,…"), or null to clear it. */
   logoBase64: string | null;
-  /** Initial catalog — only read on CREATE; null on edit (catalog is managed via the map modal). */
+  /**
+   * Initial catalog — only read on CREATE. The 3-step wizard leaves this null
+   * and maps assessments in its own step (step 2 → assign-assessments), so
+   * every step owns exactly one request; the modal is edit-only and also
+   * sends null.
+   */
   assessmentIds: number[] | null;
 }
 
@@ -179,6 +185,137 @@ function assignAssessmentToMembers(assessmentId: number, respondentUserIds: numb
     `${API_URL}/respondent-assessments/assign`, { assessmentId, respondentUserIds });
 }
 
+//self-registration links (wizard step 3, "Registration links")
+export type RegistrationLinkScope = 'ORGANIZATION' | 'ASSESSMENT';
+export type RegistrationLinkStatus = 'ACTIVE' | 'INACTIVE';
+
+/**
+ * Matches RegistrationLinkResponse on the backend — the ADMIN view of a link,
+ * with the lifecycle facts the public resolve endpoint withholds.
+ *
+ * Only the bare `token` comes back, never a URL: the portal's origin is a
+ * deployment fact, so the dashboard composes it from VITE_PORTAL_URL (see
+ * registrationLinkUrl below).
+ */
+export interface RegistrationLinkRef {
+  registrationTokenId: number;
+  token: string;
+  scope: RegistrationLinkScope;
+  /** Null on the org-wide link. */
+  assessmentId: number | null;
+  assessmentName: string | null;
+  status: RegistrationLinkStatus;
+  /** Null means unlimited. */
+  maxUses: number | null;
+  usedCount: number;
+  /** ISO instant, or null when the link never expires. */
+  expiresAt: string | null;
+  createdAt: string;
+}
+
+/** Matches OrganizationRegistrationLinksResponse.AssessmentLink on the backend. */
+export interface OrgAssessmentLinkRow {
+  assessmentId: number;
+  assessmentName: string;
+  assessmentStatus: AssessmentStatus;
+  /** Null until a link is generated for this catalog entry. */
+  link: RegistrationLinkRef | null;
+}
+
+/**
+ * Matches OrganizationRegistrationLinksResponse on the backend. Carries a row
+ * per POSSIBLE link — including the ones not yet minted — so the page can
+ * offer "Generate" without re-deriving the catalog.
+ */
+export interface OrganizationRegistrationLinks {
+  organizationId: number;
+  organizationName: string;
+  /** Null until the org-wide link is generated. */
+  organizationLink: RegistrationLinkRef | null;
+  assessments: OrgAssessmentLinkRow[];
+}
+
+/** Matches RegistrationLinkRequest on the backend. */
+export interface RegistrationLinkPayload {
+  organizationId: number;
+  /** Null mints the org-wide link; an id mints one for that catalog entry. */
+  assessmentId: number | null;
+  /** Null = unlimited. Not surfaced in the wizard yet. */
+  maxUses: number | null;
+  /** ISO instant, null = never expires. Not surfaced in the wizard yet. */
+  expiresAt: string | null;
+}
+
+function getOrganizationRegistrationLinks(organizationId: number) {
+  return axios.get<OrganizationRegistrationLinks>(
+    `${API_URL}/registration-tokens/getByOrganization/${organizationId}`);
+}
+
+/** 409 if the target already has a link, 400 if the assessment is not mapped. */
+function generateRegistrationLink(payload: RegistrationLinkPayload) {
+  return axios.post<RegistrationLinkRef>(`${API_URL}/registration-tokens/generate`, payload);
+}
+
+/** New token string on the same row — the old URL stops working at once. */
+function rotateRegistrationLink(registrationTokenId: number) {
+  return axios.post<RegistrationLinkRef>(`${API_URL}/registration-tokens/rotate/${registrationTokenId}`);
+}
+
+/** Pause/resume without destroying the URL. */
+function setRegistrationLinkStatus(registrationTokenId: number, status: RegistrationLinkStatus) {
+  return axios.put<RegistrationLinkRef>(
+    `${API_URL}/registration-tokens/setStatus/${registrationTokenId}`, { status });
+}
+
+function deleteRegistrationLink(registrationTokenId: number) {
+  return axios.delete<void>(`${API_URL}/registration-tokens/delete/${registrationTokenId}`);
+}
+
+/**
+ * The shareable URL. The backend deliberately never builds this — it does not
+ * know where the portal is deployed — so the origin comes from config
+ * (VITE_PORTAL_URL: https://portal.bodh.biz in production, the local portal
+ * dev server otherwise).
+ */
+export function registrationLinkUrl(token: string): string {
+  return `${config.portalUrl}/register/${token}`;
+}
+
+//creating brand-new respondents straight into an org (wizard step 3, "New" tab)
+export type Gender = 'MALE' | 'FEMALE' | 'OTHER';
+
+/**
+ * Matches RespondentRequest on the backend. One payload feeds two rows: the
+ * User identity (email + dob — dob is the portal login credential) and the
+ * RespondentUser profile. organizationId is what drops the new person
+ * straight into the org being built, so no follow-up assign call is needed.
+ */
+export interface OrgRespondentCreatePayload {
+  name: string;
+  email: string;
+  /** dd-MM-yyyy — the wire format everywhere, and the login password. */
+  dob: string;
+  phone: string | null;
+  /** Optional employer code, alphanumeric, unique within the organization. */
+  employeeId: string | null;
+  gender: Gender | null;
+  isConsented: boolean;
+  organizationId: number | null;
+}
+
+/** Slim view of RespondentResponse — all the wizard needs back. */
+export interface CreatedRespondentRef {
+  respondentUserId: number;
+  serialId: string | null;
+  name: string;
+  email: string;
+}
+
+/** 409 on a duplicate email or an employee id already used in this org. */
+function createRespondent(payload: OrgRespondentCreatePayload) {
+  return axios.post<CreatedRespondentRef>(`${API_URL}/respondents/create`, payload);
+}
+
 export const organizationApis = {
   getAllOrganizations,
   getOrganizationById,
@@ -194,4 +331,10 @@ export const organizationApis = {
   getAllAssessments,
   getAssessmentAssignments,
   assignAssessmentToMembers,
+  createRespondent,
+  getOrganizationRegistrationLinks,
+  generateRegistrationLink,
+  rotateRegistrationLink,
+  setRegistrationLinkStatus,
+  deleteRegistrationLink,
 };

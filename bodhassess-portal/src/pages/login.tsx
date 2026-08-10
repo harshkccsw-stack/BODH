@@ -25,9 +25,9 @@ export default function LoginPage() {
   const submit = async (e?: React.FormEvent) => {
     e?.preventDefault();
     setError('');
-    const email = identifier.trim();
-    if (!email || !dob) {
-      setError('Enter your email and date of birth.');
+    const credential = identifier.trim();
+    if (!credential || !dob) {
+      setError('Enter your email or employee ID, and your date of birth.');
       return;
     }
     const isoDob = ddmmyyyyToIso(dob);
@@ -37,15 +37,17 @@ export default function LoginPage() {
     }
     setLoading(true);
     try {
-      const res = await portalAuthApi.login(email, isoDob);
+      const res = await portalAuthApi.login(credential, isoDob);
       localStorage.setItem(config.authStorageKey, res.token);
       await refresh();
       navigate('/portal/assessment', { replace: true });
     } catch (e: any) {
-      if (e instanceof ApiError && e.status === 401) setError('Invalid email or date of birth.');
+      if (e instanceof ApiError && e.status === 401)
+        setError('Invalid credentials. Check your email or employee ID and date of birth.');
       else if (e instanceof ApiError && e.status === 403)
         setError(e.serverMessage || 'This account cannot access the portal.');
-      else if (e instanceof ApiError && e.status === 400) setError('Enter a valid email address.');
+      else if (e instanceof ApiError && e.status === 400)
+        setError('Enter your email or employee ID and date of birth.');
       else setError('Login failed — the API may be unreachable.');
       setLoading(false);
     }
@@ -75,12 +77,15 @@ export default function LoginPage() {
                 </div>
               )}
               <div className="space-y-1.5">
-                <label className="text-sm font-medium">Email</label>
+                <label className="text-sm font-medium">Email or Employee ID</label>
+                {/* Not type="email": the browser's native validation would
+                    block submitting an employee id. The backend decides which
+                    one this is by looking for '@'. */}
                 <input
-                  type="email"
+                  type="text"
                   value={identifier}
                   onChange={(e) => setIdentifier(e.target.value)}
-                  placeholder="you@example.com"
+                  placeholder="you@example.com or EMP1042"
                   autoComplete="username"
                   className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
                 />
@@ -106,7 +111,8 @@ export default function LoginPage() {
         </Card>
 
         <p className="text-center text-xs text-muted-foreground">
-          Use the email you registered with. Your date of birth is your password.
+          Sign in with the email you registered with, or your employee ID if your organization
+          issued one. Your date of birth is your password.
         </p>
       </div>
     </div>

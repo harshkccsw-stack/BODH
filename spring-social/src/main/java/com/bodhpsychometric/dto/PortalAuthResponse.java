@@ -15,6 +15,8 @@ public record PortalAuthResponse(
         Long respondentUserId,
         String serialId,
         String email,
+        /** Optional employer code — shown on the portal, and a login identifier. */
+        String employeeId,
         String name,
         boolean isConsented,
         Long organizationId,
@@ -30,6 +32,7 @@ public record PortalAuthResponse(
                 respondent.getId(),
                 user.getSerialId(),
                 user.getEmail(),
+                respondent.getEmployeeId(),
                 respondent.getName(),
                 respondent.isConsented(),
                 organization == null ? null : organization.getOrganizationId(),

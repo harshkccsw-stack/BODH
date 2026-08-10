@@ -80,6 +80,11 @@ public class RespondentController {
         if (request.organizationId() != null && organization == null) {
             return unknownOrganization();
         }
+        ResponseEntity<Map<String, String>> conflict =
+                employeeIdConflict(request.employeeId(), request.organizationId(), null);
+        if (conflict != null) {
+            return conflict;
+        }
 
         // One person may hold both profiles: if the email already belongs to
         // an identity (e.g. a practitioner), attach a respondent profile to
@@ -128,6 +133,11 @@ public class RespondentController {
         if (request.organizationId() != null && organization == null) {
             return unknownOrganization();
         }
+        ResponseEntity<Map<String, String>> conflict =
+                employeeIdConflict(request.employeeId(), request.organizationId(), respondent.getId());
+        if (conflict != null) {
+            return conflict;
+        }
 
         User user = respondent.getUser();
         user.setEmail(email);
@@ -163,6 +173,7 @@ public class RespondentController {
         respondent.setName(request.name().trim());
         respondent.setPhone(request.phone() == null || request.phone().isBlank()
                 ? null : request.phone().trim());
+        respondent.setEmployeeId(normalizeEmployeeId(request.employeeId()));
         respondent.setGender(request.gender());
         respondent.setOrganization(organization);
         if (request.isConsented()) {
@@ -174,6 +185,42 @@ public class RespondentController {
             respondent.setConsented(false);
             respondent.setConsentedAt(null);
         }
+    }
+
+    /**
+     * Optional field: blank and null are the same thing — no code on file.
+     * Stored UPPER-cased so the code is always capital letters on file; the
+     * per-org uniqueness and portal login already match case-insensitively
+     * (lower(...) queries + the ai_ci collation), so this is purely canonical.
+     */
+    private static String normalizeEmployeeId(String employeeId) {
+        return employeeId == null || employeeId.isBlank() ? null
+                : employeeId.trim().toUpperCase(java.util.Locale.ROOT);
+    }
+
+    /**
+     * Employee ids are unique per organization, so the check is scoped to the
+     * organization the respondent is being saved INTO — which also covers a
+     * move between organizations, since that re-runs against the new one.
+     * Pre-checked rather than caught: a constraint violation inside
+     * @Transactional marks the transaction rollback-only and 500s at commit
+     * even after we return 409. Pass excludeId on update so a respondent never
+     * collides with itself.
+     */
+    private ResponseEntity<Map<String, String>> employeeIdConflict(String employeeId,
+            Long organizationId, Long excludeId) {
+        String normalized = normalizeEmployeeId(employeeId);
+        if (normalized == null) {
+            return null;
+        }
+        if (respondentUserRepository.countByEmployeeIdInOrganization(
+                normalized, organizationId, excludeId) > 0) {
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(Map.of("message", organizationId == null
+                            ? "This Employee ID is already in use"
+                            : "This Employee ID is already in use in this organization"));
+        }
+        return null;
     }
 
     private Organization resolveOrganization(Long organizationId) {
