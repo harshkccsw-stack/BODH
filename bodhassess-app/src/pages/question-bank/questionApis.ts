@@ -1,5 +1,4 @@
-import axios from "axios";
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api';
+import { api } from '@/lib/apiClient';
 
 export type QuestionContentType = 'TEXT' | 'IMAGE' | 'VIDEO' | 'URL';
 
@@ -79,33 +78,33 @@ export interface QuestionResponse {
 
 //question apis
 function getAllQuestions() {
-  return axios.get<QuestionResponse[]>(`${API_URL}/questions/getAll`);
+  return api.get<QuestionResponse[]>(`/questions/getAll`);
 }
 
 function getQuestionById(id: number) {
-  return axios.get<QuestionResponse>(`${API_URL}/questions/getById/${id}`);
+  return api.get<QuestionResponse>(`/questions/getById/${id}`);
 }
 
 function createQuestion(question: QuestionPayload) {
-  return axios.post<QuestionResponse>(`${API_URL}/questions/create`, question);
+  return api.post<QuestionResponse>(`/questions/create`, question);
 }
 
 /** All-or-nothing: the backend validates every item before writing any. */
 function bulkCreateQuestions(questions: QuestionPayload[]) {
-  return axios.post<QuestionResponse[]>(`${API_URL}/questions/bulk-create`, questions);
+  return api.post<QuestionResponse[]>(`/questions/bulk-create`, questions);
 }
 
 function updateQuestion(id: number, question: QuestionPayload) {
-  return axios.put<QuestionResponse>(`${API_URL}/questions/update/${id}`, question);
+  return api.put<QuestionResponse>(`/questions/update/${id}`, question);
 }
 
 function deleteQuestion(id: number) {
-  return axios.delete<void>(`${API_URL}/questions/delete/${id}`);
+  return api.delete<void>(`/questions/delete/${id}`);
 }
 
 //question wrt questionnaire apis
 function getQuestionsByQuestionnaireId(questionnaireId: number) {
-  return axios.get<QuestionResponse[]>(`${API_URL}/questions/getByQuestionnaireId/${questionnaireId}`);
+  return api.get<QuestionResponse[]>(`/questions/getByQuestionnaireId/${questionnaireId}`);
 }
 
 

@@ -21,7 +21,7 @@ import {
   useState,
 } from 'react';
 import { usePathname, useRouter } from '@/lib/router-helpers';
-import { authApi, type AuthUser, type PractitionerMe } from '@/lib/api';
+import { authApi, type AuthUser, type PractitionerMe } from '@/lib/authApis';
 import {
   LOGIN_PATH,
   authUserToPractitionerMe,

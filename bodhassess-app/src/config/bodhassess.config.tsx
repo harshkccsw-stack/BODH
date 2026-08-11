@@ -138,6 +138,7 @@ export const MENU_SIDEBAR: MenuConfig = [
       { title: 'Roles & Permissions', path: '/admin/permissions' },
       { title: 'Role Groups', path: '/admin/role-groups' },
       { title: 'Assign Role Group', path: '/admin/assign-role-group' },
+      { title: 'Activity Log', path: '/admin/activity-log' },
     ],
   },
   {

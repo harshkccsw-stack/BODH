@@ -1,8 +1,4 @@
-import axios from 'axios';
-
-// import.meta.env, not process.env — process does not exist in the browser
-// bundle Vite produces.
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api';
+import { api } from '@/lib/apiClient';
 
 export type AssessmentStatus = 'ACTIVE' | 'INACTIVE';
 
@@ -32,24 +28,24 @@ export interface AssessmentResponse {
 }
 
 function getAllAssessments() {
-  return axios.get<AssessmentResponse[]>(`${API_URL}/assessments/getAll`);
+  return api.get<AssessmentResponse[]>(`/assessments/getAll`);
 }
 
 function getAssessmentById(id: number) {
-  return axios.get<AssessmentResponse>(`${API_URL}/assessments/getById/${id}`);
+  return api.get<AssessmentResponse>(`/assessments/getById/${id}`);
 }
 
 function createAssessment(assessment: AssessmentPayload) {
-  return axios.post<AssessmentResponse>(`${API_URL}/assessments/create`, assessment);
+  return api.post<AssessmentResponse>(`/assessments/create`, assessment);
 }
 
 function updateAssessment(id: number, assessment: AssessmentPayload) {
-  return axios.put<AssessmentResponse>(`${API_URL}/assessments/update/${id}`, assessment);
+  return api.put<AssessmentResponse>(`/assessments/update/${id}`, assessment);
 }
 
 /** 409 when the assessment has respondent attempts — deactivate instead. */
 function deleteAssessment(id: number) {
-  return axios.delete<void>(`${API_URL}/assessments/delete/${id}`);
+  return api.delete<void>(`/assessments/delete/${id}`);
 }
 
 export const assessmentsApi = {

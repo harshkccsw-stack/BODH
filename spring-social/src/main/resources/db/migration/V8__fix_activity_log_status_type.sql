@@ -1,0 +1,23 @@
+-- Correction to V7. `http_status` was declared smallint, which is the right
+-- size for an HTTP status but the wrong TYPE for the mapping: the entity
+-- field is an int, Hibernate expects Types#INTEGER, and ddl-auto=validate
+-- refuses to start the application on the mismatch:
+--
+--   Schema validation: wrong column type encountered in column [http_status]
+--   in table [activity_log]; found [smallint], but expecting [integer]
+--
+-- Shipped as V8 rather than a fix to V7 because V7 is already applied: Flyway
+-- checksums migrations, so editing one that has run makes every later boot
+-- fail on a checksum mismatch. Corrections are always a new version.
+--
+-- Worth noting why the test suite did not catch this. Tests run on H2 with
+-- Flyway DISABLED and the schema built from the entities, so the entity is
+-- both sides of the comparison there and any mapping is self-consistent.
+-- Only a real MySQL boot compares the entity against this DDL. That is not a
+-- gap to close by testing harder — it is what ddl-auto=validate is for, and
+-- it did its job.
+--
+-- Safe to re-run: MODIFY to a type a column already has is a no-op, and
+-- widening smallint to int cannot lose data (every value is a 3-digit status).
+ALTER TABLE `activity_log`
+  MODIFY COLUMN `http_status` int NOT NULL;

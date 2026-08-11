@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Brain, LogIn, AlertTriangle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { authApi } from '@/lib/api';
+import { authApi } from '@/lib/authApis';
 import { config } from '@/lib/config';
 import { usePractitionerAuth } from '@/lib/practitioner-auth';
 import { useRouter } from '@/lib/router-helpers';
@@ -54,14 +54,18 @@ export default function LoginPage() {
         window.location.href = `${config.portalUrl}/portal/assessment`;
       }
     } catch (err: any) {
-      const msg = String(err?.message || '');
-      if (msg.includes('401')) {
+      // Read the status off the response, not out of the message string:
+      // authApi is axios now, whose message is only "Request failed with
+      // status code 401" — the server's own wording lives in response.data.
+      const status = err?.response?.status;
+      const msg = String(err?.response?.data?.message || err?.message || '');
+      if (status === 401) {
         setError('Invalid email/phone or date of birth.');
-      } else if (msg.includes('403')) {
+      } else if (status === 403) {
         // Server-side gate: dashboard tokens are only issued to practitioner
         // (or superadmin) accounts — respondent-only accounts belong to the
         // assessment portal.
-        setError(msg.includes('disabled')
+        setError(msg.toLowerCase().includes('disabled')
           ? 'This account is disabled.'
           : 'Only practitioner accounts can sign in to the dashboard.');
       } else {

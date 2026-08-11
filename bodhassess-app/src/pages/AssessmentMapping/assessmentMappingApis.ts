@@ -1,8 +1,4 @@
-import axios from 'axios';
-
-// import.meta.env, not process.env — process does not exist in the browser
-// bundle Vite produces.
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api';
+import { api } from '@/lib/apiClient';
 
 export type AssessmentStatus = 'ACTIVE' | 'INACTIVE';
 export type RespondentAssessmentStatus = 'NOT_STARTED' | 'ONGOING' | 'COMPLETED';
@@ -63,42 +59,41 @@ export interface AssignAssessmentPayload {
 
 //respondents (filter organizationId == null client-side for this page)
 function getAllRespondents() {
-  return axios.get<RespondentRef[]>(`${API_URL}/respondents/getAll`);
+  return api.get<RespondentRef[]>(`/respondents/getAll`);
 }
 
 //assessment catalog for the picker
 function getAllAssessments() {
-  return axios.get<AssessmentRef[]>(`${API_URL}/assessments/getAll`);
+  return api.get<AssessmentRef[]>(`/assessments/getAll`);
 }
 
 //audience dropdown + per-org mapped catalog (segregation)
 function getAllOrganizations() {
-  return axios.get<OrganizationRef[]>(`${API_URL}/organizations/getAll`);
+  return api.get<OrganizationRef[]>(`/organizations/getAll`);
 }
 
 /** Only these are assignable to the org's members. */
 function getOrganizationAssessments(organizationId: number) {
-  return axios.get<AssessmentRef[]>(`${API_URL}/organizations/getAssessments/${organizationId}`);
+  return api.get<AssessmentRef[]>(`/organizations/getAssessments/${organizationId}`);
 }
 
 //assignments (allotment rows)
 function getAllAssignments() {
-  return axios.get<RespondentAssessmentResponse[]>(`${API_URL}/respondent-assessments/getAll`);
+  return api.get<RespondentAssessmentResponse[]>(`/respondent-assessments/getAll`);
 }
 
 function getAssignmentsByRespondentId(respondentUserId: number) {
-  return axios.get<RespondentAssessmentResponse[]>(
-    `${API_URL}/respondent-assessments/getByRespondentId/${respondentUserId}`);
+  return api.get<RespondentAssessmentResponse[]>(`/respondent-assessments/getByRespondentId/${respondentUserId}`);
 }
 
 /** All-or-nothing: 400 unknown ids, 409 dup/inactive/org-rule violations. */
 function assignAssessment(payload: AssignAssessmentPayload) {
-  return axios.post<RespondentAssessmentResponse[]>(`${API_URL}/respondent-assessments/assign`, payload);
+  return api.post<RespondentAssessmentResponse[]>(`/respondent-assessments/assign`, payload);
 }
 
 /** NOT_STARTED and ONGOING allotments may be removed — COMPLETED is frozen (409). */
 function deleteAssignment(id: number) {
-  return axios.delete<void>(`${API_URL}/respondent-assessments/delete/${id}`);
+  return api.delete<void>(`/respondent-assessments/delete/${id}`);
 }
 
 export const assessmentMappingApis = {
