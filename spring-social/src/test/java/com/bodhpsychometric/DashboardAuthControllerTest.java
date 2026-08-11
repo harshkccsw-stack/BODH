@@ -104,4 +104,51 @@ class DashboardAuthControllerTest {
                         .content("{\"email\":\"nobody@test.local\",\"dob\":\"1990-01-01\"}"))
                 .andExpect(status().isUnauthorized());
     }
+
+    /**
+     * The configured superadmin email has no dot in its domain (admin@bodh),
+     * which @Email allows and a hand-rolled "must contain a TLD" check would
+     * not. 401 means the credential was looked up and missed; a 400 here would
+     * mean the address never reached the lookup at all — the account would be
+     * unreachable no matter what the seeder wrote.
+     */
+    @Test
+    void dotlessDomainEmailReachesCredentialCheck() throws Exception {
+        mvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"nobody@bodh\",\"dob\":\"2001-01-01\"}"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    /**
+     * app.superadmins is a list, and every entry must be seeded — not just the
+     * first. The second account holds its own dob, so signing in with it also
+     * proves the entries are seeded independently rather than sharing one
+     * credential.
+     */
+    @Test
+    void everyConfiguredSuperadminIsSeeded() throws Exception {
+        mvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"second.admin@test.local\",\"dob\":\"1985-05-05\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.user.superAdmin").value(true))
+                .andExpect(jsonPath("$.user.dashboardAccess").value(true))
+                .andExpect(jsonPath("$.user.serialId").isNotEmpty());
+
+        // Distinct rows, not one account answering to two addresses.
+        mvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"second.admin@test.local\",\"dob\":\"1990-01-01\"}"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    /** An identifier with no domain at all is a format error, not a credential miss. */
+    @Test
+    void emailWithoutDomainIsRejectedAsMalformed() throws Exception {
+        mvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"admin\",\"dob\":\"2001-01-01\"}"))
+                .andExpect(status().isBadRequest());
+    }
 }

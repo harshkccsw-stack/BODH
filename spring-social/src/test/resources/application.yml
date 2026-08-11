@@ -21,9 +21,13 @@ spring:
         auto_quote_keyword: true
 
 app:
-  superadmin:
-    email: superadmin@test.local
-    dob: 1990-01-01
+  # Two entries on purpose: seeding more than one superadmin is a supported
+  # configuration, so the tests cover it rather than only the first element.
+  superadmins:
+    - email: superadmin@test.local
+      dob: 1990-01-01
+    - email: second.admin@test.local
+      dob: 1985-05-05
   jwt:
     secret: ${JWT_SECRET:eb36fabf9a4245f0e94e981537361065878f2b21d557f75b0137343b7de06f80}
     expiry-minutes: ${JWT_EXPIRY_MINUTES:720}

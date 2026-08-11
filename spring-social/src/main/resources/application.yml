@@ -95,9 +95,20 @@ app:
     enabled: ${ACTIVITY_LOG_ENABLED:true}
     retention-days: ${ACTIVITY_RETENTION_DAYS:365}
     queue-capacity: 10000
-  superadmin:
-    email: superadmin@bodh.biz
-    dob: 1990-01-01
+  # Every entry is created at startup by SuperAdminSeeder unless a User
+  # already holds that email, so all of these credentials open the dashboard.
+  # dob IS the password (see User.dob) — the login form wants 2001-01-01
+  # typed as 01/01/2001, four-digit year.
+  #
+  # Seeding only ever adds. Editing a dob here does NOT change an account that
+  # already exists, and deleting an entry does NOT remove the account — both
+  # are done against the database on purpose, never by a config edit.
+  # Override per environment with APP_SUPERADMINS_0_EMAIL / APP_SUPERADMINS_0_DOB.
+  superadmins:
+    - email: admin@bodh
+      dob: 2001-01-01
+    - email: superadmin@bodh.biz
+      dob: 1990-01-01
   jwt:
     # HS256 needs >= 32 bytes; override in every real environment.
     secret: ${JWT_SECRET:eb36fabf9a4245f0e94e981537361065878f2b21d557f75b0137343b7de06f80}
@@ -186,9 +197,20 @@ app:
     enabled: ${ACTIVITY_LOG_ENABLED:true}
     retention-days: ${ACTIVITY_RETENTION_DAYS:365}
     queue-capacity: 10000
-  superadmin:
-    email: superadmin@bodh.biz
-    dob: 1990-01-01
+  # Every entry is created at startup by SuperAdminSeeder unless a User
+  # already holds that email, so all of these credentials open the dashboard.
+  # dob IS the password (see User.dob) — the login form wants 2001-01-01
+  # typed as 01/01/2001, four-digit year.
+  #
+  # Seeding only ever adds. Editing a dob here does NOT change an account that
+  # already exists, and deleting an entry does NOT remove the account — both
+  # are done against the database on purpose, never by a config edit.
+  # Override per environment with APP_SUPERADMINS_0_EMAIL / APP_SUPERADMINS_0_DOB.
+  superadmins:
+    - email: admin@bodh
+      dob: 2001-01-01
+    - email: superadmin@bodh.biz
+      dob: 1990-01-01
   jwt:
     # HS256 needs >= 32 bytes; override in every real environment.
     secret: ${JWT_SECRET:eb36fabf9a4245f0e94e981537361065878f2b21d557f75b0137343b7de06f80}
