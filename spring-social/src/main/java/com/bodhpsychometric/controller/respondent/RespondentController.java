@@ -1,8 +1,16 @@
 package com.bodhpsychometric.controller.respondent;
 
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
+import java.time.format.ResolverStyle;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -17,10 +25,13 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.bodhpsychometric.dto.BulkRespondentRequest;
+import com.bodhpsychometric.dto.BulkRespondentValidationResponse;
 import com.bodhpsychometric.dto.RespondentRequest;
 import com.bodhpsychometric.dto.RespondentResponse;
 import com.bodhpsychometric.model.auth.RespondentUser;
 import com.bodhpsychometric.model.auth.User;
+import com.bodhpsychometric.model.auth.enums.Gender;
 import com.bodhpsychometric.model.organization.Organization;
 import com.bodhpsychometric.repository.assessment.RespondentAssessmentMappingRepository;
 import com.bodhpsychometric.repository.auth.PractitionerUserRepository;
@@ -43,6 +54,24 @@ import jakarta.validation.Valid;
 @RequestMapping("/api/respondents")
 @Transactional
 public class RespondentController {
+
+    /**
+     * dd-MM-uuuu, and STRICT: the default (SMART) resolver quietly accepts
+     * 31-02-2000 and hands back 29-02. On a bulk import that stores a birth
+     * date nobody typed, and dob is the portal password — a silently corrected
+     * date locks someone out of their own account.
+     *
+     * `uuuu`, not `yyyy`. STRICT treats yyyy as year-OF-ERA, which needs an
+     * era field the pattern never supplies, so every parse would fail. uuuu is
+     * the proleptic year and is what STRICT actually wants.
+     */
+    private static final DateTimeFormatter DOB_FORMAT =
+            DateTimeFormatter.ofPattern("dd-MM-uuuu").withResolverStyle(ResolverStyle.STRICT);
+
+    /** Same shape both frontends check, kept deliberately permissive. */
+    private static final Pattern EMAIL_PATTERN = Pattern.compile("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$");
+
+    private static final Pattern ALPHANUMERIC_PATTERN = Pattern.compile("^[A-Za-z0-9]+$");
 
     @Autowired
     private RespondentUserRepository respondentUserRepository;
@@ -166,6 +195,205 @@ public class RespondentController {
             userRepository.delete(user);
         }
         return ResponseEntity.noContent().build();
+    }
+
+    // ── Bulk upload (organization wizard, step 3 → "Upload") ──────────────
+
+    /**
+     * Dry run: check an uploaded sheet and report EVERY problem, writing
+     * nothing. The page shows the whole report so the admin fixes the sheet
+     * once instead of discovering one bad row per round trip.
+     */
+    @PostMapping("/bulk-validate")
+    @Transactional(readOnly = true)
+    public ResponseEntity<?> bulkValidateRespondents(@Valid @RequestBody BulkRespondentRequest request) {
+        Organization organization = resolveOrganization(request.organizationId());
+        if (organization == null) {
+            return unknownOrganization();
+        }
+        return ResponseEntity.ok(validate(request, organization));
+    }
+
+    /**
+     * Commit the sheet — all-or-nothing.
+     *
+     * It re-runs the identical checks rather than trusting the validate call:
+     * the two are separate requests, so someone may have taken an email in
+     * between, and nothing stops a client calling this one directly. On any
+     * problem it returns the same report shape validate does, so the page has
+     * one thing to render.
+     *
+     * All-or-nothing matters more here than for questions. A half-applied
+     * sheet cannot simply be re-uploaded — every already-created row would
+     * collide on uqUserEmail — so the admin would have to hand-edit the file
+     * to remove the ones that landed. Writing nothing keeps re-upload correct.
+     */
+    @PostMapping("/bulk-create")
+    public ResponseEntity<?> bulkCreateRespondents(@Valid @RequestBody BulkRespondentRequest request) {
+        Organization organization = resolveOrganization(request.organizationId());
+        if (organization == null) {
+            return unknownOrganization();
+        }
+
+        // Pass 1 — validate everything before a single row is written.
+        BulkRespondentValidationResponse report = validate(request, organization);
+        if (!report.issues().isEmpty()) {
+            return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(report);
+        }
+
+        // Pass 2 — write. Every row is a new identity: an email that already
+        // exists was rejected above, so there is no attach-to-existing branch
+        // here the way the single create has.
+        //
+        // The full RespondentResponse goes back rather than a slim ref: it
+        // already carries serialId, email and dob, which is exactly what the
+        // page needs to offer a credentials download. dob is the portal
+        // password, but it is the admin's own uploaded value coming straight
+        // back to them, not a disclosure of anything they did not just send.
+        List<RespondentResponse> created = new ArrayList<>();
+        for (BulkRespondentRequest.Row row : request.rows()) {
+            User user = new User();
+            user.setEmail(row.email().trim());
+            user.setDob(parseDob(row.dob()));
+            user.setAccountStatus(true);
+            user = userRepository.save(user);
+            // Derived from the generated id, so it can only be set after the
+            // insert — same rule as the single create and the seeder.
+            user.setSerialId(String.format("USR-%06d", user.getId()));
+
+            RespondentUser respondent = new RespondentUser();
+            respondent.setUser(user);
+            respondent.setName(row.name().trim());
+            respondent.setPhone(blankToNull(row.phone()));
+            respondent.setEmployeeId(normalizeEmployeeId(row.employeeId()));
+            respondent.setGender(parseGender(row.gender()));
+            respondent.setOrganization(organization);
+            // Consent is NOT granted here. An admin uploading a spreadsheet
+            // cannot consent on someone's behalf; the take flow's terms step
+            // is what records it.
+            created.add(RespondentResponse.from(respondentUserRepository.save(respondent)));
+        }
+        return ResponseEntity.status(HttpStatus.CREATED).body(created);
+    }
+
+    /**
+     * The single source of truth for what makes a sheet acceptable — shared by
+     * validate and create so the two can never disagree.
+     *
+     * Collects problems instead of returning on the first, and checks each row
+     * against three things: itself, the rest of the sheet, and the database.
+     * Only the last two need the server at all, which is why this endpoint
+     * exists rather than leaving it to the browser.
+     */
+    private BulkRespondentValidationResponse validate(BulkRespondentRequest request,
+            Organization organization) {
+        List<BulkRespondentValidationResponse.Issue> issues = new ArrayList<>();
+        // Lower-cased email / upper-cased code → the FIRST row that used it,
+        // so a duplicate can name its twin.
+        Map<String, Integer> seenEmails = new HashMap<>();
+        Map<String, Integer> seenEmployeeIds = new HashMap<>();
+        int valid = 0;
+
+        for (BulkRespondentRequest.Row row : request.rows()) {
+            int before = issues.size();
+            int line = row.row();
+
+            String name = row.name() == null ? "" : row.name().trim();
+            if (name.isEmpty()) {
+                issues.add(issue(line, "name", "Name is required"));
+            }
+
+            String email = row.email() == null ? "" : row.email().trim();
+            if (email.isEmpty()) {
+                issues.add(issue(line, "email", "Email is required"));
+            } else if (!EMAIL_PATTERN.matcher(email).matches()) {
+                issues.add(issue(line, "email", "\"" + email + "\" is not a valid email address"));
+            } else {
+                String key = email.toLowerCase(Locale.ROOT);
+                Integer first = seenEmails.putIfAbsent(key, line);
+                if (first != null) {
+                    issues.add(issue(line, "email",
+                            "Duplicate email — row " + first + " already uses it"));
+                } else if (userRepository.findByEmailIgnoreCase(email).isPresent()) {
+                    // Decision: an existing email is an error to fix, never a
+                    // silent attach. The single-create endpoint DOES attach a
+                    // respondent profile to a matching identity, but doing that
+                    // invisibly to a row buried in a 300-line sheet is not
+                    // something an admin can be expected to notice.
+                    issues.add(issue(line, "email", "Email already exists"));
+                }
+            }
+
+            if (row.dob() == null || row.dob().isBlank()) {
+                issues.add(issue(line, "dob", "Date of birth is required"));
+            } else if (parseDob(row.dob()) == null) {
+                issues.add(issue(line, "dob",
+                        "\"" + row.dob().trim() + "\" is not a real date in DD-MM-YYYY"));
+            }
+
+            String employeeId = normalizeEmployeeId(row.employeeId());
+            if (employeeId != null) {
+                if (!ALPHANUMERIC_PATTERN.matcher(employeeId).matches()) {
+                    issues.add(issue(line, "employeeId",
+                            "Employee ID must contain only letters and numbers"));
+                } else if (employeeId.length() > 32) {
+                    issues.add(issue(line, "employeeId",
+                            "Employee ID must be at most 32 characters"));
+                } else {
+                    Integer first = seenEmployeeIds.putIfAbsent(employeeId, line);
+                    if (first != null) {
+                        issues.add(issue(line, "employeeId",
+                                "Duplicate Employee ID — row " + first + " already uses it"));
+                    } else if (respondentUserRepository.countByEmployeeIdInOrganization(
+                            employeeId, organization.getOrganizationId(), null) > 0) {
+                        issues.add(issue(line, "employeeId",
+                                "This Employee ID is already in use in this organization"));
+                    }
+                }
+            }
+
+            if (row.gender() != null && !row.gender().isBlank() && parseGender(row.gender()) == null) {
+                issues.add(issue(line, "gender",
+                        "\"" + row.gender().trim() + "\" is not one of MALE, FEMALE, OTHER"));
+            }
+
+            if (issues.size() == before) {
+                valid++;
+            }
+        }
+        return new BulkRespondentValidationResponse(request.rows().size(), valid, issues);
+    }
+
+    private static BulkRespondentValidationResponse.Issue issue(int row, String field, String message) {
+        return new BulkRespondentValidationResponse.Issue(row, field, message);
+    }
+
+    /** Null when unparseable — the caller turns that into a row-level issue. */
+    private static LocalDate parseDob(String dob) {
+        if (dob == null || dob.isBlank()) {
+            return null;
+        }
+        try {
+            return LocalDate.parse(dob.trim(), DOB_FORMAT);
+        } catch (DateTimeParseException e) {
+            return null;
+        }
+    }
+
+    /** Null for blank OR unrecognised — blank is "unset", the rest is an issue. */
+    private static Gender parseGender(String gender) {
+        if (gender == null || gender.isBlank()) {
+            return null;
+        }
+        try {
+            return Gender.valueOf(gender.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
     }
 
     /** Consent transitions own consentedAt: first grant stamps it, revoke clears it. */

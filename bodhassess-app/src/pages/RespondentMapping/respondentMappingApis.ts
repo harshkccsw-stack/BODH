@@ -96,7 +96,7 @@ function deleteAssignment(id: number) {
   return api.delete<void>(`/respondent-assessments/delete/${id}`);
 }
 
-export const assessmentMappingApis = {
+export const respondentMappingApis = {
   getAllRespondents,
   getAllAssessments,
   getAllOrganizations,

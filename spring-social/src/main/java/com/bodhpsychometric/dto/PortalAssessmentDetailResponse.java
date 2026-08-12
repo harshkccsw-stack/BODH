@@ -8,13 +8,16 @@ import java.util.Map;
 import java.util.Objects;
 
 import com.bodhpsychometric.model.assessment.Assessment;
+import com.bodhpsychometric.model.assessment.AssessmentTerms;
 import com.bodhpsychometric.model.assessment.RespondentAssessmentMapping;
 import com.bodhpsychometric.model.assessment.enums.RespondentAssessmentStatus;
 import com.bodhpsychometric.model.demographics.QuestionnaireDemographicField;
 import com.bodhpsychometric.model.demographics.enums.DemographicFieldType;
 import com.bodhpsychometric.model.question.Option;
 import com.bodhpsychometric.model.question.Question;
+import com.bodhpsychometric.model.question.SelectionBounds;
 import com.bodhpsychometric.model.question.enums.ContentType;
+import com.bodhpsychometric.model.question.enums.SelectionRule;
 import com.bodhpsychometric.model.questionnaire.Questionnaire;
 import com.bodhpsychometric.model.questionnaire.QuestionnaireQuestion;
 import com.bodhpsychometric.model.questionnaire.Section;
@@ -32,6 +35,12 @@ public record PortalAssessmentDetailResponse(
         Long assessmentId,
         String assessmentName,
         boolean showTermsAndConditions,
+        /**
+         * Consent body to render when showTermsAndConditions is true. Never
+         * null — assessments with no text of their own get the default — so
+         * the portal never has to decide what the terms say.
+         */
+        String termsAndConditions,
         boolean autoNext,
         boolean showQuestionIndex,
         Long questionnaireId,
@@ -48,7 +57,17 @@ public record PortalAssessmentDetailResponse(
     public record PortalSection(Long sectionId, String name, String instruction) {
     }
 
-    /** One question as the respondent sees it — no scoring data. */
+    /**
+     * One question as the respondent sees it — no scoring data.
+     *
+     * selectionRule/selectionCount are how many options may be picked; both
+     * null means single choice. They are presentation, not scoring: the
+     * portal needs them to render checkboxes instead of radios, show the
+     * hint, and enable Next only once the rule is satisfied. minSelections /
+     * maxSelections are the same pair already resolved into a floor and a cap
+     * by SelectionBounds, sent so the portal and the submit validator can
+     * never disagree about what a rule means.
+     */
     public record PortalQuestion(
             Long questionId,
             Long sectionId,
@@ -56,6 +75,10 @@ public record PortalAssessmentDetailResponse(
             ContentType contentType,
             String stem,
             String mediaUrl,
+            SelectionRule selectionRule,
+            Integer selectionCount,
+            int minSelections,
+            int maxSelections,
             List<PortalOption> options) {
     }
 
@@ -102,6 +125,7 @@ public record PortalAssessmentDetailResponse(
                     .map(o -> new PortalOption(o.getOptionId(), o.getOptionText(), o.getContentType(),
                             o.getMediaUrl(), o.getSortOrder()))
                     .toList();
+            SelectionBounds bounds = SelectionBounds.of(question);
             questions.add(new PortalQuestion(
                     question.getQuestionId(),
                     section == null ? null : section.getSectionId(),
@@ -109,6 +133,10 @@ public record PortalAssessmentDetailResponse(
                     question.getContentType(),
                     question.getQuestionTexString(),
                     question.getMediaUrl(),
+                    question.getSelectionRule(),
+                    question.getSelectionCount(),
+                    bounds.floor(),
+                    bounds.cap(),
                     options));
         }
 
@@ -132,6 +160,7 @@ public record PortalAssessmentDetailResponse(
                 assessment.getAssessmentId(),
                 assessment.getName(),
                 assessment.isShowTermsAndConditions(),
+                AssessmentTerms.effective(assessment.getTermsAndConditions()),
                 assessment.isAutoNext(),
                 assessment.isShowQuestionIndex(),
                 questionnaire.getQuestionnaireId(),

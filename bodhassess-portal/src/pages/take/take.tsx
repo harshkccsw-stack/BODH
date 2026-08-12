@@ -12,16 +12,10 @@ import { CompleteStep } from './complete-step';
 
 type GateStep = 'terms' | 'demographics' | 'instructions' | 'questions';
 
-// The backend's showTermsAndConditions is a per-assessment on/off switch with
-// no terms body (yet) — the portal renders this standard consent text when on.
-const TERMS_TEXT = `This assessment is administered by your organization or practitioner through BodhAssess.
-
-By continuing you confirm that:
-• You are taking this assessment yourself, in one sitting, without assistance.
-• Your answers will be recorded and shared with the administrator who assigned this assessment to you.
-• Your responses will be used for assessment and interpretation purposes only.
-
-Answer honestly — there are no right or wrong answers unless stated otherwise in the instructions.`;
+// The consent body is per-assessment now and arrives with the detail payload
+// (`termsAndConditions`), authored in the dashboard's editor. The standard
+// text that used to live here is the server's default, applied to any
+// assessment that never set its own — so the portal no longer holds a copy.
 
 // Orchestrator for /portal/assessment/:sessionId (the attempt / mapping id).
 // One backend call returns everything: assessment config, questionnaire,
@@ -36,7 +30,10 @@ export default function TakePage() {
   const { user } = useAuth();
 
   const [detail, setDetail] = useState<PortalAssessmentDetail | null>(null);
-  const [answers, setAnswers] = useState<Record<number, number>>({});
+  // questionId → the optionIds ticked. A list even for single choice, so one
+  // shape covers both and the submit payload is one entry per selected
+  // option — exactly the rows the server writes.
+  const [answers, setAnswers] = useState<Record<number, number[]>>({});
   const [loadError, setLoadError] = useState('');
   // Applicable steps, frozen at load so mid-flow state changes can never
   // resync stepIndex to a now-shorter list.
@@ -156,10 +153,9 @@ export default function TakePage() {
   const submit = async () => {
     setSubmitting(true);
     setSubmitError('');
-    const entries = Object.entries(answers).map(([questionId, optionId]) => ({
-      questionId: Number(questionId),
-      optionId,
-    }));
+    const entries = Object.entries(answers).flatMap(([questionId, optionIds]) =>
+      optionIds.map((optionId) => ({ questionId: Number(questionId), optionId })),
+    );
     try {
       await portalAssessmentsApi.submit(detail.respondentAssessmentMappingId, entries, popUpCount);
       setDone(true);
@@ -175,7 +171,7 @@ export default function TakePage() {
         <TermsStep
           title={title}
           subtitle={subtitle}
-          disclaimer={TERMS_TEXT}
+          disclaimer={detail.termsAndConditions}
           onAgree={goNext}
           onCancel={backToList}
         />

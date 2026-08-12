@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   Flag,
   HelpCircle,
+  ListChecks,
   Loader2,
   Pencil,
   Plus,
@@ -15,7 +16,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { questionApis, type QuestionResponse } from './questionApis';
+import { questionApis, selectionLabel, type QuestionResponse } from './questionApis';
 import { questionnairesApi, type QuestionnaireResponse } from '../questionnaires/questionnairesApi';
 import { qualitiesApi } from '../MeasuredQuality/qualitiesApi';
 // The create/edit form itself lives in question-form-modal.tsx so the
@@ -234,6 +235,15 @@ export default function QuestionsPage() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
+                    {q.selectionRule && (
+                      <span
+                        className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-2.5 py-0.5 text-xs font-medium text-primary"
+                        title={selectionLabel(q.selectionRule, q.selectionCount, q.options.length)}
+                      >
+                        <ListChecks className="h-3 w-3" />
+                        {q.selectionRule === 'EQUALS' ? '=' : q.selectionRule === 'MAX' ? '≤' : '≥'} {q.selectionCount}
+                      </span>
+                    )}
                     {q.riskFlag && (
                       <span className="inline-flex items-center gap-1 rounded-full border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-2.5 py-0.5 text-xs font-medium text-red-600 dark:text-red-400">
                         <Flag className="h-3 w-3" /> risk

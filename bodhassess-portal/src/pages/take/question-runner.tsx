@@ -5,10 +5,26 @@ import { Button } from '@/components/ui/button';
 import { BrandHeader } from '@/components/brand-header';
 import { Media, mediaTypeFor } from '@/components/media';
 import { cn } from '@/lib/utils';
-import type { PortalAssessmentDetail } from '@/lib/api';
+import type { PortalAssessmentDetail, PortalQuestion } from '@/lib/api';
 
-// Answers are keyed by questionId and hold the selected optionId — the shape
-// the answer-saving endpoint will take verbatim later.
+// Answers are keyed by questionId and hold every selected optionId. Single
+// choice is just a question whose cap is 1, so one code path covers both.
+//
+// How many a question takes comes from the server as minSelections /
+// maxSelections (already resolved from its rule), and EVERY gate below reads
+// those two numbers — never the rule directly. That is what keeps this screen
+// and the submit validator from ever disagreeing.
+
+/** "Select exactly 2" — the instruction, worded from the rule the author picked. */
+function selectionHint(q: PortalQuestion): string | null {
+  if (q.selectionRule == null || q.selectionCount == null) return null;
+  const n = q.selectionCount;
+  const s = n === 1 ? '' : 's';
+  if (q.selectionRule === 'EQUALS') return `Select exactly ${n} option${s}`;
+  if (q.selectionRule === 'MAX') return `Select up to ${n} option${s}`;
+  return `Select at least ${n} option${s}`;
+}
+
 export function QuestionRunner({
   detail,
   title,
@@ -23,8 +39,8 @@ export function QuestionRunner({
   detail: PortalAssessmentDetail;
   title: string;
   subtitle?: string;
-  answers: Record<number, number>;
-  setAnswers: (a: Record<number, number>) => void;
+  answers: Record<number, number[]>;
+  setAnswers: (a: Record<number, number[]>) => void;
   onSubmit: () => void;
   submitting: boolean;
   submitError?: string;
@@ -37,8 +53,14 @@ export function QuestionRunner({
 
   const q = questions[index];
   const progress = Math.round(((index + 1) / total) * 100);
-  const selected = answers[q.questionId];
-  const answered = selected !== undefined;
+  const selected = answers[q.questionId] ?? [];
+  const multi = q.maxSelections > 1;
+  const hint = selectionHint(q);
+  // "Answered" means the question's rule is SATISFIED, not merely touched —
+  // anything looser and the navigator would show a green tick on a question
+  // the server is about to reject.
+  const answered = selected.length >= q.minSelections && selected.length <= q.maxSelections;
+  const atCap = selected.length >= q.maxSelections;
   const isLast = index === total - 1;
   // Per-assessment setting: advance to the next question automatically a beat
   // after an option is picked (never an auto-submit on the last question).
@@ -112,14 +134,40 @@ export function QuestionRunner({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Flashes when a tick is refused for being over the cap; cleared on any
+  // successful change and on leaving the question.
+  const [capWarning, setCapWarning] = useState(false);
+
   const goTo = (qi: number) => {
     clearAdvance();
+    setCapWarning(false);
     setIndex(Math.max(0, Math.min(total - 1, qi)));
   };
 
   const selectOption = (optionId: number) => {
-    setAnswers({ ...answers, [q.questionId]: optionId });
-    if (!autoNext || isLast) return;
+    const on = selected.includes(optionId);
+    let next: number[];
+    if (on) {
+      next = selected.filter((id) => id !== optionId);
+    } else if (q.maxSelections === 1) {
+      // Cap of 1 — single choice and "max 1" alike — replaces, like a radio.
+      next = [optionId];
+    } else if (atCap) {
+      // Past the cap the tick is BLOCKED, never swapped for an earlier one:
+      // silently dropping a selection they made produces an answer set the
+      // respondent never intended and nothing downstream can detect.
+      setCapWarning(true);
+      return;
+    } else {
+      next = [...selected, optionId];
+    }
+    setCapWarning(false);
+    setAnswers({ ...answers, [q.questionId]: next });
+    // Auto-advance only on a selection that COMPLETES the question and cannot
+    // grow — single choice, or EQUALS on its last tick. Under MIN/MAX there is
+    // no such signal, and advancing would slide the page away mid-selection.
+    const settled = next.length === q.minSelections && next.length === q.maxSelections;
+    if (!autoNext || isLast || !settled) return;
     clearAdvance();
     advanceTimer.current = window.setTimeout(() => {
       advanceTimer.current = null;
@@ -129,7 +177,9 @@ export function QuestionRunner({
 
   const isQuestionAnswered = (qi: number): boolean => {
     const qq = questions[qi];
-    return qq !== undefined && answers[qq.questionId] !== undefined;
+    if (qq === undefined) return false;
+    const picked = answers[qq.questionId]?.length ?? 0;
+    return picked >= qq.minSelections && picked <= qq.maxSelections;
   };
   const answeredCount = questions.reduce((n, _, i) => n + (isQuestionAnswered(i) ? 1 : 0), 0);
 
@@ -254,9 +304,25 @@ export function QuestionRunner({
               {q.stem && <p className="text-base font-medium leading-relaxed">{q.stem}</p>}
               <Media url={q.mediaUrl ?? undefined} type={mediaTypeFor(q.contentType, q.mediaUrl)} />
 
+              {hint && (
+                <div
+                  className={cn(
+                    'flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-xs font-medium transition-colors',
+                    capWarning
+                      ? 'border-amber-400 bg-amber-50 text-amber-700 dark:border-amber-600 dark:bg-amber-950/30 dark:text-amber-400'
+                      : 'border-primary/30 bg-primary/5 text-primary',
+                  )}
+                >
+                  <span>{capWarning ? `${hint} — untick one to change your answer` : hint}</span>
+                  <span className="shrink-0 text-muted-foreground">
+                    {selected.length} selected
+                  </span>
+                </div>
+              )}
+
               <div className="space-y-2">
                 {q.options.map((opt, oi) => {
-                  const on = selected === opt.optionId;
+                  const on = selected.includes(opt.optionId);
                   return (
                     <button
                       key={opt.optionId}
@@ -265,12 +331,16 @@ export function QuestionRunner({
                       className={cn(
                         'w-full text-left rounded-lg border p-4 transition-colors',
                         on ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40',
+                        // At the cap the unticked options are visibly inert —
+                        // the tick is refused, so it must not look available.
+                        multi && atCap && !on && 'opacity-60',
                       )}
                     >
                       <div className="flex items-start gap-3">
                         <span
                           className={cn(
-                            'mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border',
+                            'mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center border',
+                            multi ? 'rounded' : 'rounded-full',
                             on ? 'border-primary bg-primary text-primary-foreground' : 'border-border',
                           )}
                         >

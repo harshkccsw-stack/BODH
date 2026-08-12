@@ -4,8 +4,10 @@ import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 import org.springframework.http.HttpStatus;
@@ -27,6 +29,8 @@ import com.bodhpsychometric.model.demographics.DemographicResponse;
 import com.bodhpsychometric.model.demographics.QuestionnaireDemographicField;
 import com.bodhpsychometric.model.question.Option;
 import com.bodhpsychometric.model.question.Question;
+import com.bodhpsychometric.model.question.SelectionBounds;
+import com.bodhpsychometric.model.question.enums.SelectionRule;
 import com.bodhpsychometric.repository.assessment.AssessmentAnswerRepository;
 import com.bodhpsychometric.repository.assessment.RespondentAssessmentMappingRepository;
 import com.bodhpsychometric.repository.demographics.DemographicResponseRepository;
@@ -207,7 +211,15 @@ public class PortalAssessmentService {
         // Pass 1 — validate every answer before writing anything. The option
         // must belong to the question on the same row (the rule the schema
         // cannot express).
-        Map<Long, Option> chosen = new LinkedHashMap<>();
+        //
+        // One entry per SELECTED OPTION, so a multi-select question appears
+        // several times — the payload is isomorphic to the AssessmentAnswer
+        // rows it becomes. The set dedupes a repeated (question, option) pair
+        // silently, and that is load-bearing rather than tidy: two identical
+        // rows violate uqAaRespondentAssessmentQuestionOption, and a
+        // constraint violation inside this transaction marks it rollback-only
+        // — a 500 at commit instead of the clean 400 below.
+        Map<Long, Set<Option>> chosen = new LinkedHashMap<>();
         for (PortalSubmitRequest.AnswerEntry entry : entries) {
             if (entry.questionId() == null || entry.optionId() == null) {
                 throw badRequest("Each answer needs a questionId and an optionId");
@@ -216,9 +228,6 @@ public class PortalAssessmentService {
             if (question == null) {
                 throw badRequest("Question " + entry.questionId() + " is not part of this assessment");
             }
-            if (chosen.containsKey(entry.questionId())) {
-                throw badRequest("Duplicate answer for question " + entry.questionId());
-            }
             Option option = question.getOptions().stream()
                     .filter(o -> o.getOptionId().equals(entry.optionId()))
                     .findFirst().orElse(null);
@@ -226,14 +235,28 @@ public class PortalAssessmentService {
                 throw badRequest("Option " + entry.optionId() + " does not belong to question "
                         + entry.questionId());
             }
-            chosen.put(entry.questionId(), option);
+            chosen.computeIfAbsent(entry.questionId(), k -> new LinkedHashSet<>()).add(option);
         }
 
+        // Every placed question still has to be answered: a question with no
+        // selections never entered the map, so the floor of 1 that every rule
+        // shares needs no separate check.
         List<Long> unanswered = questionsById.keySet().stream()
                 .filter(id -> !chosen.containsKey(id))
                 .toList();
         if (!unanswered.isEmpty()) {
             throw badRequest("All questions must be answered — missing questionIds: " + unanswered);
+        }
+
+        // How many, per question. Worded from the rule the author picked, not
+        // the derived numbers, because that is what the respondent was shown.
+        for (Map.Entry<Long, Set<Option>> e : chosen.entrySet()) {
+            Question question = questionsById.get(e.getKey());
+            int picked = e.getValue().size();
+            if (!SelectionBounds.of(question).allows(picked)) {
+                throw badRequest("Question " + e.getKey() + " " + expectation(question)
+                        + " — " + picked + " selected");
+            }
         }
 
         // Pass 2 — replace-all write of the pair's single answer set. Flush
@@ -243,13 +266,15 @@ public class PortalAssessmentService {
         Long assessmentId = mapping.getAssessment().getAssessmentId();
         assessmentAnswers.deleteByRespondent_IdAndAssessment_AssessmentId(respondentUserId, assessmentId);
         assessmentAnswers.flush();
-        for (Map.Entry<Long, Option> e : chosen.entrySet()) {
-            AssessmentAnswer answer = new AssessmentAnswer();
-            answer.setRespondent(mapping.getRespondent());
-            answer.setAssessment(mapping.getAssessment());
-            answer.setQuestion(questionsById.get(e.getKey()));
-            answer.setOption(e.getValue());
-            assessmentAnswers.save(answer);
+        for (Map.Entry<Long, Set<Option>> e : chosen.entrySet()) {
+            for (Option option : e.getValue()) {
+                AssessmentAnswer answer = new AssessmentAnswer();
+                answer.setRespondent(mapping.getRespondent());
+                answer.setAssessment(mapping.getAssessment());
+                answer.setQuestion(questionsById.get(e.getKey()));
+                answer.setOption(option);
+                assessmentAnswers.save(answer);
+            }
         }
         // Force the answer inserts now, so isPersisted is only ever set after
         // the rows have actually reached MySQL — a failure here rolls the
@@ -283,6 +308,20 @@ public class PortalAssessmentService {
             throw conflict("This assessment is not currently active");
         }
         return mapping;
+    }
+
+    /** "needs exactly 3 selections" — the rule as the respondent was told it. */
+    private static String expectation(Question question) {
+        SelectionRule rule = question.getSelectionRule();
+        Integer count = question.getSelectionCount();
+        if (rule == null || count == null) {
+            return "takes one answer";
+        }
+        return switch (rule) {
+            case EQUALS -> "needs exactly " + count + " selection" + (count == 1 ? "" : "s");
+            case MAX -> "accepts at most " + count + " selection" + (count == 1 ? "" : "s");
+            case MIN -> "needs at least " + count + " selection" + (count == 1 ? "" : "s");
+        };
     }
 
     private static ResponseStatusException badRequest(String message) {

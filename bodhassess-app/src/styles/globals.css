@@ -147,6 +147,48 @@ html {
   scroll-behavior: smooth;
 }
 
+/**
+ * Rich-text editor content (components/rich-text-editor.tsx). Tailwind's
+ * preflight strips list markers and heading sizes, so authored bullets and
+ * headings would be invisible inside a contentEditable without these. Keep in
+ * step with .terms-body in the portal, which renders the same markup to
+ * respondents.
+ */
+.rte-content p {
+  margin: 0 0 0.5rem;
+}
+.rte-content ul,
+.rte-content ol {
+  margin: 0 0 0.5rem;
+  padding-inline-start: 1.5rem;
+}
+.rte-content ul {
+  list-style: disc;
+}
+.rte-content ol {
+  list-style: decimal;
+}
+.rte-content li {
+  margin: 0.125rem 0;
+}
+.rte-content h2 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin: 0.75rem 0 0.5rem;
+}
+.rte-content h3 {
+  font-size: 1.0625rem;
+  font-weight: 600;
+  margin: 0.75rem 0 0.5rem;
+}
+.rte-content b,
+.rte-content strong {
+  font-weight: 600;
+}
+.rte-content u {
+  text-decoration: underline;
+}
+
 /** Custom Containers **/
 @utility container {
   @apply mx-auto max-w-none px-4 lg:px-5;

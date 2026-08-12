@@ -1,7 +1,8 @@
 import { useMemo } from 'react';
-import { Circle, Clock, ExternalLink, Layers, ListChecks } from 'lucide-react';
+import { Circle, Clock, ExternalLink, Layers, ListChecks, Square } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
+import { selectionLabel, type SelectionRule } from '../question-bank/questionApis';
 
 // The respondent-view rendering of a questionnaire, with no data fetching of
 // its own. The preview PAGE (/questionnaires/:id/preview) feeds it what the
@@ -24,6 +25,9 @@ export interface PreviewQuestion {
   contentType: string;
   stem: string;
   mediaUrl: string | null;
+  /** Both null = single choice; otherwise how many options may be picked. */
+  selectionRule?: SelectionRule | null;
+  selectionCount?: number | null;
   options: PreviewOption[];
 }
 
@@ -73,6 +77,10 @@ export function MediaView({ contentType, mediaUrl, compact }: { contentType: str
 
 /** One question exactly as the respondent will meet it. */
 export function QuestionView({ q, number }: { q: PreviewQuestion; number: number }) {
+  // Multi-select questions get checkboxes and the same instruction line the
+  // portal shows, so the preview is not quietly kinder than the real thing.
+  const rule = q.selectionRule ?? null;
+  const Marker = rule ? Square : Circle;
   return (
     <div className="rounded-lg border border-border p-4 space-y-3">
       <div className="flex items-start gap-3">
@@ -84,11 +92,16 @@ export function QuestionView({ q, number }: { q: PreviewQuestion; number: number
           <MediaView contentType={q.contentType} mediaUrl={q.mediaUrl} />
         </div>
       </div>
+      {rule && (
+        <p className="pl-9 text-xs font-medium text-primary">
+          {selectionLabel(rule, q.selectionCount ?? null, q.options.length)}
+        </p>
+      )}
       {q.options.length > 0 && (
         <div className="space-y-1.5 pl-9">
           {q.options.map((o) => (
             <div key={o.optionId} className="flex items-center gap-2.5 rounded-md border border-border px-3 py-2">
-              <Circle className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0" />
+              <Marker className={cn('h-3.5 w-3.5 text-muted-foreground/50 shrink-0', rule && 'rounded-[3px]')} />
               <div className="min-w-0 flex-1 space-y-1">
                 {o.optionText && <p className="text-sm">{o.optionText}</p>}
                 <MediaView contentType={o.contentType} mediaUrl={o.mediaUrl} compact />

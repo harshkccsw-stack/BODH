@@ -35,6 +35,7 @@ import {
   type OrganizationResponse,
   type RegistrationLinkRef,
 } from './organizationApis';
+import { RespondentBulkUpload } from './respondent-bulk-upload';
 
 /**
  * Three-step organization flow, rendered inline on the organizations page in
@@ -171,7 +172,7 @@ export default function OrganizationWizard({
   const [unmapBusy, setUnmapBusy] = useState<number | null>(null);
 
   // ── Step 3 — respondents ────────────────────────────────────────────────
-  const [peopleTab, setPeopleTab] = useState<'existing' | 'new'>('existing');
+  const [peopleTab, setPeopleTab] = useState<'existing' | 'new' | 'upload'>('existing');
   /** The org's CURRENT members — what edit mode mostly came here to change. */
   const [members, setMembers] = useState<OrgMemberRef[] | null>(null);
   const [unassigned, setUnassigned] = useState<OrgMemberRef[] | null>(null);
@@ -1033,6 +1034,9 @@ export default function OrganizationWizard({
               {([
                 { id: 'existing' as const, label: 'Existing', count: checkedRespondents.size },
                 { id: 'new' as const, label: 'New', count: newRows.length },
+                // Upload writes on its own "Import" button, so it never
+                // carries a pending count the way the other two do.
+                { id: 'upload' as const, label: 'Upload', count: 0 },
               ]).map((t) => (
                 <button
                   key={t.id}
@@ -1124,6 +1128,18 @@ export default function OrganizationWizard({
                   </div>
                 )}
               </div>
+            ) : peopleTab === 'upload' ? (
+              <RespondentBulkUpload
+                organizationId={org!.organizationId}
+                organizationName={org!.name}
+                onImported={async () => {
+                  // Imported people are members immediately, so refresh the
+                  // member list above and the org list behind the wizard.
+                  const detail = await organizationApis.getOrganizationById(org!.organizationId);
+                  setMembers(detail.data.members);
+                  await onChanged();
+                }}
+              />
             ) : (
               <div className="space-y-3">
                 <p className="text-xs text-muted-foreground">

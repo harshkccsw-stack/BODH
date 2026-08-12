@@ -90,10 +90,13 @@ const Assessments              = lazyPage(() => import('@/pages/assessments/all-
 // New-dialect catalog page wired to spring-social (Assessment Library group).
 const AssessmentLibrary        = lazyPage(() => import('@/pages/assessments/assessment-library'));
 // Direct assessment→respondent assignment for unaffiliated respondents.
-const AssessmentMapping        = lazyPage(() => import('@/pages/AssessmentMapping/assessment-mapping'));
+const RespondentMapping        = lazyPage(() => import('@/pages/RespondentMapping/respondent-mapping'));
+// Org catalog + registration links + per-member allotments, one org at a time.
+const OrganizationMapping      = lazyPage(() => import('@/pages/OrganizationMapping/organization-mapping'));
+// Full-page create/edit form for the Assessment Library (the modal it
+// replaced lived inside assessment-library.tsx). Edit mode is ?edit=<id>.
 const AssessmentsCreate        = lazyPage(() => import('@/pages/assessments/create-assessment'));
-const AssessmentsEdit          = lazyPage(() => import('@/pages/assessments/edit-assessment'));
-const AssessmentsBatch         = lazyPage(() => import('@/pages/assessments/batch-upload'));
+const AssessmentsBatch        = lazyPage(() => import('@/pages/assessments/batch-upload'));
 const AssessmentsBrowse        = lazyPage(() => import('@/pages/assessments/browse-assessments'));
 const AssessmentRespondents    = lazyPage(() => import('@/pages/assessments/assessment-respondents'));
 const AssessmentInviteOrCopy   = lazyPage(() => import('@/pages/assessments/invite-or-copy'));
@@ -245,10 +248,17 @@ const routes: RouteObject[] = [
       { path: '/admin/data-grid', element: <AdminDataGrid /> },
 
       { path: '/assessment-library/assessments', element: <AssessmentLibrary /> },
-      { path: '/assessment-library/mapping', element: <AssessmentMapping /> },
+      // Same page create and edit — no id in the path, edit is ?edit=<id>,
+      // so one menu entry and one permission path cover both.
+      { path: '/assessment-library/assessments/create', element: <AssessmentsCreate /> },
+      // Renamed from /assessment-library/mapping. Role permissions are stored
+      // as paths, so V12 rewrites the granted rows to match — a leaf grant
+      // left on the old path would silently deny the page.
+      { path: '/assessment-library/respondent-mapping', element: <RespondentMapping /> },
+      { path: '/assessment-library/organization-mapping', element: <OrganizationMapping /> },
       // { path: '/assessments', element: <Assessments /> },
-      // { path: '/assessments/create', element: <AssessmentsCreate /> },
-      { path: '/assessments/edit/:id', element: <AssessmentsEdit /> },
+      // The v1-dialect create/edit pages are parked in deleted/ — they spoke
+      // to the old API (questionnaire versions, CLOSED/PAUSED statuses).
       { path: '/assessments/batch', element: <AssessmentsBatch /> },
       // Browse assessments grouped by the bulk-create group key + drill in
       // to that assessment's respondents. /respondents (literal) must come

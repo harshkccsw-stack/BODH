@@ -28,6 +28,7 @@ import com.bodhpsychometric.dto.QuestionResponse;
 import com.bodhpsychometric.model.question.Option;
 import com.bodhpsychometric.model.question.Question;
 import com.bodhpsychometric.model.question.enums.ContentType;
+import com.bodhpsychometric.model.question.enums.SelectionRule;
 import com.bodhpsychometric.model.scoring.OptionMqtScore;
 import com.bodhpsychometric.model.scoring.QuestionMqtScore;
 import com.bodhpsychometric.model.taxonomy.MeasuredQualityType;
@@ -53,8 +54,9 @@ import jakarta.validation.Valid;
  *
  * Scoring rows are OWNED by this flow and rebuilt on every update, so they
  * do not lock a question. Respondent answers do: with answers present the
- * option set is frozen and the question cannot be deleted — pre-checked,
- * because inside a transaction a caught FK violation still kills the commit.
+ * option set AND the selection rule are frozen and the question cannot be
+ * deleted — pre-checked, because inside a transaction a caught FK violation
+ * still kills the commit.
  */
 @RestController
 @RequestMapping("/api/questions")
@@ -105,6 +107,10 @@ public class QuestionController {
         if (mqts == null) {
             return unknownMqt();
         }
+        String selectionProblem = validateSelection(request);
+        if (selectionProblem != null) {
+            return ResponseEntity.badRequest().body(Map.of("message", selectionProblem));
+        }
         Question question = new Question();
         applyFields(question, request);
         rebuildOptions(question, request.options());
@@ -148,6 +154,11 @@ public class QuestionController {
                 return ResponseEntity.badRequest()
                         .body(Map.of("message", "question " + (i + 1) + ": a referenced MQT does not exist"));
             }
+            String selectionProblem = validateSelection(request);
+            if (selectionProblem != null) {
+                return ResponseEntity.badRequest()
+                        .body(Map.of("message", "question " + (i + 1) + ": " + selectionProblem));
+            }
             resolvedMqts.add(mqts);
         }
         // Pass 2 — write, returning the created questions so callers get ids
@@ -176,11 +187,23 @@ public class QuestionController {
         if (mqts == null) {
             return unknownMqt();
         }
+        String selectionProblem = validateSelection(request);
+        if (selectionProblem != null) {
+            return ResponseEntity.badRequest().body(Map.of("message", selectionProblem));
+        }
         boolean hasAnswers = assessmentAnswerRepository.existsByQuestionQuestionId(id);
         boolean optionsChanged = optionsChanged(question, request.options());
         if (optionsChanged && hasAnswers) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("message",
                     "This question already has responses — its options are locked"));
+        }
+        // Same reasoning as the option freeze: tightening EQUALS 3 to 2 would
+        // strand answer sets the new rule calls impossible, and nothing
+        // downstream could repair them. Loosening is safe in principle, but
+        // one condition beats four.
+        if (selectionChanged(question, request) && hasAnswers) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("message",
+                    "This question already has responses — how many options it takes is locked"));
         }
         applyFields(question, request);
         // Scores are owned by this flow: wipe and rewrite. Option scores must
@@ -319,6 +342,54 @@ public class QuestionController {
         question.setQuestionTexString(request.stem().trim());
         question.setMediaUrl(request.mediaUrl());
         question.setRiskFlag(Boolean.TRUE.equals(request.riskFlag()));
+        question.setSelectionRule(request.selectionRule());
+        question.setSelectionCount(requestedCount(request));
+    }
+
+    /**
+     * The count as it will be STORED: null whenever there is no rule, so a
+     * half-set pair can never reach the table even by a path that skipped
+     * validation. Also what the freeze compares against, or clearing a rule
+     * while leaving a stale count in the payload would read as "unchanged".
+     */
+    private Integer requestedCount(QuestionRequest request) {
+        return request.selectionRule() == null ? null : request.selectionCount();
+    }
+
+    /**
+     * How many options the respondent may pick — null when the payload is
+     * fine, otherwise the message. Cross-field and list-dependent, so bean
+     * validation cannot express it; bulk pass 1 calls this too.
+     *
+     * Counted against the SANITIZED option list, which is what rebuildOptions
+     * actually writes — a form with trailing blank option rows would
+     * otherwise be validated against options that never reach the database.
+     */
+    private String validateSelection(QuestionRequest request) {
+        SelectionRule rule = request.selectionRule();
+        Integer count = request.selectionCount();
+        if (rule == null) {
+            // A count with no rule is always a typo — silently dropping it
+            // would ship a question that behaves differently from the sheet
+            // or form that described it.
+            return count == null ? null
+                    : "selectionCount " + count + " needs a selectionRule (MIN, MAX or EQUALS)";
+        }
+        if (count == null || count < 1) {
+            return "selectionRule " + rule + " needs a selectionCount of at least 1";
+        }
+        int optionCount = sanitized(request.options()).size();
+        if (count > optionCount) {
+            return "selectionCount " + count + " but the question only has " + optionCount
+                    + " option" + (optionCount == 1 ? "" : "s");
+        }
+        return null;
+    }
+
+    /** True when the requested rule/count differ from what is stored. */
+    private boolean selectionChanged(Question question, QuestionRequest request) {
+        return question.getSelectionRule() != request.selectionRule()
+                || !Objects.equals(question.getSelectionCount(), requestedCount(request));
     }
 
     /** True when the requested option set differs from what is stored. */

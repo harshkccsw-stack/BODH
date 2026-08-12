@@ -308,6 +308,81 @@ function createRespondent(payload: OrgRespondentCreatePayload) {
   return api.post<CreatedRespondentRef>(`/respondents/create`, payload);
 }
 
+//bulk upload from a spreadsheet (wizard step 3, "Upload" tab)
+/**
+ * Matches BulkRespondentRequest.Row on the backend. Every field is a raw
+ * string because the server parses and validates each one itself — that is
+ * what turns a bad cell into "row 37: …" instead of one 400 for the whole
+ * upload with no idea which line caused it.
+ *
+ * `row` is the line number in the admin's own spreadsheet, echoed back on
+ * every issue so a report points at something they can actually find.
+ */
+export interface BulkRespondentRow {
+  row: number;
+  name: string;
+  email: string;
+  /** dd-MM-yyyy. Also the portal password. */
+  dob: string;
+  phone?: string;
+  employeeId?: string;
+  /** MALE / FEMALE / OTHER, case-insensitive. Blank means unset. */
+  gender?: string;
+}
+
+/** Matches BulkRespondentRequest on the backend. */
+export interface BulkRespondentPayload {
+  /** From the wizard, never a column — a sheet cannot choose the organization. */
+  organizationId: number;
+  rows: BulkRespondentRow[];
+}
+
+/** Matches BulkRespondentValidationResponse.Issue on the backend. */
+export interface BulkRespondentIssue {
+  row: number;
+  field: string;
+  message: string;
+}
+
+/** Matches BulkRespondentValidationResponse on the backend. */
+export interface BulkRespondentReport {
+  totalRows: number;
+  validRows: number;
+  /** EVERY problem, not just the first — that is the point of validating. */
+  issues: BulkRespondentIssue[];
+}
+
+/** Matches RespondentResponse on the backend — what bulk-create returns. */
+export interface CreatedRespondentDetail {
+  respondentUserId: number;
+  serialId: string | null;
+  name: string;
+  email: string;
+  /** dd-MM-yyyy — the portal password, and what the credentials sheet needs. */
+  dob: string;
+  phone: string | null;
+  employeeId: string | null;
+  gender: Gender | null;
+}
+
+/**
+ * Dry run — writes nothing and reports every problem. Worth the round trip
+ * because it checks the two things the browser cannot: whether an email is
+ * already taken, and whether an employee ID is already used in this org.
+ */
+function bulkValidateRespondents(payload: BulkRespondentPayload) {
+  return api.post<BulkRespondentReport>(`/respondents/bulk-validate`, payload);
+}
+
+/**
+ * Commit — all-or-nothing. Re-runs the same checks, so a 422 carries a
+ * BulkRespondentReport and nothing was written; 201 returns the created
+ * respondents, which is what the credentials download is built from.
+ */
+function bulkCreateRespondents(payload: BulkRespondentPayload) {
+  return api.post<CreatedRespondentDetail[]>(`/respondents/bulk-create`, payload);
+}
+
 export const organizationApis = {
   getAllOrganizations,
   getOrganizationById,
@@ -324,6 +399,8 @@ export const organizationApis = {
   getAssessmentAssignments,
   assignAssessmentToMembers,
   createRespondent,
+  bulkValidateRespondents,
+  bulkCreateRespondents,
   getOrganizationRegistrationLinks,
   generateRegistrationLink,
   rotateRegistrationLink,

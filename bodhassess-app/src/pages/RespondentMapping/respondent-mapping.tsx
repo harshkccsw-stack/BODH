@@ -15,13 +15,13 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import {
-  assessmentMappingApis,
+  respondentMappingApis,
   type AssessmentRef,
   type OrganizationRef,
   type RespondentAssessmentResponse,
   type RespondentRef,
   type RespondentAssessmentStatus,
-} from './assessmentMappingApis';
+} from './respondentMappingApis';
 
 const STATUS_BADGE: Record<RespondentAssessmentStatus, string> = {
   NOT_STARTED: 'border-border bg-muted/40 text-muted-foreground',
@@ -41,7 +41,7 @@ const statusLabel = (s: RespondentAssessmentStatus) =>
  * only the assessments MAPPED to that org (segregation rule, also enforced
  * server-side). Pick an assessment, tick respondents, assign.
  */
-export default function AssessmentMappingPage() {
+export default function RespondentMappingPage() {
   const [respondents, setRespondents] = useState<RespondentRef[]>([]);
   const [assessments, setAssessments] = useState<AssessmentRef[]>([]);
   const [organizations, setOrganizations] = useState<OrganizationRef[]>([]);
@@ -72,10 +72,10 @@ export default function AssessmentMappingPage() {
     if (showLoading) setLoading(true);
     try {
       const [resp, assess, orgs, assigns] = await Promise.all([
-        assessmentMappingApis.getAllRespondents(),
-        assessmentMappingApis.getAllAssessments(),
-        assessmentMappingApis.getAllOrganizations(),
-        assessmentMappingApis.getAllAssignments(),
+        respondentMappingApis.getAllRespondents(),
+        respondentMappingApis.getAllAssessments(),
+        respondentMappingApis.getAllOrganizations(),
+        respondentMappingApis.getAllAssignments(),
       ]);
       setRespondents(resp.data);
       setAssessments(assess.data);
@@ -99,7 +99,7 @@ export default function AssessmentMappingPage() {
     setOrgAssessments(null);
     if (orgId !== '') {
       try {
-        const res = await assessmentMappingApis.getOrganizationAssessments(orgId);
+        const res = await respondentMappingApis.getOrganizationAssessments(orgId);
         setOrgAssessments(res.data);
       } catch (e: any) {
         setOrgAssessments([]);
@@ -172,7 +172,7 @@ export default function AssessmentMappingPage() {
     if (checked.size === 0) { setAssignError('Tick at least one respondent'); return; }
     setAssignSaving(true);
     try {
-      const res = await assessmentMappingApis.assignAssessment({
+      const res = await respondentMappingApis.assignAssessment({
         assessmentId: selectedAssessmentId,
         respondentUserIds: Array.from(checked),
       });
@@ -191,7 +191,7 @@ export default function AssessmentMappingPage() {
     setViewFlash('');
     setRemoveBusy(assignment.respondentAssessmentMappingId);
     try {
-      await assessmentMappingApis.deleteAssignment(assignment.respondentAssessmentMappingId);
+      await respondentMappingApis.deleteAssignment(assignment.respondentAssessmentMappingId);
       await refresh();
     } catch (e: any) {
       setViewError(e?.response?.data?.message || e?.message || 'Failed to remove');
@@ -211,13 +211,13 @@ export default function AssessmentMappingPage() {
       <div>
         <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
           <span>BodhAssess</span><span>/</span><span>Assessment Library</span><span>/</span>
-          <span className="text-foreground font-medium">Assessment Mapping</span>
+          <span className="text-foreground font-medium">Respondent Mapping</span>
         </div>
         <div className="flex items-start justify-between gap-4">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
               <Link2 className="h-6 w-6 text-primary" />
-              Assessment Mapping
+              Respondent Mapping
             </h1>
             <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
               Allot assessments to respondents. Pick the audience first:

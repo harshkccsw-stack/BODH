@@ -119,6 +119,8 @@ export interface PortalOption {
   mediaUrl: string | null;
   sortOrder: number;
 }
+// How many options may be picked. Matches SelectionRule on the backend.
+export type PortalSelectionRule = 'MIN' | 'MAX' | 'EQUALS';
 // Matches PortalAssessmentDetailResponse.PortalQuestion on the backend.
 export interface PortalQuestion {
   questionId: number;
@@ -127,6 +129,17 @@ export interface PortalQuestion {
   contentType: PortalContentType;
   stem: string | null;
   mediaUrl: string | null;
+  /** Null on single-choice questions — the rule the respondent is shown. */
+  selectionRule: PortalSelectionRule | null;
+  selectionCount: number | null;
+  /**
+   * The same rule already resolved to a floor and a cap by the server's
+   * SelectionBounds. Gate on THESE, not on the rule: the portal and the
+   * submit validator then cannot disagree about what a rule means. Single
+   * choice is 1/1.
+   */
+  minSelections: number;
+  maxSelections: number;
   options: PortalOption[];
 }
 // Matches PortalAssessmentDetailResponse.PortalSection on the backend.
@@ -154,6 +167,12 @@ export interface PortalAssessmentDetail {
   assessmentId: number;
   assessmentName: string;
   showTermsAndConditions: boolean;
+  /**
+   * The consent body to render, as a small HTML subset the server restricts
+   * to p/br/b/strong/i/em/u/ul/ol/li/h2/h3 with no attributes. Never null —
+   * assessments without their own text get the server's default.
+   */
+  termsAndConditions: string;
   autoNext: boolean;
   showQuestionIndex: boolean;
   questionnaireId: number;

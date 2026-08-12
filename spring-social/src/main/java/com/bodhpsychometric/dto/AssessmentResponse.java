@@ -1,6 +1,9 @@
 package com.bodhpsychometric.dto;
 
+import java.time.LocalDate;
+
 import com.bodhpsychometric.model.assessment.Assessment;
+import com.bodhpsychometric.model.assessment.AssessmentTerms;
 import com.bodhpsychometric.model.assessment.enums.AssessmentStatus;
 
 /**
@@ -14,9 +17,14 @@ public record AssessmentResponse(
         Long questionnaireId,
         String questionnaireName,
         boolean showTermsAndConditions,
+        /** Always populated — the default body when the row has none of its own. */
+        String termsAndConditions,
         AssessmentStatus status,
         boolean autoNext,
         boolean showQuestionIndex,
+        /** Availability window — metadata only; nothing gates on it yet. */
+        LocalDate startDate,
+        LocalDate endDate,
         int respondentCount) {
 
     public static AssessmentResponse from(Assessment a, int respondentCount) {
@@ -26,9 +34,14 @@ public record AssessmentResponse(
                 a.getQuestionnaire().getQuestionnaireId(),
                 a.getQuestionnaire().getName(),
                 a.isShowTermsAndConditions(),
+                // The editor should open on the text respondents would see,
+                // so send the default rather than null for rows without one.
+                AssessmentTerms.effective(a.getTermsAndConditions()),
                 a.getStatus(),
                 a.isAutoNext(),
                 a.isShowQuestionIndex(),
+                a.getStartDate(),
+                a.getEndDate(),
                 respondentCount);
     }
 }

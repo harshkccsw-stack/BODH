@@ -2,6 +2,38 @@ import { api } from '@/lib/apiClient';
 
 export type QuestionContentType = 'TEXT' | 'IMAGE' | 'VIDEO' | 'URL';
 
+/**
+ * How many options the respondent may pick, read with selectionCount:
+ * MIN = at least n, MAX = up to n, EQUALS = exactly n. Null rule (and null
+ * count — the two always travel together) is single choice.
+ */
+export type SelectionRule = 'MIN' | 'MAX' | 'EQUALS';
+
+/** The floor and cap a (rule, count) pair resolves to. Mirrors SelectionBounds. */
+export function selectionBounds(
+  rule: SelectionRule | null,
+  count: number | null,
+  optionCount: number,
+): { floor: number; cap: number } {
+  if (rule == null || count == null) return { floor: 1, cap: 1 };
+  if (rule === 'EQUALS') return { floor: count, cap: count };
+  if (rule === 'MAX') return { floor: 1, cap: count };
+  return { floor: count, cap: Math.max(count, optionCount) };
+}
+
+/** "Select exactly 2 of 5" — one wording, used by the form and the upload review. */
+export function selectionLabel(
+  rule: SelectionRule | null,
+  count: number | null,
+  optionCount: number,
+): string {
+  if (rule == null || count == null) return 'Single choice';
+  const of = ` of ${optionCount}`;
+  if (rule === 'EQUALS') return `Select exactly ${count}${of}`;
+  if (rule === 'MAX') return `Select at most ${count}${of}`;
+  return `Select at least ${count}${of}`;
+}
+
 // ── Wire shapes — mirror spring-social's DTOs 1:1 ──────────────────────────
 /** Matches MqtScoreRequest on the backend. */
 export interface MqtScorePayload {
@@ -33,6 +65,9 @@ export interface QuestionPayload {
   stem: string;
   mediaUrl: string | null;
   riskFlag: boolean;
+  /** Both null = single choice. The backend rejects one without the other. */
+  selectionRule: SelectionRule | null;
+  selectionCount: number | null;
   options: QuestionOptionPayload[];
   mqtScores: MqtScorePayload[];
 }
@@ -72,6 +107,8 @@ export interface QuestionResponse {
   stem: string;
   mediaUrl: string | null;
   riskFlag: boolean;
+  selectionRule: SelectionRule | null;
+  selectionCount: number | null;
   options: QuestionOptionResponse[];
   mqtScores: MqtScoreView[];
 }

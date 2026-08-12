@@ -4,6 +4,7 @@ import java.util.List;
 
 import com.bodhpsychometric.model.question.Question;
 import com.bodhpsychometric.model.question.enums.ContentType;
+import com.bodhpsychometric.model.question.enums.SelectionRule;
 
 /**
  * A bank question with its options and MQT scores. usedIn lists every
@@ -12,6 +13,8 @@ import com.bodhpsychometric.model.question.enums.ContentType;
  * question is read through one questionnaire (getByQuestionnaireId), null in
  * bank-wide reads because a question placed in several questionnaires has
  * several placements (and a different tag in each).
+ *
+ * selectionRule/selectionCount are both null on single-choice questions.
  */
 public record QuestionResponse(
         Long questionId,
@@ -23,6 +26,8 @@ public record QuestionResponse(
         String stem,
         String mediaUrl,
         boolean riskFlag,
+        SelectionRule selectionRule,
+        Integer selectionCount,
         List<QuestionOptionResponse> options,
         List<MqtScoreResponse> mqtScores) {
 
@@ -42,6 +47,8 @@ public record QuestionResponse(
                 q.getQuestionTexString(),
                 q.getMediaUrl(),
                 q.isRiskFlag(),
+                q.getSelectionRule(),
+                q.getSelectionCount(),
                 options,
                 mqtScores);
     }

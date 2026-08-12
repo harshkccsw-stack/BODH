@@ -423,6 +423,10 @@ export default function CreateAssessmentPage() {
         contentType: d.form.contentType,
         stem: d.form.stem.trim(),
         mediaUrl: d.form.mediaUrl.trim() || null,
+        // Straight off the draft form, so Preview shows the selection rule of
+        // an unsaved edit too — the whole point of previewing here.
+        selectionRule: d.form.selectionRule || null,
+        selectionCount: d.form.selectionRule ? Number(d.form.selectionCount) || null : null,
         options: d.form.options
           .map((o) => ({ ...o, optionText: o.optionText.trim(), mediaUrl: o.mediaUrl.trim() }))
           .filter((o) => o.optionText || o.mediaUrl)
@@ -1152,9 +1156,11 @@ export default function CreateAssessmentPage() {
               <Button
                 variant="primary"
                 onClick={() => {
+                  // The create form is its own page now; ?questionnaire=<id>
+                  // preselects the questionnaire just saved.
                   window.location.href = backendQid != null
-                    ? `/assessment-library/assessments?create=${backendQid}`
-                    : '/assessment-library/assessments';
+                    ? `/assessment-library/assessments/create?questionnaire=${backendQid}`
+                    : '/assessment-library/assessments/create';
                 }}
               >
                 Create Assessment
