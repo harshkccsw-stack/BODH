@@ -84,14 +84,35 @@ export interface SectionResponse {
   sectionId: number;
   name: string;
   instruction: string | null;
+  /** Display position, 0-based and dense. The list arrives sorted by it. */
+  sortOrder: number;
+}
+
+export interface SectionPayload {
+  name: string;
+  instruction: string | null;
 }
 
 function getQuestionnaireSections(questionnaireId: number) {
   return api.get<SectionResponse[]>(`/questionnaire/${questionnaireId}/sections`);
 }
 
-function createQuestionnaireSection(questionnaireId: number, payload: { name: string; instruction: string | null }) {
+function createQuestionnaireSection(questionnaireId: number, payload: SectionPayload) {
   return api.post<SectionResponse>(`/questionnaire/${questionnaireId}/sections`, payload);
+}
+
+/** Rename / re-instruct a section. Position is untouched. */
+function updateQuestionnaireSection(questionnaireId: number, sectionId: number, payload: SectionPayload) {
+  return api.put<SectionResponse>(`/questionnaire/${questionnaireId}/sections/${sectionId}`, payload);
+}
+
+/**
+ * Replace the display order. Must list EVERY section of the questionnaire
+ * exactly once — a partial list is a 400. Returns the sections re-sorted, and
+ * re-stamps the Section_A/B/C report tags on the backend.
+ */
+function reorderQuestionnaireSections(questionnaireId: number, sectionIds: number[]) {
+  return api.put<SectionResponse[]>(`/questionnaire/${questionnaireId}/sections/order`, sectionIds);
 }
 
 /** Questions in the section survive — they detach to the questionnaire root. */
@@ -122,6 +143,8 @@ export const questionnairesApi = {
   setQuestionnaireDemographicFields,
   getQuestionnaireSections,
   createQuestionnaireSection,
+  updateQuestionnaireSection,
+  reorderQuestionnaireSections,
   deleteQuestionnaireSection,
   setQuestionnaireQuestions,
 };

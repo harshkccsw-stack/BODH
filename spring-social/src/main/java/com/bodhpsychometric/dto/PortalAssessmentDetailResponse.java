@@ -53,8 +53,12 @@ public record PortalAssessmentDetailResponse(
         List<PortalSection> sections,
         List<PortalQuestion> questions) {
 
-    /** A named question group; only present when the questionnaire hasSections. */
-    public record PortalSection(Long sectionId, String name, String instruction) {
+    /**
+     * A named question group; only present when the questionnaire hasSections.
+     * The list arrives already sorted by sortOrder — the author's arrangement,
+     * which is also what the Section_A/B/C report tags follow.
+     */
+    public record PortalSection(Long sectionId, String name, String instruction, int sortOrder) {
     }
 
     /**
@@ -108,16 +112,18 @@ public record PortalAssessmentDetailResponse(
         Assessment assessment = mapping.getAssessment();
         Questionnaire questionnaire = assessment.getQuestionnaire();
 
-        // First-appearance order matches question order; the fetch join may
-        // duplicate placement rows per option, and entity identity makes
-        // distinct() collapse them.
+        // Collected by first appearance (the fetch join may duplicate
+        // placement rows per option, and entity identity makes distinct()
+        // collapse them), then sorted by the section's own sortOrder before
+        // being emitted — question order must not decide section order.
         Map<Long, PortalSection> sections = new LinkedHashMap<>();
         List<PortalQuestion> questions = new ArrayList<>();
         for (QuestionnaireQuestion placement : placements.stream().distinct().toList()) {
             Section section = placement.getSection();
             if (section != null) {
                 sections.putIfAbsent(section.getSectionId(),
-                        new PortalSection(section.getSectionId(), section.getName(), section.getInstruction()));
+                        new PortalSection(section.getSectionId(), section.getName(), section.getInstruction(),
+                                section.getSortOrder()));
             }
             Question question = placement.getQuestion();
             List<PortalOption> options = question.getOptions().stream()
@@ -170,7 +176,10 @@ public record PortalAssessmentDetailResponse(
                 questionnaire.getGeneralInstruction(),
                 questionnaire.isHasSections(),
                 demographicFields,
-                List.copyOf(sections.values()),
+                sections.values().stream()
+                        .sorted(Comparator.comparingInt(PortalSection::sortOrder)
+                                .thenComparing(PortalSection::sectionId))
+                        .toList(),
                 questions);
     }
 }

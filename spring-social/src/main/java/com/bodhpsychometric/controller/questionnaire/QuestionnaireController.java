@@ -206,7 +206,7 @@ public class QuestionnaireController {
             return ResponseEntity.notFound().build();
         }
         return ResponseEntity.ok(
-                sectionRepository.findByQuestionnaire_QuestionnaireIdOrderBySectionIdAsc(id).stream()
+                sectionRepository.findByQuestionnaire_QuestionnaireIdOrderBySortOrderAscSectionIdAsc(id).stream()
                         .map(SectionResponse::from)
                         .toList());
     }
@@ -222,14 +222,96 @@ public class QuestionnaireController {
         section.setQuestionnaire(questionnaire);
         section.setName(request.name().trim());
         section.setInstruction(request.instruction());
+        // Appended last. sortOrder is kept dense by reorder/delete, so the
+        // count IS the next free position — no MAX(sortOrder) + 1 needed.
+        section.setSortOrder(
+                sectionRepository.findByQuestionnaire_QuestionnaireIdOrderBySortOrderAscSectionIdAsc(id).size());
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(SectionResponse.from(sectionRepository.save(section)));
+    }
+
+    /**
+     * Renames a section and/or rewrites its instruction. Position is NOT
+     * touched — that is what the order endpoint is for — so the report tag
+     * letters, which follow position rather than name, cannot move here.
+     * A blank instruction comes back as null rather than "".
+     */
+    @PutMapping("/{id}/sections/{sectionId}")
+    public ResponseEntity<SectionResponse> updateSection(@PathVariable Long id, @PathVariable Long sectionId,
+            @Valid @RequestBody SectionRequest request) {
+        Section section = sectionRepository.findById(sectionId).orElse(null);
+        if (section == null || !section.getQuestionnaire().getQuestionnaireId().equals(id)) {
+            return ResponseEntity.notFound().build();
+        }
+        section.setName(request.name().trim());
+        section.setInstruction(
+                request.instruction() == null || request.instruction().isBlank() ? null : request.instruction());
+        return ResponseEntity.ok(SectionResponse.from(sectionRepository.save(section)));
+    }
+
+    /**
+     * Replaces the display order of this questionnaire's sections: the body
+     * is every sectionId, in the order the author wants them. It must be the
+     * COMPLETE set — a partial list would leave the rest holding stale
+     * positions, so anything missing, extra or duplicated is a 400 rather
+     * than a half-applied order.
+     *
+     * Because the Section_A/B/C letters are stamped from display order, this
+     * re-stamps every placement's report tag. Without that, moving Part B
+     * above Part A would leave its questions tagged Section_B_* until the
+     * author happened to re-save the question list.
+     *
+     * Mapped BEFORE the {sectionId} variant in this file, but it does not
+     * rely on that: Spring matches the literal "order" segment ahead of a
+     * path variable.
+     */
+    @PutMapping("/{id}/sections/order")
+    public ResponseEntity<?> reorderSections(@PathVariable Long id, @RequestBody List<Long> sectionIds) {
+        Questionnaire questionnaire = questionnaireRepository.findById(id).orElse(null);
+        if (questionnaire == null) {
+            return ResponseEntity.notFound().build();
+        }
+        List<Section> sections = sectionRepository
+                .findByQuestionnaire_QuestionnaireIdOrderBySortOrderAscSectionIdAsc(id);
+        Map<Long, Section> byId = new java.util.HashMap<>();
+        for (Section s : sections) {
+            byId.put(s.getSectionId(), s);
+        }
+        Set<Long> seen = new HashSet<>();
+        for (Long sectionId : sectionIds) {
+            if (sectionId == null || !byId.containsKey(sectionId) || !seen.add(sectionId)) {
+                return ResponseEntity.badRequest().body(Map.of("message",
+                        "sectionIds must list each of this questionnaire's sections exactly once"));
+            }
+        }
+        if (seen.size() != sections.size()) {
+            return ResponseEntity.badRequest().body(Map.of("message",
+                    "sectionIds must list all " + sections.size() + " section(s) of this questionnaire — got "
+                            + seen.size()));
+        }
+        for (int i = 0; i < sectionIds.size(); i++) {
+            byId.get(sectionIds.get(i)).setSortOrder(i);
+        }
+        sectionRepository.flush();
+        restampQuestionTags(questionnaire);
+        return ResponseEntity.ok(
+                sectionRepository.findByQuestionnaire_QuestionnaireIdOrderBySortOrderAscSectionIdAsc(id).stream()
+                        .map(SectionResponse::from)
+                        .toList());
     }
 
     /**
      * Deletes a section. Its questions are NOT deleted — they detach from
      * the section (staying attached to the questionnaire) so the author can
      * re-place them; Section itself has no cascade by design.
+     *
+     * The survivors are renumbered so sortOrder stays dense, and the report
+     * tags are re-stamped because every section after this one just moved up
+     * a letter. The detached questions have their tag CLEARED: they are in no
+     * section, so there is no letter to give them, and keeping the old one
+     * would duplicate a tag now held by whichever section inherited that
+     * letter — the tag is an export column header, so a duplicate is worse
+     * than a blank. Re-placing the question stamps it again.
      */
     @DeleteMapping("/{id}/sections/{sectionId}")
     public ResponseEntity<Void> deleteSection(@PathVariable Long id, @PathVariable Long sectionId) {
@@ -239,10 +321,32 @@ public class QuestionnaireController {
         }
         for (QuestionnaireQuestion placement : questionnaireQuestionRepository.findBySectionSectionId(sectionId)) {
             placement.setSection(null);
+            placement.setQuestionTag(null);
         }
         questionnaireQuestionRepository.flush();
         sectionRepository.delete(section);
+        sectionRepository.flush();
+        List<Section> remaining = sectionRepository
+                .findByQuestionnaire_QuestionnaireIdOrderBySortOrderAscSectionIdAsc(id);
+        for (int i = 0; i < remaining.size(); i++) {
+            remaining.get(i).setSortOrder(i);
+        }
+        sectionRepository.flush();
+        restampQuestionTags(section.getQuestionnaire());
         return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Re-applies the report tags of every placement in the questionnaire from
+     * the CURRENT section order. Called whenever section order changes;
+     * setQuestions does its own stamping on the rows it writes.
+     */
+    private void restampQuestionTags(Questionnaire questionnaire) {
+        Long id = questionnaire.getQuestionnaireId();
+        assignQuestionTags(questionnaire.isHasSections(),
+                sectionRepository.findByQuestionnaire_QuestionnaireIdOrderBySortOrderAscSectionIdAsc(id),
+                questionnaireQuestionRepository
+                        .findByQuestionnaireQuestionnaireIdOrderBySortOrderAscQuestionnaireQuestionIdAsc(id));
     }
 
     // ── Question mapping ──────────────────────────────────────────────────
@@ -262,7 +366,9 @@ public class QuestionnaireController {
         if (questionnaire == null) {
             return ResponseEntity.notFound().build();
         }
-        List<Section> sections = sectionRepository.findByQuestionnaire_QuestionnaireIdOrderBySectionIdAsc(id);
+        // Display order, because assignQuestionTags letters sections from it.
+        List<Section> sections = sectionRepository
+                .findByQuestionnaire_QuestionnaireIdOrderBySortOrderAscSectionIdAsc(id);
         Set<Long> validSections = new HashSet<>();
         Map<Long, Section> sectionById = new java.util.HashMap<>();
         for (Section s : sections) {
@@ -318,7 +424,7 @@ public class QuestionnaireController {
     /**
      * Stamps every placement with its questionnaire-local report tag.
      * Sectioned: sections that actually hold questions are lettered A, B, …
-     * in display order (sectionId insertion order — empty sections never
+     * in display order (the author's sortOrder — empty sections never
      * render, so they claim no letter), and questions count 1..n inside
      * their section by sortOrder. Flat: Q_1..Q_n across the questionnaire.
      */

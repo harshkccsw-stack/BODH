@@ -13,6 +13,7 @@ import {
   Eye,
   Library,
   Loader2,
+  Pencil,
   Plus,
   Search as SearchIcon,
   Trash2,
@@ -263,10 +264,79 @@ export default function CreateAssessmentPage() {
     }
   };
 
+  /**
+   * Inline section editing. Sections are persisted the moment they are
+   * created, so the header edits the live row: Save PUTs immediately and
+   * there is no draft to lose. `editingSection` null means nobody is editing.
+   */
+  const [editingSection, setEditingSection] = useState<number | null>(null);
+  const [editSectionName, setEditSectionName] = useState('');
+  const [editSectionInstruction, setEditSectionInstruction] = useState('');
+  const [sectionBusy, setSectionBusy] = useState(false);
+
+  const startEditSection = (sec: SectionResponse) => {
+    setEditingSection(sec.sectionId);
+    setEditSectionName(sec.name);
+    setEditSectionInstruction(sec.instruction || '');
+    setStep2Error('');
+  };
+
+  const saveQSection = async () => {
+    const name = editSectionName.trim();
+    if (!name || backendQid == null || editingSection == null) return;
+    setSectionBusy(true);
+    try {
+      const res = await questionnairesApi.updateQuestionnaireSection(backendQid, editingSection, {
+        name,
+        instruction: editSectionInstruction.trim() || null,
+      });
+      setQSections((prev) => prev.map((s) => (s.sectionId === res.data.sectionId ? res.data : s)));
+      setEditingSection(null);
+    } catch (e: any) {
+      setStep2Error(e?.response?.data?.message || e?.message || 'Failed to rename section');
+    } finally {
+      setSectionBusy(false);
+    }
+  };
+
+  /**
+   * Move a section one place up/down. The backend PUT takes the COMPLETE id
+   * list, so it is sent from the swapped array; the list is applied optimistically
+   * (the arrows have to feel instant) and rolled back if the PUT fails.
+   *
+   * Section order drives the Section_A/B/C report tags, which the backend
+   * re-stamps on every placement — so `tagPreview` here and the stored tag
+   * stay in step without re-saving the questions.
+   */
+  const moveQSection = async (sectionId: number, dir: -1 | 1) => {
+    if (backendQid == null) return;
+    const i = qSections.findIndex((s) => s.sectionId === sectionId);
+    const j = i + dir;
+    if (i < 0 || j < 0 || j >= qSections.length) return;
+    const before = qSections;
+    const next = [...qSections];
+    [next[i], next[j]] = [next[j], next[i]];
+    setQSections(next);
+    setSectionBusy(true);
+    try {
+      const res = await questionnairesApi.reorderQuestionnaireSections(
+        backendQid,
+        next.map((s) => s.sectionId),
+      );
+      setQSections(res.data);
+    } catch (e: any) {
+      setQSections(before);
+      setStep2Error(e?.response?.data?.message || e?.message || 'Failed to reorder sections');
+    } finally {
+      setSectionBusy(false);
+    }
+  };
+
   const removeQSection = async (sectionId: number) => {
     if (backendQid == null) return;
     try {
       await questionnairesApi.deleteQuestionnaireSection(backendQid, sectionId);
+      if (editingSection === sectionId) setEditingSection(null);
       setQSections((prev) => prev.filter((s) => s.sectionId !== sectionId));
       // Its questions survive — they fall back to unassigned until re-placed.
       setDrafts((prev) => prev.map((d) => (d.sectionId === sectionId ? { ...d, sectionId: null } : d)));
@@ -1043,32 +1113,91 @@ export default function CreateAssessmentPage() {
                       This questionnaire uses sections — add the first section to start writing questions.
                     </p>
                   ) : (
-                    qSections.map((sec) => {
+                    qSections.map((sec, secIndex) => {
                       const list = scopeDrafts(sec.sectionId);
+                      const editing = editingSection === sec.sectionId;
                       return (
                         <div key={sec.sectionId} className="rounded-lg border border-border">
-                          <div className="flex items-center justify-between gap-2 border-b border-border bg-muted/40 px-3 py-2">
-                            <div className="min-w-0">
-                              <p className="text-sm font-medium">{sec.name}</p>
-                              {sec.instruction && (
-                                <p className="text-xs text-muted-foreground whitespace-pre-wrap">{sec.instruction}</p>
-                              )}
+                          {editing ? (
+                            /* Same two fields as the Add Section box, filled in. */
+                            <div className="space-y-2 border-b border-border bg-muted/40 px-3 py-2.5">
+                              <input
+                                value={editSectionName}
+                                onChange={(e) => setEditSectionName(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') saveQSection();
+                                  if (e.key === 'Escape') setEditingSection(null);
+                                }}
+                                autoFocus
+                                placeholder="Section name"
+                                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                              />
+                              <textarea
+                                value={editSectionInstruction}
+                                onChange={(e) => setEditSectionInstruction(e.target.value)}
+                                placeholder="Section instruction (optional) — shown above this section's questions"
+                                rows={2}
+                                className="w-full resize-y rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                              />
+                              <div className="flex justify-end gap-2">
+                                <Button variant="outline" size="sm" onClick={() => setEditingSection(null)} disabled={sectionBusy}>
+                                  Cancel
+                                </Button>
+                                <Button variant="primary" size="sm" onClick={saveQSection} disabled={sectionBusy || !editSectionName.trim()}>
+                                  {sectionBusy ? 'Saving…' : 'Save Section'}
+                                </Button>
+                              </div>
                             </div>
-                            <div className="flex items-center gap-2 shrink-0">
-                              <span className="text-[0.6875rem] text-muted-foreground">
-                                {list.length} question{list.length !== 1 ? 's' : ''}
-                              </span>
-                              {addQuestionButton(sec.sectionId)}
-                              <button
-                                type="button"
-                                onClick={() => removeQSection(sec.sectionId)}
-                                className="text-muted-foreground hover:text-red-500"
-                                title="Remove section (its questions become unassigned)"
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </button>
+                          ) : (
+                            <div className="flex items-center justify-between gap-2 border-b border-border bg-muted/40 px-3 py-2">
+                              <div className="min-w-0">
+                                <p className="text-sm font-medium">{sec.name}</p>
+                                {sec.instruction && (
+                                  <p className="text-xs text-muted-foreground whitespace-pre-wrap">{sec.instruction}</p>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2 shrink-0">
+                                <span className="text-[0.6875rem] text-muted-foreground">
+                                  {list.length} question{list.length !== 1 ? 's' : ''}
+                                </span>
+                                {addQuestionButton(sec.sectionId)}
+                                <button
+                                  type="button"
+                                  onClick={() => moveQSection(sec.sectionId, -1)}
+                                  disabled={secIndex === 0 || sectionBusy}
+                                  className="p-1 text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:hover:text-muted-foreground"
+                                  title="Move section up"
+                                >
+                                  <ArrowUp className="h-3.5 w-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => moveQSection(sec.sectionId, 1)}
+                                  disabled={secIndex === qSections.length - 1 || sectionBusy}
+                                  className="p-1 text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:hover:text-muted-foreground"
+                                  title="Move section down"
+                                >
+                                  <ArrowDown className="h-3.5 w-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => startEditSection(sec)}
+                                  className="p-1 text-muted-foreground hover:text-foreground"
+                                  title="Edit section name and instruction"
+                                >
+                                  <Pencil className="h-3.5 w-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => removeQSection(sec.sectionId)}
+                                  className="text-muted-foreground hover:text-red-500"
+                                  title="Remove section (its questions become unassigned)"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
                             </div>
-                          </div>
+                          )}
                           <div className="space-y-3 p-3">
                             {list.length === 0 ? (
                               <p className="py-3 text-center text-xs text-muted-foreground">
