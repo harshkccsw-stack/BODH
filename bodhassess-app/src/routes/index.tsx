@@ -139,13 +139,13 @@ const Questionnaires             = lazyPage(() => import('@/pages/questionnaires
 const QuestionnairesDemographics = lazyPage(() => import('@/pages/questionnaires/demographics'));
 const QuestionnairePreview       = lazyPage(() => import('@/pages/questionnaires/preview'));
 
-const Reports             = lazyPage(() => import('@/pages/reports/all-reports'));
+const Reports             = lazyPage(() => import('@/pages/Reports/all-reports'));
 // New-dialect respondent report listing wired to spring-social (/api/reports).
 const ReportsHub          = lazyPage(() => import('@/pages/Reports/ReportsHub'));
-const ReportsResponses    = lazyPage(() => import('@/pages/reports/response-sheets'));
-const ReportsClinical     = lazyPage(() => import('@/pages/reports/clinical'));
-const ReportsCounselling  = lazyPage(() => import('@/pages/reports/counselling'));
-const ReportsIndustrial   = lazyPage(() => import('@/pages/reports/industrial'));
+const ReportsResponses    = lazyPage(() => import('@/pages/Reports/response-sheets'));
+const ReportsClinical     = lazyPage(() => import('@/pages/Reports/clinical'));
+const ReportsCounselling  = lazyPage(() => import('@/pages/Reports/counselling'));
+const ReportsIndustrial   = lazyPage(() => import('@/pages/Reports/industrial'));
 
 const SettingsIntegrations = lazyPage(() => import('@/pages/settings/integrations'));
 const SettingsTenant       = lazyPage(() => import('@/pages/settings/tenant'));
@@ -309,12 +309,12 @@ const routes: RouteObject[] = [
       { path: '/questionnaires/experimental', element: <Questionnaires /> },
       { path: '/questionnaires/industrial', element: <Questionnaires /> },
 
-      { path: '/reports', element: <Reports /> },
-      { path: '/reports/hub', element: <ReportsHub /> },
-      { path: '/reports/responses', element: <ReportsResponses /> },
-      { path: '/reports/clinical', element: <ReportsClinical /> },
-      { path: '/reports/counselling', element: <ReportsCounselling /> },
-      { path: '/reports/industrial', element: <ReportsIndustrial /> },
+      { path: '/Reports', element: <Reports /> },
+      { path: '/Reports/hub', element: <ReportsHub /> },
+      { path: '/Reports/responses', element: <ReportsResponses /> },
+      { path: '/Reports/clinical', element: <ReportsClinical /> },
+      { path: '/Reports/counselling', element: <ReportsCounselling /> },
+      { path: '/Reports/industrial', element: <ReportsIndustrial /> },
 
       { path: '/settings/integrations', element: <SettingsIntegrations /> },
       { path: '/settings/tenant', element: <SettingsTenant /> },
