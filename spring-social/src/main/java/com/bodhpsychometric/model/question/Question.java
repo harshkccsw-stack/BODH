@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import com.bodhpsychometric.model.question.enums.ContentType;
+import com.bodhpsychometric.model.question.enums.QuestionType;
 import com.bodhpsychometric.model.question.enums.SelectionRule;
 
 import jakarta.persistence.CascadeType;
@@ -41,10 +42,37 @@ public class Question implements Serializable {
     @OrderBy("sortOrder ASC")
     private List<Option> options = new ArrayList<>();
 
+    /**
+     * LIKERT_GRID only: the items rated against the options, which are that
+     * grid's shared columns. Empty on every other type. Same composition as
+     * options — rows live and die with the question.
+     */
+    @OneToMany(mappedBy = "question", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OrderBy("sortOrder ASC")
+    private List<QuestionRow> rows = new ArrayList<>();
+
     /** What the stem is made of. */
     @Enumerated(value = jakarta.persistence.EnumType.STRING)
     @Column(name = "contentType", nullable = false, length = 10)
     private ContentType contentType = ContentType.TEXT;
+
+    /**
+     * What SHAPE this question is — MCQ, linear scale, Likert grid. Never
+     * null: MCQ is the default and is what every question meant before the
+     * column existed. Options are AUTHORED on an MCQ and GENERATED on a
+     * LINEAR_SCALE (the points 1—5); QuestionController owns that difference.
+     */
+    @Enumerated(value = jakarta.persistence.EnumType.STRING)
+    @Column(name = "questionType", nullable = false, length = 15)
+    private QuestionType questionType = QuestionType.MCQ;
+
+    /** LINEAR_SCALE only: the caption under point 1 ("Strongly disagree"). */
+    @Column(name = "scaleLowLabel", length = 100)
+    private String scaleLowLabel;
+
+    /** LINEAR_SCALE only: the caption under the last point ("Strongly agree"). */
+    @Column(name = "scaleHighLabel", length = 100)
+    private String scaleHighLabel;
 
     /**
      * How many options the respondent may pick, with {@link #selectionCount}:
@@ -99,6 +127,30 @@ public class Question implements Serializable {
 
     public void setContentType(ContentType contentType) {
         this.contentType = contentType;
+    }
+
+    public QuestionType getQuestionType() {
+        return questionType;
+    }
+
+    public void setQuestionType(QuestionType questionType) {
+        this.questionType = questionType == null ? QuestionType.MCQ : questionType;
+    }
+
+    public String getScaleLowLabel() {
+        return scaleLowLabel;
+    }
+
+    public void setScaleLowLabel(String scaleLowLabel) {
+        this.scaleLowLabel = scaleLowLabel;
+    }
+
+    public String getScaleHighLabel() {
+        return scaleHighLabel;
+    }
+
+    public void setScaleHighLabel(String scaleHighLabel) {
+        this.scaleHighLabel = scaleHighLabel;
     }
 
     public SelectionRule getSelectionRule() {
@@ -215,6 +267,24 @@ public class Question implements Serializable {
     public void removeOption(Option option) {
         options.remove(option);
         option.setQuestion(null);
+    }
+
+    public List<QuestionRow> getRows() {
+        return rows;
+    }
+
+    public void setRows(List<QuestionRow> rows) {
+        this.rows = rows;
+    }
+
+    public void addRow(QuestionRow row) {
+        rows.add(row);
+        row.setQuestion(this);
+    }
+
+    public void removeRow(QuestionRow row) {
+        rows.remove(row);
+        row.setQuestion(null);
     }
 
     

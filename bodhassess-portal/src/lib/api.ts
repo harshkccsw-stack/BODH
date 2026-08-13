@@ -121,12 +121,17 @@ export interface PortalOption {
 }
 // How many options may be picked. Matches SelectionRule on the backend.
 export type PortalSelectionRule = 'MIN' | 'MAX' | 'EQUALS';
+// What shape the question is. Matches QuestionType on the backend — RENDERING
+// only: a LINEAR_SCALE is an ordinary cap-1 question whose options are the
+// points 1—5, so every gate still reads min/maxSelections.
+export type PortalQuestionType = 'MCQ' | 'LINEAR_SCALE' | 'LIKERT_GRID';
 // Matches PortalAssessmentDetailResponse.PortalQuestion on the backend.
 export interface PortalQuestion {
   questionId: number;
   sectionId: number | null;
   sortOrder: number;
   contentType: PortalContentType;
+  questionType: PortalQuestionType;
   stem: string | null;
   mediaUrl: string | null;
   /** Null on single-choice questions — the rule the respondent is shown. */
@@ -140,7 +145,22 @@ export interface PortalQuestion {
    */
   minSelections: number;
   maxSelections: number;
+  /** LINEAR_SCALE only — captions for the first and last point. */
+  scaleLowLabel: string | null;
+  scaleHighLabel: string | null;
+  /**
+   * LIKERT_GRID only — the statements rated against `options`, which are that
+   * grid's shared columns. Empty on every other type, and min/maxSelections
+   * apply PER ROW when it is not.
+   */
+  rows: PortalRow[];
   options: PortalOption[];
+}
+// Matches PortalAssessmentDetailResponse.PortalRow on the backend.
+export interface PortalRow {
+  questionRowId: number;
+  rowText: string | null;
+  sortOrder: number;
 }
 // Matches PortalAssessmentDetailResponse.PortalSection on the backend.
 export interface PortalSection {
@@ -194,7 +214,31 @@ export interface PortalDemographicEntry {
 export interface PortalAnswerEntry {
   questionId: number;
   optionId: number;
+  /**
+   * Which grid ROW this rating answers. Null on every other question type —
+   * the submit validator refuses a grid answer without one, and a row on a
+   * question that has none.
+   */
+  questionRowId: number | null;
 }
+
+/**
+ * How the take flow keys its answers: one entry per ANSWERABLE SLOT, which is
+ * the question itself, or one row of a grid. `${questionId}` or
+ * `${questionId}:${rowId}` — one shape, so every gate in the runner and the
+ * payload builder read the same map.
+ */
+export const answerKey = (questionId: number, questionRowId?: number | null): string =>
+  questionRowId == null ? String(questionId) : `${questionId}:${questionRowId}`;
+
+/** Splits an answerKey back into the ids the submit payload needs. */
+export const parseAnswerKey = (key: string): { questionId: number; questionRowId: number | null } => {
+  const [questionId, questionRowId] = key.split(':');
+  return {
+    questionId: Number(questionId),
+    questionRowId: questionRowId === undefined ? null : Number(questionRowId),
+  };
+};
 // Matches PortalAttemptStatusResponse on the backend. isPersisted is the
 // durability fact check — true once the answers reached MySQL.
 export interface PortalAttemptStatus {

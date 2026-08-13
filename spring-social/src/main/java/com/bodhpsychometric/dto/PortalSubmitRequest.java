@@ -13,6 +13,13 @@ import java.util.List;
  */
 public record PortalSubmitRequest(List<AnswerEntry> answers, Integer popUpCount) {
 
-    public record AnswerEntry(Long questionId, Long optionId) {
+    /**
+     * {@code questionRowId} is which grid ROW this rating answers. Nullable,
+     * and null for every question type but LIKERT_GRID — so a client written
+     * before grids existed keeps sending exactly what it always sent. The
+     * submit validator refuses the two ways round it can be wrong: a grid
+     * answer without a row, and a row on a question that has none.
+     */
+    public record AnswerEntry(Long questionId, Long optionId, Long questionRowId) {
     }
 }

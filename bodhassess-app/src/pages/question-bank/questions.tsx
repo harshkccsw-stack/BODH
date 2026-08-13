@@ -2,12 +2,14 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   Flag,
+  Grid3x3,
   HelpCircle,
   ListChecks,
   Loader2,
   Pencil,
   Plus,
   Search,
+  SlidersHorizontal,
   Target,
   Trash2,
   Upload,
@@ -16,7 +18,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { questionApis, selectionLabel, type QuestionResponse } from './questionApis';
+import { questionApis, selectionLabel, SCALE_FROM, SCALE_TO, type QuestionResponse } from './questionApis';
 import { questionnairesApi, type QuestionnaireResponse } from '../questionnaires/questionnairesApi';
 import { qualitiesApi } from '../MeasuredQuality/qualitiesApi';
 // The create/edit form itself lives in question-form-modal.tsx so the
@@ -235,6 +237,27 @@ export default function QuestionsPage() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
+                    {/* A scale's options are the points 1—5, so the list line
+                        above reads "5 options · 1 · 2 · 3 · 4 …" — true, but
+                        it takes a badge to recognise it as a scale. */}
+                    {q.questionType === 'LIKERT_GRID' && (
+                      <span
+                        className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-2.5 py-0.5 text-xs font-medium text-primary"
+                        title={`Likert grid — ${q.rows.length} row${q.rows.length === 1 ? '' : 's'} rated on ${q.options.length} column${q.options.length === 1 ? '' : 's'}, one pick per row`}
+                      >
+                        <Grid3x3 className="h-3 w-3" />
+                        {q.rows.length}×{q.options.length}
+                      </span>
+                    )}
+                    {q.questionType === 'LINEAR_SCALE' && (
+                      <span
+                        className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-2.5 py-0.5 text-xs font-medium text-primary"
+                        title={`Linear scale ${SCALE_FROM}—${SCALE_TO}${q.scaleLowLabel || q.scaleHighLabel ? ` · ${q.scaleLowLabel ?? ''} → ${q.scaleHighLabel ?? ''}` : ''}`}
+                      >
+                        <SlidersHorizontal className="h-3 w-3" />
+                        {SCALE_FROM}–{SCALE_TO}
+                      </span>
+                    )}
                     {q.selectionRule && (
                       <span
                         className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-2.5 py-0.5 text-xs font-medium text-primary"

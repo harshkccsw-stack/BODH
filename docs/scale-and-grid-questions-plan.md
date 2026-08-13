@@ -1,8 +1,22 @@
 # Question types — MCQ, Linear scale, Likert grid
 
-**STATUS: PROPOSAL v2 — nothing built.** Rewritten 2026-08-13 after your
-clarification. v1 of this doc guessed at the scoring model and guessed wrong;
-what you described is simpler, and this version follows it.
+**STATUS (2026-08-13): BOTH PARTS BUILT AND VERIFIED.**
+- **Part 1 — type dropdown + LINEAR_SCALE.** `V14` on staging at 14:57 IST.
+- **Part 2 — LIKERT_GRID.** `V15` on staging at 16:0x IST: two new tables and
+  the unique-key swap, applied with the old key dropped only after the new
+  one existed.
+- `./mvnw -B clean test` green at **79** (5 in `QuestionTypeTest`, 4 in
+  `LikertGridTest`), both frontends typecheck and build, live smoke run
+  against a second instance on 8081 with every `__smoke__` row deleted after.
+
+Use `clean` when the IDE has the project open: its Eclipse compiler writes
+into the same `target/classes`, and a stale broken class there made a plain
+`mvnw compile` pass while the tests loaded "Unresolved compilation problems".
+
+Decisions you locked on the way: linear scale is fixed **1—5**; its
+question-level mapping carries **no number** (the point picked IS the score);
+grid rows each name their **own** MQT; grid columns keep the ScoreEditor they
+already have; one pick per row for now.
 
 The ask: a **question type dropdown** on the question form, like Google Forms.
 Picking a type reshapes the body of the form. Everything above the body —
@@ -77,26 +91,22 @@ turn a scale into an MCQ later. **Generate the options.**
 The generated rows are invisible in the UI but real in the database, which is
 also what makes the scale render, export and freeze like everything else.
 
-### 2.3 Scoring — the one open decision
+### 2.3 Scoring — as built
 
-You said: *no option-level mapping, only question-level*. So the question-level
-mapping supplies **which MQT**, and the picked point supplies **how much**.
-The number in the existing question-level Score editor then has to mean
-something new. Three readings:
+You said: *no option-level mapping, only question-level — if an MQT is
+mentioned on the question, the selected answer is its score.* So the
+question-level mapping supplies **which MQT** and the picked point supplies
+**how much**, with no multiplier anywhere:
 
-| | question-level number means | picking "4" contributes |
-| --- | --- | --- |
-| **(a) weight — recommended** | multiplier, default `1` | `4 × weight` |
-| (b) ignored | nothing; the field is hidden for this type | `4` |
-| (c) as today | flat, answer-independent score | `score`, regardless of pick — makes a scale pointless |
-
-**(a)** is (b) plus a knob, and it costs one relabel: for `LINEAR_SCALE` the
-Score editor's number input is titled **Weight** and defaults to `1`.
-
-**How it is stored (recommended):** the backend **derives and persists**
-`OptionMqtScore` for every generated point — point *n* on MQT *m* scores
-`n × weight(m)` — from the question-level mapping, ignoring any option scores
-in the payload. Then:
+- the Score editor renders **without its number input** for a linear scale
+  (`ScoreEditor hideScore`), so there is nothing to type that could contradict
+  the point;
+- the stored `QuestionMqtScore` row is written with **score 0** — a
+  nomination, never a flat contribution — normalised on write, so a payload
+  that carries a number (an older client, a hand-rolled curl) cannot make the
+  row read as a flat score;
+- the backend **derives and persists** `OptionMqtScore` for every generated
+  point: point *n* on MQT *m* scores *n*. Then:
 
 - there is **no new scoring semantic** for the (still unwritten) scoring engine
   to learn — a linear scale sums selected-option scores exactly like every
@@ -105,11 +115,15 @@ in the payload. Then:
 - it is rebuilt on every question update, which is already how both score
   levels are owned ("MQT scores do NOT lock").
 
-The alternative — persist nothing and let the future engine compute
-`value × weight` — keeps the table smaller and defers the decision, at the
-cost of a special case in every consumer. I recommend deriving.
+The alternative — persist nothing and let a future engine read the point's own
+text as its value — keeps the table smaller at the cost of a special case in
+every consumer. Deriving won.
 
-### 2.4 Schema — `V14`
+Worked example, as verified on staging: a scale mapped to one MQT with the
+payload carrying `score: 99` comes back as
+`question → [(MQT, 0)]`, `points → [("1",[1]), ("2",[2]), … ("5",[5])]`.
+
+### 2.4 Schema — `V14` (applied)
 
 ```sql
 ALTER TABLE `question`
@@ -125,8 +139,10 @@ ALTER TABLE `question`
   `@Column(name = "questionType")` and Hibernate's `CamelCaseToUnderscores`
   strategy produces `question_type`. Get it wrong and `ddl-auto: validate`
   refuses to boot.
-- Wrap it in the `information_schema` probe + `PREPARE` guard V3 and V11 use —
+- Wrapped in the `information_schema` probe + `PREPARE` guard V3 and V11 use —
   MySQL commits DDL implicitly, so a re-run must not die on errno 1060.
+- `LIKERT_GRID` is already in the enum although nothing writes it yet:
+  widening a MySQL enum later is a table rebuild, and an unused value is free.
 - **No `scale_min` / `scale_max` columns.** The generated options *are* the
   range, in `sortOrder`; storing it twice is a second source of truth that
   drifts the first time anyone edits an option. The editor reads the range back
@@ -137,13 +153,19 @@ ALTER TABLE `question`
 
 - `enums/QuestionType.java`; three fields on `Question`; the same three on
   `QuestionRequest` / `QuestionResponse` / `PortalQuestion`.
-- `QuestionController`: for `LINEAR_SCALE`, **generate** the options from
-  `scaleFrom`/`scaleTo` rather than trusting the payload's list, reject a
-  `selectionRule`, require `2 ≤ points ≤ 11` (Google's 0/1 → 2…10), require
-  TEXT content type, trim labels to 100.
-- Freeze: `questionType` joins `selectionChanged`/`optionsChanged` — once an
-  answer exists the type is locked, and changing the range is already blocked
-  because it changes the option list.
+- `QuestionController.desiredOptions(request)` — **the** place the type decides
+  what the options are, so validation, the freeze comparison, the rebuild and
+  the score write can never disagree. MCQ returns the sanitized payload;
+  `LINEAR_SCALE` returns the generated points, ignoring whatever options the
+  caller sent. `SCALE_FROM`/`SCALE_TO` are the fixed 1—5.
+- `validateType` rejects a `selectionRule` (or a stray count) on a scale;
+  `firstProblem` chains it with `validateSelection` so `/create`,
+  `/bulk-create` and `/update` cannot drift apart on what they check.
+- `applyFields` clears both labels on every non-scale type, so switching away
+  cannot leave captions behind that no screen would show again.
+- Freeze: a type change with answers present is a 409 of its own, checked
+  BEFORE the option freeze — switching MCQ → LINEAR_SCALE also replaces the
+  options, and "its options are locked" would be a confusing way to say so.
 
 ### 2.6 Portal
 
@@ -158,8 +180,9 @@ a cap-1 question:
      1        2        3        4        5
 ```
 
-Stacks to a vertical radio list under ~480px so a 10-point scale stays usable
-on a phone.
+The row scrolls horizontally on a narrow phone rather than wrapping, so the
+five points always stay in scale order. If a wider scale ever lands, stacking
+to a vertical list below ~480px is the change.
 
 ---
 
@@ -175,37 +198,40 @@ Question  questionType = LIKERT_GRID   stem = "How often do you…"
                                                      each with its own MQT scores
 ```
 
-**Columns are `Option` rows.** That is the whole trick, and it is why you get
-option-level mapping for free: "Always → Conscientiousness: 5" is an ordinary
-`OptionMqtScore`, authored with the ScoreEditor that already exists.
+**Columns are `Option` rows**, keeping the per-MQT ScoreEditor they already
+have: "Always → Conscientiousness: 5" is an ordinary `OptionMqtScore`.
 
-**Rows are a new `QuestionRow` table** and carry text and order only — no
-scoring of their own.
+**Rows are a new `QuestionRow` table** — text and order — plus a **new
+`QuestionRowMqt` nomination table** (`questionRowId`, `measuredQualityTypeId`,
+unique pair, no payload) saying which MQTs that item measures.
 
-Scoring is then, with **zero new machinery**: a respondent picks one column per
-row, each pick is an `AssessmentAnswer` carrying that column's scores, and the
-question contributes their sum — the exact rule multi-select already defines
-("a question contributes the SUM of every selected option's MQT scores").
+Scoring, then: a pick on row *R* of column *C* credits **only R's MQTs**, each
+with the score C carries for that MQT. Two rows measuring different constructs
+therefore need every column scored under **both** MQTs — a 5-column grid
+spanning 3 MQTs is 15 numbers, not 5. That is the cost you chose over a single
+plain number per column, and it buys a column that can be worth different
+amounts to different constructs, plus reverse-worded items inside one grid.
 
-> **The one thing to accept consciously:** because the columns are shared, every
-> row of one grid feeds the **same** MQTs. A grid is one construct measured by
-> N items — the normal case. Two constructs, or a reverse-worded item that needs
-> flipped column scores, means **two grids**. Per-row MQT overrides would be a
-> later feature (and a genuinely more complex one — see §6).
+This is the one place a grid needs a scoring rule of its own: the sum is over
+`(row, column)` pairs filtered by the row's nomination, not over the selected
+options alone. `AssessmentAnswer` records the row, so the filter is available
+to any future engine.
 
-### 3.2 Radio grid vs checkbox grid — already solved
+### 3.2 One pick per row (for now)
 
 `selectionRule` / `selectionCount` keep their exact meaning but **apply per
-row**, which gives both Google grid types from the control that already exists:
+row**, so the same control gives both Google grid types when it is exposed:
 
 | rule | grid type |
 | --- | --- |
-| `NULL` | multiple-choice grid — one pick per row (radio) — the default |
-| `MAX n` / `MIN n` / `EQUALS n` | checkbox grid — n per row |
+| `NULL` | multiple-choice grid — one pick per row (radio) — **the only one v1 exposes** |
+| `MAX n` / `MIN n` / `EQUALS n` | checkbox grid — n per row — control hidden for now |
 
-`SelectionBounds` is reused untouched. The floor is still never 0: **every row
-is mandatory**, which is Google's "Require a response in each row" permanently
-on, and consistent with every placed question being mandatory here.
+The backend still validates per row through `SelectionBounds` (a grid is
+floor 1 / cap 1 per row), so exposing the control later is a UI change, not a
+rewrite. The floor is never 0: **every row is mandatory**, which is Google's
+"Require a response in each row" permanently on, and consistent with every
+placed question being mandatory here.
 
 ### 3.3 Schema — `V15`
 
@@ -219,6 +245,23 @@ CREATE TABLE `question_row` (
   KEY `idxQrQuestion` (`question_id`),
   CONSTRAINT `fkQrQuestion` FOREIGN KEY (`question_id`)
       REFERENCES `question` (`question_id`)
+);
+
+-- Which MQTs this item measures. No score column: the number comes from the
+-- column the respondent picks. Nothing cascades from the MQT side, so
+-- deleting a node with nominations attached fails at the FK rather than
+-- silently unscoring a grid — the QuestionMqtScore / OptionMqtScore rule.
+CREATE TABLE `question_row_mqt` (
+  `question_row_mqt_id`     bigint NOT NULL AUTO_INCREMENT,
+  `question_row_id`         bigint NOT NULL,
+  `measured_quality_type_id` bigint NOT NULL,
+  PRIMARY KEY (`question_row_mqt_id`),
+  UNIQUE KEY `uqQrmRowMqt` (`question_row_id`,`measured_quality_type_id`),
+  KEY `idxQrmMqt` (`measured_quality_type_id`),
+  CONSTRAINT `fkQrmRow` FOREIGN KEY (`question_row_id`)
+      REFERENCES `question_row` (`question_row_id`),
+  CONSTRAINT `fkQrmMqt` FOREIGN KEY (`measured_quality_type_id`)
+      REFERENCES `measured_quality_type` (`measured_quality_type_id`)
 );
 
 ALTER TABLE `assessment_answer`
@@ -285,7 +328,7 @@ Nullable keeps every existing client and payload valid. Pass-1 validation grows:
 Pass 2 writes one `AssessmentAnswer` per selected cell with `questionRow` set.
 Delete-all-then-insert and the flush ordering stay exactly as they are.
 
-### 3.5 Export — must ship in the same change
+### 3.5 Export — shipped in the same change
 
 `buildSheet` keys answers by `questionId` alone, so a grid would collapse 20
 rows into one `"Never; Often; Always…"` cell. One column per **row**:
@@ -330,65 +373,77 @@ locks that already exist. `existsByQuestionQuestionId` still blocks the delete;
 
 The lucky part: [`QuestionFormFields`](../bodhassess-app/src/pages/question-bank/question-form-modal.tsx)
 is shared by the Question Bank modal **and** the inline editor in
-Create Questionnaire step 2 (your screenshots), so the type dropdown and all
-three bodies are built **once**.
+Create Questionnaire step 2 (your screenshots), so the type dropdown and every
+body is built **once** and both screens get it.
 
-`QuestionForm` gains:
+`QuestionForm` gained (scale fields built; `rows` is phase 2):
 
 ```ts
 questionType: 'MCQ' | 'LINEAR_SCALE' | 'LIKERT_GRID';
-scaleFrom: string; scaleTo: string;          // LINEAR_SCALE
-lowLabel: string;  highLabel: string;
-rows: RowForm[];                             // LIKERT_GRID  { rowText }
+scaleLowLabel: string;  scaleHighLabel: string;   // LINEAR_SCALE
+rows: RowForm[];                                  // LIKERT_GRID — not built
 ```
 
-and the three functions beside it branch on the type:
+and the functions beside it branch on the type:
 
-- `formFrom` — reads them back off `QuestionResponse`;
-- `validateQuestionForm` — scale range 2…11 / at least 2 rows and 2 columns,
-  mirroring the backend messages so problems show inline instead of as a 400;
-- `questionPayloadFrom` — for `LINEAR_SCALE` sends the range and labels and
-  **no** option list (the backend generates it); for `LIKERT_GRID` sends rows
-  plus columns-as-options with their scores.
+- `formFrom` — reads them back off `QuestionResponse` (`?? 'MCQ'`, so a
+  response from a backend without the field still means MCQ);
+- `validateQuestionForm` — a scale skips the option rules entirely and checks
+  only its two labels;
+- `questionPayloadFrom` — a scale sends the labels, **no** option list (the
+  backend generates the points) and a null rule, clearing them here as well as
+  in the type switch so a form that got there another way still saves;
+- `effectiveOptions` / `scalePoints` — the generated points, for everything
+  that has to SHOW a scale before it is saved (the preview, the "n options"
+  summary on the questionnaire editor).
 
 Bodies:
 
 ```
 LINEAR SCALE
-  From [ 1 ▾ ]  to [ 5 ▾ ]
-  Label for 1  [ Smart ]
-  Label for 5  [ Fool  ]
-  (no option list, no per-option scores — question-level scores only)
+  Question → MQT mapping  [ MQT ▾ ]        ← no number: the point IS the score
+  Scale labels
+    1  [ Smart ]
+    5  [ Fool  ]
+  Respondents will see:   ○ ○ ○ ○ ○  (live preview)
+  (no option list, no per-option scores)
 
 LIKERT GRID
-  Rows                          Columns
-  1  Plan my week ahead  ↕ ✕    1  Never    ↕ ✕   [Map MQT ▸ scores]
-  2  Change plans …      ↕ ✕    2  Rarely   ↕ ✕   [Map MQT ▸ scores]
-  + Add row                     + Add column
-  Answers per row  [ One (radio) ▾ ]     ← the existing selectionRule control
+  Rows (each names its own MQTs)      Columns (each scored per MQT)
+  1  Plan my week ahead  [MQT ▾] ✕    1  Never   ↕ ✕  [Map MQT ▸ score]
+  2  I enjoy parties     [MQT ▾] ✕    2  Rarely  ↕ ✕  [Map MQT ▸ score]
+  + Add row                           + Add column
+
+  One pick per row. A column has to be scored under every MQT any row names —
+  the editor should say which pairs are still missing, the way the current
+  ScoreEditor says "n of m MQTs mapped".
 ```
 
-Also touched: the draft summary line in `create-questionnaire.tsx`
-(`0 options · new` → shows the type), `questionnaire-preview-view.tsx` (the
-read-only twins of both bodies), and `question-bulk-upload.tsx` (§5).
+Also touched: the draft summary line in `create-questionnaire.tsx` (now reads
+`Section_A_Q_1 · Linear scale · 5 options`, counted from `effectiveOptions` so
+a scale never reads "0 options"), `questionnaire-preview-view.tsx` (the
+read-only twin, which the saved-questionnaire preview page gets for free
+because it passes `QuestionResponse` straight through), and
+`question-bulk-upload.tsx` (§5).
 
 ---
 
 ## 5. Bulk XLSX upload
 
-- **Linear scale: supported.** Four optional columns — `type`, `scaleFrom`,
-  `scaleTo`, `lowLabel`, `highLabel`. No option columns; the question-level
-  `scores` column already exists. A sheet with no `type` column is MCQ, so
-  every existing sheet keeps working.
-- **Grid: not in v1.** Rows × columns × scores does not fit a flat row and
-  needs its own tab-per-question design. The importer should **reject** a
-  `type=LIKERT_GRID` row with a clear message rather than half-import it.
+**Not extended — the importer writes MCQs only, deliberately.** Every payload
+it builds now says `questionType: 'MCQ'` explicitly, which is what every sheet
+ever written already meant, so nothing existing changed. A scale has no option
+columns to fill and a grid has no flat-row shape at all; both are authored in
+the form. If a `type` column is wanted later: `type`, `lowLabel`, `highLabel`
+for the scale (the range is fixed), and a hard reject for `LIKERT_GRID` rather
+than a half-import.
 
 ---
 
 ## 6. Deliberately out of scope
 
-- Per-row MQT overrides / reverse-scored rows inside one grid (use two grids).
+- Author-chosen scale ranges (fixed 1—5; two constants and a re-save widen it).
+- Checkbox grid — the rule-per-row plumbing is there, the control is not.
 - Optional questions and optional rows — the floor is never 0 today.
 - "N/A" columns, per-row column overrides, images in grid cells.
 - `FREE_TEXT` / `RANKING`: `AssessmentAnswer` reserves `answerText` and
@@ -398,31 +453,42 @@ read-only twins of both bodies), and `question-bulk-upload.tsx` (§5).
 
 ## 7. Sequencing
 
-| | scope | risk |
+| | scope | outcome |
 | --- | --- | --- |
-| **Phase 1 — dropdown + linear scale** | V14, 3 entity fields, option generation + score derivation, `QuestionFormFields` type switch and scale body, portal renderer, preview, XLSX columns | **low** — nothing on the answer path moves |
-| **Phase 2 — Likert grid** | V15 (new table + answer column + **unique-key swap**), `QuestionRow`, submit validator, export sheet + its DTO, grid body, portal table | **medium** — the unique key and the export DTO are the two careful bits |
+| **Phase 1 — dropdown + linear scale** | V14, 3 entity fields, option generation + score derivation, `QuestionFormFields` type switch and scale body, portal renderer, preview | **done** — nothing on the answer path moved |
+| **Phase 2 — Likert grid** | V15 (2 new tables + answer column + unique-key swap), `QuestionRow` + `QuestionRowMqt`, submit validator, export sheet + its DTO, grid body, portal table | **done** — the unique key and the export DTO were the careful bits; both are covered by tests |
 
-Verification per phase, per the standing loop: `./mvnw -B test`, then
+Verification per phase, per the standing loop: `./mvnw -B clean test`, then
 `npm run typecheck && npm run build` in **both** frontends, then a live
-`__smoke__` curl run proving the error paths (scale with a selection rule, grid
-answer with no rowId, row from another question, per-row bounds breach),
-deleted afterwards.
+`__smoke__` curl run proving the error paths, deleted afterwards. Phase 2's
+error paths — grid answer with no rowId, a row from another question, a rowId
+on a question with no rows, per-row bounds breach, half a grid — are covered
+both in `LikertGridTest` and by the live run.
+
+The unique key was proven on MySQL itself, not only on H2: the same column on
+two rows inserts fine, a duplicate `(question, row, option)` is refused 1062,
+and **so is a duplicate with a NULL row** — the guarantee the `COALESCE` key
+exists to preserve, and the one a naive nullable column would have lost.
 
 ---
 
-## 8. Decisions I need from you
+## 8. Decisions taken while building (say the word to change any)
 
-1. **Linear-scale scoring** — §2.3: question-level number = **weight** (default
-   1, contribution = `point × weight`), and the backend derives/persists the
-   per-point `OptionMqtScore`? Or hide the number entirely (contribution = the
-   point)?
-2. **Scale range** — allow starting at 0 (Google allows 0 or 1) and up to 10?
-3. **Grid: same MQTs for every row** is inherent to column-level mapping
-   (§3.1) — confirm that's acceptable and reverse-worded items go in a second
-   grid.
-4. **Checkbox grid** (n picks per row) — expose the control, or lock every grid
-   to one pick per row for now?
-5. **Ship phase 1 alone first**, or hold both and release together?
-6. **Staging DDL** — V14/V15 land on the shared 3307 database the moment the app
-   boots. Confirm the window, or should the migrations wait?
+1. **Rows nominate MANY MQTs, not one.** The row editor is the same
+   ScoreEditor used everywhere with its score field hidden. A single-MQT
+   dropdown would be simpler, but the table supports many either way and "this
+   item loads on two factors" is a real instrument.
+2. **Missing (column, MQT) pairs WARN, they do not block.** A half-scored grid
+   is a legitimate draft and the backend does not refuse one either; the form
+   counts the gaps and says so in amber.
+3. **A grid REJECTS a selection rule** rather than ignoring one, so nothing
+   can store a cap that no screen honours.
+4. **Row TEXT freezes once answers exist; row → MQT nominations never do.**
+   The text is what an answer points at; the nomination is scoring, and
+   scoring has always been rebuilt on every save.
+5. **Grid columns stay in the option editor**, relabelled "Columns", so column
+   scoring is the ScoreEditor the author already knows.
+
+Still open, deliberately: exposing the checkbox-grid control (n picks per
+row). It is a UI change only — `SelectionBounds` already runs per row, and the
+backend refuses a rule until the UI exists to honour it.

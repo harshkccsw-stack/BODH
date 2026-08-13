@@ -5,12 +5,14 @@ import { Button } from '@/components/ui/button';
 import { BrandHeader } from '@/components/brand-header';
 import { Media, mediaTypeFor } from '@/components/media';
 import { cn } from '@/lib/utils';
-import type { PortalAssessmentDetail, PortalQuestion } from '@/lib/api';
+import { answerKey, type PortalAssessmentDetail, type PortalQuestion } from '@/lib/api';
 
-// Answers are keyed by questionId and hold every selected optionId. Single
-// choice is just a question whose cap is 1, so one code path covers both.
+// Answers are keyed by SLOT — answerKey(questionId) for an ordinary question,
+// answerKey(questionId, rowId) for one row of a grid — and hold every selected
+// optionId. Single choice is just a slot whose cap is 1, and a grid is a
+// question with one slot per row, so one code path covers all three types.
 //
-// How many a question takes comes from the server as minSelections /
+// How many a slot takes comes from the server as minSelections /
 // maxSelections (already resolved from its rule), and EVERY gate below reads
 // those two numbers — never the rule directly. That is what keeps this screen
 // and the submit validator from ever disagreeing.
@@ -39,8 +41,8 @@ export function QuestionRunner({
   detail: PortalAssessmentDetail;
   title: string;
   subtitle?: string;
-  answers: Record<number, number[]>;
-  setAnswers: (a: Record<number, number[]>) => void;
+  answers: Record<string, number[]>;
+  setAnswers: (a: Record<string, number[]>) => void;
   onSubmit: () => void;
   submitting: boolean;
   submitError?: string;
@@ -53,13 +55,29 @@ export function QuestionRunner({
 
   const q = questions[index];
   const progress = Math.round(((index + 1) / total) * 100);
-  const selected = answers[q.questionId] ?? [];
+  const isScale = q.questionType === 'LINEAR_SCALE';
+  const isGrid = q.questionType === 'LIKERT_GRID';
+  // Every slot this question must fill: one per grid row, otherwise one for
+  // the question itself. Mirrors slotsOf() in PortalAssessmentService.
+  const slotsOf = (qq: PortalQuestion): string[] =>
+    qq.questionType === 'LIKERT_GRID'
+      ? qq.rows.map((r) => answerKey(qq.questionId, r.questionRowId))
+      : [answerKey(qq.questionId)];
+  const picked = (slot: string): number[] => answers[slot] ?? [];
+  const slotSatisfied = (qq: PortalQuestion, slot: string): boolean => {
+    const n = (answers[slot] ?? []).length;
+    return n >= qq.minSelections && n <= qq.maxSelections;
+  };
+
+  // The non-grid slot, for the code paths that only ever see one.
+  const selected = picked(answerKey(q.questionId));
   const multi = q.maxSelections > 1;
-  const hint = selectionHint(q);
-  // "Answered" means the question's rule is SATISFIED, not merely touched —
-  // anything looser and the navigator would show a green tick on a question
-  // the server is about to reject.
-  const answered = selected.length >= q.minSelections && selected.length <= q.maxSelections;
+  const hint = isGrid ? null : selectionHint(q);
+  // "Answered" means the rule is SATISFIED for EVERY slot, not merely
+  // touched — anything looser and the navigator would show a green tick on a
+  // question the server is about to reject, and a half-filled grid would sail
+  // past Next.
+  const answered = slotsOf(q).every((slot) => slotSatisfied(q, slot));
   const atCap = selected.length >= q.maxSelections;
   const isLast = index === total - 1;
   // Per-assessment setting: advance to the next question automatically a beat
@@ -144,7 +162,10 @@ export function QuestionRunner({
     setIndex(Math.max(0, Math.min(total - 1, qi)));
   };
 
-  const selectOption = (optionId: number) => {
+  const selectOption = (optionId: number, questionRowId?: number) => {
+    const slot = answerKey(q.questionId, questionRowId);
+    const selected = picked(slot);
+    const atCap = selected.length >= q.maxSelections;
     const on = selected.includes(optionId);
     let next: number[];
     if (on) {
@@ -162,11 +183,16 @@ export function QuestionRunner({
       next = [...selected, optionId];
     }
     setCapWarning(false);
-    setAnswers({ ...answers, [q.questionId]: next });
+    const updated = { ...answers, [slot]: next };
+    setAnswers(updated);
     // Auto-advance only on a selection that COMPLETES the question and cannot
     // grow — single choice, or EQUALS on its last tick. Under MIN/MAX there is
     // no such signal, and advancing would slide the page away mid-selection.
-    const settled = next.length === q.minSelections && next.length === q.maxSelections;
+    // On a grid that means EVERY row is settled, not just the one just ticked.
+    const settled = slotsOf(q).every((s) => {
+      const n = (updated[s] ?? []).length;
+      return n === q.minSelections && n === q.maxSelections;
+    });
     if (!autoNext || isLast || !settled) return;
     clearAdvance();
     advanceTimer.current = window.setTimeout(() => {
@@ -178,8 +204,7 @@ export function QuestionRunner({
   const isQuestionAnswered = (qi: number): boolean => {
     const qq = questions[qi];
     if (qq === undefined) return false;
-    const picked = answers[qq.questionId]?.length ?? 0;
-    return picked >= qq.minSelections && picked <= qq.maxSelections;
+    return slotsOf(qq).every((slot) => slotSatisfied(qq, slot));
   };
   const answeredCount = questions.reduce((n, _, i) => n + (isQuestionAnswered(i) ? 1 : 0), 0);
 
@@ -304,6 +329,25 @@ export function QuestionRunner({
               {q.stem && <p className="text-base font-medium leading-relaxed">{q.stem}</p>}
               <Media url={q.mediaUrl ?? undefined} type={mediaTypeFor(q.contentType, q.mediaUrl)} />
 
+              {isGrid && (
+                /* Every row is mandatory, so the count is the thing to show:
+                   on a long grid an unrated row is easy to scroll past. */
+                <div
+                  className={cn(
+                    'flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-xs font-medium',
+                    answered
+                      ? 'border-green-500/40 bg-green-500/5 text-green-700 dark:text-green-400'
+                      : 'border-primary/30 bg-primary/5 text-primary',
+                  )}
+                >
+                  <span>Pick one for every row</span>
+                  <span className="shrink-0 text-muted-foreground">
+                    {q.rows.filter((r) => slotSatisfied(q, answerKey(q.questionId, r.questionRowId))).length}
+                    {' of '}{q.rows.length} rated
+                  </span>
+                </div>
+              )}
+
               {hint && (
                 <div
                   className={cn(
@@ -320,6 +364,116 @@ export function QuestionRunner({
                 </div>
               )}
 
+              {isGrid ? (
+                /* Rows x shared columns, one pick per row. Every row is
+                   mandatory, so an unanswered one is marked rather than left
+                   to be discovered by the Next button. On a narrow screen the
+                   table scrolls sideways instead of wrapping — a Likert row
+                   is only readable in scale order. */
+                <div className="overflow-x-auto -mx-2 px-2">
+                  <table className="w-full border-separate border-spacing-0 text-sm">
+                    <thead>
+                      <tr>
+                        <th className="sticky left-0 z-10 bg-card text-left pb-2 pr-3 font-normal text-xs text-muted-foreground">
+                          &nbsp;
+                        </th>
+                        {q.options.map((opt, oi) => (
+                          <th
+                            key={opt.optionId}
+                            className="px-2 pb-2 text-center align-bottom font-medium text-xs text-muted-foreground whitespace-nowrap"
+                          >
+                            {opt.optionText || `Option ${oi + 1}`}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {q.rows.map((row, ri) => {
+                        const slot = answerKey(q.questionId, row.questionRowId);
+                        const rowPicked = picked(slot);
+                        const rowDone = slotSatisfied(q, slot);
+                        return (
+                          <tr key={row.questionRowId}>
+                            <td
+                              className={cn(
+                                'sticky left-0 z-10 bg-card border-t border-border py-3 pr-3 align-middle',
+                                !rowDone && 'text-foreground',
+                              )}
+                            >
+                              <span className="flex items-start gap-2">
+                                <span className="text-xs text-muted-foreground mt-0.5 shrink-0">{ri + 1}.</span>
+                                <span className="text-sm">{row.rowText}</span>
+                              </span>
+                            </td>
+                            {q.options.map((opt) => {
+                              const on = rowPicked.includes(opt.optionId);
+                              return (
+                                <td key={opt.optionId} className="border-t border-border px-2 py-3 text-center">
+                                  <button
+                                    type="button"
+                                    onClick={() => selectOption(opt.optionId, row.questionRowId)}
+                                    aria-label={`${row.rowText ?? `Row ${ri + 1}`}: ${opt.optionText ?? ''}`}
+                                    aria-pressed={on}
+                                    className={cn(
+                                      'inline-flex h-6 w-6 items-center justify-center rounded-full border transition-colors',
+                                      on
+                                        ? 'border-primary bg-primary text-primary-foreground'
+                                        : 'border-border hover:border-primary/60',
+                                    )}
+                                  >
+                                    {on && <Check className="h-3.5 w-3.5" />}
+                                  </button>
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : isScale ? (
+                /* A linear scale is the same cap-1 question in a different
+                   shape: one row of points between the two end labels. It
+                   goes through selectOption like everything else, so nothing
+                   about answering or submitting differs. */
+                <div className="space-y-3">
+                  <div className="flex items-stretch gap-2 overflow-x-auto pb-1">
+                    {q.options.map((opt, oi) => {
+                      const on = selected.includes(opt.optionId);
+                      return (
+                        <button
+                          key={opt.optionId}
+                          type="button"
+                          onClick={() => selectOption(opt.optionId)}
+                          className={cn(
+                            'flex-1 min-w-14 flex flex-col items-center gap-2 rounded-lg border px-2 py-3 transition-colors',
+                            on ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40',
+                          )}
+                        >
+                          <span
+                            className={cn(
+                              'flex h-6 w-6 items-center justify-center rounded-full border',
+                              on ? 'border-primary bg-primary text-primary-foreground' : 'border-border',
+                            )}
+                          >
+                            {on && <Check className="h-3.5 w-3.5" />}
+                          </span>
+                          <span className={cn('text-sm', on ? 'font-semibold text-primary' : 'text-muted-foreground')}>
+                            {opt.optionText || oi + 1}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {(q.scaleLowLabel || q.scaleHighLabel) && (
+                    <div className="flex items-start justify-between gap-3 text-xs text-muted-foreground">
+                      <span className="max-w-[45%]">{q.scaleLowLabel}</span>
+                      <span className="max-w-[45%] text-right">{q.scaleHighLabel}</span>
+                    </div>
+                  )}
+                </div>
+              ) : (
               <div className="space-y-2">
                 {q.options.map((opt, oi) => {
                   const on = selected.includes(opt.optionId);
@@ -355,6 +509,7 @@ export function QuestionRunner({
                   );
                 })}
               </div>
+              )}
             </CardContent>
           </Card>
 

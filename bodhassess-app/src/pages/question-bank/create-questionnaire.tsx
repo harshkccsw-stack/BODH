@@ -34,12 +34,15 @@ import { qualitiesApi } from '@/pages/MeasuredQuality/qualitiesApi';
 import {
   QuestionFormFields,
   choicesFromQualities,
+  effectiveOptions,
+  liveRows,
   formFrom,
   questionPayloadFrom,
   validateQuestionForm,
   type MqtChoice,
   type QuestionForm,
 } from './question-form-modal';
+import { QUESTION_TYPES } from './questionApis';
 // Same XLSX template as the Questions page — here the `section` column maps
 // each row onto one of THIS questionnaire's existing sections by name.
 import { BulkUploadModal } from './question-bulk-upload';
@@ -491,21 +494,26 @@ export default function CreateAssessmentPage() {
         sectionId: useSections ? d.sectionId : null,
         sortOrder: position,
         contentType: d.form.contentType,
+        questionType: d.form.questionType,
         stem: d.form.stem.trim(),
         mediaUrl: d.form.mediaUrl.trim() || null,
         // Straight off the draft form, so Preview shows the selection rule of
         // an unsaved edit too — the whole point of previewing here.
         selectionRule: d.form.selectionRule || null,
         selectionCount: d.form.selectionRule ? Number(d.form.selectionCount) || null : null,
-        options: d.form.options
-          .map((o) => ({ ...o, optionText: o.optionText.trim(), mediaUrl: o.mediaUrl.trim() }))
-          .filter((o) => o.optionText || o.mediaUrl)
-          .map((o, oi) => ({
-            optionId: oi,
-            optionText: o.optionText || null,
-            contentType: o.contentType,
-            mediaUrl: o.mediaUrl || null,
-          })),
+        scaleLowLabel: d.form.scaleLowLabel || null,
+        scaleHighLabel: d.form.scaleHighLabel || null,
+        // Draft rows have no id yet — index is enough for a preview key.
+        rows: liveRows(d.form).map((r, ri) => ({ questionRowId: ri, rowText: r.rowText })),
+        // effectiveOptions, not form.options: a scale's points are generated
+        // on save, so they exist nowhere on the draft — the preview has to
+        // show them anyway.
+        options: effectiveOptions(d.form).map((o, oi) => ({
+          optionId: oi,
+          optionText: o.optionText || null,
+          contentType: o.contentType,
+          mediaUrl: o.mediaUrl || null,
+        })),
       };
     });
   }, [drafts, useSections]);
@@ -691,7 +699,11 @@ export default function CreateAssessmentPage() {
 
   const renderDraftCard = (d: DraftQuestion, position: number) => {
     const stem = d.form.stem.trim();
-    const optionCount = d.form.options.filter((o) => o.optionText.trim() || o.mediaUrl.trim()).length;
+    // What the respondent will see: authored options on an MCQ, the generated
+    // points on a scale — so the summary never reads "0 options" on a scale.
+    const optionCount = effectiveOptions(d.form).length;
+    const rowCount = liveRows(d.form).length;
+    const typeLabel = QUESTION_TYPES.find((t) => t.value === d.form.questionType)?.label;
     const sharedWith = d.usedIn.filter((u) => u.questionnaireId !== backendQid);
     return (
       <Card key={d.key} className="overflow-hidden">
@@ -719,7 +731,10 @@ export default function CreateAssessmentPage() {
               <span className="font-mono" title="Auto-generated report tag — saved with the questionnaire">
                 {tagPreview(d.sectionId, position)}
               </span>
-              {' · '}{optionCount} option{optionCount !== 1 ? 's' : ''}
+              {d.form.questionType !== 'MCQ' && <>{' · '}{typeLabel}</>}
+              {d.form.questionType === 'LIKERT_GRID'
+                ? <>{' · '}{rowCount} row{rowCount !== 1 ? 's' : ''} × {optionCount} column{optionCount !== 1 ? 's' : ''}</>
+                : <>{' · '}{optionCount} option{optionCount !== 1 ? 's' : ''}</>}
               {d.questionId == null
                 ? ' · new — added to the question bank when you save'
                 : ` · bank question #${d.questionId}`}

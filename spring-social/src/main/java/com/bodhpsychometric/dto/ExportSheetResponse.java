@@ -38,8 +38,19 @@ public record ExportSheetResponse(
     public record DemographicColumn(Long demographicFieldId, String label) {
     }
 
-    /** One question column header; {@code questionTag} is the header text, cells looked up by it. */
-    public record QuestionColumn(String questionTag, Long questionId, String stem) {
+    /**
+     * One question column header; {@code questionTag} is the header text and
+     * the key cells are looked up by.
+     *
+     * A LIKERT_GRID contributes ONE COLUMN PER ROW, not one per question —
+     * twenty statements rated on one grid are twenty variables, and collapsing
+     * them into a single "Never; Often; Always…" cell would make the sheet
+     * useless. Those columns tag {@code <questionTag>_R<n>} by row order and
+     * carry {@code questionRowId} + {@code rowText}; both are null on every
+     * other type, where the question itself is the whole column.
+     */
+    public record QuestionColumn(String questionTag, Long questionId, String stem,
+            Long questionRowId, String rowText) {
     }
 
     /** One respondent's row. demographics keyed by fieldId, answers keyed by questionTag. */

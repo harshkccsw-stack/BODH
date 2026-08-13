@@ -18,11 +18,15 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import {
   questionApis,
+  QUESTION_TYPES,
+  SCALE_FROM,
+  SCALE_TO,
   type MqtScorePayload,
   type MqtScoreView,
   type QuestionContentType,
   type QuestionPayload,
   type QuestionResponse,
+  type QuestionType,
   type SelectionRule,
 } from './questionApis';
 import { type MQ, type MQT, type MeasuredQualityResponse } from '../MeasuredQuality/qualitiesApi';
@@ -105,11 +109,18 @@ export function ScoreEditor({
   rows,
   choices,
   onChange,
+  hideScore = false,
 }: {
   title: string;
   rows: ScoreRow[];
   choices: MqtChoice[];
   onChange: (rows: ScoreRow[]) => void;
+  /**
+   * Drops the number input, leaving a pure MQT nomination. Used by the linear
+   * scale, where the point the respondent picks is the score and a number
+   * here would be a second, contradictory answer to "how much".
+   */
+  hideScore?: boolean;
 }) {
   const mapped = new Set(rows.filter((r) => r.mqtId).map((r) => r.mqtId));
   const remaining = choices.filter((c) => !mapped.has(String(c.id)));
@@ -143,13 +154,15 @@ export function ScoreEditor({
                   </option>
                 ))}
               </select>
-              <input
-                type="number"
-                value={row.score}
-                onChange={(e) => onChange(rows.map((r, j) => (j === i ? { ...r, score: e.target.value } : r)))}
-                title="Score"
-                className="w-16 h-8 rounded-md border border-border bg-background px-2 text-xs focus:outline-none focus:border-primary"
-              />
+              {!hideScore && (
+                <input
+                  type="number"
+                  value={row.score}
+                  onChange={(e) => onChange(rows.map((r, j) => (j === i ? { ...r, score: e.target.value } : r)))}
+                  title="Score"
+                  className="w-16 h-8 rounded-md border border-border bg-background px-2 text-xs focus:outline-none focus:border-primary"
+                />
+              )}
               <button
                 type="button"
                 onClick={() => onChange(rows.filter((_, j) => j !== i))}
@@ -182,16 +195,35 @@ export interface OptionForm {
 
 export const emptyOption = (): OptionForm => ({ optionText: '', contentType: 'TEXT', mediaUrl: '', mqtScores: [] });
 
+/**
+ * One row of a LIKERT_GRID. `mqts` reuses ScoreRow so the row editor can be
+ * the same ScoreEditor everything else uses — its score field is hidden, and
+ * only the ids are sent, because a row nominates rather than scores.
+ */
+export interface RowForm {
+  rowText: string;
+  mqts: ScoreRow[];
+}
+
+export const emptyRow = (): RowForm => ({ rowText: '', mqts: [] });
+
 export interface QuestionForm {
   id: number | null;
   contentType: QuestionContentType;
+  questionType: QuestionType;
   stem: string;
   mediaUrl: string;
   riskFlag: boolean;
   /** '' = single choice. The count is a string so the input can be emptied. */
   selectionRule: SelectionRule | '';
   selectionCount: string;
+  /** LINEAR_SCALE only — captions under the first and last point. */
+  scaleLowLabel: string;
+  scaleHighLabel: string;
+  /** MCQ options — and, on a LIKERT_GRID, its shared columns. */
   options: OptionForm[];
+  /** LIKERT_GRID only — the statements. */
+  rows: RowForm[];
   mqtScores: ScoreRow[];
 }
 
@@ -200,29 +232,44 @@ export const formFrom = (initial: QuestionResponse | null): QuestionForm =>
     ? {
         id: null,
         contentType: 'TEXT',
+        questionType: 'MCQ',
         stem: '',
         mediaUrl: '',
         riskFlag: false,
         selectionRule: '',
         selectionCount: '',
+        scaleLowLabel: '',
+        scaleHighLabel: '',
         // Four blank options by default — the common case. Blank rows are
         // dropped on save, so unwanted ones can just be left empty or removed.
         options: [emptyOption(), emptyOption(), emptyOption(), emptyOption()],
+        rows: [emptyRow(), emptyRow()],
         mqtScores: [],
       }
     : {
         id: initial.questionId,
         contentType: initial.contentType,
+        // Questions saved before the type existed come back as MCQ; ?? keeps
+        // a response from an older backend meaning the same thing.
+        questionType: initial.questionType ?? 'MCQ',
         stem: initial.stem,
         mediaUrl: initial.mediaUrl || '',
         riskFlag: initial.riskFlag,
         selectionRule: initial.selectionRule ?? '',
         selectionCount: initial.selectionCount == null ? '' : String(initial.selectionCount),
+        scaleLowLabel: initial.scaleLowLabel || '',
+        scaleHighLabel: initial.scaleHighLabel || '',
         options: initial.options.map((o) => ({
           optionText: o.optionText || '',
           contentType: o.contentType,
           mediaUrl: o.mediaUrl || '',
           mqtScores: viewsToRows(o.mqtScores || []),
+        })),
+        // A row's MQTs arrive without scores; ScoreRow needs one, and the
+        // editor hides the field, so the placeholder is never shown or sent.
+        rows: (initial.rows || []).map((r) => ({
+          rowText: r.rowText || '',
+          mqts: r.mqts.map((m) => ({ mqtId: String(m.measuredQualityTypeId), score: '1' })),
         })),
         mqtScores: viewsToRows(initial.mqtScores || []),
       };
@@ -233,17 +280,78 @@ const liveOptions = (form: QuestionForm): OptionForm[] =>
     .map((o) => ({ ...o, optionText: o.optionText.trim(), mediaUrl: o.mediaUrl.trim() }))
     .filter((o) => o.optionText || o.mediaUrl);
 
+/**
+ * The points a linear scale is made of. The backend GENERATES these on save
+ * (they are not authored, and the payload's option list is ignored) — this is
+ * the same list, for anything that has to SHOW a scale before it is saved:
+ * the preview, and the "n options" summary on the questionnaire editor.
+ */
+export const scalePoints = (): OptionForm[] =>
+  Array.from({ length: SCALE_TO - SCALE_FROM + 1 }, (_, i) => ({
+    ...emptyOption(),
+    optionText: String(SCALE_FROM + i),
+  }));
+
+/** What the respondent will actually be shown, whoever wrote it. */
+export const effectiveOptions = (form: QuestionForm): OptionForm[] =>
+  form.questionType === 'LINEAR_SCALE' ? scalePoints() : liveOptions(form);
+
+/**
+ * Rows that will actually be stored, trimmed. Matches sanitizedRows on the
+ * backend: a row survives on text OR a nomination, so trailing blank inputs
+ * cost nothing.
+ */
+export const liveRows = (form: QuestionForm): RowForm[] =>
+  form.questionType !== 'LIKERT_GRID'
+    ? []
+    : form.rows
+        .map((r) => ({ ...r, rowText: r.rowText.trim(), mqts: r.mqts.filter((m) => m.mqtId) }))
+        .filter((r) => r.rowText || r.mqts.length > 0);
+
+/**
+ * (column, MQT) pairs a grid is missing: every MQT any row names has to be
+ * scored on every column, or a rating on that row is worth nothing. A
+ * WARNING, not an error — a half-scored grid is a legitimate draft, and the
+ * backend does not refuse it either.
+ */
+export function gridScoringGaps(form: QuestionForm): number {
+  if (form.questionType !== 'LIKERT_GRID') return 0;
+  const needed = new Set(liveRows(form).flatMap((r) => r.mqts.map((m) => m.mqtId)));
+  if (needed.size === 0) return 0;
+  return liveOptions(form).reduce((gaps, column) => {
+    const scored = new Set(column.mqtScores.filter((s) => s.mqtId).map((s) => s.mqtId));
+    return gaps + [...needed].filter((id) => !scored.has(id)).length;
+  }, 0);
+}
+
 /** null when the form can be saved, otherwise the first problem found. */
 export function validateQuestionForm(form: QuestionForm): string | null {
   if (!form.stem.trim()) return 'Question text is required';
   if (form.contentType !== 'TEXT' && !form.mediaUrl.trim()) {
     return `A ${form.contentType.toLowerCase()} question needs a media URL`;
   }
+  // A scale has no authored options and no selection rule — its points are
+  // generated and it is one pick by definition — so the option rules below
+  // have nothing to check. Only the two labels are its own.
+  if (form.questionType === 'LINEAR_SCALE') {
+    if (form.scaleLowLabel.trim().length > 100 || form.scaleHighLabel.trim().length > 100) {
+      return 'Scale labels are at most 100 characters';
+    }
+    return null;
+  }
   const rows = liveOptions(form);
+  const noun = form.questionType === 'LIKERT_GRID' ? 'Column' : 'Option';
   for (let i = 0; i < rows.length; i++) {
     if (rows[i].contentType !== 'TEXT' && !rows[i].mediaUrl) {
-      return `Option ${i + 1} is ${rows[i].contentType.toLowerCase()} — it needs a media URL`;
+      return `${noun} ${i + 1} is ${rows[i].contentType.toLowerCase()} — it needs a media URL`;
     }
+  }
+  // Mirrors validateType on the backend, so a grid's shape problems show
+  // inline instead of coming back as a 400.
+  if (form.questionType === 'LIKERT_GRID') {
+    if (liveRows(form).length === 0) return 'A grid needs at least one row';
+    if (rows.length < 2) return 'A grid needs at least two columns';
+    return null;
   }
   // Mirrors QuestionController.validateSelection, against the same option
   // list the backend will count (blank rows already dropped), so the problem
@@ -262,22 +370,36 @@ export function validateQuestionForm(form: QuestionForm): string | null {
 
 /** Form → the wire payload. Validate first — this assumes a valid form. */
 export function questionPayloadFrom(form: QuestionForm): QuestionPayload {
-  const rows = liveOptions(form);
+  const scale = form.questionType === 'LINEAR_SCALE';
+  const grid = form.questionType === 'LIKERT_GRID';
+  // A scale's options are generated by the backend, and it takes one answer:
+  // sending either would be refused. Cleared HERE as well as in the type
+  // switch, so a form that reached this point some other way still saves.
+  const rows = scale ? [] : liveOptions(form);
   return {
     contentType: form.contentType,
+    questionType: form.questionType,
     stem: form.stem.trim(),
     mediaUrl: form.contentType === 'TEXT' ? null : form.mediaUrl.trim(),
     riskFlag: form.riskFlag,
     // Never send a count without a rule — the backend 400s on the pair, and
     // a stale count left behind by switching back to single choice is the
     // only way that happens.
-    selectionRule: form.selectionRule || null,
-    selectionCount: form.selectionRule ? Number(form.selectionCount) : null,
+    // A grid is one pick per row for now, so it sends no rule either.
+    selectionRule: scale || grid ? null : form.selectionRule || null,
+    selectionCount: !scale && !grid && form.selectionRule ? Number(form.selectionCount) : null,
+    scaleLowLabel: scale ? form.scaleLowLabel.trim() || null : null,
+    scaleHighLabel: scale ? form.scaleHighLabel.trim() || null : null,
     options: rows.map((o) => ({
       optionText: o.optionText || null,
       contentType: o.contentType,
       mediaUrl: o.contentType === 'TEXT' ? null : o.mediaUrl,
       mqtScores: rowsToPayload(o.mqtScores),
+    })),
+    // Ids only: a row nominates its MQTs, the columns carry the numbers.
+    rows: liveRows(form).map((r) => ({
+      rowText: r.rowText || null,
+      measuredQualityTypeIds: r.mqts.map((m) => Number(m.mqtId)),
     })),
     mqtScores: rowsToPayload(form.mqtScores),
   };
@@ -298,6 +420,9 @@ export function QuestionFormFields({
   choices: MqtChoice[];
 }) {
   const set = (patch: Partial<QuestionForm>) => onChange({ ...form, ...patch });
+  const isScale = form.questionType === 'LINEAR_SCALE';
+  const isGrid = form.questionType === 'LIKERT_GRID';
+  const scoringGaps = gridScoringGaps(form);
   // Options that will actually be stored — what the selection count is
   // validated against, here and on the backend.
   const liveCount = liveOptions(form).length;
@@ -312,6 +437,17 @@ export function QuestionFormFields({
     if (j < 0 || j >= next.length) return;
     [next[i], next[j]] = [next[j], next[i]];
     set({ options: next });
+  };
+  const patchRow = (i: number, patch: Partial<RowForm>) =>
+    set({ rows: form.rows.map((r, j) => (j === i ? { ...r, ...patch } : r)) });
+  const addRow = () => set({ rows: [...form.rows, emptyRow()] });
+  const removeRow = (i: number) => set({ rows: form.rows.filter((_, j) => j !== i) });
+  const moveRow = (i: number, dir: -1 | 1) => {
+    const next = [...form.rows];
+    const j = i + dir;
+    if (j < 0 || j >= next.length) return;
+    [next[i], next[j]] = [next[j], next[i]];
+    set({ rows: next });
   };
 
   return (
@@ -382,18 +518,152 @@ export function QuestionFormFields({
         <span className="text-muted-foreground">— responses to this question are surfaced for risk review</span>
       </label>
 
+      {/* What SHAPE the question is. Sits above the scoring and option
+          editors because it decides which of them are shown at all. */}
+      <div className="space-y-1.5">
+        <label className="text-sm font-medium">Question type *</label>
+        <select
+          value={form.questionType}
+          onChange={(e) => {
+            const questionType = e.target.value as QuestionType;
+            // A scale is one pick and has no authored options, so leaving MCQ
+            // clears the rule with it — the same reason the rule dropdown
+            // clears its count. The option rows are LEFT ALONE so switching
+            // back and forth does not throw away what was typed.
+            set({
+              questionType,
+              ...(questionType === 'LINEAR_SCALE' ? { selectionRule: '' as const, selectionCount: '' } : {}),
+            });
+          }}
+          className="w-full h-9 rounded-lg border border-border bg-background px-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+        >
+          {QUESTION_TYPES.map((t) => (
+            <option key={t.value} value={t.value}>{t.label}</option>
+          ))}
+        </select>
+        <p className="text-[0.6875rem] text-muted-foreground">
+          {QUESTION_TYPES.find((t) => t.value === form.questionType)?.hint}
+        </p>
+      </div>
+
       {/* Question-level MQT scoring */}
       <div className="rounded-lg border border-border/70 p-3">
         <ScoreEditor
-          title="Question → MQT scores"
+          title={isScale ? 'Question → MQT mapping' : 'Question → MQT scores'}
           rows={form.mqtScores}
           choices={choices}
           onChange={(rows) => set({ mqtScores: rows })}
+          hideScore={isScale}
         />
+        {isScale && (
+          <p className="text-[0.6875rem] text-muted-foreground mt-1.5">
+            No number to enter — the point the respondent picks IS the score for
+            every MQT mapped here ({SCALE_FROM} scores {SCALE_FROM}, {SCALE_TO} scores {SCALE_TO}).
+          </p>
+        )}
       </div>
 
-      {/* How many options the respondent may pick. Sits directly above the
-          option list because it changes what that list means. */}
+      {isScale ? (
+        /* A scale is authored as two captions: the points themselves are
+           fixed 1—5 and generated on save, so there is nothing to type. */
+        <div className="rounded-lg border border-border/70 p-3 space-y-2">
+          <label className="text-sm font-medium">Scale labels</label>
+          <div className="flex items-center gap-2">
+            <span className="w-4 text-xs text-muted-foreground shrink-0">{SCALE_FROM}</span>
+            <input
+              value={form.scaleLowLabel}
+              onChange={(e) => set({ scaleLowLabel: e.target.value })}
+              maxLength={100}
+              placeholder="Label for the low end (optional) — e.g. Strongly disagree"
+              className="flex-1 rounded-lg border border-border bg-background px-3 py-1.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="w-4 text-xs text-muted-foreground shrink-0">{SCALE_TO}</span>
+            <input
+              value={form.scaleHighLabel}
+              onChange={(e) => set({ scaleHighLabel: e.target.value })}
+              maxLength={100}
+              placeholder="Label for the high end (optional) — e.g. Strongly agree"
+              className="flex-1 rounded-lg border border-border bg-background px-3 py-1.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+            />
+          </div>
+          <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-3">
+            <p className="text-[0.6875rem] text-muted-foreground mb-2">Respondents will see</p>
+            <div className="flex items-end justify-between gap-2">
+              <span className="text-xs text-muted-foreground max-w-[30%] truncate">{form.scaleLowLabel}</span>
+              <div className="flex items-end gap-4">
+                {scalePoints().map((p) => (
+                  <div key={p.optionText} className="flex flex-col items-center gap-1">
+                    <span className="h-4 w-4 rounded-full border border-border bg-background" />
+                    <span className="text-[0.6875rem] text-muted-foreground">{p.optionText}</span>
+                  </div>
+                ))}
+              </div>
+              <span className="text-xs text-muted-foreground max-w-[30%] truncate text-right">{form.scaleHighLabel}</span>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <>
+      {isGrid && (
+        /* Rows are the statements. Each names the MQTs it measures — a pure
+           nomination, which is why the score field is hidden: the number
+           comes from the column the respondent picks. */
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between">
+            <label className="text-sm font-medium">Rows (statements)</label>
+            <Button variant="outline" size="sm" onClick={addRow}>
+              <Plus className="h-3 w-3" /> Add row
+            </Button>
+          </div>
+          {form.rows.length === 0 ? (
+            <p className="text-xs text-muted-foreground italic">
+              No rows yet — add the statements respondents rate.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {form.rows.map((row, i) => (
+                <div key={i} className="rounded-lg border border-border/70 p-2 space-y-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-5 shrink-0 text-center text-xs text-muted-foreground">{i + 1}</span>
+                    <input
+                      value={row.rowText}
+                      onChange={(e) => patchRow(i, { rowText: e.target.value })}
+                      placeholder={`Row ${i + 1} — e.g. I plan my week ahead`}
+                      className="flex-1 rounded-lg border border-border bg-background px-3 py-1.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                    />
+                    <button type="button" onClick={() => moveRow(i, -1)} disabled={i === 0} className="text-muted-foreground hover:text-foreground disabled:opacity-30 p-1" title="Move up">
+                      <ArrowUp className="h-3.5 w-3.5" />
+                    </button>
+                    <button type="button" onClick={() => moveRow(i, 1)} disabled={i === form.rows.length - 1} className="text-muted-foreground hover:text-foreground disabled:opacity-30 p-1" title="Move down">
+                      <ArrowDown className="h-3.5 w-3.5" />
+                    </button>
+                    <button type="button" onClick={() => removeRow(i)} className="text-muted-foreground hover:text-red-500 p-1" title="Remove row">
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                  <ScoreEditor
+                    title={`Row ${i + 1} measures`}
+                    rows={row.mqts}
+                    choices={choices}
+                    onChange={(mqts) => patchRow(i, { mqts })}
+                    hideScore
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+          <p className="text-[0.6875rem] text-muted-foreground">
+            One pick per row, and every row must be answered. Rows lock once
+            anyone has responded; which MQTs they measure never does.
+          </p>
+        </div>
+      )}
+
+      {!isGrid && (
+      /* How many options the respondent may pick. Sits directly above the
+          option list because it changes what that list means. */
       <div className="rounded-lg border border-border/70 p-3 space-y-1.5">
         <label className="text-sm font-medium">How many options can be selected</label>
         <div className="flex items-center gap-2">
@@ -440,17 +710,27 @@ export function QuestionFormFields({
             : 'Respondents pick one option, as radio buttons.'}
         </p>
       </div>
+      )}
 
       <div className="space-y-1.5">
         <div className="flex items-center justify-between">
-          <label className="text-sm font-medium">Options</label>
+          <label className="text-sm font-medium">{isGrid ? 'Columns (the rating scale)' : 'Options'}</label>
           <Button variant="outline" size="sm" onClick={addOption}>
-            <Plus className="h-3 w-3" /> Add option
+            <Plus className="h-3 w-3" /> Add {isGrid ? 'column' : 'option'}
           </Button>
         </div>
+        {isGrid && scoringGaps > 0 && (
+          <p className="text-[0.6875rem] text-amber-600 dark:text-amber-500 inline-flex items-center gap-1">
+            <AlertTriangle className="h-3 w-3" />
+            {scoringGaps} (column → MQT) score{scoringGaps === 1 ? '' : 's'} still missing — every MQT a
+            row measures needs a score on every column, or a rating on that row is worth nothing.
+          </p>
+        )}
         {form.options.length === 0 ? (
           <p className="text-xs text-muted-foreground italic">
-            No options yet — add the choices the respondent picks from.
+            {isGrid
+              ? 'No columns yet — add the rating scale respondents pick from.'
+              : 'No options yet — add the choices the respondent picks from.'}
           </p>
         ) : (
           <div className="space-y-2">
@@ -472,7 +752,7 @@ export function QuestionFormFields({
                   <input
                     value={opt.optionText}
                     onChange={(e) => patchOption(i, { optionText: e.target.value })}
-                    placeholder={`Option ${i + 1} text${opt.contentType !== 'TEXT' ? ' (caption, optional)' : ''}`}
+                    placeholder={`${isGrid ? 'Column' : 'Option'} ${i + 1} text${opt.contentType !== 'TEXT' ? ' (caption, optional)' : ''}`}
                     className="flex-1 rounded-lg border border-border bg-background px-3 py-1.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
                   />
                   <button type="button" onClick={() => moveOption(i, -1)} disabled={i === 0} className="text-muted-foreground hover:text-foreground disabled:opacity-30 p-1" title="Move up">
@@ -494,7 +774,7 @@ export function QuestionFormFields({
                   />
                 )}
                 <ScoreEditor
-                  title={`Option ${i + 1} → MQT scores`}
+                  title={`${isGrid ? 'Column' : 'Option'} ${i + 1} → MQT scores`}
                   rows={opt.mqtScores}
                   choices={choices}
                   onChange={(rows) => patchOption(i, { mqtScores: rows })}
@@ -504,6 +784,8 @@ export function QuestionFormFields({
           </div>
         )}
       </div>
+        </>
+      )}
     </div>
   );
 }

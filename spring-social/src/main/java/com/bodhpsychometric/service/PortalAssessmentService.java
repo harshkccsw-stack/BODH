@@ -29,7 +29,9 @@ import com.bodhpsychometric.model.demographics.DemographicResponse;
 import com.bodhpsychometric.model.demographics.QuestionnaireDemographicField;
 import com.bodhpsychometric.model.question.Option;
 import com.bodhpsychometric.model.question.Question;
+import com.bodhpsychometric.model.question.QuestionRow;
 import com.bodhpsychometric.model.question.SelectionBounds;
+import com.bodhpsychometric.model.question.enums.QuestionType;
 import com.bodhpsychometric.model.question.enums.SelectionRule;
 import com.bodhpsychometric.repository.assessment.AssessmentAnswerRepository;
 import com.bodhpsychometric.repository.assessment.RespondentAssessmentMappingRepository;
@@ -208,18 +210,23 @@ public class PortalAssessmentService {
         List<PortalSubmitRequest.AnswerEntry> entries =
                 request == null || request.answers() == null ? List.of() : request.answers();
 
-        // Pass 1 — validate every answer before writing anything. The option
-        // must belong to the question on the same row (the rule the schema
-        // cannot express).
+        // Pass 1 — validate every answer before writing anything. Two rules
+        // the schema cannot express: the option must belong to the question
+        // on the same entry, and so must the grid row.
         //
         // One entry per SELECTED OPTION, so a multi-select question appears
         // several times — the payload is isomorphic to the AssessmentAnswer
-        // rows it becomes. The set dedupes a repeated (question, option) pair
-        // silently, and that is load-bearing rather than tidy: two identical
-        // rows violate uqAaRespondentAssessmentQuestionOption, and a
-        // constraint violation inside this transaction marks it rollback-only
-        // — a 500 at commit instead of the clean 400 below.
-        Map<Long, Set<Option>> chosen = new LinkedHashMap<>();
+        // rows it becomes. The set dedupes a repeated (question, row, option)
+        // triple silently, and that is load-bearing rather than tidy: two
+        // identical rows violate uqAaRespondentAssessmentQuestionRowOption,
+        // and a constraint violation inside this transaction marks it
+        // rollback-only — a 500 at commit instead of the clean 400 below.
+        //
+        // Answers are collected per SLOT, not per question: a grid is one
+        // question with one slot per row, everything else is one question
+        // with a single null-row slot. Every rule below then reads the same
+        // for both, and SelectionBounds is applied per row for free.
+        Map<AnswerSlot, Set<Option>> chosen = new LinkedHashMap<>();
         for (PortalSubmitRequest.AnswerEntry entry : entries) {
             if (entry.questionId() == null || entry.optionId() == null) {
                 throw badRequest("Each answer needs a questionId and an optionId");
@@ -235,27 +242,52 @@ public class PortalAssessmentService {
                 throw badRequest("Option " + entry.optionId() + " does not belong to question "
                         + entry.questionId());
             }
-            chosen.computeIfAbsent(entry.questionId(), k -> new LinkedHashSet<>()).add(option);
+            boolean isGrid = question.getQuestionType() == QuestionType.LIKERT_GRID;
+            if (isGrid && entry.questionRowId() == null) {
+                throw badRequest("Question " + entry.questionId()
+                        + " is a grid — every answer needs the questionRowId it belongs to");
+            }
+            if (!isGrid && entry.questionRowId() != null) {
+                throw badRequest("Question " + entry.questionId()
+                        + " has no rows — questionRowId must be omitted");
+            }
+            if (isGrid && question.getRows().stream()
+                    .noneMatch(r -> r.getQuestionRowId().equals(entry.questionRowId()))) {
+                throw badRequest("Row " + entry.questionRowId() + " does not belong to question "
+                        + entry.questionId());
+            }
+            chosen.computeIfAbsent(new AnswerSlot(entry.questionId(), entry.questionRowId()),
+                    k -> new LinkedHashSet<>()).add(option);
         }
 
-        // Every placed question still has to be answered: a question with no
-        // selections never entered the map, so the floor of 1 that every rule
-        // shares needs no separate check.
-        List<Long> unanswered = questionsById.keySet().stream()
-                .filter(id -> !chosen.containsKey(id))
-                .toList();
+        // Every placed question still has to be answered — and every ROW of
+        // every grid, which is what makes a half-filled grid a 400 rather
+        // than a quietly incomplete answer set. A slot with no selections
+        // never entered the map, so the floor of 1 that every rule shares
+        // needs no separate check.
+        List<String> unanswered = new java.util.ArrayList<>();
+        for (Question question : questionsById.values()) {
+            for (AnswerSlot slot : slotsOf(question)) {
+                if (!chosen.containsKey(slot)) {
+                    unanswered.add(slot.questionRowId() == null
+                            ? String.valueOf(slot.questionId())
+                            : slot.questionId() + " row " + slot.questionRowId());
+                }
+            }
+        }
         if (!unanswered.isEmpty()) {
-            throw badRequest("All questions must be answered — missing questionIds: " + unanswered);
+            throw badRequest("All questions must be answered — missing: " + String.join(", ", unanswered));
         }
 
-        // How many, per question. Worded from the rule the author picked, not
-        // the derived numbers, because that is what the respondent was shown.
-        for (Map.Entry<Long, Set<Option>> e : chosen.entrySet()) {
-            Question question = questionsById.get(e.getKey());
+        // How many, per slot. Worded from the rule the author picked, not the
+        // derived numbers, because that is what the respondent was shown.
+        for (Map.Entry<AnswerSlot, Set<Option>> e : chosen.entrySet()) {
+            Question question = questionsById.get(e.getKey().questionId());
             int picked = e.getValue().size();
             if (!SelectionBounds.of(question).allows(picked)) {
-                throw badRequest("Question " + e.getKey() + " " + expectation(question)
-                        + " — " + picked + " selected");
+                throw badRequest("Question " + e.getKey().questionId()
+                        + (e.getKey().questionRowId() == null ? "" : " row " + e.getKey().questionRowId())
+                        + " " + expectation(question) + " — " + picked + " selected");
             }
         }
 
@@ -266,12 +298,18 @@ public class PortalAssessmentService {
         Long assessmentId = mapping.getAssessment().getAssessmentId();
         assessmentAnswers.deleteByRespondent_IdAndAssessment_AssessmentId(respondentUserId, assessmentId);
         assessmentAnswers.flush();
-        for (Map.Entry<Long, Set<Option>> e : chosen.entrySet()) {
+        for (Map.Entry<AnswerSlot, Set<Option>> e : chosen.entrySet()) {
+            Question question = questionsById.get(e.getKey().questionId());
+            QuestionRow row = e.getKey().questionRowId() == null ? null
+                    : question.getRows().stream()
+                            .filter(r -> r.getQuestionRowId().equals(e.getKey().questionRowId()))
+                            .findFirst().orElseThrow();
             for (Option option : e.getValue()) {
                 AssessmentAnswer answer = new AssessmentAnswer();
                 answer.setRespondent(mapping.getRespondent());
                 answer.setAssessment(mapping.getAssessment());
-                answer.setQuestion(questionsById.get(e.getKey()));
+                answer.setQuestion(question);
+                answer.setQuestionRow(row);
                 answer.setOption(option);
                 assessmentAnswers.save(answer);
             }
@@ -308,6 +346,24 @@ public class PortalAssessmentService {
             throw conflict("This assessment is not currently active");
         }
         return mapping;
+    }
+
+    /**
+     * One answerable slot: a whole question, or one row of a grid. Grids are
+     * the only type where a question holds more than one, and being a record
+     * makes it a map key with no further ceremony.
+     */
+    private record AnswerSlot(Long questionId, Long questionRowId) {
+    }
+
+    /** Every slot a question must fill: one per grid row, otherwise just one. */
+    private static List<AnswerSlot> slotsOf(Question question) {
+        if (question.getQuestionType() != QuestionType.LIKERT_GRID) {
+            return List.of(new AnswerSlot(question.getQuestionId(), null));
+        }
+        return question.getRows().stream()
+                .map(r -> new AnswerSlot(question.getQuestionId(), r.getQuestionRowId()))
+                .toList();
     }
 
     /** "needs exactly 3 selections" — the rule as the respondent was told it. */

@@ -184,11 +184,18 @@ export async function parseQuestionsXlsx(
 
     payloads.push({
       contentType: type,
+      // The sheet writes MCQs only. A linear scale has no option columns to
+      // fill in and a grid has no flat-row shape at all, so both are authored
+      // in the form; every sheet ever written already means MCQ.
+      questionType: 'MCQ',
       stem,
       mediaUrl: type === 'TEXT' ? null : mediaUrl,
       riskFlag,
       ...selection,
+      scaleLowLabel: null,
+      scaleHighLabel: null,
       options,
+      rows: [],
       mqtScores,
     });
     sections.push(row.section || null);

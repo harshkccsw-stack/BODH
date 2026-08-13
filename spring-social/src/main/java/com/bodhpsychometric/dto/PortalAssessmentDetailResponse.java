@@ -15,8 +15,10 @@ import com.bodhpsychometric.model.demographics.QuestionnaireDemographicField;
 import com.bodhpsychometric.model.demographics.enums.DemographicFieldType;
 import com.bodhpsychometric.model.question.Option;
 import com.bodhpsychometric.model.question.Question;
+import com.bodhpsychometric.model.question.QuestionRow;
 import com.bodhpsychometric.model.question.SelectionBounds;
 import com.bodhpsychometric.model.question.enums.ContentType;
+import com.bodhpsychometric.model.question.enums.QuestionType;
 import com.bodhpsychometric.model.question.enums.SelectionRule;
 import com.bodhpsychometric.model.questionnaire.Questionnaire;
 import com.bodhpsychometric.model.questionnaire.QuestionnaireQuestion;
@@ -64,6 +66,11 @@ public record PortalAssessmentDetailResponse(
     /**
      * One question as the respondent sees it — no scoring data.
      *
+     * questionType is what to RENDER: MCQ is the stacked option list,
+     * LINEAR_SCALE is the points 1—5 laid out between scaleLowLabel and
+     * scaleHighLabel. It changes nothing about the answer — a scale is a
+     * cap-1 question, so every gate below still reads min/maxSelections.
+     *
      * selectionRule/selectionCount are how many options may be picked; both
      * null means single choice. They are presentation, not scoring: the
      * portal needs them to render checkboxes instead of radios, show the
@@ -77,13 +84,27 @@ public record PortalAssessmentDetailResponse(
             Long sectionId,
             int sortOrder,
             ContentType contentType,
+            QuestionType questionType,
             String stem,
             String mediaUrl,
             SelectionRule selectionRule,
             Integer selectionCount,
             int minSelections,
             int maxSelections,
+            String scaleLowLabel,
+            String scaleHighLabel,
+            List<PortalRow> rows,
             List<PortalOption> options) {
+    }
+
+    /**
+     * One row of a LIKERT_GRID — the item rated against the shared columns
+     * (the options). Empty on every other type, which is how the portal
+     * decides between a table and a list. Which MQTs a row measures is
+     * deliberately NOT here: that is scoring, and scoring never reaches the
+     * respondent's browser.
+     */
+    public record PortalRow(Long questionRowId, String rowText, int sortOrder) {
     }
 
     /** One selectable option — no scoring data. */
@@ -137,12 +158,19 @@ public record PortalAssessmentDetailResponse(
                     section == null ? null : section.getSectionId(),
                     placement.getSortOrder(),
                     question.getContentType(),
+                    question.getQuestionType(),
                     question.getQuestionTexString(),
                     question.getMediaUrl(),
                     question.getSelectionRule(),
                     question.getSelectionCount(),
                     bounds.floor(),
                     bounds.cap(),
+                    question.getScaleLowLabel(),
+                    question.getScaleHighLabel(),
+                    question.getRows().stream()
+                            .sorted(Comparator.comparingInt(QuestionRow::getSortOrder))
+                            .map(r -> new PortalRow(r.getQuestionRowId(), r.getRowText(), r.getSortOrder()))
+                            .toList(),
                     options));
         }
 

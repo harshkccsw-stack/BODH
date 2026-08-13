@@ -19,18 +19,24 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.bodhpsychometric.dto.MqtRefResponse;
 import com.bodhpsychometric.dto.MqtScoreRequest;
 import com.bodhpsychometric.dto.MqtScoreResponse;
 import com.bodhpsychometric.dto.QuestionOptionRequest;
 import com.bodhpsychometric.dto.QuestionOptionResponse;
 import com.bodhpsychometric.dto.QuestionRequest;
 import com.bodhpsychometric.dto.QuestionResponse;
+import com.bodhpsychometric.dto.QuestionRowRequest;
+import com.bodhpsychometric.dto.QuestionRowResponse;
 import com.bodhpsychometric.model.question.Option;
 import com.bodhpsychometric.model.question.Question;
+import com.bodhpsychometric.model.question.QuestionRow;
 import com.bodhpsychometric.model.question.enums.ContentType;
+import com.bodhpsychometric.model.question.enums.QuestionType;
 import com.bodhpsychometric.model.question.enums.SelectionRule;
 import com.bodhpsychometric.model.scoring.OptionMqtScore;
 import com.bodhpsychometric.model.scoring.QuestionMqtScore;
+import com.bodhpsychometric.model.scoring.QuestionRowMqt;
 import com.bodhpsychometric.model.taxonomy.MeasuredQualityType;
 import com.bodhpsychometric.model.questionnaire.QuestionnaireQuestion;
 import com.bodhpsychometric.repository.assessment.AssessmentAnswerRepository;
@@ -39,6 +45,7 @@ import com.bodhpsychometric.repository.question.QuestionRepository;
 import com.bodhpsychometric.repository.questionnaire.QuestionnaireQuestionRepository;
 import com.bodhpsychometric.repository.scoring.OptionMqtScoreRepository;
 import com.bodhpsychometric.repository.scoring.QuestionMqtScoreRepository;
+import com.bodhpsychometric.repository.scoring.QuestionRowMqtRepository;
 
 import jakarta.validation.Valid;
 
@@ -63,6 +70,16 @@ import jakarta.validation.Valid;
 @Transactional
 public class QuestionController {
 
+    /**
+     * A linear scale is 1—5. Fixed, not author-chosen: every instrument here
+     * uses the same width, and a stored range would be a second source of
+     * truth about a set of options that already says what it is. Widening it
+     * later is these two numbers plus a re-save of the affected questions.
+     */
+    private static final int SCALE_FROM = 1;
+    private static final int SCALE_TO = 5;
+    private static final int SCALE_POINTS = SCALE_TO - SCALE_FROM + 1;
+
     @Autowired
     private QuestionRepository questionRepository;
 
@@ -71,6 +88,9 @@ public class QuestionController {
 
     @Autowired
     private OptionMqtScoreRepository optionMqtScoreRepository;
+
+    @Autowired
+    private QuestionRowMqtRepository questionRowMqtRepository;
 
     @Autowired
     private AssessmentAnswerRepository assessmentAnswerRepository;
@@ -107,13 +127,14 @@ public class QuestionController {
         if (mqts == null) {
             return unknownMqt();
         }
-        String selectionProblem = validateSelection(request);
-        if (selectionProblem != null) {
-            return ResponseEntity.badRequest().body(Map.of("message", selectionProblem));
+        String problem = firstProblem(request);
+        if (problem != null) {
+            return ResponseEntity.badRequest().body(Map.of("message", problem));
         }
         Question question = new Question();
         applyFields(question, request);
-        rebuildOptions(question, request.options());
+        rebuildOptions(question, request);
+        rebuildRows(question, request);
         questionRepository.save(question);
         writeScores(question, request, mqts);
         return ResponseEntity.status(HttpStatus.CREATED).body(toResponse(question));
@@ -154,10 +175,10 @@ public class QuestionController {
                 return ResponseEntity.badRequest()
                         .body(Map.of("message", "question " + (i + 1) + ": a referenced MQT does not exist"));
             }
-            String selectionProblem = validateSelection(request);
-            if (selectionProblem != null) {
+            String problem = firstProblem(request);
+            if (problem != null) {
                 return ResponseEntity.badRequest()
-                        .body(Map.of("message", "question " + (i + 1) + ": " + selectionProblem));
+                        .body(Map.of("message", "question " + (i + 1) + ": " + problem));
             }
             resolvedMqts.add(mqts);
         }
@@ -168,7 +189,8 @@ public class QuestionController {
             QuestionRequest request = requests.get(i);
             Question question = new Question();
             applyFields(question, request);
-            rebuildOptions(question, request.options());
+            rebuildOptions(question, request);
+            rebuildRows(question, request);
             questionRepository.save(question);
             writeScores(question, request, resolvedMqts.get(i));
             created.add(toResponse(question));
@@ -187,15 +209,31 @@ public class QuestionController {
         if (mqts == null) {
             return unknownMqt();
         }
-        String selectionProblem = validateSelection(request);
-        if (selectionProblem != null) {
-            return ResponseEntity.badRequest().body(Map.of("message", selectionProblem));
+        String problem = firstProblem(request);
+        if (problem != null) {
+            return ResponseEntity.badRequest().body(Map.of("message", problem));
         }
         boolean hasAnswers = assessmentAnswerRepository.existsByQuestionQuestionId(id);
-        boolean optionsChanged = optionsChanged(question, request.options());
+        // Checked before the option freeze so a type switch is reported as
+        // what it is — switching MCQ → LINEAR_SCALE also replaces the options,
+        // and "its options are locked" would be a confusing way to say so.
+        if (question.getQuestionType() != typeOf(request) && hasAnswers) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("message",
+                    "This question already has responses — its type is locked"));
+        }
+        boolean optionsChanged = optionsChanged(question, request);
         if (optionsChanged && hasAnswers) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("message",
                     "This question already has responses — its options are locked"));
+        }
+        // Rows freeze for the same reason options do: an answer points AT a
+        // row, and re-wording or dropping one strands answers that nothing
+        // downstream could repair. Which MQTs a row measures is scoring,
+        // though — owned by this flow, rebuilt every save, never frozen.
+        boolean rowsChanged = rowsChanged(question, request);
+        if (rowsChanged && hasAnswers) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("message",
+                    "This question already has responses — its rows are locked"));
         }
         // Same reasoning as the option freeze: tightening EQUALS 3 to 2 would
         // strand answer sets the new rule calls impossible, and nothing
@@ -210,9 +248,17 @@ public class QuestionController {
         // hit the DB before option rows are replaced, or the FK blocks.
         optionMqtScoreRepository.deleteByOptionQuestionQuestionId(id);
         questionMqtScoreRepository.deleteByQuestionQuestionId(id);
+        questionRowMqtRepository.deleteByQuestionRowQuestionQuestionId(id);
         optionMqtScoreRepository.flush();
+        questionRowMqtRepository.flush();
         if (optionsChanged) {
-            rebuildOptions(question, request.options());
+            rebuildOptions(question, request);
+        }
+        // Rebuilt whenever the rows differ AND whenever they don't: the
+        // nominations were just deleted above, and writeScores re-attaches
+        // them to the row entities this list holds.
+        if (rowsChanged) {
+            rebuildRows(question, request);
         }
         questionRepository.save(question);
         writeScores(question, request, mqts);
@@ -233,10 +279,12 @@ public class QuestionController {
                     "This question is used in a questionnaire — remove it there first"));
         }
         // Scoring rows belong to the question — they go first, then the
-        // question takes its options with it via cascade.
+        // question takes its options AND rows with it via cascade.
         optionMqtScoreRepository.deleteByOptionQuestionQuestionId(id);
         questionMqtScoreRepository.deleteByQuestionQuestionId(id);
+        questionRowMqtRepository.deleteByQuestionRowQuestionQuestionId(id);
         optionMqtScoreRepository.flush();
+        questionRowMqtRepository.flush();
         questionRepository.deleteById(id);
         return ResponseEntity.noContent().build();
     }
@@ -261,6 +309,14 @@ public class QuestionController {
         List<QuestionOptionResponse> options = q.getOptions().stream()
                 .map(o -> QuestionOptionResponse.from(o, byOption.getOrDefault(o.getOptionId(), List.of())))
                 .toList();
+        Map<Long, List<MqtRefResponse>> byRow = questionRowMqtRepository
+                .findByQuestionRowQuestionQuestionId(q.getQuestionId()).stream()
+                .collect(Collectors.groupingBy(m -> m.getQuestionRow().getQuestionRowId(),
+                        Collectors.mapping(m -> MqtRefResponse.from(m.getMeasuredQualityType()),
+                                Collectors.toList())));
+        List<QuestionRowResponse> rows = q.getRows().stream()
+                .map(r -> QuestionRowResponse.from(r, byRow.getOrDefault(r.getQuestionRowId(), List.of())))
+                .toList();
         List<QuestionResponse.UsedInRef> usedIn = questionnaireQuestionRepository
                 .findByQuestionQuestionId(q.getQuestionId()).stream()
                 .map(m -> new QuestionResponse.UsedInRef(
@@ -270,7 +326,7 @@ public class QuestionController {
                 placement == null || placement.getSection() == null ? null : placement.getSection().getSectionId(),
                 placement == null ? null : placement.getSortOrder(),
                 placement == null ? null : placement.getQuestionTag(),
-                options, questionScores);
+                options, rows, questionScores);
     }
 
     private MqtScoreResponse toScore(MeasuredQualityType mqt, int score) {
@@ -286,8 +342,13 @@ public class QuestionController {
     private Map<Long, MeasuredQualityType> resolveMqts(QuestionRequest request) {
         var ids = new java.util.LinkedHashSet<Long>();
         dedupe(request.mqtScores()).keySet().forEach(ids::add);
-        for (QuestionOptionRequest o : sanitized(request.options())) {
+        for (QuestionOptionRequest o : desiredOptions(request)) {
             dedupe(o.mqtScores()).keySet().forEach(ids::add);
+        }
+        // Grid rows name MQTs without scoring them — a third level, and just
+        // as able to reference an id that does not exist.
+        for (QuestionRowRequest r : sanitizedRows(request)) {
+            ids.addAll(r.measuredQualityTypeIds());
         }
         Map<Long, MeasuredQualityType> found = measuredQualityTypeRepository.findAllById(ids).stream()
                 .collect(Collectors.toMap(MeasuredQualityType::getMeasuredQualityTypeId, m -> m));
@@ -295,16 +356,22 @@ public class QuestionController {
     }
 
     private void writeScores(Question question, QuestionRequest request, Map<Long, MeasuredQualityType> mqts) {
+        boolean scale = typeOf(request) == QuestionType.LINEAR_SCALE;
         for (Map.Entry<Long, Integer> e : dedupe(request.mqtScores()).entrySet()) {
             QuestionMqtScore row = new QuestionMqtScore();
             row.setQuestion(question);
             row.setMeasuredQualityType(mqts.get(e.getKey()));
-            row.setScore(e.getValue());
+            // On a LINEAR_SCALE the question-level row NOMINATES an MQT and
+            // contributes nothing flat of its own — the point the respondent
+            // picks is the score, and it is carried by the generated option
+            // rows (see desiredOptions). Stored as 0 rather than trusting the
+            // payload, so the nomination can never read as a flat score.
+            row.setScore(scale ? 0 : e.getValue());
             questionMqtScoreRepository.save(row);
         }
         // Options in the entity list line up index-for-index with the
-        // sanitized payload — rebuildOptions built them from the same list.
-        List<QuestionOptionRequest> want = sanitized(request.options());
+        // effective payload — rebuildOptions built them from the same list.
+        List<QuestionOptionRequest> want = desiredOptions(request);
         List<Option> have = question.getOptions();
         for (int i = 0; i < want.size() && i < have.size(); i++) {
             for (Map.Entry<Long, Integer> e : dedupe(want.get(i).mqtScores()).entrySet()) {
@@ -313,6 +380,19 @@ public class QuestionController {
                 row.setMeasuredQualityType(mqts.get(e.getKey()));
                 row.setScore(e.getValue());
                 optionMqtScoreRepository.save(row);
+            }
+        }
+        // Grid rows: which MQTs the item measures. No score — the number
+        // comes from the column. Rows line up index-for-index with the
+        // sanitized payload for the same reason options do.
+        List<QuestionRowRequest> wantRows = sanitizedRows(request);
+        List<QuestionRow> haveRows = question.getRows();
+        for (int i = 0; i < wantRows.size() && i < haveRows.size(); i++) {
+            for (Long mqtId : wantRows.get(i).measuredQualityTypeIds()) {
+                QuestionRowMqt row = new QuestionRowMqt();
+                row.setQuestionRow(haveRows.get(i));
+                row.setMeasuredQualityType(mqts.get(mqtId));
+                questionRowMqtRepository.save(row);
             }
         }
     }
@@ -339,11 +419,27 @@ public class QuestionController {
 
     private void applyFields(Question question, QuestionRequest request) {
         question.setContentType(request.contentType() == null ? ContentType.TEXT : request.contentType());
+        question.setQuestionType(typeOf(request));
         question.setQuestionTexString(request.stem().trim());
         question.setMediaUrl(request.mediaUrl());
         question.setRiskFlag(Boolean.TRUE.equals(request.riskFlag()));
         question.setSelectionRule(request.selectionRule());
         question.setSelectionCount(requestedCount(request));
+        // Scale labels belong to a scale. Cleared on every other type, so
+        // switching a question away from LINEAR_SCALE cannot leave captions
+        // behind that no screen would ever show again.
+        boolean scale = typeOf(request) == QuestionType.LINEAR_SCALE;
+        question.setScaleLowLabel(scale ? trimmedOrNull(request.scaleLowLabel()) : null);
+        question.setScaleHighLabel(scale ? trimmedOrNull(request.scaleHighLabel()) : null);
+    }
+
+    /** MCQ whenever the payload does not say — what every pre-type caller means. */
+    private QuestionType typeOf(QuestionRequest request) {
+        return request.questionType() == null ? QuestionType.MCQ : request.questionType();
+    }
+
+    private String trimmedOrNull(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
     }
 
     /**
@@ -354,6 +450,16 @@ public class QuestionController {
      */
     private Integer requestedCount(QuestionRequest request) {
         return request.selectionRule() == null ? null : request.selectionCount();
+    }
+
+    /**
+     * Every hand-written payload rule in one call — null when the payload is
+     * fine, otherwise the first problem. One entry point so /create,
+     * /bulk-create and /update cannot drift apart on what they check.
+     */
+    private String firstProblem(QuestionRequest request) {
+        String typeProblem = validateType(request);
+        return typeProblem != null ? typeProblem : validateSelection(request);
     }
 
     /**
@@ -378,7 +484,7 @@ public class QuestionController {
         if (count == null || count < 1) {
             return "selectionRule " + rule + " needs a selectionCount of at least 1";
         }
-        int optionCount = sanitized(request.options()).size();
+        int optionCount = desiredOptions(request).size();
         if (count > optionCount) {
             return "selectionCount " + count + " but the question only has " + optionCount
                     + " option" + (optionCount == 1 ? "" : "s");
@@ -393,8 +499,8 @@ public class QuestionController {
     }
 
     /** True when the requested option set differs from what is stored. */
-    private boolean optionsChanged(Question question, List<QuestionOptionRequest> requested) {
-        List<QuestionOptionRequest> want = sanitized(requested);
+    private boolean optionsChanged(Question question, QuestionRequest request) {
+        List<QuestionOptionRequest> want = desiredOptions(request);
         List<Option> have = question.getOptions();
         if (want.size() != have.size()) {
             return true;
@@ -412,9 +518,9 @@ public class QuestionController {
     }
 
     /** Replaces the option set; list order becomes sortOrder. */
-    private void rebuildOptions(Question question, List<QuestionOptionRequest> requested) {
+    private void rebuildOptions(Question question, QuestionRequest request) {
         question.getOptions().clear();
-        List<QuestionOptionRequest> want = sanitized(requested);
+        List<QuestionOptionRequest> want = desiredOptions(request);
         for (int i = 0; i < want.size(); i++) {
             QuestionOptionRequest w = want.get(i);
             Option option = new Option();
@@ -424,6 +530,126 @@ public class QuestionController {
             option.setSortOrder(i);
             question.addOption(option);
         }
+    }
+
+    /**
+     * The option set this payload actually means — the ONE place the question
+     * type decides what the options are, so validation, the freeze comparison,
+     * the rebuild and the score write can never disagree about them.
+     *
+     * MCQ: the sanitized payload, as always. LINEAR_SCALE: the points 1—5,
+     * GENERATED and ignoring whatever options the caller sent, each carrying
+     * its own value as the score for every MQT the QUESTION is mapped to.
+     * That derivation is what lets a scale be scored with no option-level
+     * mapping in the UI while staying an ordinary single-choice question
+     * downstream — the submit validator, the export sheet and any future
+     * scoring pass all see option rows with scores, exactly like an MCQ.
+     */
+    private List<QuestionOptionRequest> desiredOptions(QuestionRequest request) {
+        if (typeOf(request) != QuestionType.LINEAR_SCALE) {
+            return sanitized(request.options());
+        }
+        List<Long> mqtIds = List.copyOf(dedupe(request.mqtScores()).keySet());
+        List<QuestionOptionRequest> points = new java.util.ArrayList<>(SCALE_POINTS);
+        for (int point = SCALE_FROM; point <= SCALE_TO; point++) {
+            final int value = point;
+            points.add(new QuestionOptionRequest(
+                    String.valueOf(point),
+                    ContentType.TEXT,
+                    null,
+                    mqtIds.stream().map(id -> new MqtScoreRequest(id, value)).toList()));
+        }
+        return points;
+    }
+
+    /**
+     * Type rules the payload cannot express with annotations — null when it is
+     * fine, otherwise the message. Bulk pass 1 calls this too.
+     */
+    private String validateType(QuestionRequest request) {
+        QuestionType type = typeOf(request);
+        if (type == QuestionType.LINEAR_SCALE) {
+            // A scale is one pick by definition: "choose 2 points on a 1—5
+            // scale" has no meaning, and allowing it would hand the portal a
+            // cap of 2 on a widget that renders as a radio row.
+            if (request.selectionRule() != null || request.selectionCount() != null) {
+                return "a linear scale takes one answer — it cannot have a selection rule";
+            }
+            return null;
+        }
+        if (type == QuestionType.LIKERT_GRID) {
+            // One pick per row for now. The rule PLUMBING is per-row already
+            // (SelectionBounds runs against each row in the submit
+            // validator), so exposing checkbox grids later is a UI change —
+            // but nothing may write a rule until that UI exists, or grids
+            // would ship a cap no screen can honour.
+            if (request.selectionRule() != null || request.selectionCount() != null) {
+                return "a grid takes one answer per row — it cannot have a selection rule";
+            }
+            if (sanitizedRows(request).isEmpty()) {
+                return "a grid needs at least one row";
+            }
+            // Two columns is the point of a grid: one column is a checkbox
+            // list wearing a table's clothes, and the respondent has no
+            // choice to make.
+            if (desiredOptions(request).size() < 2) {
+                return "a grid needs at least two columns";
+            }
+            return null;
+        }
+        return null;
+    }
+
+    /**
+     * The grid rows this payload actually means — trimmed, deduped MQT
+     * nominations, and empty for every type but LIKERT_GRID so switching a
+     * grid to another type drops its rows instead of leaving them to be
+     * delivered by a screen that has no idea what to do with them.
+     *
+     * A row needs text OR at least one MQT to survive: a form with trailing
+     * blank row inputs then behaves exactly like the option editor.
+     */
+    private List<QuestionRowRequest> sanitizedRows(QuestionRequest request) {
+        if (typeOf(request) != QuestionType.LIKERT_GRID || request.rows() == null) {
+            return List.of();
+        }
+        return request.rows().stream()
+                .filter(java.util.Objects::nonNull)
+                .map(r -> new QuestionRowRequest(
+                        r.rowText() == null || r.rowText().isBlank() ? null : r.rowText().trim(),
+                        r.measuredQualityTypeIds() == null ? List.<Long>of()
+                                : r.measuredQualityTypeIds().stream()
+                                        .filter(java.util.Objects::nonNull)
+                                        .distinct().toList()))
+                .filter(r -> r.rowText() != null || !r.measuredQualityTypeIds().isEmpty())
+                .toList();
+    }
+
+    /** Replaces the row set; list order becomes sortOrder. */
+    private void rebuildRows(Question question, QuestionRequest request) {
+        question.getRows().clear();
+        List<QuestionRowRequest> want = sanitizedRows(request);
+        for (int i = 0; i < want.size(); i++) {
+            QuestionRow row = new QuestionRow();
+            row.setRowText(want.get(i).rowText());
+            row.setSortOrder(i);
+            question.addRow(row);
+        }
+    }
+
+    /** True when the requested row set differs from what is stored. */
+    private boolean rowsChanged(Question question, QuestionRequest request) {
+        List<QuestionRowRequest> want = sanitizedRows(request);
+        List<QuestionRow> have = question.getRows();
+        if (want.size() != have.size()) {
+            return true;
+        }
+        for (int i = 0; i < want.size(); i++) {
+            if (!Objects.equals(want.get(i).rowText(), have.get(i).getRowText())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Drops rows with neither text nor media — nothing to show a respondent. */
