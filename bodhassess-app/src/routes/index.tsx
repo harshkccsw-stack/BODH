@@ -78,6 +78,9 @@ const AdminOrganizations        = lazyPage(() => import('@/pages/Organization/or
 // Roles & access, super-admin only (see SUPERADMIN_ONLY_PATHS). The old
 // /admin/roles mock is parked in bodh/deleted/.
 const AdminRoleGroups    = lazyPage(() => import('@/pages/admin/role-groups'));
+// Super-admin only, twice over: SUPERADMIN_ONLY_PATHS hides/denies the route,
+// and the API refuses non-super-admins on its own regardless of that.
+const AdminActivityLog   = lazyPage(() => import('@/pages/admin/activity-log'));
 const AdminAssignRoleGroup = lazyPage(() => import('@/pages/admin/assign-role-group'));
 const PermissionError    = lazyPage(() => import('@/pages/permission-error'));
 const AdminLiveTracking  = lazyPage(() => import('@/pages/admin/live-tracking'));
@@ -87,10 +90,13 @@ const Assessments              = lazyPage(() => import('@/pages/assessments/all-
 // New-dialect catalog page wired to spring-social (Assessment Library group).
 const AssessmentLibrary        = lazyPage(() => import('@/pages/assessments/assessment-library'));
 // Direct assessment→respondent assignment for unaffiliated respondents.
-const AssessmentMapping        = lazyPage(() => import('@/pages/AssessmentMapping/assessment-mapping'));
+const RespondentMapping        = lazyPage(() => import('@/pages/RespondentMapping/respondent-mapping'));
+// Org catalog + registration links + per-member allotments, one org at a time.
+const OrganizationMapping      = lazyPage(() => import('@/pages/OrganizationMapping/organization-mapping'));
+// Full-page create/edit form for the Assessment Library (the modal it
+// replaced lived inside assessment-library.tsx). Edit mode is ?edit=<id>.
 const AssessmentsCreate        = lazyPage(() => import('@/pages/assessments/create-assessment'));
-const AssessmentsEdit          = lazyPage(() => import('@/pages/assessments/edit-assessment'));
-const AssessmentsBatch         = lazyPage(() => import('@/pages/assessments/batch-upload'));
+const AssessmentsBatch        = lazyPage(() => import('@/pages/assessments/batch-upload'));
 const AssessmentsBrowse        = lazyPage(() => import('@/pages/assessments/browse-assessments'));
 const AssessmentRespondents    = lazyPage(() => import('@/pages/assessments/assessment-respondents'));
 const AssessmentInviteOrCopy   = lazyPage(() => import('@/pages/assessments/invite-or-copy'));
@@ -135,7 +141,7 @@ const QuestionnairePreview       = lazyPage(() => import('@/pages/questionnaires
 
 const Reports             = lazyPage(() => import('@/pages/reports/all-reports'));
 // New-dialect respondent report listing wired to spring-social (/api/reports).
-const ReportsHub          = lazyPage(() => import('@/pages/reports/ReportsHub'));
+const ReportsHub          = lazyPage(() => import('@/pages/Reports/ReportsHub'));
 const ReportsResponses    = lazyPage(() => import('@/pages/reports/response-sheets'));
 const ReportsClinical     = lazyPage(() => import('@/pages/reports/clinical'));
 const ReportsCounselling  = lazyPage(() => import('@/pages/reports/counselling'));
@@ -234,6 +240,7 @@ const routes: RouteObject[] = [
       { path: '/admin/entity-registrations', element: <AdminOrganizations /> },
       { path: '/admin/role-groups', element: <AdminRoleGroups /> },
       { path: '/admin/assign-role-group', element: <AdminAssignRoleGroup /> },
+      { path: '/admin/activity-log', element: <AdminActivityLog /> },
       // Always reachable once signed in — canAccess never denies it, or the
       // denial screen would redirect to itself.
       { path: '/permission-error', element: <PermissionError /> },
@@ -241,10 +248,17 @@ const routes: RouteObject[] = [
       { path: '/admin/data-grid', element: <AdminDataGrid /> },
 
       { path: '/assessment-library/assessments', element: <AssessmentLibrary /> },
-      { path: '/assessment-library/mapping', element: <AssessmentMapping /> },
+      // Same page create and edit — no id in the path, edit is ?edit=<id>,
+      // so one menu entry and one permission path cover both.
+      { path: '/assessment-library/assessments/create', element: <AssessmentsCreate /> },
+      // Renamed from /assessment-library/mapping. Role permissions are stored
+      // as paths, so V12 rewrites the granted rows to match — a leaf grant
+      // left on the old path would silently deny the page.
+      { path: '/assessment-library/respondent-mapping', element: <RespondentMapping /> },
+      { path: '/assessment-library/organization-mapping', element: <OrganizationMapping /> },
       // { path: '/assessments', element: <Assessments /> },
-      // { path: '/assessments/create', element: <AssessmentsCreate /> },
-      { path: '/assessments/edit/:id', element: <AssessmentsEdit /> },
+      // The v1-dialect create/edit pages are parked in deleted/ — they spoke
+      // to the old API (questionnaire versions, CLOSED/PAUSED statuses).
       { path: '/assessments/batch', element: <AssessmentsBatch /> },
       // Browse assessments grouped by the bulk-create group key + drill in
       // to that assessment's respondents. /respondents (literal) must come

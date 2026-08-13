@@ -1,6 +1,7 @@
 package com.bodhpsychometric.service;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -33,6 +34,9 @@ import com.bodhpsychometric.model.demographics.DemographicResponse;
 import com.bodhpsychometric.model.demographics.QuestionnaireDemographicField;
 import com.bodhpsychometric.model.organization.Organization;
 import com.bodhpsychometric.model.question.Option;
+import com.bodhpsychometric.model.question.Question;
+import com.bodhpsychometric.model.question.QuestionRow;
+import com.bodhpsychometric.model.question.enums.QuestionType;
 import com.bodhpsychometric.model.questionnaire.Questionnaire;
 import com.bodhpsychometric.model.questionnaire.QuestionnaireQuestion;
 import com.bodhpsychometric.repository.assessment.AssessmentAnswerRepository;
@@ -200,6 +204,13 @@ public class AssessmentReportService {
     }
 
     /**
+     * What one export cell is keyed by: a question, or one ROW of a grid
+     * question. questionRowId is null for every type but LIKERT_GRID.
+     */
+    private record ExportKey(Long questionId, Long questionRowId) {
+    }
+
+    /**
      * Assemble the sheet: columns come from the assessment's questionnaire (its
      * demographic fields in form order, its question placements in display
      * order keyed by questionTag); each COMPLETED allotment becomes a row whose
@@ -219,22 +230,44 @@ public class AssessmentReportService {
                 .map(f -> new DemographicColumn(f.getDemographicFieldId(), f.getLabel()))
                 .toList();
 
-        // questionId → column tag, so an answer row (keyed by questionId) finds
-        // its column. Legacy placements with no tag fall back to "Q_<id>".
-        Map<Long, String> tagByQuestionId = new HashMap<>();
+        // (questionId, rowId) → column tag, so an answer finds its column.
+        // Legacy placements with no tag fall back to "Q_<id>".
+        //
+        // A grid contributes one column PER ROW, tagged <tag>_R<n> in row
+        // order — twenty statements rated on one grid are twenty variables,
+        // and one joined cell would be useless to analyse. The suffix is
+        // derived here rather than stored: rows belong to the question, the
+        // tag belongs to the placement, and the tag itself is already
+        // regenerated wholesale on every placement save.
+        Map<ExportKey, String> tagByKey = new HashMap<>();
         List<QuestionColumn> questionColumns = new ArrayList<>();
         for (QuestionnaireQuestion qq : placements.findForExportColumns(questionnaireId)) {
-            Long questionId = qq.getQuestion().getQuestionId();
+            Question question = qq.getQuestion();
+            Long questionId = question.getQuestionId();
             String tag = qq.getQuestionTag() != null ? qq.getQuestionTag() : ("Q_" + questionId);
-            tagByQuestionId.put(questionId, tag);
-            questionColumns.add(new QuestionColumn(tag, questionId, qq.getQuestion().getQuestionTexString()));
+            String stem = question.getQuestionTexString();
+            List<QuestionRow> gridRows = question.getQuestionType() == QuestionType.LIKERT_GRID
+                    ? question.getRows().stream().sorted(Comparator.comparingInt(QuestionRow::getSortOrder)).toList()
+                    : List.of();
+            if (gridRows.isEmpty()) {
+                tagByKey.put(new ExportKey(questionId, null), tag);
+                questionColumns.add(new QuestionColumn(tag, questionId, stem, null, null));
+                continue;
+            }
+            for (int i = 0; i < gridRows.size(); i++) {
+                QuestionRow row = gridRows.get(i);
+                String rowTag = tag + "_R" + (i + 1);
+                tagByKey.put(new ExportKey(questionId, row.getQuestionRowId()), rowTag);
+                questionColumns.add(new QuestionColumn(rowTag, questionId, stem,
+                        row.getQuestionRowId(), row.getRowText()));
+            }
         }
 
         // ── Row data (two group-bys over the whole page) ──────────────────
         List<Long> respondentIds = completed.stream().map(m -> m.getRespondent().getId()).toList();
 
-        // respondentId → questionId → chosen cell strings (already option-ordered)
-        Map<Long, Map<Long, List<String>>> answersByRespondent = new HashMap<>();
+        // respondentId → (questionId, rowId) → chosen cell strings (already option-ordered)
+        Map<Long, Map<ExportKey, List<String>>> answersByRespondent = new HashMap<>();
         // respondentId → fieldId → value
         Map<Long, Map<Long, String>> demographicsByRespondent = new HashMap<>();
         if (!respondentIds.isEmpty()) {
@@ -246,7 +279,9 @@ public class AssessmentReportService {
                 }
                 answersByRespondent
                         .computeIfAbsent(a.getRespondent().getId(), k -> new HashMap<>())
-                        .computeIfAbsent(a.getQuestion().getQuestionId(), k -> new ArrayList<>())
+                        .computeIfAbsent(new ExportKey(a.getQuestion().getQuestionId(),
+                                a.getQuestionRow() == null ? null : a.getQuestionRow().getQuestionRowId()),
+                                k -> new ArrayList<>())
                         .add(cell);
             }
             for (DemographicResponse d : demographicResponses.findForExport(assessmentId, respondentIds)) {
@@ -264,11 +299,13 @@ public class AssessmentReportService {
             Organization organization = respondent.getOrganization();
 
             Map<String, String> answerCells = new HashMap<>();
-            for (Map.Entry<Long, List<String>> entry
+            for (Map.Entry<ExportKey, List<String>> entry
                     : answersByRespondent.getOrDefault(respondentUserId, Map.of()).entrySet()) {
-                String tag = tagByQuestionId.get(entry.getKey());
+                String tag = tagByKey.get(entry.getKey());
                 if (tag == null) {
-                    // Answer's question is no longer placed in this questionnaire — no column for it.
+                    // The answer's question is no longer placed in this
+                    // questionnaire — or its grid row is gone — so there is
+                    // no column to put it in.
                     continue;
                 }
                 answerCells.put(tag, String.join("; ", entry.getValue()));

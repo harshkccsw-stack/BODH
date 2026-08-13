@@ -8,13 +8,18 @@ import java.util.Map;
 import java.util.Objects;
 
 import com.bodhpsychometric.model.assessment.Assessment;
+import com.bodhpsychometric.model.assessment.AssessmentTerms;
 import com.bodhpsychometric.model.assessment.RespondentAssessmentMapping;
 import com.bodhpsychometric.model.assessment.enums.RespondentAssessmentStatus;
 import com.bodhpsychometric.model.demographics.QuestionnaireDemographicField;
 import com.bodhpsychometric.model.demographics.enums.DemographicFieldType;
 import com.bodhpsychometric.model.question.Option;
 import com.bodhpsychometric.model.question.Question;
+import com.bodhpsychometric.model.question.QuestionRow;
+import com.bodhpsychometric.model.question.SelectionBounds;
 import com.bodhpsychometric.model.question.enums.ContentType;
+import com.bodhpsychometric.model.question.enums.QuestionType;
+import com.bodhpsychometric.model.question.enums.SelectionRule;
 import com.bodhpsychometric.model.questionnaire.Questionnaire;
 import com.bodhpsychometric.model.questionnaire.QuestionnaireQuestion;
 import com.bodhpsychometric.model.questionnaire.Section;
@@ -32,6 +37,12 @@ public record PortalAssessmentDetailResponse(
         Long assessmentId,
         String assessmentName,
         boolean showTermsAndConditions,
+        /**
+         * Consent body to render when showTermsAndConditions is true. Never
+         * null — assessments with no text of their own get the default — so
+         * the portal never has to decide what the terms say.
+         */
+        String termsAndConditions,
         boolean autoNext,
         boolean showQuestionIndex,
         Long questionnaireId,
@@ -44,19 +55,56 @@ public record PortalAssessmentDetailResponse(
         List<PortalSection> sections,
         List<PortalQuestion> questions) {
 
-    /** A named question group; only present when the questionnaire hasSections. */
-    public record PortalSection(Long sectionId, String name, String instruction) {
+    /**
+     * A named question group; only present when the questionnaire hasSections.
+     * The list arrives already sorted by sortOrder — the author's arrangement,
+     * which is also what the Section_A/B/C report tags follow.
+     */
+    public record PortalSection(Long sectionId, String name, String instruction, int sortOrder) {
     }
 
-    /** One question as the respondent sees it — no scoring data. */
+    /**
+     * One question as the respondent sees it — no scoring data.
+     *
+     * questionType is what to RENDER: MCQ is the stacked option list,
+     * LINEAR_SCALE is the points 1—5 laid out between scaleLowLabel and
+     * scaleHighLabel. It changes nothing about the answer — a scale is a
+     * cap-1 question, so every gate below still reads min/maxSelections.
+     *
+     * selectionRule/selectionCount are how many options may be picked; both
+     * null means single choice. They are presentation, not scoring: the
+     * portal needs them to render checkboxes instead of radios, show the
+     * hint, and enable Next only once the rule is satisfied. minSelections /
+     * maxSelections are the same pair already resolved into a floor and a cap
+     * by SelectionBounds, sent so the portal and the submit validator can
+     * never disagree about what a rule means.
+     */
     public record PortalQuestion(
             Long questionId,
             Long sectionId,
             int sortOrder,
             ContentType contentType,
+            QuestionType questionType,
             String stem,
             String mediaUrl,
+            SelectionRule selectionRule,
+            Integer selectionCount,
+            int minSelections,
+            int maxSelections,
+            String scaleLowLabel,
+            String scaleHighLabel,
+            List<PortalRow> rows,
             List<PortalOption> options) {
+    }
+
+    /**
+     * One row of a LIKERT_GRID — the item rated against the shared columns
+     * (the options). Empty on every other type, which is how the portal
+     * decides between a table and a list. Which MQTs a row measures is
+     * deliberately NOT here: that is scoring, and scoring never reaches the
+     * respondent's browser.
+     */
+    public record PortalRow(Long questionRowId, String rowText, int sortOrder) {
     }
 
     /** One selectable option — no scoring data. */
@@ -85,16 +133,18 @@ public record PortalAssessmentDetailResponse(
         Assessment assessment = mapping.getAssessment();
         Questionnaire questionnaire = assessment.getQuestionnaire();
 
-        // First-appearance order matches question order; the fetch join may
-        // duplicate placement rows per option, and entity identity makes
-        // distinct() collapse them.
+        // Collected by first appearance (the fetch join may duplicate
+        // placement rows per option, and entity identity makes distinct()
+        // collapse them), then sorted by the section's own sortOrder before
+        // being emitted — question order must not decide section order.
         Map<Long, PortalSection> sections = new LinkedHashMap<>();
         List<PortalQuestion> questions = new ArrayList<>();
         for (QuestionnaireQuestion placement : placements.stream().distinct().toList()) {
             Section section = placement.getSection();
             if (section != null) {
                 sections.putIfAbsent(section.getSectionId(),
-                        new PortalSection(section.getSectionId(), section.getName(), section.getInstruction()));
+                        new PortalSection(section.getSectionId(), section.getName(), section.getInstruction(),
+                                section.getSortOrder()));
             }
             Question question = placement.getQuestion();
             List<PortalOption> options = question.getOptions().stream()
@@ -102,13 +152,25 @@ public record PortalAssessmentDetailResponse(
                     .map(o -> new PortalOption(o.getOptionId(), o.getOptionText(), o.getContentType(),
                             o.getMediaUrl(), o.getSortOrder()))
                     .toList();
+            SelectionBounds bounds = SelectionBounds.of(question);
             questions.add(new PortalQuestion(
                     question.getQuestionId(),
                     section == null ? null : section.getSectionId(),
                     placement.getSortOrder(),
                     question.getContentType(),
+                    question.getQuestionType(),
                     question.getQuestionTexString(),
                     question.getMediaUrl(),
+                    question.getSelectionRule(),
+                    question.getSelectionCount(),
+                    bounds.floor(),
+                    bounds.cap(),
+                    question.getScaleLowLabel(),
+                    question.getScaleHighLabel(),
+                    question.getRows().stream()
+                            .sorted(Comparator.comparingInt(QuestionRow::getSortOrder))
+                            .map(r -> new PortalRow(r.getQuestionRowId(), r.getRowText(), r.getSortOrder()))
+                            .toList(),
                     options));
         }
 
@@ -132,6 +194,7 @@ public record PortalAssessmentDetailResponse(
                 assessment.getAssessmentId(),
                 assessment.getName(),
                 assessment.isShowTermsAndConditions(),
+                AssessmentTerms.effective(assessment.getTermsAndConditions()),
                 assessment.isAutoNext(),
                 assessment.isShowQuestionIndex(),
                 questionnaire.getQuestionnaireId(),
@@ -141,7 +204,10 @@ public record PortalAssessmentDetailResponse(
                 questionnaire.getGeneralInstruction(),
                 questionnaire.isHasSections(),
                 demographicFields,
-                List.copyOf(sections.values()),
+                sections.values().stream()
+                        .sorted(Comparator.comparingInt(PortalSection::sortOrder)
+                                .thenComparing(PortalSection::sectionId))
+                        .toList(),
                 questions);
     }
 }

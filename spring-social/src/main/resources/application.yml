@@ -15,7 +15,7 @@ spring:
       on-profile: development
 
   datasource:
-    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:bodhpsychometric}?createDatabaseIfNotExist=true&allowPublicKeyRetrieval=true&useSSL=false&serverTimezone=UTC
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3307}/${DB_NAME:bodhpsychometric}?createDatabaseIfNotExist=true&allowPublicKeyRetrieval=true&useSSL=false&serverTimezone=UTC
     username: ${DB_USERNAME:bodh}
     password: ${DB_PASSWORD:bodh}
     driver-class-name: com.mysql.cj.jdbc.Driver
@@ -47,15 +47,74 @@ spring:
         # (e.g. the User table on H2), so entity names stay portable.
         auto_quote_keyword: true
 
+  # ── Error responses ───────────────────────────────────────────────────────
+  # Set explicitly rather than inherited, because the defaults differ between
+  # environments: spring-boot-devtools (present in dev, absent from the
+  # packaged jar) flips include-message and include-stacktrace to ALWAYS. The
+  # bodies clients actually see come from ApiExceptionHandler; these only
+  # govern what is left — failures thrown outside a controller, which reach
+  # Spring's own error handler.
+  #
+  # spring.web.error.*, NOT server.error.* — Boot 4.0 moved these and left the
+  # old names deprecated at level=error, which means they no longer bind at
+  # all. Under the old names this whole block was silently doing nothing.
+  web:
+    error:
+      include-message: always
+      include-stacktrace: never
+      include-exception: false
+
 server:
   port: ${SERVER_PORT:8080}
+
+logging:
+  level:
+    com.bodhpsychometric: INFO
+  # requestId ties a log line to the reference in a 5xx body; actor is the
+  # user id ActorFilter resolved, or "anonymous". Together a report of
+  # "error abc123" is one grep, and every line says who caused it.
+  pattern:
+    level: "%5p [%X{requestId:-} %X{actor:-}]"
 
 app:
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173,http://localhost:3002}
-  superadmin:
-    email: superadmin@bodh.biz
-    dob: 1990-01-01
+  security:
+    # OFF: ActorFilter resolves the bearer when there is one and serves the
+    # request either way — an anonymous call still works and is simply logged
+    # without a who. ON: anything that resolved to anonymous is answered 401
+    # before it reaches a controller (the sign-in and self-registration
+    # endpoints stay open — see ActorFilter.PUBLIC_PATTERNS).
+    #
+    # A property, not a code change, so switching it on — and rolling it back
+    # — is a restart. Flip with REQUIRE_AUTH=true.
+    require-auth: ${REQUIRE_AUTH:false}
+  activity:
+    # The activity trail records EVERY request, reads included, so three knobs
+    # matter operationally:
+    #   enabled        — the whole feature, off in one restart if it ever hurts
+    #   retention-days — a POLICY default, not a decision. 0 or less = keep
+    #                    everything (and own the growth yourself)
+    #   queue-capacity — rows buffered before the writer starts dropping. It
+    #                    drops rather than blocks: an unbounded buffer turns a
+    #                    slow database into an out-of-memory kill
+    enabled: ${ACTIVITY_LOG_ENABLED:true}
+    retention-days: ${ACTIVITY_RETENTION_DAYS:365}
+    queue-capacity: 10000
+  # Every entry is created at startup by SuperAdminSeeder unless a User
+  # already holds that email, so all of these credentials open the dashboard.
+  # dob IS the password (see User.dob) — the login form wants 2001-01-01
+  # typed as 01/01/2001, four-digit year.
+  #
+  # Seeding only ever adds. Editing a dob here does NOT change an account that
+  # already exists, and deleting an entry does NOT remove the account — both
+  # are done against the database on purpose, never by a config edit.
+  # Override per environment with APP_SUPERADMINS_0_EMAIL / APP_SUPERADMINS_0_DOB.
+  superadmins:
+    - email: admin@bodh
+      dob: 2001-01-01
+    - email: superadmin@bodh.biz
+      dob: 1990-01-01
   jwt:
     # HS256 needs >= 32 bytes; override in every real environment.
     secret: ${JWT_SECRET:eb36fabf9a4245f0e94e981537361065878f2b21d557f75b0137343b7de06f80}
@@ -94,7 +153,9 @@ spring:
       # is no baseline migration, so a fresh database is created here. Switch
       # to validate once Flyway owns a full schema from V1.
       ddl-auto: validate
-    show-sql: true
+    # Every statement logged and pretty-printed is a real cost in production
+    # and buries the application's own logs. Development keeps it on.
+    show-sql: false
     open-in-view: false
     properties:
       hibernate:
@@ -103,15 +164,63 @@ spring:
         # (e.g. the User table on H2), so entity names stay portable.
         auto_quote_keyword: true
 
+  # See the development profile — set explicitly so the two environments agree,
+  # and under spring.web.error.* because server.error.* stopped binding in
+  # Boot 4.0.
+  web:
+    error:
+      include-message: always
+      include-stacktrace: never
+      include-exception: false
+
 server:
   port: ${SERVER_PORT:8080}
+
+logging:
+  level:
+    com.bodhpsychometric: INFO
+  pattern:
+    level: "%5p [%X{requestId:-} %X{actor:-}]"
 
 app:
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173,https://admin.bodh.biz,https://*.bodh.biz,https://portal.bodh.biz}
-  superadmin:
-    email: superadmin@bodh.biz
-    dob: 1990-01-01
+  security:
+    # OFF: ActorFilter resolves the bearer when there is one and serves the
+    # request either way — an anonymous call still works and is simply logged
+    # without a who. ON: anything that resolved to anonymous is answered 401
+    # before it reaches a controller (the sign-in and self-registration
+    # endpoints stay open — see ActorFilter.PUBLIC_PATTERNS).
+    #
+    # A property, not a code change, so switching it on — and rolling it back
+    # — is a restart. Flip with REQUIRE_AUTH=true.
+    require-auth: ${REQUIRE_AUTH:false}
+  activity:
+    # The activity trail records EVERY request, reads included, so three knobs
+    # matter operationally:
+    #   enabled        — the whole feature, off in one restart if it ever hurts
+    #   retention-days — a POLICY default, not a decision. 0 or less = keep
+    #                    everything (and own the growth yourself)
+    #   queue-capacity — rows buffered before the writer starts dropping. It
+    #                    drops rather than blocks: an unbounded buffer turns a
+    #                    slow database into an out-of-memory kill
+    enabled: ${ACTIVITY_LOG_ENABLED:true}
+    retention-days: ${ACTIVITY_RETENTION_DAYS:365}
+    queue-capacity: 10000
+  # Every entry is created at startup by SuperAdminSeeder unless a User
+  # already holds that email, so all of these credentials open the dashboard.
+  # dob IS the password (see User.dob) — the login form wants 2001-01-01
+  # typed as 01/01/2001, four-digit year.
+  #
+  # Seeding only ever adds. Editing a dob here does NOT change an account that
+  # already exists, and deleting an entry does NOT remove the account — both
+  # are done against the database on purpose, never by a config edit.
+  # Override per environment with APP_SUPERADMINS_0_EMAIL / APP_SUPERADMINS_0_DOB.
+  superadmins:
+    - email: admin@bodh
+      dob: 2001-01-01
+    - email: superadmin@bodh.biz
+      dob: 1990-01-01
   jwt:
     # HS256 needs >= 32 bytes; override in every real environment.
     secret: ${JWT_SECRET:eb36fabf9a4245f0e94e981537361065878f2b21d557f75b0137343b7de06f80}

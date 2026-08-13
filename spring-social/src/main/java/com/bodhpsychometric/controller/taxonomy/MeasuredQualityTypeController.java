@@ -62,6 +62,9 @@ public class MeasuredQualityTypeController {
     @Autowired
     private OptionMqtScoreRepository optionMqtScoreRepository;
 
+    @Autowired
+    private com.bodhpsychometric.repository.scoring.QuestionRowMqtRepository questionRowMqtRepository;
+
     @GetMapping("/getAll")
     public List<MqtFlat> getAllQualityTypes() {
         return measuredQualityTypeRepository.findAll().stream().map(MqtFlat::from).toList();
@@ -126,7 +129,10 @@ public class MeasuredQualityTypeController {
         List<Long> subtreeIds = new ArrayList<>();
         collectSubtreeIds(node, subtreeIds);
         if (questionMqtScoreRepository.existsByMeasuredQualityType_MeasuredQualityTypeIdIn(subtreeIds)
-                || optionMqtScoreRepository.existsByMeasuredQualityType_MeasuredQualityTypeIdIn(subtreeIds)) {
+                || optionMqtScoreRepository.existsByMeasuredQualityType_MeasuredQualityTypeIdIn(subtreeIds)
+                // Grid rows NOMINATE traits without scoring them — a third
+                // place a trait can be in use, and just as able to trip the FK.
+                || questionRowMqtRepository.existsByMeasuredQualityType_MeasuredQualityTypeIdIn(subtreeIds)) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
                     "message", "This quality type is in use by question scoring and can't be deleted."));
         }

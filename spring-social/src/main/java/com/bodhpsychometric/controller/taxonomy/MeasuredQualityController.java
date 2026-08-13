@@ -46,6 +46,9 @@ public class MeasuredQualityController {
     @Autowired
     private OptionMqtScoreRepository optionMqtScoreRepository;
 
+    @Autowired
+    private com.bodhpsychometric.repository.scoring.QuestionRowMqtRepository questionRowMqtRepository;
+
     @GetMapping("/getAll")
     public List<MeasuredQualityResponse> getAllMeasuredQualities() {
         return measuredQualityRepository.findAll().stream()
@@ -90,7 +93,10 @@ public class MeasuredQualityController {
         // used in question/option scoring would trip an FK at commit (500).
         // Pre-check and warn with a 409 instead.
         if (questionMqtScoreRepository.existsByMeasuredQualityType_MeasuredQuality_MeasuredQualityId(id)
-                || optionMqtScoreRepository.existsByMeasuredQualityType_MeasuredQuality_MeasuredQualityId(id)) {
+                || optionMqtScoreRepository.existsByMeasuredQualityType_MeasuredQuality_MeasuredQualityId(id)
+                // Grid rows NOMINATE traits without scoring them — a third
+                // place a trait can be in use, and just as able to trip the FK.
+                || questionRowMqtRepository.existsByMeasuredQualityType_MeasuredQuality_MeasuredQualityId(id)) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
                     "message", "This measured quality is in use by question scoring and can't be deleted."));
         }

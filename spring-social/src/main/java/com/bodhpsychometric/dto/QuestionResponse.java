@@ -4,6 +4,8 @@ import java.util.List;
 
 import com.bodhpsychometric.model.question.Question;
 import com.bodhpsychometric.model.question.enums.ContentType;
+import com.bodhpsychometric.model.question.enums.QuestionType;
+import com.bodhpsychometric.model.question.enums.SelectionRule;
 
 /**
  * A bank question with its options and MQT scores. usedIn lists every
@@ -12,6 +14,13 @@ import com.bodhpsychometric.model.question.enums.ContentType;
  * question is read through one questionnaire (getByQuestionnaireId), null in
  * bank-wide reads because a question placed in several questionnaires has
  * several placements (and a different tag in each).
+ *
+ * selectionRule/selectionCount are both null on single-choice questions.
+ * questionType is never null (MCQ for everything authored before it existed);
+ * the two scale labels are set only on a LINEAR_SCALE, whose options are the
+ * generated points 1—5 carrying the derived per-point scores. On a
+ * LIKERT_GRID the options are the shared columns and rows are the items, each
+ * naming the MQTs it measures; rows is empty on every other type.
  */
 public record QuestionResponse(
         Long questionId,
@@ -20,10 +29,16 @@ public record QuestionResponse(
         Integer sortOrder,
         String questionTag,
         ContentType contentType,
+        QuestionType questionType,
         String stem,
         String mediaUrl,
         boolean riskFlag,
+        SelectionRule selectionRule,
+        Integer selectionCount,
+        String scaleLowLabel,
+        String scaleHighLabel,
         List<QuestionOptionResponse> options,
+        List<QuestionRowResponse> rows,
         List<MqtScoreResponse> mqtScores) {
 
     /** One questionnaire that uses this question. */
@@ -31,7 +46,8 @@ public record QuestionResponse(
     }
 
     public static QuestionResponse from(Question q, List<UsedInRef> usedIn, Long sectionId, Integer sortOrder,
-            String questionTag, List<QuestionOptionResponse> options, List<MqtScoreResponse> mqtScores) {
+            String questionTag, List<QuestionOptionResponse> options, List<QuestionRowResponse> rows,
+            List<MqtScoreResponse> mqtScores) {
         return new QuestionResponse(
                 q.getQuestionId(),
                 usedIn,
@@ -39,10 +55,16 @@ public record QuestionResponse(
                 sortOrder,
                 questionTag,
                 q.getContentType(),
+                q.getQuestionType(),
                 q.getQuestionTexString(),
                 q.getMediaUrl(),
                 q.isRiskFlag(),
+                q.getSelectionRule(),
+                q.getSelectionCount(),
+                q.getScaleLowLabel(),
+                q.getScaleHighLabel(),
                 options,
+                rows,
                 mqtScores);
     }
 }

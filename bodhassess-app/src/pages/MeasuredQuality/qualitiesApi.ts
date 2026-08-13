@@ -1,8 +1,4 @@
-import axios from 'axios';
-
-// import.meta.env, not process.env — process does not exist in the browser
-// bundle Vite produces; reading it crashes the page on load.
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api';
+import { api } from '@/lib/apiClient';
 
 // ── UI-side tree shapes used by the Qualities page ─────────────────────────
 export interface MQT {
@@ -53,44 +49,44 @@ export interface MeasuredQualityTypePayload {
 
 // ── Quality API ────────────────────────────────────────────────────────────
 function getQualities() {
-  return axios.get<MeasuredQualityResponse[]>(`${API_URL}/qualities/getAll`);
+  return api.get<MeasuredQualityResponse[]>(`/qualities/getAll`);
 }
 
 function getQualityById(id: number) {
-  return axios.get<MeasuredQualityResponse>(`${API_URL}/qualities/getById/${id}`);
+  return api.get<MeasuredQualityResponse>(`/qualities/getById/${id}`);
 }
 
 function createQuality(quality: MeasuredQualityPayload) {
-  return axios.post<MeasuredQualityResponse>(`${API_URL}/qualities/create`, quality);
+  return api.post<MeasuredQualityResponse>(`/qualities/create`, quality);
 }
 
 function updateQuality(id: number, quality: MeasuredQualityPayload) {
-  return axios.put<MeasuredQualityResponse>(`${API_URL}/qualities/update/${id}`, quality);
+  return api.put<MeasuredQualityResponse>(`/qualities/update/${id}`, quality);
 }
 
 function deleteQuality(id: number) {
-  return axios.delete<void>(`${API_URL}/qualities/delete/${id}`);
+  return api.delete<void>(`/qualities/delete/${id}`);
 }
 
 // ── Quality Type API ───────────────────────────────────────────────────────
 function getQualityTypes() {
-  return axios.get(`${API_URL}/quality-types/getAll`);
+  return api.get(`/quality-types/getAll`);
 }
 
 function getQualityTypeById(id: number) {
-  return axios.get<MqtNodeResponse>(`${API_URL}/quality-types/getById/${id}`);
+  return api.get<MqtNodeResponse>(`/quality-types/getById/${id}`);
 }
 
 function createQualityType(qualityType: MeasuredQualityTypePayload) {
-  return axios.post<MqtNodeResponse>(`${API_URL}/quality-types/create`, qualityType);
+  return api.post<MqtNodeResponse>(`/quality-types/create`, qualityType);
 }
 
 function updateQualityType(id: number, qualityType: MeasuredQualityTypePayload) {
-  return axios.put<MqtNodeResponse>(`${API_URL}/quality-types/update/${id}`, qualityType);
+  return api.put<MqtNodeResponse>(`/quality-types/update/${id}`, qualityType);
 }
 
 function deleteQualityType(id: number) {
-  return axios.delete<void>(`${API_URL}/quality-types/delete/${id}`);
+  return api.delete<void>(`/quality-types/delete/${id}`);
 }
 
 export const qualitiesApi = {

@@ -3,6 +3,7 @@ package com.bodhpsychometric.model.assessment;
 import com.bodhpsychometric.model.auth.RespondentUser;
 import com.bodhpsychometric.model.question.Option;
 import com.bodhpsychometric.model.question.Question;
+import com.bodhpsychometric.model.question.QuestionRow;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -25,17 +26,28 @@ import jakarta.persistence.UniqueConstraint;
  * re-attempt REPLACES the pair's answer set on submit (latest wins,
  * longitudinal waves are deliberately not stored here).
  *
- * One row per selected option. answerText and rankOrder are reserved
- * payloads for response styles that are not modelled yet (free-text answers,
- * ranking) — attempt style is deliberately absent from Question for now.
+ * One row per selected option — and on a LIKERT_GRID, per (row, option): the
+ * grid's rows share their columns, so the same (question, option) pair
+ * legitimately repeats once per row and questionRowId is what tells them
+ * apart. answerText and rankOrder are reserved payloads for response styles
+ * that are not modelled yet (free-text answers, ranking).
  *
- * One rule the mapping cannot express, enforce in the service: the option
- * must belong to the question on the same row.
+ * The unique constraint declared here is NOT what MySQL enforces. MySQL
+ * treats NULLs as never equal, so a plain five-column key would stop
+ * constraining every NON-grid answer (questionRowId null) — the guarantee
+ * that turns a duplicated submit into a clean 400 instead of a 500 at commit.
+ * V15 therefore builds it with a functional key part over
+ * COALESCE(question_row_id, 0), which JPA cannot express; the declaration
+ * here is what the H2 test schema gets. Hibernate's validate inspects tables,
+ * columns and types — never index expressions — so the two never collide.
+ *
+ * Two rules the mapping cannot express, enforced in the service: the option
+ * must belong to the question on the same row, and so must the grid row.
  */
 @Entity
 @Table(name = "AssessmentAnswer",
-        uniqueConstraints = @UniqueConstraint(name = "uqAaRespondentAssessmentQuestionOption",
-                columnNames = {"respondentUserId", "assessmentId", "questionId", "optionId"}),
+        uniqueConstraints = @UniqueConstraint(name = "uqAaRespondentAssessmentQuestionRowOption",
+                columnNames = {"respondentUserId", "assessmentId", "questionId", "questionRowId", "optionId"}),
         indexes = {
                 @Index(name = "idxAaAssessment", columnList = "assessmentId"),
                 @Index(name = "idxAaQuestion", columnList = "questionId"),
@@ -69,6 +81,17 @@ public class AssessmentAnswer implements java.io.Serializable {
     @JoinColumn(name = "optionId",
             foreignKey = @ForeignKey(name = "fkAaOption"))
     private Option option;
+
+    /**
+     * WHICH grid row this rating answers — null on every other question type,
+     * where the question itself is the whole item. Set exactly when the
+     * question is a LIKERT_GRID, and what makes a grid's several rows
+     * distinguishable when they pick the same column.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "questionRowId",
+            foreignKey = @ForeignKey(name = "fkAaQuestionRow"))
+    private QuestionRow questionRow;
 
     /** FREE_TEXT payload. */
     @Column(name = "answerText", columnDefinition = "TEXT")
@@ -116,6 +139,14 @@ public class AssessmentAnswer implements java.io.Serializable {
 
     public void setOption(Option option) {
         this.option = option;
+    }
+
+    public QuestionRow getQuestionRow() {
+        return questionRow;
+    }
+
+    public void setQuestionRow(QuestionRow questionRow) {
+        this.questionRow = questionRow;
     }
 
     public String getAnswerText() {

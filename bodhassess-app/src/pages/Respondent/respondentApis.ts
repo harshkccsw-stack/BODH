@@ -1,8 +1,4 @@
-import axios from 'axios';
-
-// import.meta.env, not process.env — process does not exist in the browser
-// bundle Vite produces.
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api';
+import { api } from '@/lib/apiClient';
 
 export type Gender = 'MALE' | 'FEMALE' | 'OTHER';
 
@@ -18,6 +14,12 @@ export interface RespondentPayload {
   /** dd-MM-yyyy (wire format everywhere) — doubles as the login password. */
   dob: string;
   phone: string | null;
+  /**
+   * Optional employer code, unique per organization. Alphanumeric only —
+   * the portal accepts it in place of the email at login, and the backend
+   * tells the two apart by looking for '@'.
+   */
+  employeeId: string | null;
   gender: Gender | null;
   isConsented: boolean;
   organizationId: number | null;
@@ -33,6 +35,7 @@ export interface RespondentResponse {
   /** dd-MM-yyyy, same format the payload sends. */
   dob: string;
   phone: string | null;
+  employeeId: string | null;
   gender: Gender | null;
   isConsented: boolean;
   consentedAt: string | null;
@@ -49,28 +52,28 @@ export interface OrganizationResponse {
 
 //respondent apis
 function getAllRespondents() {
-  return axios.get<RespondentResponse[]>(`${API_URL}/respondents/getAll`);
+  return api.get<RespondentResponse[]>(`/respondents/getAll`);
 }
 
 function getRespondentById(id: number) {
-  return axios.get<RespondentResponse>(`${API_URL}/respondents/getById/${id}`);
+  return api.get<RespondentResponse>(`/respondents/getById/${id}`);
 }
 
 function createRespondent(respondent: RespondentPayload) {
-  return axios.post<RespondentResponse>(`${API_URL}/respondents/create`, respondent);
+  return api.post<RespondentResponse>(`/respondents/create`, respondent);
 }
 
 function updateRespondent(id: number, respondent: RespondentPayload) {
-  return axios.put<RespondentResponse>(`${API_URL}/respondents/update/${id}`, respondent);
+  return api.put<RespondentResponse>(`/respondents/update/${id}`, respondent);
 }
 
 function deleteRespondent(id: number) {
-  return axios.delete<void>(`${API_URL}/respondents/delete/${id}`);
+  return api.delete<void>(`/respondents/delete/${id}`);
 }
 
 //organization picker for the create/edit form
 function getAllOrganizations() {
-  return axios.get<OrganizationResponse[]>(`${API_URL}/organizations/getAll`);
+  return api.get<OrganizationResponse[]>(`/organizations/getAll`);
 }
 
 export const respondentApis = {

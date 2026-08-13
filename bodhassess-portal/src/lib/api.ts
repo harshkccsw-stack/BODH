@@ -80,6 +80,8 @@ export interface PortalRespondent {
   respondentUserId: number;
   serialId: string;
   email: string;
+  /** Optional employer code — null unless an admin set one. Also a login identifier. */
+  employeeId: string | null;
   name: string;
   isConsented: boolean;
   organizationId: number | null;
@@ -92,10 +94,15 @@ export interface PortalLoginResult {
   respondent: PortalRespondent;
 }
 export const portalAuthApi = {
-  // Same email + dob credential as the dashboard; only accounts holding a
-  // respondent profile get in (403 otherwise).
-  login: (email: string, dob: string) =>
-    jsonFetch<PortalLoginResult>('/portal/login', { method: 'POST', body: JSON.stringify({ email, dob }) }),
+  // dob is the password; the identifier is either the email or the
+  // respondent's employee id (the backend splits on '@', which employee ids
+  // can never contain). Only accounts holding a respondent profile get in
+  // (403 otherwise).
+  login: (identifier: string, dob: string) =>
+    jsonFetch<PortalLoginResult>('/portal/login', {
+      method: 'POST',
+      body: JSON.stringify({ identifier, dob }),
+    }),
   // Session restore: bearer token in, respondent + allotted assessments out.
   me: () => jsonFetch<PortalRespondent>('/portal/me'),
 };
@@ -112,15 +119,48 @@ export interface PortalOption {
   mediaUrl: string | null;
   sortOrder: number;
 }
+// How many options may be picked. Matches SelectionRule on the backend.
+export type PortalSelectionRule = 'MIN' | 'MAX' | 'EQUALS';
+// What shape the question is. Matches QuestionType on the backend — RENDERING
+// only: a LINEAR_SCALE is an ordinary cap-1 question whose options are the
+// points 1—5, so every gate still reads min/maxSelections.
+export type PortalQuestionType = 'MCQ' | 'LINEAR_SCALE' | 'LIKERT_GRID';
 // Matches PortalAssessmentDetailResponse.PortalQuestion on the backend.
 export interface PortalQuestion {
   questionId: number;
   sectionId: number | null;
   sortOrder: number;
   contentType: PortalContentType;
+  questionType: PortalQuestionType;
   stem: string | null;
   mediaUrl: string | null;
+  /** Null on single-choice questions — the rule the respondent is shown. */
+  selectionRule: PortalSelectionRule | null;
+  selectionCount: number | null;
+  /**
+   * The same rule already resolved to a floor and a cap by the server's
+   * SelectionBounds. Gate on THESE, not on the rule: the portal and the
+   * submit validator then cannot disagree about what a rule means. Single
+   * choice is 1/1.
+   */
+  minSelections: number;
+  maxSelections: number;
+  /** LINEAR_SCALE only — captions for the first and last point. */
+  scaleLowLabel: string | null;
+  scaleHighLabel: string | null;
+  /**
+   * LIKERT_GRID only — the statements rated against `options`, which are that
+   * grid's shared columns. Empty on every other type, and min/maxSelections
+   * apply PER ROW when it is not.
+   */
+  rows: PortalRow[];
   options: PortalOption[];
+}
+// Matches PortalAssessmentDetailResponse.PortalRow on the backend.
+export interface PortalRow {
+  questionRowId: number;
+  rowText: string | null;
+  sortOrder: number;
 }
 // Matches PortalAssessmentDetailResponse.PortalSection on the backend.
 export interface PortalSection {
@@ -147,6 +187,12 @@ export interface PortalAssessmentDetail {
   assessmentId: number;
   assessmentName: string;
   showTermsAndConditions: boolean;
+  /**
+   * The consent body to render, as a small HTML subset the server restricts
+   * to p/br/b/strong/i/em/u/ul/ol/li/h2/h3 with no attributes. Never null —
+   * assessments without their own text get the server's default.
+   */
+  termsAndConditions: string;
   autoNext: boolean;
   showQuestionIndex: boolean;
   questionnaireId: number;
@@ -168,7 +214,31 @@ export interface PortalDemographicEntry {
 export interface PortalAnswerEntry {
   questionId: number;
   optionId: number;
+  /**
+   * Which grid ROW this rating answers. Null on every other question type —
+   * the submit validator refuses a grid answer without one, and a row on a
+   * question that has none.
+   */
+  questionRowId: number | null;
 }
+
+/**
+ * How the take flow keys its answers: one entry per ANSWERABLE SLOT, which is
+ * the question itself, or one row of a grid. `${questionId}` or
+ * `${questionId}:${rowId}` — one shape, so every gate in the runner and the
+ * payload builder read the same map.
+ */
+export const answerKey = (questionId: number, questionRowId?: number | null): string =>
+  questionRowId == null ? String(questionId) : `${questionId}:${questionRowId}`;
+
+/** Splits an answerKey back into the ids the submit payload needs. */
+export const parseAnswerKey = (key: string): { questionId: number; questionRowId: number | null } => {
+  const [questionId, questionRowId] = key.split(':');
+  return {
+    questionId: Number(questionId),
+    questionRowId: questionRowId === undefined ? null : Number(questionRowId),
+  };
+};
 // Matches PortalAttemptStatusResponse on the backend. isPersisted is the
 // durability fact check — true once the answers reached MySQL.
 export interface PortalAttemptStatus {
@@ -193,6 +263,71 @@ export const portalAssessmentsApi = {
     jsonFetch<PortalAttemptStatus>(`/portal/assessments/submit/${encodeURIComponent(mappingId)}`, {
       method: 'POST',
       body: JSON.stringify({ answers, popUpCount }),
+    }),
+};
+
+// ---------- Self-registration links (public /register/{token}) ----------
+// Which of the token row's two targets was set. ASSESSMENT fixes the
+// assessment; ORGANIZATION lets the respondent pick from the org's catalog.
+export type RegistrationTokenScope = 'ORGANIZATION' | 'ASSESSMENT';
+
+// Matches RegistrationTokenDetailResponse on the backend. The assessment
+// fields are set on an ASSESSMENT link (show it chosen and locked) and null on
+// an ORGANIZATION link, which grants no assessment at all — the respondent is
+// only joining the organization, and an administrator assigns afterwards.
+export interface RegistrationTokenDetail {
+  token: string;
+  scope: RegistrationTokenScope;
+  organizationId: number;
+  organizationName: string;
+  /** Inline base64 data URL, bindable straight to an <img src>. Null if unset. */
+  organizationLogoBase64: string | null;
+  assessmentId: number | null;
+  assessmentName: string | null;
+}
+/** Matches the Gender enum on the backend. */
+export type RegistrationGender = 'MALE' | 'FEMALE' | 'OTHER';
+
+// Matches RegistrationSubmitRequest on the backend. No organizationId — the
+// token decides that, and a body must not be able to pick one.
+export interface RegistrationSubmitPayload {
+  name: string;
+  email: string;
+  /** ISO yyyy-MM-dd, same as the login endpoint. Also the sign-in password. */
+  dob: string;
+  phone?: string;
+  gender?: RegistrationGender;
+  employeeId?: string;
+  // No assessmentId: the link decides. An ASSESSMENT link fixes the
+  // assessment, an ORGANIZATION link grants none.
+}
+
+// Matches PortalRegistrationResponse on the backend — /portal/login's
+// {token, respondent} plus where to go next.
+export interface RegistrationResult extends PortalLoginResult {
+  /**
+   * The allotment to open on an ASSESSMENT link, so the portal can go
+   * straight into it. Null on an ORGANIZATION link — nothing was granted, so
+   * the respondent lands on the dashboard.
+   */
+  respondentAssessmentMappingId: number | null;
+}
+export const registrationTokensApi = {
+  // Public — the token in the path is the credential. 404 covers unknown,
+  // revoked, expired and used-up alike (deliberately indistinguishable); 409
+  // means the link is real but its assessments are not open right now.
+  getByToken: (token: string) =>
+    jsonFetch<RegistrationTokenDetail>(
+      `/registration-tokens/getByToken/${encodeURIComponent(token)}`,
+    ),
+  // Registers AND signs in: the reply carries the same {token, respondent}
+  // pair as /portal/login, so the caller stores the bearer and is
+  // authenticated. 409 means an account already exists (or a race lost);
+  // 403 a disabled account.
+  register: (token: string, body: RegistrationSubmitPayload) =>
+    jsonFetch<RegistrationResult>(`/portal/register/${encodeURIComponent(token)}`, {
+      method: 'POST',
+      body: JSON.stringify(body),
     }),
 };
 

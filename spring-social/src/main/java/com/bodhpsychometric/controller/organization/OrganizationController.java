@@ -32,6 +32,7 @@ import com.bodhpsychometric.model.assessment.OrganizationAssessmentMapping;
 import com.bodhpsychometric.model.auth.PractitionerUser;
 import com.bodhpsychometric.model.auth.RespondentUser;
 import com.bodhpsychometric.model.organization.Organization;
+import com.bodhpsychometric.repository.organization.RegistrationTokenRepository;
 import com.bodhpsychometric.repository.assessment.AssessmentRepository;
 import com.bodhpsychometric.repository.assessment.OrganizationAssessmentMappingRepository;
 import com.bodhpsychometric.repository.assessment.RespondentAssessmentMappingRepository;
@@ -73,6 +74,9 @@ public class OrganizationController {
 
     @Autowired
     private RespondentAssessmentMappingRepository respondentAssessmentMappingRepository;
+
+    @Autowired
+    private RegistrationTokenRepository registrationTokenRepository;
 
     private OrganizationResponse toResponse(Organization organization) {
         Long id = organization.getOrganizationId();
@@ -291,6 +295,19 @@ public class OrganizationController {
                     .body(Map.of("message",
                             "This organization still has staff or members — move them out first"));
         }
+        // Registration links go first, and both kinds: their FKs are RESTRICT,
+        // so a link still pointing at a catalog row — or at the org itself —
+        // blocks the two deletes below. They are true composition (a link
+        // means "register for THIS org/entry"), so they die with their target
+        // rather than being pre-checked.
+        List<Long> mappingIds = organizationAssessmentMappingRepository.findForOrganizationCatalog(id).stream()
+                .map(OrganizationAssessmentMapping::getOrganizationAssessmentMappingId)
+                .toList();
+        if (!mappingIds.isEmpty()) {
+            registrationTokenRepository
+                    .deleteByOrganizationAssessmentMapping_OrganizationAssessmentMappingIdIn(mappingIds);
+        }
+        registrationTokenRepository.deleteByOrganization_OrganizationId(id);
         // Catalog rows are meaningless without the org — clean them with it.
         organizationAssessmentMappingRepository.deleteByOrganization_OrganizationId(id);
         organizationRepository.deleteById(id);
@@ -398,7 +415,13 @@ public class OrganizationController {
             mappings.add(mapping);
         }
 
-        // Pass 2 — write.
+        // Pass 2 — write. The registration link for a catalog entry is
+        // composed with it: once the entry is gone the link points at nothing,
+        // so it goes too. Its FK is RESTRICT, so this also has to happen first.
+        registrationTokenRepository.deleteByOrganizationAssessmentMapping_OrganizationAssessmentMappingIdIn(
+                mappings.stream()
+                        .map(OrganizationAssessmentMapping::getOrganizationAssessmentMappingId)
+                        .toList());
         organizationAssessmentMappingRepository.deleteAll(mappings);
         return getOrganizationAssessments(id);
     }

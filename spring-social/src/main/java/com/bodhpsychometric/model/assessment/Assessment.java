@@ -1,5 +1,7 @@
 package com.bodhpsychometric.model.assessment;
 
+import java.time.LocalDate;
+
 import com.bodhpsychometric.model.assessment.enums.AssessmentStatus;
 import com.bodhpsychometric.model.questionnaire.Questionnaire;
 
@@ -44,6 +46,14 @@ public class Assessment implements java.io.Serializable {
     @Column(name = "showTermsAndConditions", nullable = false)
     private boolean showTermsAndConditions = true;
 
+    // The consent text shown before the attempt, as a small, fixed subset of
+    // HTML (see AssessmentTerms) authored in the dashboard's editor. NULL on
+    // assessments created before the field existed — readers substitute
+    // AssessmentTerms.DEFAULT_HTML rather than showing an empty gate, so this
+    // is never the reason a respondent sees a blank consent screen.
+    @Column(name = "termsAndConditions", columnDefinition = "TEXT")
+    private String termsAndConditions;
+
     // ── Config settings ──────────────────────────────────────────────────
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 16)
@@ -59,6 +69,16 @@ public class Assessment implements java.io.Serializable {
     // shown before this became configurable.
     @Column(name = "showQuestionIndex", nullable = false)
     private boolean showQuestionIndex = true;
+
+    // Availability window, both nullable ("no window"). METADATA ONLY today:
+    // nothing gates on these — only status == ACTIVE does (see
+    // PortalAssessmentService#requireOwnAttempt). Whoever wires enforcement
+    // must decide what an in-flight attempt does when the window closes.
+    @Column(name = "startDate")
+    private LocalDate startDate;
+
+    @Column(name = "endDate")
+    private LocalDate endDate;
 
     public Long getAssessmentId() {
         return assessmentId;
@@ -92,6 +112,14 @@ public class Assessment implements java.io.Serializable {
         this.showTermsAndConditions = showTermsAndConditions;
     }
 
+    public String getTermsAndConditions() {
+        return termsAndConditions;
+    }
+
+    public void setTermsAndConditions(String termsAndConditions) {
+        this.termsAndConditions = termsAndConditions;
+    }
+
     public AssessmentStatus getStatus() {
         return status;
     }
@@ -114,5 +142,21 @@ public class Assessment implements java.io.Serializable {
 
     public void setShowQuestionIndex(boolean showQuestionIndex) {
         this.showQuestionIndex = showQuestionIndex;
+    }
+
+    public LocalDate getStartDate() {
+        return startDate;
+    }
+
+    public void setStartDate(LocalDate startDate) {
+        this.startDate = startDate;
+    }
+
+    public LocalDate getEndDate() {
+        return endDate;
+    }
+
+    public void setEndDate(LocalDate endDate) {
+        this.endDate = endDate;
     }
 }

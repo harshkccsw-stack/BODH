@@ -1,7 +1,8 @@
 import { useMemo } from 'react';
-import { Circle, Clock, ExternalLink, Layers, ListChecks } from 'lucide-react';
+import { Circle, Clock, ExternalLink, Layers, ListChecks, Square } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
+import { selectionLabel, type QuestionType, type SelectionRule } from '../question-bank/questionApis';
 
 // The respondent-view rendering of a questionnaire, with no data fetching of
 // its own. The preview PAGE (/questionnaires/:id/preview) feeds it what the
@@ -22,9 +23,24 @@ export interface PreviewQuestion {
   sectionId: number | null;
   sortOrder: number | null;
   contentType: string;
+  /** Absent = MCQ, so a caller written before question types still works. */
+  questionType?: QuestionType;
   stem: string;
   mediaUrl: string | null;
+  /** Both null = single choice; otherwise how many options may be picked. */
+  selectionRule?: SelectionRule | null;
+  selectionCount?: number | null;
+  scaleLowLabel?: string | null;
+  scaleHighLabel?: string | null;
+  /** LIKERT_GRID only — the statements rated against `options`. */
+  rows?: PreviewRow[];
   options: PreviewOption[];
+}
+
+/** Structural subset of QuestionRowResponse this view needs. */
+export interface PreviewRow {
+  questionRowId: number;
+  rowText: string | null;
 }
 
 /** Structural subset of QuestionnaireResponse this view needs. */
@@ -73,6 +89,16 @@ export function MediaView({ contentType, mediaUrl, compact }: { contentType: str
 
 /** One question exactly as the respondent will meet it. */
 export function QuestionView({ q, number }: { q: PreviewQuestion; number: number }) {
+  // Multi-select questions get checkboxes and the same instruction line the
+  // portal shows, so the preview is not quietly kinder than the real thing.
+  const rule = q.selectionRule ?? null;
+  const Marker = rule ? Square : Circle;
+  // A linear scale is laid out the way the portal lays it out — a row of
+  // points between the two labels — not as a stack of options called "1".."5".
+  const isScale = q.questionType === 'LINEAR_SCALE';
+  // A grid is rows x columns, one pick per row — shown as the table the
+  // respondent meets, so the preview is not quietly kinder than the portal.
+  const gridRows = q.questionType === 'LIKERT_GRID' ? q.rows ?? [] : [];
   return (
     <div className="rounded-lg border border-border p-4 space-y-3">
       <div className="flex items-start gap-3">
@@ -84,11 +110,56 @@ export function QuestionView({ q, number }: { q: PreviewQuestion; number: number
           <MediaView contentType={q.contentType} mediaUrl={q.mediaUrl} />
         </div>
       </div>
-      {q.options.length > 0 && (
+      {rule && (
+        <p className="pl-9 text-xs font-medium text-primary">
+          {selectionLabel(rule, q.selectionCount ?? null, q.options.length)}
+        </p>
+      )}
+      {gridRows.length > 0 ? (
+        <div className="pl-9 overflow-x-auto">
+          <table className="w-full text-sm border-separate border-spacing-0">
+            <thead>
+              <tr>
+                <th className="text-left font-normal text-xs text-muted-foreground pb-2 pr-3" />
+                {q.options.map((o) => (
+                  <th key={o.optionId} className="font-normal text-xs text-muted-foreground pb-2 px-2 text-center whitespace-nowrap">
+                    {o.optionText}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {gridRows.map((r) => (
+                <tr key={r.questionRowId} className="border-t border-border">
+                  <td className="py-2 pr-3 border-t border-border">{r.rowText}</td>
+                  {q.options.map((o) => (
+                    <td key={o.optionId} className="py-2 px-2 text-center border-t border-border">
+                      <Circle className="h-3.5 w-3.5 text-muted-foreground/50 inline-block" />
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : isScale ? (
+        <div className="pl-9 flex items-end justify-between gap-3">
+          <span className="text-xs text-muted-foreground max-w-[25%] truncate">{q.scaleLowLabel}</span>
+          <div className="flex items-end gap-5">
+            {q.options.map((o) => (
+              <div key={o.optionId} className="flex flex-col items-center gap-1">
+                <Circle className="h-4 w-4 text-muted-foreground/50" />
+                <span className="text-[0.6875rem] text-muted-foreground">{o.optionText}</span>
+              </div>
+            ))}
+          </div>
+          <span className="text-xs text-muted-foreground max-w-[25%] truncate text-right">{q.scaleHighLabel}</span>
+        </div>
+      ) : q.options.length > 0 && (
         <div className="space-y-1.5 pl-9">
           {q.options.map((o) => (
             <div key={o.optionId} className="flex items-center gap-2.5 rounded-md border border-border px-3 py-2">
-              <Circle className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0" />
+              <Marker className={cn('h-3.5 w-3.5 text-muted-foreground/50 shrink-0', rule && 'rounded-[3px]')} />
               <div className="min-w-0 flex-1 space-y-1">
                 {o.optionText && <p className="text-sm">{o.optionText}</p>}
                 <MediaView contentType={o.contentType} mediaUrl={o.mediaUrl} compact />

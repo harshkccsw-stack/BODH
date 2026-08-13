@@ -3,7 +3,7 @@
 // "incompatible exports" warnings.
 
 import { config } from '@/lib/config';
-import type { AuthUser, PractitionerMe } from '@/lib/api';
+import type { AuthUser, PractitionerMe } from '@/lib/authApis';
 
 // One dashboard session token. Both super admins and practitioners now
 // authenticate through /auth, so there is a single token slot.
@@ -36,6 +36,11 @@ export const SUPERADMIN_ONLY_PATHS = [
   '/admin/permissions',
   '/admin/role-groups',
   '/admin/assign-role-group',
+  // The activity log records which respondents took which assessments, and
+  // who looked at them — stricter than the rest of the dashboard by some
+  // margin. The API enforces this independently, so this line controls the
+  // sidebar and the route, not the data.
+  '/admin/activity-log',
 ];
 
 export function isSuperAdminOnlyPath(pathname: string): boolean {

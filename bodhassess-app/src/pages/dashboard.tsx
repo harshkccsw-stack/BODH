@@ -368,7 +368,7 @@ function DashboardContent() {
 
       {/* Quick Actions */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
-        <Card className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => { window.location.href = '/assessments/create'; }}>
+        <Card className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => { window.location.href = '/assessment-library/assessments/create'; }}>
           <CardContent className="p-5 flex items-center gap-4">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
               <ClipboardCheck className="h-5 w-5 text-primary" />

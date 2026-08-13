@@ -1,8 +1,4 @@
-import axios from 'axios';
-
-// import.meta.env, not process.env — process does not exist in the browser
-// bundle Vite produces.
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api';
+import { api } from '@/lib/apiClient';
 
 // ── Wire shapes — mirror spring-social's DTOs 1:1 ──────────────────────────
 /** Matches QuestionnaireRequest on the backend. */
@@ -32,23 +28,23 @@ export interface QuestionnaireResponse {
 }
 
 function getQuestionnaires() {
-  return axios.get<QuestionnaireResponse[]>(`${API_URL}/questionnaire/getAll`);
+  return api.get<QuestionnaireResponse[]>(`/questionnaire/getAll`);
 }
 
 function getQuestionnaireById(id: number) {
-  return axios.get<QuestionnaireResponse>(`${API_URL}/questionnaire/getById/${id}`);
+  return api.get<QuestionnaireResponse>(`/questionnaire/getById/${id}`);
 }
 
 function createQuestionnaire(payload: QuestionnairePayload) {
-  return axios.post<QuestionnaireResponse>(`${API_URL}/questionnaire/create`, payload);
+  return api.post<QuestionnaireResponse>(`/questionnaire/create`, payload);
 }
 
 function updateQuestionnaire(id: number, payload: QuestionnairePayload) {
-  return axios.put<QuestionnaireResponse>(`${API_URL}/questionnaire/update/${id}`, payload);
+  return api.put<QuestionnaireResponse>(`/questionnaire/update/${id}`, payload);
 }
 
 function deleteQuestionnaire(id: number) {
-  return axios.delete<void>(`${API_URL}/questionnaire/delete/${id}`);
+  return api.delete<void>(`/questionnaire/delete/${id}`);
 }
 
 // ── Demographic form mapping ───────────────────────────────────────────────
@@ -68,8 +64,7 @@ export interface QuestionnaireDemographicFieldResponse {
 }
 
 function getQuestionnaireDemographicFields(questionnaireId: number) {
-  return axios.get<QuestionnaireDemographicFieldResponse[]>(
-    `${API_URL}/questionnaire/${questionnaireId}/demographic-fields`,
+  return api.get<QuestionnaireDemographicFieldResponse[]>(`/questionnaire/${questionnaireId}/demographic-fields`,
   );
 }
 
@@ -78,8 +73,7 @@ function setQuestionnaireDemographicFields(
   questionnaireId: number,
   entries: QuestionnaireDemographicFieldEntry[],
 ) {
-  return axios.put<QuestionnaireDemographicFieldResponse[]>(
-    `${API_URL}/questionnaire/${questionnaireId}/demographic-fields`,
+  return api.put<QuestionnaireDemographicFieldResponse[]>(`/questionnaire/${questionnaireId}/demographic-fields`,
     entries,
   );
 }
@@ -90,19 +84,40 @@ export interface SectionResponse {
   sectionId: number;
   name: string;
   instruction: string | null;
+  /** Display position, 0-based and dense. The list arrives sorted by it. */
+  sortOrder: number;
+}
+
+export interface SectionPayload {
+  name: string;
+  instruction: string | null;
 }
 
 function getQuestionnaireSections(questionnaireId: number) {
-  return axios.get<SectionResponse[]>(`${API_URL}/questionnaire/${questionnaireId}/sections`);
+  return api.get<SectionResponse[]>(`/questionnaire/${questionnaireId}/sections`);
 }
 
-function createQuestionnaireSection(questionnaireId: number, payload: { name: string; instruction: string | null }) {
-  return axios.post<SectionResponse>(`${API_URL}/questionnaire/${questionnaireId}/sections`, payload);
+function createQuestionnaireSection(questionnaireId: number, payload: SectionPayload) {
+  return api.post<SectionResponse>(`/questionnaire/${questionnaireId}/sections`, payload);
+}
+
+/** Rename / re-instruct a section. Position is untouched. */
+function updateQuestionnaireSection(questionnaireId: number, sectionId: number, payload: SectionPayload) {
+  return api.put<SectionResponse>(`/questionnaire/${questionnaireId}/sections/${sectionId}`, payload);
+}
+
+/**
+ * Replace the display order. Must list EVERY section of the questionnaire
+ * exactly once — a partial list is a 400. Returns the sections re-sorted, and
+ * re-stamps the Section_A/B/C report tags on the backend.
+ */
+function reorderQuestionnaireSections(questionnaireId: number, sectionIds: number[]) {
+  return api.put<SectionResponse[]>(`/questionnaire/${questionnaireId}/sections/order`, sectionIds);
 }
 
 /** Questions in the section survive — they detach to the questionnaire root. */
 function deleteQuestionnaireSection(questionnaireId: number, sectionId: number) {
-  return axios.delete<void>(`${API_URL}/questionnaire/${questionnaireId}/sections/${sectionId}`);
+  return api.delete<void>(`/questionnaire/${questionnaireId}/sections/${sectionId}`);
 }
 
 // ── Question mapping ───────────────────────────────────────────────────────
@@ -115,7 +130,7 @@ export interface QuestionnaireQuestionEntry {
 
 /** Replace-all: attaches listed bank questions, detaches everything else. */
 function setQuestionnaireQuestions(questionnaireId: number, entries: QuestionnaireQuestionEntry[]) {
-  return axios.put<{ attached: number }>(`${API_URL}/questionnaire/${questionnaireId}/questions`, entries);
+  return api.put<{ attached: number }>(`/questionnaire/${questionnaireId}/questions`, entries);
 }
 
 export const questionnairesApi = {
@@ -128,6 +143,8 @@ export const questionnairesApi = {
   setQuestionnaireDemographicFields,
   getQuestionnaireSections,
   createQuestionnaireSection,
+  updateQuestionnaireSection,
+  reorderQuestionnaireSections,
   deleteQuestionnaireSection,
   setQuestionnaireQuestions,
 };

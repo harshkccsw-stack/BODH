@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router';
+import { useNavigate, useSearchParams } from 'react-router';
 import {
   AlertTriangle,
   BookOpen,
+  CalendarRange,
   ClipboardCheck,
   Loader2,
   Pencil,
@@ -18,7 +19,6 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import {
   assessmentsApi,
-  type AssessmentPayload,
   type AssessmentResponse,
   type AssessmentStatus,
 } from './assessmentApis';
@@ -29,24 +29,17 @@ import {
 
 const STATUSES: AssessmentStatus[] = ['ACTIVE', 'INACTIVE'];
 
-interface AssessmentForm {
-  id: number | null;
-  name: string;
-  questionnaireId: string; // '' = not picked yet; select values are strings
-  status: AssessmentStatus;
-  showTermsAndConditions: boolean;
-  autoNext: boolean;
-  showQuestionIndex: boolean;
-}
+// Create and edit both live on their own page now (the modal that used to sit
+// in this file is gone) — this page navigates there and back.
+const FORM_PATH = '/assessment-library/assessments/create';
 
-const EMPTY_FORM: AssessmentForm = {
-  id: null,
-  name: '',
-  questionnaireId: '',
-  status: 'INACTIVE',
-  showTermsAndConditions: true,
-  autoNext: false,
-  showQuestionIndex: true,
+/** 'YYYY-MM-DD' → a short readable date; null/'' → null. */
+const shortDate = (iso: string | null) => {
+  if (!iso) return null;
+  const d = new Date(`${iso}T00:00:00`);
+  return Number.isNaN(d.getTime())
+    ? iso
+    : d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 };
 
 const statusChip = (s: AssessmentStatus) =>
@@ -55,6 +48,7 @@ const statusChip = (s: AssessmentStatus) =>
     : 'border-border bg-muted/40 text-muted-foreground';
 
 export default function AssessmentLibraryPage() {
+  const navigate = useNavigate();
   const [items, setItems] = useState<AssessmentResponse[]>([]);
   const [questionnaires, setQuestionnaires] = useState<QuestionnaireResponse[]>([]);
   const [loading, setLoading] = useState(true);
@@ -63,11 +57,6 @@ export default function AssessmentLibraryPage() {
   const [filterStatus, setFilterStatus] = useState<string>('ALL');
   // 'ALL' or a questionnaireId as string.
   const [filterQid, setFilterQid] = useState('ALL');
-
-  const [modalOpen, setModalOpen] = useState(false);
-  const [form, setForm] = useState<AssessmentForm>(EMPTY_FORM);
-  const [formError, setFormError] = useState('');
-  const [saving, setSaving] = useState(false);
 
   const [confirmDelete, setConfirmDelete] = useState<AssessmentResponse | null>(null);
   const [deleteError, setDeleteError] = useState('');
@@ -90,16 +79,18 @@ export default function AssessmentLibraryPage() {
   };
   useEffect(() => { refresh(true); }, []);
 
-  // Deep link from the questionnaire wizard's finish screen:
-  // ?create=<questionnaireId> opens the create modal with it preselected.
-  const [searchParams, setSearchParams] = useSearchParams();
+  // Back-compat for the old deep link — ?create=<questionnaireId> used to
+  // open the create modal here. The wizard now links straight to the form
+  // page, but links already in the wild (and browser history) still land
+  // here, so forward them.
+  const [searchParams] = useSearchParams();
   useEffect(() => {
     const qid = searchParams.get('create');
     if (qid == null) return;
-    setForm({ ...EMPTY_FORM, questionnaireId: /^\d+$/.test(qid) ? qid : '' });
-    setFormError('');
-    setModalOpen(true);
-    setSearchParams({}, { replace: true }); // consume — refresh/back shouldn't reopen it
+    navigate(
+      /^\d+$/.test(qid) ? `${FORM_PATH}?questionnaire=${qid}` : FORM_PATH,
+      { replace: true },
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -120,52 +111,8 @@ export default function AssessmentLibraryPage() {
 
   const totalAttempts = useMemo(() => items.reduce((a, x) => a + x.respondentCount, 0), [items]);
 
-  const openCreate = () => {
-    setForm(EMPTY_FORM);
-    setFormError('');
-    setModalOpen(true);
-  };
-  const openEdit = (a: AssessmentResponse) => {
-    setForm({
-      id: a.assessmentId,
-      name: a.name,
-      questionnaireId: String(a.questionnaireId),
-      status: a.status,
-      showTermsAndConditions: a.showTermsAndConditions,
-      autoNext: a.autoNext,
-      showQuestionIndex: a.showQuestionIndex,
-    });
-    setFormError('');
-    setModalOpen(true);
-  };
-
-  const submit = async () => {
-    const name = form.name.trim();
-    if (!name) { setFormError('Assessment name is required'); return; }
-    if (!form.questionnaireId) { setFormError('Pick the questionnaire this assessment offers'); return; }
-    const payload: AssessmentPayload = {
-      name,
-      questionnaireId: Number(form.questionnaireId),
-      status: form.status,
-      showTermsAndConditions: form.showTermsAndConditions,
-      autoNext: form.autoNext,
-      showQuestionIndex: form.showQuestionIndex,
-    };
-    setSaving(true);
-    try {
-      if (form.id != null) {
-        await assessmentsApi.updateAssessment(form.id, payload);
-      } else {
-        await assessmentsApi.createAssessment(payload);
-      }
-      await refresh();
-      setModalOpen(false);
-    } catch (e: any) {
-      setFormError(e?.response?.data?.message || e?.message || 'Failed to save');
-    } finally {
-      setSaving(false);
-    }
-  };
+  const openCreate = () => navigate(FORM_PATH);
+  const openEdit = (a: AssessmentResponse) => navigate(`${FORM_PATH}?edit=${a.assessmentId}`);
 
   const doDelete = async () => {
     if (!confirmDelete) return;
@@ -178,10 +125,6 @@ export default function AssessmentLibraryPage() {
       setDeleteError(e?.response?.data?.message || e?.message || 'Failed to delete');
     }
   };
-
-  const pickedQuestionnaire = questionnaires.find(
-    (q) => String(q.questionnaireId) === form.questionnaireId,
-  );
 
   return (
     <div className="p-5 lg:p-7.5 space-y-7">
@@ -317,6 +260,12 @@ export default function AssessmentLibraryPage() {
                       </span>
                     )}
                     {a.showTermsAndConditions && <span className="shrink-0">T&amp;C shown</span>}
+                    {(a.startDate || a.endDate) && (
+                      <span className="inline-flex items-center gap-1 shrink-0">
+                        <CalendarRange className="h-3 w-3" />
+                        {shortDate(a.startDate) ?? '—'} → {shortDate(a.endDate) ?? '—'}
+                      </span>
+                    )}
                   </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
@@ -343,114 +292,6 @@ export default function AssessmentLibraryPage() {
             ))}
           </ul>
         </Card>
-      )}
-
-      {/* Create / edit modal */}
-      {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={() => setModalOpen(false)}>
-          <Card className="w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
-            <CardHeader className="flex flex-row items-center justify-between pb-3">
-              <CardTitle className="text-base flex items-center gap-2">
-                <ClipboardCheck className="h-4 w-4 text-primary" />
-                {form.id != null ? 'Edit Assessment' : 'Create Assessment'}
-              </CardTitle>
-              <button onClick={() => setModalOpen(false)} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <label className="text-sm font-medium">Name</label>
-                <input
-                  value={form.name}
-                  onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  placeholder="e.g., Engineering Intake 2026 — Batch A"
-                  className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-                />
-              </div>
-              <div>
-                <label className="text-sm font-medium">Questionnaire</label>
-                <select
-                  value={form.questionnaireId}
-                  onChange={(e) => setForm({ ...form, questionnaireId: e.target.value })}
-                  className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm outline-none focus:border-primary"
-                >
-                  <option value="">Select a questionnaire…</option>
-                  {questionnaires.map((q) => (
-                    <option key={q.questionnaireId} value={q.questionnaireId}>
-                      {q.name} ({q.questionCount} question{q.questionCount !== 1 ? 's' : ''})
-                    </option>
-                  ))}
-                </select>
-                {pickedQuestionnaire && pickedQuestionnaire.questionCount === 0 && (
-                  <p className="text-xs text-amber-600 dark:text-amber-500 mt-1">
-                    This questionnaire has no questions yet — respondents would see an empty assessment.
-                  </p>
-                )}
-              </div>
-              <div>
-                <label className="text-sm font-medium">Status</label>
-                <div className="flex gap-1.5 mt-1">
-                  {STATUSES.map((s) => (
-                    <button
-                      key={s}
-                      type="button"
-                      onClick={() => setForm({ ...form, status: s })}
-                      className={cn(
-                        'rounded-full border px-3 py-1 text-xs font-medium transition-colors',
-                        form.status === s
-                          ? 'border-primary bg-primary/10 text-primary'
-                          : 'border-border bg-muted/40 text-muted-foreground hover:text-foreground',
-                      )}
-                    >
-                      {s.charAt(0) + s.slice(1).toLowerCase()}
-                    </button>
-                  ))}
-                </div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Only active assessments can be allotted and taken.
-                </p>
-              </div>
-              <label className="flex items-center gap-2 text-sm cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={form.showTermsAndConditions}
-                  onChange={(e) => setForm({ ...form, showTermsAndConditions: e.target.checked })}
-                  className="rounded"
-                />
-                Show terms &amp; conditions before starting
-              </label>
-              <label className="flex items-center gap-2 text-sm cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={form.autoNext}
-                  onChange={(e) => setForm({ ...form, autoNext: e.target.checked })}
-                  className="rounded"
-                />
-                Auto-advance to the next question after an option is selected
-              </label>
-              <label className="flex items-center gap-2 text-sm cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={form.showQuestionIndex}
-                  onChange={(e) => setForm({ ...form, showQuestionIndex: e.target.checked })}
-                  className="rounded"
-                />
-                Show the question index (navigator) while attempting
-              </label>
-              {formError && (
-                <div className="rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-3 py-2 text-sm text-red-700 dark:text-red-400">
-                  {formError}
-                </div>
-              )}
-              <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={() => setModalOpen(false)}>Cancel</Button>
-                <Button variant="primary" onClick={submit} disabled={saving}>
-                  {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                  {form.id != null ? 'Save Changes' : 'Create Assessment'}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
       )}
 
       {/* Delete confirmation */}
