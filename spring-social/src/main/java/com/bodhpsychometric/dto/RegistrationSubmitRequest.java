@@ -2,6 +2,8 @@ package com.bodhpsychometric.dto;
 
 import java.time.LocalDate;
 
+import com.bodhpsychometric.model.auth.enums.Gender;
+
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -28,6 +30,9 @@ public record RegistrationSubmitRequest(
 
         String phone,
 
+        /** Optional — the entity allows null, and nobody has to answer it. */
+        Gender gender,
+
         /**
          * Optional employer code. Alphanumeric is load-bearing rather than
          * cosmetic: it guarantees no '@', which is what keeps the portal's
@@ -39,12 +44,13 @@ public record RegistrationSubmitRequest(
         @Size(max = 32, message = "Employee ID must be at most 32 characters")
         @Pattern(regexp = "^\\s*[A-Za-z0-9]*\\s*$",
                 message = "Employee ID must contain only letters and numbers")
-        String employeeId,
+        String employeeId) {
 
-        /**
-         * Required on an org-wide link, where the respondent picks. Ignored on
-         * an assessment-scoped link, which already fixes the choice — sending
-         * a DIFFERENT one there is a 400 rather than a silent override.
-         */
-        Long assessmentId) {
+    // There is deliberately no assessmentId. The link alone decides: an
+    // assessment-scoped one fixes the assessment, and an org-wide one grants
+    // none at all — the respondent is joining the organization and an
+    // administrator assigns to them afterwards. So no body can ever choose
+    // what someone gets, and there is nothing to re-validate against the
+    // catalog. (A stale client still sending the field is harmless: Spring
+    // Boot leaves FAIL_ON_UNKNOWN_PROPERTIES disabled, so it is ignored.)
 }

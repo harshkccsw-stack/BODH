@@ -119,6 +119,8 @@ export interface PortalOption {
   mediaUrl: string | null;
   sortOrder: number;
 }
+// How many options may be picked. Matches SelectionRule on the backend.
+export type PortalSelectionRule = 'MIN' | 'MAX' | 'EQUALS';
 // Matches PortalAssessmentDetailResponse.PortalQuestion on the backend.
 export interface PortalQuestion {
   questionId: number;
@@ -127,6 +129,17 @@ export interface PortalQuestion {
   contentType: PortalContentType;
   stem: string | null;
   mediaUrl: string | null;
+  /** Null on single-choice questions — the rule the respondent is shown. */
+  selectionRule: PortalSelectionRule | null;
+  selectionCount: number | null;
+  /**
+   * The same rule already resolved to a floor and a cap by the server's
+   * SelectionBounds. Gate on THESE, not on the rule: the portal and the
+   * submit validator then cannot disagree about what a rule means. Single
+   * choice is 1/1.
+   */
+  minSelections: number;
+  maxSelections: number;
   options: PortalOption[];
 }
 // Matches PortalAssessmentDetailResponse.PortalSection on the backend.
@@ -154,6 +167,12 @@ export interface PortalAssessmentDetail {
   assessmentId: number;
   assessmentName: string;
   showTermsAndConditions: boolean;
+  /**
+   * The consent body to render, as a small HTML subset the server restricts
+   * to p/br/b/strong/i/em/u/ul/ol/li/h2/h3 with no attributes. Never null —
+   * assessments without their own text get the server's default.
+   */
+  termsAndConditions: string;
   autoNext: boolean;
   showQuestionIndex: boolean;
   questionnaireId: number;
@@ -208,16 +227,10 @@ export const portalAssessmentsApi = {
 // assessment; ORGANIZATION lets the respondent pick from the org's catalog.
 export type RegistrationTokenScope = 'ORGANIZATION' | 'ASSESSMENT';
 
-// Matches RegistrationTokenDetailResponse.AssessmentOption on the backend.
-export interface RegistrationAssessmentOption {
-  assessmentId: number;
-  name: string;
-}
-// Matches RegistrationTokenDetailResponse on the backend. `assessments` is
-// populated for BOTH scopes so the form has one thing to render: on an
-// ASSESSMENT link it holds the single fixed assessment and `assessmentId` is
-// set (show it chosen and locked); on an ORGANIZATION link it holds the whole
-// ACTIVE catalog and `assessmentId` is null (show a dropdown).
+// Matches RegistrationTokenDetailResponse on the backend. The assessment
+// fields are set on an ASSESSMENT link (show it chosen and locked) and null on
+// an ORGANIZATION link, which grants no assessment at all — the respondent is
+// only joining the organization, and an administrator assigns afterwards.
 export interface RegistrationTokenDetail {
   token: string;
   scope: RegistrationTokenScope;
@@ -227,8 +240,10 @@ export interface RegistrationTokenDetail {
   organizationLogoBase64: string | null;
   assessmentId: number | null;
   assessmentName: string | null;
-  assessments: RegistrationAssessmentOption[];
 }
+/** Matches the Gender enum on the backend. */
+export type RegistrationGender = 'MALE' | 'FEMALE' | 'OTHER';
+
 // Matches RegistrationSubmitRequest on the backend. No organizationId — the
 // token decides that, and a body must not be able to pick one.
 export interface RegistrationSubmitPayload {
@@ -237,9 +252,21 @@ export interface RegistrationSubmitPayload {
   /** ISO yyyy-MM-dd, same as the login endpoint. Also the sign-in password. */
   dob: string;
   phone?: string;
+  gender?: RegistrationGender;
   employeeId?: string;
-  /** Required on an ORGANIZATION link; omitted on an ASSESSMENT one. */
-  assessmentId?: number;
+  // No assessmentId: the link decides. An ASSESSMENT link fixes the
+  // assessment, an ORGANIZATION link grants none.
+}
+
+// Matches PortalRegistrationResponse on the backend — /portal/login's
+// {token, respondent} plus where to go next.
+export interface RegistrationResult extends PortalLoginResult {
+  /**
+   * The allotment to open on an ASSESSMENT link, so the portal can go
+   * straight into it. Null on an ORGANIZATION link — nothing was granted, so
+   * the respondent lands on the dashboard.
+   */
+  respondentAssessmentMappingId: number | null;
 }
 export const registrationTokensApi = {
   // Public — the token in the path is the credential. 404 covers unknown,
@@ -249,12 +276,12 @@ export const registrationTokensApi = {
     jsonFetch<RegistrationTokenDetail>(
       `/registration-tokens/getByToken/${encodeURIComponent(token)}`,
     ),
-  // Registers AND signs in: the reply is the same {token, respondent} shape
-  // as /portal/login, so the caller stores the bearer and is authenticated.
-  // 409 means an account already exists (or a race lost); 400 a bad choice
-  // of assessment; 403 a disabled account.
+  // Registers AND signs in: the reply carries the same {token, respondent}
+  // pair as /portal/login, so the caller stores the bearer and is
+  // authenticated. 409 means an account already exists (or a race lost);
+  // 403 a disabled account.
   register: (token: string, body: RegistrationSubmitPayload) =>
-    jsonFetch<PortalLoginResult>(`/portal/register/${encodeURIComponent(token)}`, {
+    jsonFetch<RegistrationResult>(`/portal/register/${encodeURIComponent(token)}`, {
       method: 'POST',
       body: JSON.stringify(body),
     }),

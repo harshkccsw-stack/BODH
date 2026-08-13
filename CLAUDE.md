@@ -73,8 +73,22 @@ re-read a file before editing; expect it to have changed):
 - Questions are standalone bank items; questionnaire membership is M:N via
   `QuestionnaireQuestion` placement rows (section + sortOrder live on the
   placement). Question responses (`AssessmentAnswer`) FREEZE a question:
-  options locked, delete blocked. MQT scores do NOT lock — the question flow
-  owns `QuestionMqtScore`/`OptionMqtScore` and rebuilds them on every update.
+  options locked, selection rule locked, delete blocked. MQT scores do NOT
+  lock — the question flow owns `QuestionMqtScore`/`OptionMqtScore` and
+  rebuilds them on every update.
+- Multi-select (2026-08-12, `V11`): `Question.selectionRule` MIN/MAX/EQUALS +
+  `selectionCount`, both NULL = single choice (so every pre-existing row and
+  every old upload sheet still means one option — no backfill). `SelectionBounds`
+  is the ONLY place the pair becomes a floor/cap; the portal is sent the
+  resolved `minSelections`/`maxSelections` so it cannot disagree with the
+  submit validator. The floor is never 0 — every placed question stays
+  mandatory, so MAX 3 means 1—3. Count is validated against the SANITIZED
+  option list on every write. Submit takes one `AnswerEntry` per selected
+  option and dedupes repeats in a Set — a repeated pair would breach
+  `uqAaRespondentAssessmentQuestionOption` and 500 at commit. Scoring rule
+  (no engine yet): a question contributes the SUM of every selected option's
+  MQT scores; only EQUALS keeps that count constant across respondents.
+  Full write-up: `docs/multi-select-questions-plan.md`.
 - Taxonomy: `MeasuredQuality` (MQ) → tree of `MeasuredQualityType` (MQT,
   self-referencing parent, any depth). MQT names deliberately NOT unique —
   resolve by id when ambiguous.

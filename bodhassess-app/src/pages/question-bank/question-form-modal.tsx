@@ -23,6 +23,7 @@ import {
   type QuestionContentType,
   type QuestionPayload,
   type QuestionResponse,
+  type SelectionRule,
 } from './questionApis';
 import { type MQ, type MQT, type MeasuredQualityResponse } from '../MeasuredQuality/qualitiesApi';
 
@@ -187,6 +188,9 @@ export interface QuestionForm {
   stem: string;
   mediaUrl: string;
   riskFlag: boolean;
+  /** '' = single choice. The count is a string so the input can be emptied. */
+  selectionRule: SelectionRule | '';
+  selectionCount: string;
   options: OptionForm[];
   mqtScores: ScoreRow[];
 }
@@ -199,6 +203,8 @@ export const formFrom = (initial: QuestionResponse | null): QuestionForm =>
         stem: '',
         mediaUrl: '',
         riskFlag: false,
+        selectionRule: '',
+        selectionCount: '',
         // Four blank options by default — the common case. Blank rows are
         // dropped on save, so unwanted ones can just be left empty or removed.
         options: [emptyOption(), emptyOption(), emptyOption(), emptyOption()],
@@ -210,6 +216,8 @@ export const formFrom = (initial: QuestionResponse | null): QuestionForm =>
         stem: initial.stem,
         mediaUrl: initial.mediaUrl || '',
         riskFlag: initial.riskFlag,
+        selectionRule: initial.selectionRule ?? '',
+        selectionCount: initial.selectionCount == null ? '' : String(initial.selectionCount),
         options: initial.options.map((o) => ({
           optionText: o.optionText || '',
           contentType: o.contentType,
@@ -237,6 +245,18 @@ export function validateQuestionForm(form: QuestionForm): string | null {
       return `Option ${i + 1} is ${rows[i].contentType.toLowerCase()} — it needs a media URL`;
     }
   }
+  // Mirrors QuestionController.validateSelection, against the same option
+  // list the backend will count (blank rows already dropped), so the problem
+  // is reported inline instead of coming back as a 400.
+  if (form.selectionRule) {
+    const n = Number(form.selectionCount);
+    if (!form.selectionCount.trim() || !Number.isInteger(n) || n < 1) {
+      return 'How many options must be a whole number of at least 1';
+    }
+    if (n > rows.length) {
+      return `This question has ${rows.length} option${rows.length === 1 ? '' : 's'} — ${n} cannot be selected`;
+    }
+  }
   return null;
 }
 
@@ -248,6 +268,11 @@ export function questionPayloadFrom(form: QuestionForm): QuestionPayload {
     stem: form.stem.trim(),
     mediaUrl: form.contentType === 'TEXT' ? null : form.mediaUrl.trim(),
     riskFlag: form.riskFlag,
+    // Never send a count without a rule — the backend 400s on the pair, and
+    // a stale count left behind by switching back to single choice is the
+    // only way that happens.
+    selectionRule: form.selectionRule || null,
+    selectionCount: form.selectionRule ? Number(form.selectionCount) : null,
     options: rows.map((o) => ({
       optionText: o.optionText || null,
       contentType: o.contentType,
@@ -273,6 +298,10 @@ export function QuestionFormFields({
   choices: MqtChoice[];
 }) {
   const set = (patch: Partial<QuestionForm>) => onChange({ ...form, ...patch });
+  // Options that will actually be stored — what the selection count is
+  // validated against, here and on the backend.
+  const liveCount = liveOptions(form).length;
+  const selectionHint = `${form.selectionCount || '?'} of ${liveCount}`;
   const patchOption = (i: number, patch: Partial<OptionForm>) =>
     set({ options: form.options.map((o, j) => (j === i ? { ...o, ...patch } : o)) });
   const addOption = () => set({ options: [...form.options, emptyOption()] });
@@ -361,6 +390,55 @@ export function QuestionFormFields({
           choices={choices}
           onChange={(rows) => set({ mqtScores: rows })}
         />
+      </div>
+
+      {/* How many options the respondent may pick. Sits directly above the
+          option list because it changes what that list means. */}
+      <div className="rounded-lg border border-border/70 p-3 space-y-1.5">
+        <label className="text-sm font-medium">How many options can be selected</label>
+        <div className="flex items-center gap-2">
+          <select
+            value={form.selectionRule}
+            onChange={(e) => {
+              const rule = e.target.value as SelectionRule | '';
+              // Leaving multi-select clears the count with it, so the payload
+              // can never carry one without a rule.
+              set({ selectionRule: rule, selectionCount: rule ? form.selectionCount || '2' : '' });
+            }}
+            className="h-9 rounded-lg border border-border bg-background px-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+          >
+            <option value="">Single choice — one option</option>
+            <option value="MAX">Max — up to</option>
+            <option value="MIN">Min — at least</option>
+            <option value="EQUALS">Equals — exactly</option>
+          </select>
+          {form.selectionRule && (
+            <>
+              <input
+                type="number"
+                min={1}
+                max={liveCount}
+                value={form.selectionCount}
+                onChange={(e) => set({ selectionCount: e.target.value })}
+                className="h-9 w-20 rounded-lg border border-border bg-background px-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+              />
+              <span className="text-xs text-muted-foreground">
+                of {liveCount} option{liveCount === 1 ? '' : 's'}
+              </span>
+            </>
+          )}
+        </div>
+        <p className="text-[0.6875rem] text-muted-foreground">
+          {form.selectionRule
+            ? `Respondents tick checkboxes and must pick ${
+                form.selectionRule === 'EQUALS'
+                  ? `exactly ${selectionHint}`
+                  : form.selectionRule === 'MAX'
+                    ? `between 1 and ${selectionHint}`
+                    : `at least ${selectionHint}`
+              }. Locked once anyone has answered.`
+            : 'Respondents pick one option, as radio buttons.'}
+        </p>
       </div>
 
       <div className="space-y-1.5">

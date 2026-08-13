@@ -6,6 +6,7 @@ import {
   Flag,
   Layers,
   Link2,
+  ListChecks,
   Loader2,
   Target,
   Trash2,
@@ -16,11 +17,13 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
   questionApis,
+  selectionLabel,
   type MqtScorePayload,
   type QuestionContentType,
   type QuestionOptionPayload,
   type QuestionPayload,
   type QuestionResponse,
+  type SelectionRule,
 } from './questionApis';
 import { contentMeta, type MqtChoice } from './question-form-modal';
 
@@ -28,7 +31,8 @@ import { contentMeta, type MqtChoice } from './question-form-modal';
 // wizard's Step 2 ───────────────────────────────────────────────────────────
 // ONE template for both flows. One row per question. Headers (case/space-
 // insensitive): stem*, type (TEXT/URL/IMAGE/VIDEO — default TEXT), mediaUrl
-// (required for non-TEXT), risk (yes/true/1), section, scores,
+// (required for non-TEXT), risk (yes/true/1), selectRule (blank/min/max/
+// equals), selectCount (the n that rule applies to), section, scores,
 // option1..optionN, option1Scores..optionNScores.
 // Score cells: entries separated by |, each "mqtName:score" or "mqtId:score".
 // The `section` column is used ONLY when uploading inside a sectioned
@@ -38,6 +42,58 @@ import { contentMeta, type MqtChoice } from './question-form-modal';
 // Parsing happens entirely in the browser; the payload goes to
 // /questions/bulk-create, which is all-or-nothing — so ANY row error blocks
 // the whole upload rather than importing half a sheet.
+
+// What the selectRule cell may say. Matched after lowercasing and stripping
+// separators, so "At Least", "at_least" and "atleast" all land here.
+const SELECT_RULES: Record<string, SelectionRule> = {
+  min: 'MIN', atleast: 'MIN',
+  max: 'MAX', atmost: 'MAX', upto: 'MAX',
+  equals: 'EQUALS', equal: 'EQUALS', exactly: 'EQUALS',
+};
+
+/**
+ * The selectRule/selectCount pair for one row, validated against the options
+ * that row actually carries. Both blank = single choice, which is what every
+ * sheet written before these columns existed says — so old sheets import
+ * unchanged and produce no errors.
+ */
+function parseSelection(
+  row: Record<string, string>,
+  optionCount: number,
+  rowNo: number,
+  errors: string[],
+): { selectionRule: SelectionRule | null; selectionCount: number | null } {
+  const none = { selectionRule: null, selectionCount: null };
+  const ruleCell = (row.selectrule || '').toLowerCase().replace(/[\s_-]/g, '');
+  const countCell = (row.selectcount || '').trim();
+  if (!ruleCell) {
+    // A count with no rule is always a typo — importing it as single choice
+    // would silently ship a question that contradicts the sheet.
+    if (countCell) errors.push(`Row ${rowNo}: selectCount ${countCell} needs a selectRule (min/max/equals)`);
+    return none;
+  }
+  const rule = SELECT_RULES[ruleCell];
+  if (!rule) {
+    errors.push(`Row ${rowNo}: selectRule "${row.selectrule}" is not min/max/equals`);
+    return none;
+  }
+  if (!countCell) {
+    errors.push(`Row ${rowNo}: selectRule "${row.selectrule}" needs a selectCount`);
+    return none;
+  }
+  // Excel hands back 3 or 3.0 for the same cell, so parse as a number and
+  // demand an integer rather than pattern-matching the text.
+  const count = Number(countCell);
+  if (!Number.isInteger(count) || count < 1) {
+    errors.push(`Row ${rowNo}: selectCount "${countCell}" is not a whole number above 0`);
+    return none;
+  }
+  if (count > optionCount) {
+    errors.push(`Row ${rowNo}: selectCount ${count} but the row only has ${optionCount} option${optionCount === 1 ? '' : 's'}`);
+    return none;
+  }
+  return { selectionRule: rule, selectionCount: count };
+}
 
 /** "Extraversion:3 | 14:1" → payload entries, appending problems to errors. */
 function parseScoreCell(raw: string, where: string, choices: MqtChoice[], errors: string[]): MqtScorePayload[] {
@@ -122,11 +178,16 @@ export async function parseQuestionsXlsx(
       });
     }
 
+    // After the option loop on purpose: the count is validated against the
+    // options this row actually carries.
+    const selection = parseSelection(row, options.length, rowNo, errors);
+
     payloads.push({
       contentType: type,
       stem,
       mediaUrl: type === 'TEXT' ? null : mediaUrl,
       riskFlag,
+      ...selection,
       options,
       mqtScores,
     });
@@ -140,9 +201,13 @@ export async function parseQuestionsXlsx(
 
 export async function downloadTemplate(choices: MqtChoice[]) {
   const XLSX = await import('xlsx');
+  // Column order is the key order below. Three rows so every selection state
+  // is demonstrated in the file itself: single choice (both cells blank),
+  // "up to n", and "exactly n".
   const ws = XLSX.utils.json_to_sheet([
     {
       stem: 'I enjoy meeting new people.', type: 'TEXT', mediaUrl: '', risk: 'no',
+      selectRule: '', selectCount: '',
       section: 'Part A',
       scores: 'MqtNameOrId:2 | MqtNameOrId:1',
       option1: 'Agree', option1Scores: 'MqtNameOrId:5', option2: 'Neutral', option2Scores: '',
@@ -151,9 +216,18 @@ export async function downloadTemplate(choices: MqtChoice[]) {
     {
       stem: 'Which diagram shows the correct flow?', type: 'URL',
       mediaUrl: 'https://example.com/diagram.png', risk: 'yes',
+      selectRule: '', selectCount: '',
       section: 'Part B', scores: '',
       option1: 'The first one', option1Scores: 'MqtNameOrId:3', option2: 'The second one', option2Scores: '',
       option3: '', option3Scores: '',
+    },
+    {
+      stem: 'Which of these apply to you? Pick up to two.', type: 'TEXT', mediaUrl: '', risk: 'no',
+      selectRule: 'max', selectCount: 2,
+      section: 'Part B', scores: '',
+      option1: 'I plan ahead', option1Scores: 'MqtNameOrId:1',
+      option2: 'I improvise', option2Scores: 'MqtNameOrId:2',
+      option3: 'I do both', option3Scores: 'MqtNameOrId:3',
     },
   ]);
   const wb = XLSX.utils.book_new();
@@ -220,9 +294,20 @@ function QuestionPreview({
             <Layers className="h-3 w-3" /> {sectionName}
           </span>
         )}
+        {p.selectionRule && (
+          <span className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-2.5 py-0.5 text-xs font-medium text-primary">
+            <ListChecks className="h-3 w-3" />
+            {selectionLabel(p.selectionRule, p.selectionCount, p.options.length)}
+          </span>
+        )}
         {p.riskFlag && (
           <span className="inline-flex items-center gap-1 rounded-full border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-2.5 py-0.5 text-xs font-medium text-red-600 dark:text-red-400">
             <Flag className="h-3 w-3" /> risk
+          </span>
+        )}
+        {p.selectionRule && p.options.length < 2 && (
+          <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30 px-2.5 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-500">
+            <AlertTriangle className="h-3 w-3" /> multi-select with one option
           </span>
         )}
         {totalScores === 0 && (
@@ -423,10 +508,17 @@ export function BulkUploadModal({
                   <code className="text-foreground">type</code> (TEXT/URL) ·{' '}
                   <code className="text-foreground">mediaUrl</code> ·{' '}
                   <code className="text-foreground">risk</code> (yes/no) ·{' '}
+                  <code className="text-foreground">selectRule</code> ·{' '}
+                  <code className="text-foreground">selectCount</code> ·{' '}
                   <code className="text-foreground">section</code> ·{' '}
                   <code className="text-foreground">scores</code> ·{' '}
                   <code className="text-foreground">option1…N</code> ·{' '}
                   <code className="text-foreground">option1Scores…N</code></p>
+                <p>Leave <code className="text-foreground">selectRule</code> blank for a single-choice
+                  question. Otherwise <code className="text-foreground">min</code>,{' '}
+                  <code className="text-foreground">max</code> or <code className="text-foreground">equals</code>{' '}
+                  with a <code className="text-foreground">selectCount</code> — how many of that row&apos;s
+                  options the respondent picks. The count cannot exceed the options on the row.</p>
                 {sectioned ? (
                   <p><code className="text-foreground">section</code> must name an existing section of THIS
                     questionnaire (matched by name, case-insensitive) — create the sections in Step 2 first;

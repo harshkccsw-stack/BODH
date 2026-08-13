@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import com.bodhpsychometric.model.question.enums.ContentType;
+import com.bodhpsychometric.model.question.enums.SelectionRule;
 
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
@@ -40,13 +41,29 @@ public class Question implements Serializable {
     @OrderBy("sortOrder ASC")
     private List<Option> options = new ArrayList<>();
 
-    /**
-     * What the stem is made of. How the question is attempted (single choice,
-     * multiple choice, matrix) is deliberately not modelled yet.
-     */
+    /** What the stem is made of. */
     @Enumerated(value = jakarta.persistence.EnumType.STRING)
     @Column(name = "contentType", nullable = false, length = 10)
     private ContentType contentType = ContentType.TEXT;
+
+    /**
+     * How many options the respondent may pick, with {@link #selectionCount}:
+     * MIN/MAX/EQUALS n. NULL — with a NULL count, the two are always set or
+     * cleared together — is single choice, which is what every question meant
+     * before this existed and what every existing row still says.
+     *
+     * Turn the pair into a floor and a cap with {@link SelectionBounds}; never
+     * interpret the rule in place. Free-text and ranking answers are a
+     * different axis (payload shape, not cardinality) and will get their own
+     * field — AssessmentAnswer already reserves answerText and rankOrder.
+     */
+    @Enumerated(value = jakarta.persistence.EnumType.STRING)
+    @Column(name = "selectionRule", length = 10)
+    private SelectionRule selectionRule;
+
+    /** The n in the rule; null exactly when selectionRule is null. */
+    @Column(name = "selectionCount")
+    private Integer selectionCount;
 
     @Column(name = "stem", columnDefinition = "TEXT")
     private String questionTexString;
@@ -82,6 +99,27 @@ public class Question implements Serializable {
 
     public void setContentType(ContentType contentType) {
         this.contentType = contentType;
+    }
+
+    public SelectionRule getSelectionRule() {
+        return selectionRule;
+    }
+
+    public void setSelectionRule(SelectionRule selectionRule) {
+        this.selectionRule = selectionRule;
+    }
+
+    public Integer getSelectionCount() {
+        return selectionCount;
+    }
+
+    public void setSelectionCount(Integer selectionCount) {
+        this.selectionCount = selectionCount;
+    }
+
+    /** True when the question takes more than one option. */
+    public boolean isMultiSelect() {
+        return selectionRule != null;
     }
 
     public String getQuestionTexString() {

@@ -113,3 +113,47 @@
 html {
   scroll-behavior: smooth;
 }
+
+/**
+ * Authored terms & conditions (pages/take/terms-step.tsx). Tailwind's
+ * preflight removes list markers and heading sizes, so bullets and headings a
+ * practitioner wrote would render as flat text without these. Keep in step
+ * with .rte-content in the dashboard, which is where the markup is authored.
+ */
+.terms-body p {
+  margin: 0 0 0.5rem;
+}
+.terms-body ul,
+.terms-body ol {
+  margin: 0 0 0.5rem;
+  padding-inline-start: 1.5rem;
+}
+.terms-body ul {
+  list-style: disc;
+}
+.terms-body ol {
+  list-style: decimal;
+}
+.terms-body li {
+  margin: 0.125rem 0;
+}
+.terms-body h2 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin: 0.75rem 0 0.5rem;
+}
+.terms-body h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0.75rem 0 0.5rem;
+}
+.terms-body b,
+.terms-body strong {
+  font-weight: 600;
+}
+.terms-body u {
+  text-decoration: underline;
+}
+.terms-body > *:last-child {
+  margin-bottom: 0;
+}

@@ -22,8 +22,12 @@ public interface AssessmentAnswerRepository extends JpaRepository<AssessmentAnsw
     /**
      * How many answers one respondent holds per assessment — the report info
      * popup's "answered n of m", in one query for the whole popup.
+     *
+     * DISTINCT QUESTIONS, not rows: a multi-select question holds one row per
+     * selected option, and counting rows against the questionnaire's question
+     * total renders "answered 7 of 5".
      */
-    @Query("select a.assessment.assessmentId, count(a) from AssessmentAnswer a "
+    @Query("select a.assessment.assessmentId, count(distinct a.question.questionId) from AssessmentAnswer a "
             + "where a.respondent.id = :respondentUserId group by a.assessment.assessmentId")
     List<Object[]> tallyAnswersByAssessment(Long respondentUserId);
 

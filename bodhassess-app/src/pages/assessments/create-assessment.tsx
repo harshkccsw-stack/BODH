@@ -1,459 +1,447 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router';
 import {
-  AlertTriangle,
   ArrowLeft,
-  Building2,
+  BookOpen,
   Check,
   ClipboardCheck,
+  Loader2,
   Search,
-  User,
-  Users as UsersIcon,
+  Settings2,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input, InputWrapper } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
+import { RichTextEditor, isBlankHtml } from '@/components/rich-text-editor';
+import { cn } from '@/lib/utils';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import { Loading } from '@/components/loading';
+  assessmentsApi,
+  type AssessmentPayload,
+  type AssessmentStatus,
+} from './assessmentApis';
 import {
-  assessmentRecordsApi,
-  entityRegistrationsApi,
-  groupsApi,
-  questionnaireRecordsApi,
-  questionnaireVersionsApi,
-  respondentsApi,
-  type AssessmentEntityAllotment,
-  type EntityRegistration,
-  type Group,
-  type QuestionnaireParent,
-  type QuestionnaireVersionSummary,
-  type Respondent,
-} from '@/lib/api';
+  questionnairesApi,
+  type QuestionnaireResponse,
+} from '../questionnaires/questionnairesApi';
 
-const LANGUAGES = [
-  'English', 'Hindi', 'Bengali', 'Telugu', 'Marathi',
-  'Tamil', 'Gujarati', 'Kannada', 'Malayalam', 'Odia', 'Punjabi',
-];
+// Full-page Create/Edit Assessment, replacing the modal the Assessment
+// Library used to open. Same page serves both modes, the way the
+// questionnaire editor does: no `?edit=` is a create, `?edit=<id>` loads that
+// assessment and PUTs. `?questionnaire=<id>` preselects the questionnaire —
+// the questionnaire wizard's finish screen links here with it.
+
+interface AssessmentForm {
+  name: string;
+  questionnaireId: string; // '' = not picked yet
+  status: AssessmentStatus;
+  showTermsAndConditions: boolean;
+  autoNext: boolean;
+  showQuestionIndex: boolean;
+  startDate: string; // '' = not set; otherwise 'YYYY-MM-DD'
+  endDate: string;
+  /** Consent body as the editor's HTML. Kept even while the toggle is off. */
+  termsAndConditions: string;
+}
+
+const EMPTY_FORM: AssessmentForm = {
+  name: '',
+  questionnaireId: '',
+  status: 'INACTIVE',
+  showTermsAndConditions: true,
+  autoNext: false,
+  showQuestionIndex: true,
+  startDate: '',
+  endDate: '',
+  termsAndConditions: '', // replaced by the server's template once loaded
+};
+
+const LIBRARY_PATH = '/assessment-library/assessments';
+
+/** One labelled toggle row inside the settings card. */
+function ToggleRow({
+  label,
+  hint,
+  checked,
+  onChange,
+}: {
+  label: string;
+  hint?: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <label className="flex items-start justify-between gap-4 py-3 cursor-pointer">
+      <div className="min-w-0">
+        <p className="text-sm font-medium">{label}</p>
+        {hint && <p className="text-xs text-muted-foreground mt-0.5">{hint}</p>}
+      </div>
+      <Switch
+        checked={checked}
+        onCheckedChange={onChange}
+        className="mt-0.5 shrink-0"
+      />
+    </label>
+  );
+}
 
 export default function CreateAssessmentPage() {
-  const [name, setName] = useState('');
-  const [questionnaires, setQuestionnaires] = useState<QuestionnaireParent[]>([]);
-  const [pickedQuestionnaire, setPickedQuestionnaire] = useState('');
-  // Versions of the currently-picked questionnaire. Loaded lazily when
-  // the questionnaire selection changes.
-  const [versions, setVersions] = useState<QuestionnaireVersionSummary[]>([]);
-  const [pickedVersion, setPickedVersion] = useState('');
-  const [language, setLanguage] = useState('English');
-  // When on, the respondent take-flow advances to the next question
-  // automatically once an option is selected.
-  const [autoNext, setAutoNext] = useState(false);
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
-  const [entities, setEntities] = useState<EntityRegistration[]>([]);
-  const [groups, setGroups] = useState<Group[]>([]);
-  const [respondents, setRespondents] = useState<Respondent[]>([]);
+  const editIdParam = searchParams.get('edit');
+  const editId = editIdParam && /^\d+$/.test(editIdParam) ? Number(editIdParam) : null;
+  const preselectQid = searchParams.get('questionnaire');
 
-  // Initial allotments — admin picks on this form.
-  // Each entity carries its own cap.
-  const [entityAllotments, setEntityAllotments] = useState<AssessmentEntityAllotment[]>([]);
-  const [groupAllotments, setGroupAllotments] = useState<Set<string>>(new Set());
-  const [respondentAllotments, setRespondentAllotments] = useState<Set<string>>(new Set());
-
-  // Search filters for the three pickers.
-  const [entitySearch, setEntitySearch] = useState('');
-  const [groupSearch, setGroupSearch] = useState('');
-  const [respondentSearch, setRespondentSearch] = useState('');
-
-  const [error, setError] = useState('');
-  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState<AssessmentForm>(() => ({
+    ...EMPTY_FORM,
+    questionnaireId: preselectQid && /^\d+$/.test(preselectQid) ? preselectQid : '',
+  }));
+  const [questionnaires, setQuestionnaires] = useState<QuestionnaireResponse[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [qSearch, setQSearch] = useState('');
+  const [formError, setFormError] = useState('');
+  const [saving, setSaving] = useState(false);
 
+  // Load the questionnaire catalog, plus the assessment itself in edit mode.
   useEffect(() => {
+    let cancelled = false;
     (async () => {
+      setLoadError('');
       setLoading(true);
       try {
-        try { setQuestionnaires(await questionnaireRecordsApi.list()); } catch {}
-        try { setEntities((await entityRegistrationsApi.list()).filter((e) => e.active)); } catch {}
-        try { setGroups(await groupsApi.list()); } catch {}
-        try { setRespondents(await respondentsApi.list()); } catch {}
+        const [qn, existing, template] = await Promise.all([
+          questionnairesApi.getQuestionnaires(),
+          editId != null ? assessmentsApi.getAssessmentById(editId) : Promise.resolve(null),
+          // Only a new assessment needs the starting text; an existing one
+          // always carries its own (the server substitutes the same default
+          // for rows saved before the field existed).
+          editId != null ? Promise.resolve(null) : assessmentsApi.getTermsTemplate(),
+        ]);
+        if (cancelled) return;
+        setQuestionnaires(qn.data);
+        if (template) {
+          setForm((f) => ({ ...f, termsAndConditions: template.data.termsAndConditions }));
+        }
+        if (existing) {
+          const a = existing.data;
+          setForm({
+            name: a.name,
+            questionnaireId: String(a.questionnaireId),
+            status: a.status,
+            showTermsAndConditions: a.showTermsAndConditions,
+            autoNext: a.autoNext,
+            showQuestionIndex: a.showQuestionIndex,
+            startDate: a.startDate ?? '',
+            endDate: a.endDate ?? '',
+            termsAndConditions: a.termsAndConditions,
+          });
+        }
+      } catch (e: any) {
+        if (!cancelled) {
+          setLoadError(
+            e?.response?.data?.message || e?.message || 'Failed to load this page',
+          );
+        }
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     })();
-  }, []);
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editId]);
 
-  // Only questionnaires still present in the library are selectable. When a
-  // questionnaire is deleted from the Questionnaire Library its committed
-  // versions are stripped, leaving an orphaned parent with versionCount 0 —
-  // those (and draft-only questionnaires that can't be assigned) are hidden.
-  const availableQuestionnaires = useMemo(
-    () => questionnaires.filter((q) => (q.versionCount ?? 0) > 0),
-    [questionnaires],
+  const filteredQuestionnaires = useMemo(() => {
+    if (!qSearch) return questionnaires;
+    const s = qSearch.toLowerCase();
+    return questionnaires.filter(
+      (q) =>
+        q.name.toLowerCase().includes(s) ||
+        (q.shortName ?? '').toLowerCase().includes(s),
+    );
+  }, [questionnaires, qSearch]);
+
+  const picked = questionnaires.find(
+    (q) => String(q.questionnaireId) === form.questionnaireId,
   );
 
-  const selectedQ = questionnaires.find((q) => q.id === pickedQuestionnaire);
-  const selectedVersion = versions.find((v) => v.id === pickedVersion);
-
-  // When the questionnaire selection changes, fetch its COMMITTED
-  // versions and default the version picker to the current pointer.
-  useEffect(() => {
-    if (!pickedQuestionnaire) { setVersions([]); setPickedVersion(''); return; }
-    (async () => {
-      try {
-        const list = await questionnaireVersionsApi.list(pickedQuestionnaire, true);
-        setVersions(list);
-        const parent = questionnaires.find((q) => q.id === pickedQuestionnaire);
-        const defaultVid = parent?.currentVersionId && list.some((v) => v.id === parent.currentVersionId)
-          ? parent.currentVersionId
-          : (list[0]?.id || '');
-        setPickedVersion(defaultVid);
-      } catch {
-        setVersions([]);
-        setPickedVersion('');
-      }
-    })();
-  }, [pickedQuestionnaire, questionnaires]);
-
-  const toggleEntity = (e: EntityRegistration) => {
-    if (!e.id) return;
-    setEntityAllotments((prev) => {
-      const found = prev.find((a) => a.entityId === e.id);
-      if (found) return prev.filter((a) => a.entityId !== e.id);
-      return [...prev, { assessmentId: '', entityId: e.id!, entityName: e.companyName || e.name, cap: null }];
-    });
-  };
-
-  const updateCap = (entityId: string, capStr: string) => {
-    const trimmed = capStr.trim();
-    const cap = trimmed === '' ? null : Math.max(0, Number(trimmed) || 0);
-    setEntityAllotments((prev) =>
-      prev.map((a) => (a.entityId === entityId ? { ...a, cap } : a)),
-    );
-  };
-
-  const toggleGroup = (gid: string) => {
-    setGroupAllotments((prev) => {
-      const next = new Set(prev);
-      if (next.has(gid)) next.delete(gid);
-      else next.add(gid);
-      return next;
-    });
-  };
-
-  const toggleRespondent = (rid: string) => {
-    setRespondentAllotments((prev) => {
-      const next = new Set(prev);
-      if (next.has(rid)) next.delete(rid);
-      else next.add(rid);
-      return next;
-    });
-  };
-
-  const filteredEntities = useMemo(() => {
-    const q = entitySearch.trim().toLowerCase();
-    return entities.filter(
-      (e) =>
-        !q ||
-        (e.companyName || '').toLowerCase().includes(q) ||
-        e.name.toLowerCase().includes(q) ||
-        e.email.toLowerCase().includes(q),
-    );
-  }, [entities, entitySearch]);
-
-  const filteredGroups = useMemo(() => {
-    const q = groupSearch.trim().toLowerCase();
-    return groups.filter(
-      (g) => !q || g.name.toLowerCase().includes(q) || (g.description || '').toLowerCase().includes(q),
-    );
-  }, [groups, groupSearch]);
-
-  const filteredRespondents = useMemo(() => {
-    const q = respondentSearch.trim().toLowerCase();
-    return respondents.filter(
-      (r) => !q || r.name.toLowerCase().includes(q) || r.email.toLowerCase().includes(q),
-    );
-  }, [respondents, respondentSearch]);
-
-  const totalAllotees = entityAllotments.length + groupAllotments.size + respondentAllotments.size;
-
   const submit = async () => {
-    setError('');
-    if (!name.trim()) { setError('Name is required.'); return; }
-    if (!pickedQuestionnaire) { setError('Pick a questionnaire.'); return; }
-    if (!pickedVersion) { setError('Pick a version. Commit at least one version of this questionnaire first.'); return; }
-    if (totalAllotees === 0) { setError('Allot the assessment to at least one entity, group, or individual.'); return; }
+    const name = form.name.trim();
+    if (!name) { setFormError('Assessment name is required'); return; }
+    if (!form.questionnaireId) { setFormError('Pick the questionnaire this assessment offers'); return; }
+    if (form.showTermsAndConditions && isBlankHtml(form.termsAndConditions)) {
+      setFormError('Terms & conditions cannot be empty while the terms gate is on');
+      return;
+    }
+    if (form.startDate && form.endDate && form.endDate < form.startDate) {
+      // Both are 'YYYY-MM-DD', so a string compare is a date compare.
+      setFormError('End date must be on or after the start date');
+      return;
+    }
+    const payload: AssessmentPayload = {
+      name,
+      questionnaireId: Number(form.questionnaireId),
+      status: form.status,
+      showTermsAndConditions: form.showTermsAndConditions,
+      // Sent whether the gate is on or off — that is what preserves the text
+      // across a toggle off/on round trip.
+      termsAndConditions: form.termsAndConditions,
+      autoNext: form.autoNext,
+      showQuestionIndex: form.showQuestionIndex,
+      // Empty input clears the stored date — send null, not ''.
+      startDate: form.startDate || null,
+      endDate: form.endDate || null,
+    };
+    setFormError('');
     setSaving(true);
     try {
-      const created = await assessmentRecordsApi.create({
-        name: name.trim(),
-        questionnaireId: pickedQuestionnaire,
-        questionnaireVersionId: pickedVersion,
-        questionnaireName: selectedQ?.name,
-        vertical: selectedQ?.vertical,
-        language,
-        status: 'ACTIVE',
-        autoNext,
-        entityAllotments,
-        groupAllotments: Array.from(groupAllotments),
-        respondentAllotments: Array.from(respondentAllotments),
-      });
-      window.location.href = `/assessments/edit/${encodeURIComponent(created.id)}`;
+      if (editId != null) {
+        await assessmentsApi.updateAssessment(editId, payload);
+      } else {
+        await assessmentsApi.createAssessment(payload);
+      }
+      navigate(LIBRARY_PATH);
     } catch (e: any) {
-      setError(e?.message || 'Failed to create assessment.');
+      setFormError(e?.response?.data?.message || e?.message || 'Failed to save');
+    } finally {
       setSaving(false);
     }
   };
 
+  const inputClass =
+    'w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20';
+
   return (
-    <div className="p-5 lg:p-7.5 space-y-7 max-w-5xl">
+    <div className="p-5 lg:p-7.5 space-y-7">
+      {/* Header */}
       <div>
-        <div className="flex items-center gap-2 text-sm text-muted-foreground mb-3">
-          <button onClick={() => { window.location.href = '/assessments'; }} className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors">
-            <ArrowLeft className="h-3.5 w-3.5" /> Back to Assessments
-          </button>
+        <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
+          <span>BodhAssess</span><span>/</span><span>Assessment Library</span><span>/</span>
+          <span className="text-foreground font-medium">
+            {editId != null ? 'Edit Assessment' : 'Create Assessment'}
+          </span>
         </div>
-        <h1 className="text-2xl font-semibold tracking-tight">Create Assessment</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Pick a questionnaire and allot it to entities, groups, and/or individuals.
-          You can add more allotees later from the edit page.
-        </p>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
+              <ClipboardCheck className="h-6 w-6 text-primary" />
+              {editId != null ? 'Edit Assessment' : 'Create Assessment'}
+            </h1>
+            <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
+              An assessment offers one questionnaire under a chosen
+              configuration. The same questionnaire can back many assessments.
+            </p>
+          </div>
+          <Button variant="outline" onClick={() => navigate(LIBRARY_PATH)}>
+            <ArrowLeft className="h-4 w-4" /> Back to Assessments
+          </Button>
+        </div>
       </div>
 
-      {error && (
-        <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-3 py-2 text-xs text-red-700 dark:text-red-400">
-          <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-          <span>{error}</span>
+      {loadError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-4 py-3 text-sm text-red-700 dark:text-red-400">
+          {loadError} — is the API running?
         </div>
       )}
 
       {loading ? (
-        <Loading />
+        <Card>
+          <CardContent className="p-14 flex flex-col items-center justify-center text-center">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <p className="text-sm text-muted-foreground mt-3">Loading…</p>
+          </CardContent>
+        </Card>
       ) : (
-      <>
-      <Card>
-        <CardHeader className="pb-3"><CardTitle className="text-base">Details</CardTitle></CardHeader>
-        <CardContent className="space-y-4">
-          <div>
-            <label className="text-sm font-medium mb-1.5 block">Name *</label>
-            <Input variant="md" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g., Q1 2026 Hiring Round" />
-          </div>
-          <div>
-            <label className="text-sm font-medium mb-1.5 block">Questionnaire *</label>
-            <Select value={pickedQuestionnaire} onValueChange={setPickedQuestionnaire}>
-              <SelectTrigger className="w-full" size="md"><SelectValue placeholder="Pick a questionnaire" /></SelectTrigger>
-              <SelectContent>
-                {availableQuestionnaires.length === 0 && (
-                  <div className="px-3 py-2 text-xs text-muted-foreground">
-                    No questionnaires available. Add one in the Questionnaire Library first.
-                  </div>
-                )}
-                {availableQuestionnaires.map((q) => (
-                  <SelectItem key={q.id} value={q.id}>
-                    {q.name}{q.vertical ? ` · ${q.vertical}` : ''}{q.versionCount ? ` · ${q.versionCount} version${q.versionCount === 1 ? '' : 's'}` : ''}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {selectedQ && (
-              <p className="text-[0.6875rem] text-muted-foreground mt-1">
-                Vertical will be set to <strong>{selectedQ.vertical || '—'}</strong> from this questionnaire.
-              </p>
-            )}
-          </div>
+        <>
+          {/* ── Name ─────────────────────────────────────────────────── */}
+          <Card>
+            <CardContent className="p-5">
+              <label className="text-sm font-medium">
+                Assessment Name <span className="text-red-500">*</span>
+              </label>
+              <input
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                placeholder="e.g., Engineering Intake 2026 — Batch A"
+                className={cn(inputClass, 'mt-1.5')}
+              />
+            </CardContent>
+          </Card>
 
-          {pickedQuestionnaire && (
-            <div>
-              <label className="text-sm font-medium mb-1.5 block">Version *</label>
-              {versions.length === 0 ? (
-                <p className="text-xs text-red-600 dark:text-red-400">
-                  No committed versions for this questionnaire yet. Open <a className="underline" href={`/questionnaires/${encodeURIComponent(pickedQuestionnaire)}/versions`}>the version history</a> to commit a draft first.
-                </p>
-              ) : (
-                <>
-                  <Select value={pickedVersion} onValueChange={setPickedVersion}>
-                    <SelectTrigger className="w-full" size="md"><SelectValue placeholder="Pick a version" /></SelectTrigger>
-                    <SelectContent>
-                      {versions.map((v) => {
-                        const isCurrent = v.id === selectedQ?.currentVersionId;
-                        return (
-                          <SelectItem key={v.id} value={v.id}>
-                            {v.versionLabel}{v.versionName ? ` — ${v.versionName}` : ''}{isCurrent ? ' · current' : ''}
-                          </SelectItem>
-                        );
-                      })}
-                    </SelectContent>
-                  </Select>
-                  <p className="text-[0.6875rem] text-muted-foreground mt-1">
-                    {selectedVersion ? (
-                      <>This assessment will be permanently pinned to <strong>{selectedVersion.versionLabel}</strong>. Future edits to the questionnaire won't affect respondents on this version.</>
-                    ) : 'Defaulted to the questionnaire\'s current version.'}
-                  </p>
-                </>
-              )}
-            </div>
-          )}
-          <div>
-            <label className="text-sm font-medium mb-1.5 block">Delivery Language</label>
-            <Select value={language} onValueChange={setLanguage}>
-              <SelectTrigger className="w-full" size="md"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {LANGUAGES.map((l) => <SelectItem key={l} value={l}>{l}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="flex items-start justify-between gap-4 rounded-lg border border-border px-4 py-3">
-            <div className="min-w-0">
-              <label htmlFor="auto-next" className="text-sm font-medium block">Auto-advance questions</label>
-              <p className="text-[0.6875rem] text-muted-foreground mt-0.5">
-                When on, the respondent moves to the next question automatically as soon as they
-                select an option. Free-text questions and the last question are never auto-advanced.
-              </p>
-            </div>
-            <Switch id="auto-next" checked={autoNext} onCheckedChange={setAutoNext} />
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2">
-            <Building2 className="size-4 text-primary" />
-            Entities <span className="text-red-500" aria-hidden="true">*</span>
-            <Badge size="sm" shape="circle" variant="secondary" appearance="light">{entityAllotments.length} picked</Badge>
-          </CardTitle>
-          <p className="text-xs text-muted-foreground">
-            Each entity carries a per-(entity, assessment) cap. Blank = unlimited.
-            Sessions are created for each entity member when you send the invitation.
-          </p>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <InputWrapper variant="md" className="w-full">
-            <Search className="size-4" />
-            <Input placeholder="Search active entities…" value={entitySearch} onChange={(e) => setEntitySearch(e.target.value)} />
-          </InputWrapper>
-          <div className="border border-border rounded-lg overflow-hidden max-h-72 overflow-y-auto">
-            {filteredEntities.length === 0 ? (
-              <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-                {entities.length === 0 ? 'No active entities. Activate one in /admin/entity-registrations.' : 'No entities match.'}
+          {/* ── Settings ─────────────────────────────────────────────── */}
+          <Card>
+            <CardHeader className="py-3.5">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Settings2 className="h-4 w-4 text-primary" />
+                Assessment Settings
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm font-medium">Start Date</label>
+                  <input
+                    type="date"
+                    value={form.startDate}
+                    onChange={(e) => setForm({ ...form, startDate: e.target.value })}
+                    className={cn(inputClass, 'mt-1.5')}
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium">End Date</label>
+                  <input
+                    type="date"
+                    value={form.endDate}
+                    min={form.startDate || undefined}
+                    onChange={(e) => setForm({ ...form, endDate: e.target.value })}
+                    className={cn(inputClass, 'mt-1.5')}
+                  />
+                </div>
               </div>
-            ) : filteredEntities.map((e) => {
-              const allotment = entityAllotments.find((a) => a.entityId === e.id);
-              const checked = !!allotment;
-              return (
-                <div key={e.id} className={`flex items-center justify-between gap-3 px-4 py-2.5 text-sm border-b border-border last:border-0 ${checked ? 'bg-primary/5' : ''}`}>
-                  <button type="button" onClick={() => toggleEntity(e)} className="flex items-center gap-3 flex-1 text-left min-w-0">
-                    <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${checked ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-background'}`}>
-                      {checked && <Check className="h-3 w-3" />}
-                    </span>
-                    <div className="min-w-0">
-                      <p className="font-medium truncate">{e.companyName || <span className="italic text-muted-foreground">(no company)</span>}</p>
-                      <p className="text-[0.6875rem] text-muted-foreground truncate">
-                        Contact: {e.name} · {e.email} · {(e.member_ids || []).length} member{(e.member_ids || []).length === 1 ? '' : 's'}
-                      </p>
-                    </div>
-                  </button>
-                  {checked && (
-                    <div className="flex items-center gap-1">
-                      <label className="text-[0.6875rem] text-muted-foreground">Cap</label>
-                      <Input
-                        variant="sm"
-                        inputMode="numeric"
-                        placeholder="∞"
-                        className="w-16"
-                        value={allotment?.cap == null ? '' : String(allotment.cap)}
-                        onChange={(ev) => e.id && updateCap(e.id, ev.target.value.replace(/[^0-9]/g, ''))}
+              <p className="text-xs text-muted-foreground mt-2">
+                Both dates are optional and are recorded for reference — access
+                is controlled by the Active toggle below, not by the window.
+              </p>
+
+              <div className="mt-3 divide-y divide-border border-t border-border">
+                <ToggleRow
+                  label="Active"
+                  hint="Only active assessments can be allotted and taken."
+                  checked={form.status === 'ACTIVE'}
+                  onChange={(v) => setForm({ ...form, status: v ? 'ACTIVE' : 'INACTIVE' })}
+                />
+                <div>
+                  <ToggleRow
+                    label="Show terms & conditions before starting"
+                    hint="Respondents must read them to the end and accept before the first question."
+                    checked={form.showTermsAndConditions}
+                    onChange={(v) => setForm({ ...form, showTermsAndConditions: v })}
+                  />
+                  {/* Editing only appears with the gate on, but the text is
+                      kept either way — switching off and on again must not
+                      cost the author their wording. */}
+                  {form.showTermsAndConditions && (
+                    <div className="pb-4">
+                      <RichTextEditor
+                        ariaLabel="Terms and conditions"
+                        value={form.termsAndConditions}
+                        onChange={(html) => setForm((f) => ({ ...f, termsAndConditions: html }))}
                       />
+                      <p className="text-xs text-muted-foreground mt-1.5">
+                        This is what respondents see and agree to. Bold, lists
+                        and headings are supported; other formatting and pasted
+                        styling are stripped.
+                      </p>
                     </div>
                   )}
                 </div>
-              );
-            })}
-          </div>
-        </CardContent>
-      </Card>
+                <ToggleRow
+                  label="Auto-advance to the next question"
+                  hint="Moves on as soon as an option is selected."
+                  checked={form.autoNext}
+                  onChange={(v) => setForm({ ...form, autoNext: v })}
+                />
+                <ToggleRow
+                  label="Show question index"
+                  hint="The navigator panel that lets respondents jump between questions."
+                  checked={form.showQuestionIndex}
+                  onChange={(v) => setForm({ ...form, showQuestionIndex: v })}
+                />
+              </div>
+            </CardContent>
+          </Card>
 
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2">
-            <UsersIcon className="size-4 text-primary" />
-            Groups
-            <Badge size="sm" shape="circle" variant="secondary" appearance="light">{groupAllotments.size} picked</Badge>
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <InputWrapper variant="md" className="w-full">
-            <Search className="size-4" />
-            <Input placeholder="Search groups…" value={groupSearch} onChange={(e) => setGroupSearch(e.target.value)} />
-          </InputWrapper>
-          <div className="border border-border rounded-lg overflow-hidden max-h-60 overflow-y-auto">
-            {filteredGroups.length === 0 ? (
-              <div className="px-4 py-8 text-center text-sm text-muted-foreground">No groups.</div>
-            ) : filteredGroups.map((g) => {
-              const checked = groupAllotments.has(g.id);
-              return (
-                <button key={g.id} type="button" onClick={() => toggleGroup(g.id)} className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm text-left border-b border-border last:border-0 ${checked ? 'bg-primary/5' : 'hover:bg-muted/50'}`}>
-                  <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${checked ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-background'}`}>
-                    {checked && <Check className="h-3 w-3" />}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="font-medium truncate">{g.name}</p>
-                    <p className="text-[0.6875rem] text-muted-foreground truncate">{g.memberIds.length} member{g.memberIds.length === 1 ? '' : 's'}{g.description ? ` · ${g.description}` : ''}</p>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </CardContent>
-      </Card>
+          {/* ── Questionnaire ────────────────────────────────────────── */}
+          <Card>
+            <CardHeader className="py-3.5">
+              <CardTitle className="text-base flex items-center gap-2">
+                <BookOpen className="h-4 w-4 text-primary" />
+                Select Questionnaire <span className="text-red-500">*</span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="relative max-w-md">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <input
+                  type="text"
+                  placeholder="Search questionnaires..."
+                  value={qSearch}
+                  onChange={(e) => setQSearch(e.target.value)}
+                  className="w-full h-9 rounded-md border border-input bg-background pl-9 pr-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:border-ring focus:ring-[3px] focus:ring-ring/30 transition-shadow"
+                />
+              </div>
 
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2">
-            <User className="size-4 text-primary" />
-            Individual respondents
-            <Badge size="sm" shape="circle" variant="secondary" appearance="light">{respondentAllotments.size} picked</Badge>
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <InputWrapper variant="md" className="w-full">
-            <Search className="size-4" />
-            <Input placeholder="Search respondents…" value={respondentSearch} onChange={(e) => setRespondentSearch(e.target.value)} />
-          </InputWrapper>
-          <div className="border border-border rounded-lg overflow-hidden max-h-60 overflow-y-auto">
-            {filteredRespondents.length === 0 ? (
-              <div className="px-4 py-8 text-center text-sm text-muted-foreground">No respondents.</div>
-            ) : filteredRespondents.slice(0, 200).map((r) => {
-              const checked = respondentAllotments.has(r.id);
-              return (
-                <button key={r.id} type="button" onClick={() => toggleRespondent(r.id)} className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm text-left border-b border-border last:border-0 ${checked ? 'bg-primary/5' : 'hover:bg-muted/50'}`}>
-                  <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${checked ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-background'}`}>
-                    {checked && <Check className="h-3 w-3" />}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="font-medium truncate">{r.name}</p>
-                    <p className="text-[0.6875rem] text-muted-foreground truncate">{r.email}</p>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </CardContent>
-      </Card>
+              {filteredQuestionnaires.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-border p-8 text-center">
+                  <p className="text-sm font-medium">
+                    {questionnaires.length === 0 ? 'No questionnaires yet' : 'No matches'}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {questionnaires.length === 0
+                      ? 'Build one in the Questionnaire Library first — an assessment must offer one.'
+                      : 'Try a different search term.'}
+                  </p>
+                </div>
+              ) : (
+                <ul className="space-y-2 max-h-[26rem] overflow-y-auto pr-1">
+                  {filteredQuestionnaires.map((q) => {
+                    const value = String(q.questionnaireId);
+                    const isPicked = form.questionnaireId === value;
+                    return (
+                      <li key={q.questionnaireId}>
+                        <label
+                          className={cn(
+                            'flex items-center gap-3 rounded-lg border px-3 py-2.5 cursor-pointer transition-colors',
+                            isPicked
+                              ? 'border-primary bg-primary/5'
+                              : 'border-border hover:bg-muted/40',
+                          )}
+                        >
+                          <input
+                            type="radio"
+                            name="questionnaire"
+                            value={value}
+                            checked={isPicked}
+                            onChange={() => setForm({ ...form, questionnaireId: value })}
+                            className="h-4 w-4 shrink-0 accent-primary"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-medium truncate">{q.name}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {q.questionCount} question{q.questionCount !== 1 ? 's' : ''}
+                              {q.category ? ` · ${q.category}` : ''}
+                            </p>
+                          </div>
+                          {isPicked && <Check className="h-4 w-4 text-primary shrink-0" />}
+                        </label>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
 
-      <div className="flex justify-end gap-2">
-        <Button variant="outline" onClick={() => { window.location.href = '/assessments'; }} disabled={saving}>Cancel</Button>
-        <Button variant="primary" onClick={submit} disabled={saving || totalAllotees === 0 || !pickedQuestionnaire || !pickedVersion || !name.trim()}>
-          <ClipboardCheck className="size-4" />
-          {saving ? 'Creating…' : `Create Assessment (${totalAllotees} allotee${totalAllotees === 1 ? '' : 's'})`}
-        </Button>
-      </div>
-      </>
+              {picked && picked.questionCount === 0 && (
+                <p className="text-xs text-amber-600 dark:text-amber-500">
+                  This questionnaire has no questions yet — respondents would see an empty assessment.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* ── Footer ───────────────────────────────────────────────── */}
+          {formError && (
+            <div className="rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-4 py-3 text-sm text-red-700 dark:text-red-400">
+              {formError}
+            </div>
+          )}
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => navigate(LIBRARY_PATH)}>Cancel</Button>
+            <Button variant="primary" onClick={submit} disabled={saving}>
+              {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              {editId != null ? 'Save Changes' : 'Create Assessment'}
+            </Button>
+          </div>
+        </>
       )}
     </div>
   );

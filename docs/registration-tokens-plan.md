@@ -1,16 +1,23 @@
 # Token-based respondent self-registration
 
-Phase 1 (resolve a link and draw the form) is **built and verified**.
-Phase 2 (actually registering) is designed below but **not built**.
+**Built and verified end to end**: mint a link in the organization wizard,
+open it, register, land signed in on `/portal/assessment`.
 
 An admin shares a link. A respondent opens it, fills one form, and comes out
 the other side as a real `RespondentUser` in the right organization, holding an
 allotment for an assessment, already signed in to the portal.
 
-| Scope | Link means | Respondent picks |
-| --- | --- | --- |
-| **Assessment-scoped** | this org **and** this assessment | nothing — shown locked |
-| **Org-scoped** | this org, any assessment in its catalog | one assessment from a dropdown |
+| Scope | Link means | Form shows | Lands on |
+| --- | --- | --- | --- |
+| **Org-wide** | join this organization | no assessment field; button reads "Register" | `/portal/assessment` (dashboard) |
+| **Assessment-scoped** | join **and** take this one | the assessment, locked | `/portal/assessment/{mappingId}` |
+
+Nothing on either form picks an assessment — the link alone decides, so
+`RegistrationSubmitRequest` carries no `assessmentId` at all. An org-wide link
+grants none and an administrator assigns afterwards; the dashboard's empty
+state already says exactly that. An org-wide link therefore works for an
+organization with an **empty catalog**, which is the common case for a brand
+new one.
 
 ---
 
@@ -102,11 +109,18 @@ employee id) are laid out but **submit is disabled** — that is phase 2.
 The old `pages/register.tsx` (`?token=` against the dead v2 `/public/tokens/…`)
 is untouched and still routed at `/portal/register`. Nothing new depends on it.
 
-## 4. Phase 2 — the registration transaction (NOT built)
+## 4. The registration transaction (built)
 
-`POST /api/registration-tokens/register/{token}` — one `@Transactional` service
-method, validate-everything-then-write, the two-pass shape the bulk endpoints
-already use.
+`POST /api/portal/register/{token}` → `PortalRegistrationService`. One
+`@Transactional` method, validate-everything-then-write, the two-pass shape the
+bulk endpoints already use.
+
+It sits under `/api/portal` rather than beside the token's resolve endpoint for
+a structural reason: `PortalAuthController` has no class-level `@Transactional`,
+so the `DataIntegrityViolationException` catch is genuinely outside the
+service's transaction. It also *is* a login — the reply is the same
+`{token, respondent}` shape as `/portal/login`, so the page stores the bearer,
+refreshes the auth context and lands on `/portal/assessment` authenticated.
 
 **Pass 1 — validate:**
 
@@ -139,6 +153,15 @@ NOT_STARTED → bump `used_count` → `jwt.issueToken(user)`. Return the bearer 
 `respondentAssessmentMappingId` so the portal lands on
 `/portal/assessment/{id}`.
 
+**When a use is spent.** Only when the request actually GRANTED something — a
+new member, or an assessment the respondent did not already hold. Re-submitting
+details that are already registered gains nothing and is really a sign-in, so
+it must not burn the cap. Both halves matter: counting only new *members* would
+let an assessment-scoped link hand its assessment to any number of existing
+members while the counter stayed put, making `maxUses` meaningless on exactly
+the links most likely to set it. An exhausted link is dead for everyone,
+returning respondents included — they sign in at `/portal/login` instead.
+
 **Two concurrency notes:**
 
 - Two people submitting the same new email at once: both pass the pre-check,
@@ -153,19 +176,34 @@ NOT_STARTED → bump `used_count` → `jwt.issueToken(user)`. Return the bearer 
 **Consent** stays false at registration — the take flow's terms step already
 records it. **Demographics** are per-attempt and stay in the take flow.
 
-## 5. Also still to build
+## 5. Error bodies (built, and load-bearing)
 
-- Admin minting / rotating / revoking, and surfacing the link on the
-  organization page (Copy / Rotate / Revoke, `used / max`). Nothing can create
-  a token today except SQL.
-- URL composition: backend returns the bare token; the admin app composes
-  `${VITE_PORTAL_URL}/register/${token}`, keeping deployment URLs out of the
-  backend. Switch to an `app.portal.base-url` property the day links get
-  emailed.
-- Rate limiting. The endpoint is public and phase 2 writes rows; with no Spring
+`ApiExceptionHandler` (`@RestControllerAdvice`) turns `ResponseStatusException`
+and `@Valid` failures into the `{"message": ...}` body the controllers already
+return by hand.
+
+Not cosmetic. Without it these fall through to Spring's default error handler,
+whose body depends on configuration this app does not set:
+`server.error.include-message` defaults to **never**, so in production the
+reason would arrive blank — "An account with this email already exists" would
+reach the respondent as an empty error. `spring-boot-devtools` flips that (and
+`include-stacktrace`) to *always*, which is exactly why it looked fine in
+development; devtools is `optional`/`runtime` scope and absent from the packaged
+jar. Handling the exception explicitly makes the two environments agree and
+stops returning stack traces to callers.
+
+## 6. Still to build
+
+- Rate limiting. The endpoint is public and writes rows; with no Spring
   Security filter the 256-bit token is the only gate.
+- Auth on the admin token endpoints. `generate`/`rotate`/`setStatus`/`delete`
+  mint credentials that create accounts and are currently as open as the
+  public resolve.
+- Max-uses / expiry in the wizard UI. Both are in the schema, accepted by
+  `RegistrationLinkRequest` and enforced (`consumeOneUse` re-checks the cap
+  inside the UPDATE), but the form sends neither.
 
-## 6. Consequences worth knowing
+## 7. Consequences worth knowing
 
 - Self-registration creates members and allotments, so `unassign-assessments`'
   existing "has member assignment(s) — remove those first" 409 will fire far

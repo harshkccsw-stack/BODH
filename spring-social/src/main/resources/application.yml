@@ -15,7 +15,7 @@ spring:
       on-profile: development
 
   datasource:
-    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:bodhpsychometric}?createDatabaseIfNotExist=true&allowPublicKeyRetrieval=true&useSSL=false&serverTimezone=UTC
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3307}/${DB_NAME:bodhpsychometric}?createDatabaseIfNotExist=true&allowPublicKeyRetrieval=true&useSSL=false&serverTimezone=UTC
     username: ${DB_USERNAME:bodh}
     password: ${DB_PASSWORD:bodh}
     driver-class-name: com.mysql.cj.jdbc.Driver
@@ -47,19 +47,25 @@ spring:
         # (e.g. the User table on H2), so entity names stay portable.
         auto_quote_keyword: true
 
-server:
-  port: ${SERVER_PORT:8080}
-  # ── Error responses ─────────────────────────────────────────────────────
+  # ── Error responses ───────────────────────────────────────────────────────
   # Set explicitly rather than inherited, because the defaults differ between
   # environments: spring-boot-devtools (present in dev, absent from the
   # packaged jar) flips include-message and include-stacktrace to ALWAYS. The
   # bodies clients actually see come from ApiExceptionHandler; these only
   # govern what is left — failures thrown outside a controller, which reach
   # Spring's own error handler.
-  error:
-    include-message: always
-    include-stacktrace: never
-    include-exception: false
+  #
+  # spring.web.error.*, NOT server.error.* — Boot 4.0 moved these and left the
+  # old names deprecated at level=error, which means they no longer bind at
+  # all. Under the old names this whole block was silently doing nothing.
+  web:
+    error:
+      include-message: always
+      include-stacktrace: never
+      include-exception: false
+
+server:
+  port: ${SERVER_PORT:8080}
 
 logging:
   level:
@@ -158,13 +164,17 @@ spring:
         # (e.g. the User table on H2), so entity names stay portable.
         auto_quote_keyword: true
 
+  # See the development profile — set explicitly so the two environments agree,
+  # and under spring.web.error.* because server.error.* stopped binding in
+  # Boot 4.0.
+  web:
+    error:
+      include-message: always
+      include-stacktrace: never
+      include-exception: false
+
 server:
   port: ${SERVER_PORT:8080}
-  # See the development profile — set explicitly so the two environments agree.
-  error:
-    include-message: always
-    include-stacktrace: never
-    include-exception: false
 
 logging:
   level:

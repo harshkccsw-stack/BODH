@@ -35,6 +35,7 @@ import {
   type OrganizationResponse,
   type RegistrationLinkRef,
 } from './organizationApis';
+import { RespondentBulkUpload } from './respondent-bulk-upload';
 
 /**
  * Three-step organization flow, rendered inline on the organizations page in
@@ -171,7 +172,7 @@ export default function OrganizationWizard({
   const [unmapBusy, setUnmapBusy] = useState<number | null>(null);
 
   // ── Step 3 — respondents ────────────────────────────────────────────────
-  const [peopleTab, setPeopleTab] = useState<'existing' | 'new'>('existing');
+  const [peopleTab, setPeopleTab] = useState<'existing' | 'new' | 'upload'>('existing');
   /** The org's CURRENT members — what edit mode mostly came here to change. */
   const [members, setMembers] = useState<OrgMemberRef[] | null>(null);
   const [unassigned, setUnassigned] = useState<OrgMemberRef[] | null>(null);
@@ -930,8 +931,9 @@ export default function OrganizationWizard({
               </div>
               <p className="text-xs text-muted-foreground mb-2">
                 Share a link and respondents register themselves straight into
-                this organization. The organization-wide link lets them pick
-                any active assessment; a per-assessment link fixes the choice.
+                this organization. The organization-wide link only makes them a
+                member — you assign assessments afterwards; a per-assessment
+                link also grants that one assessment on the spot.
               </p>
 
               {linkError && errorBox(linkError)}
@@ -945,7 +947,7 @@ export default function OrganizationWizard({
                 <ul className="divide-y divide-border border border-border rounded-lg">
                   <RegistrationLinkRow
                     title="Organization-wide link"
-                    subtitle="Respondent picks any active assessment in the catalog"
+                    subtitle="Joins this organization only — assign assessments afterwards"
                     link={links.organizationLink}
                     busy={linkBusy === 'org'}
                     disabled={busy || linkBusy !== null}
@@ -961,7 +963,7 @@ export default function OrganizationWizard({
                       key={a.assessmentId}
                       title={a.assessmentName}
                       subtitle={a.assessmentStatus === 'ACTIVE'
-                        ? 'Assessment fixed by the link'
+                        ? 'Joins this organization and grants this assessment'
                         : 'Assessment is INACTIVE — this link will not open until it is activated'}
                       warn={a.assessmentStatus !== 'ACTIVE'}
                       link={a.link}
@@ -1032,6 +1034,9 @@ export default function OrganizationWizard({
               {([
                 { id: 'existing' as const, label: 'Existing', count: checkedRespondents.size },
                 { id: 'new' as const, label: 'New', count: newRows.length },
+                // Upload writes on its own "Import" button, so it never
+                // carries a pending count the way the other two do.
+                { id: 'upload' as const, label: 'Upload', count: 0 },
               ]).map((t) => (
                 <button
                   key={t.id}
@@ -1123,6 +1128,18 @@ export default function OrganizationWizard({
                   </div>
                 )}
               </div>
+            ) : peopleTab === 'upload' ? (
+              <RespondentBulkUpload
+                organizationId={org!.organizationId}
+                organizationName={org!.name}
+                onImported={async () => {
+                  // Imported people are members immediately, so refresh the
+                  // member list above and the org list behind the wizard.
+                  const detail = await organizationApis.getOrganizationById(org!.organizationId);
+                  setMembers(detail.data.members);
+                  await onChanged();
+                }}
+              />
             ) : (
               <div className="space-y-3">
                 <p className="text-xs text-muted-foreground">

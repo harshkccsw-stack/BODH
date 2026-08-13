@@ -18,6 +18,15 @@ public interface RespondentAssessmentMappingRepository extends JpaRepository<Res
     /** Already assigned? One allotment per pair is the rule. */
     boolean existsByRespondent_IdAndAssessment_AssessmentId(Long respondentUserId, Long assessmentId);
 
+    /**
+     * The allotment itself, not just whether it exists — self-registration
+     * needs its id to send the respondent straight into the attempt, and a
+     * returning respondent must be sent to the row they already hold rather
+     * than a second one (the unique key forbids that anyway).
+     */
+    java.util.Optional<RespondentAssessmentMapping>
+            findByRespondent_IdAndAssessment_AssessmentId(Long respondentUserId, Long assessmentId);
+
     /** Allotments by one org's members for one assessment — blocks org unmapping. */
     long countByAssessment_AssessmentIdAndRespondent_Organization_OrganizationId(
             Long assessmentId, Long organizationId);
