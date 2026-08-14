@@ -1,11 +1,14 @@
 package com.bodhpsychometric.dto;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Random;
+import java.util.stream.Collectors;
 
 import com.bodhpsychometric.model.assessment.Assessment;
 import com.bodhpsychometric.model.assessment.AssessmentTerms;
@@ -107,7 +110,12 @@ public record PortalAssessmentDetailResponse(
     public record PortalRow(Long questionRowId, String rowText, int sortOrder) {
     }
 
-    /** One selectable option — no scoring data. */
+    /**
+     * One selectable option — no scoring data. The list is already in DELIVERY
+     * order (shuffled per attempt when the author asked for it), and sortOrder
+     * is that delivered position, not the authored one: render the list as it
+     * arrives and never re-sort it.
+     */
     public record PortalOption(
             Long optionId,
             String optionText,
@@ -127,6 +135,26 @@ public record PortalAssessmentDetailResponse(
             int sortOrder) {
     }
 
+    /**
+     * The order the respondent is walked through the questionnaire: every
+     * question of section 1, then every question of section 2, and so on;
+     * section-less placements (their section was deleted) last.
+     *
+     * The delivery query already sorts this way — this repeats it in Java
+     * because THIS is the respondent-facing path: a caller handing an unsorted
+     * list must not be able to interleave the sections again, and sorting a
+     * few dozen already-ordered rows costs nothing.
+     *
+     * Note that a placement's own sortOrder is per-SECTION (the wizard numbers
+     * each section from 0), which is precisely why it cannot be the first key.
+     */
+    private static final Comparator<QuestionnaireQuestion> DISPLAY_ORDER =
+            Comparator.comparingInt((QuestionnaireQuestion p) -> p.getSection() == null ? 1 : 0)
+                    .thenComparingInt(p -> p.getSection() == null ? 0 : p.getSection().getSortOrder())
+                    .thenComparingLong(p -> p.getSection() == null ? 0L : p.getSection().getSectionId())
+                    .thenComparingInt(QuestionnaireQuestion::getSortOrder)
+                    .thenComparingLong(QuestionnaireQuestion::getQuestionnaireQuestionId);
+
     public static PortalAssessmentDetailResponse from(RespondentAssessmentMapping mapping,
             List<QuestionnaireQuestion> placements,
             List<QuestionnaireDemographicField> demographicMappings) {
@@ -139,7 +167,7 @@ public record PortalAssessmentDetailResponse(
         // being emitted — question order must not decide section order.
         Map<Long, PortalSection> sections = new LinkedHashMap<>();
         List<PortalQuestion> questions = new ArrayList<>();
-        for (QuestionnaireQuestion placement : placements.stream().distinct().toList()) {
+        for (QuestionnaireQuestion placement : placements.stream().distinct().sorted(DISPLAY_ORDER).toList()) {
             Section section = placement.getSection();
             if (section != null) {
                 sections.putIfAbsent(section.getSectionId(),
@@ -147,11 +175,8 @@ public record PortalAssessmentDetailResponse(
                                 section.getSortOrder()));
             }
             Question question = placement.getQuestion();
-            List<PortalOption> options = question.getOptions().stream()
-                    .sorted(Comparator.comparingInt(Option::getSortOrder))
-                    .map(o -> new PortalOption(o.getOptionId(), o.getOptionText(), o.getContentType(),
-                            o.getMediaUrl(), o.getSortOrder()))
-                    .toList();
+            List<PortalOption> options = deliveredOptions(question,
+                    mapping.getRespondentAssessmentMappingId());
             SelectionBounds bounds = SelectionBounds.of(question);
             questions.add(new PortalQuestion(
                     question.getQuestionId(),
@@ -209,5 +234,41 @@ public record PortalAssessmentDetailResponse(
                                 .thenComparing(PortalSection::sectionId))
                         .toList(),
                 questions);
+    }
+
+    /**
+     * The options in the order THIS attempt is to be shown them: the authored
+     * order, or — when the author ticked shuffleOptions — a random one.
+     *
+     * The random order is derived, never stored. Seeding on
+     * (attempt, question) buys three things at once: it is the same order every
+     * time this attempt loads the assessment, so a mid-take refresh does not
+     * rearrange the screen; it differs between two respondents and between two
+     * attempts by the same respondent, which is the point of the feature; and
+     * it can be recomputed afterwards from two ids, so "what did they actually
+     * see?" is still answerable (the option set is frozen once anyone answers).
+     *
+     * sortOrder is renumbered to the DELIVERED position rather than left at the
+     * authored one, for the same reason the resolved minSelections/maxSelections
+     * are sent: the list and the field cannot then disagree, and a client that
+     * sorts by sortOrder cannot silently undo the shuffle.
+     */
+    private static List<PortalOption> deliveredOptions(Question question, Long mappingId) {
+        List<Option> authored = question.getOptions().stream()
+                .sorted(Comparator.comparingInt(Option::getSortOrder))
+                .collect(Collectors.toCollection(ArrayList::new));
+        // The flag is only ever stored on an MCQ, but delivery is the last
+        // gate before a respondent's screen — re-checking the type here means
+        // no row edited around QuestionController can scramble a rating scale.
+        if (question.isShuffleOptions() && question.getQuestionType() == QuestionType.MCQ) {
+            Collections.shuffle(authored, new Random(31L * mappingId + question.getQuestionId()));
+        }
+        List<PortalOption> delivered = new ArrayList<>(authored.size());
+        for (int i = 0; i < authored.size(); i++) {
+            Option o = authored.get(i);
+            delivered.add(new PortalOption(o.getOptionId(), o.getOptionText(), o.getContentType(),
+                    o.getMediaUrl(), i));
+        }
+        return delivered;
     }
 }

@@ -95,6 +95,12 @@ export interface QuestionPayload {
   /** Both null = single choice. The backend rejects one without the other. */
   selectionRule: SelectionRule | null;
   selectionCount: number | null;
+  /**
+   * MCQ only — deliver the options in a random order, seeded per attempt, so
+   * two respondents meet the choices differently. The backend REFUSES it on a
+   * LINEAR_SCALE (ordinal points) and a LIKERT_GRID (shared rating scale).
+   */
+  shuffleOptions: boolean;
   /** LINEAR_SCALE only — the captions under the first and last point. */
   scaleLowLabel: string | null;
   scaleHighLabel: string | null;
@@ -170,6 +176,12 @@ export interface QuestionResponse {
   riskFlag: boolean;
   selectionRule: SelectionRule | null;
   selectionCount: number | null;
+  /**
+   * Delivery order only: `options` below is ALWAYS the authored order, here
+   * and in every preview. The randomising happens per attempt in the portal
+   * payload, so nothing on the dashboard can show what one respondent saw.
+   */
+  shuffleOptions: boolean;
   scaleLowLabel: string | null;
   scaleHighLabel: string | null;
   /** On a LINEAR_SCALE these are the generated points, carrying derived scores. */

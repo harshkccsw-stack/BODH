@@ -93,6 +93,22 @@ public class Question implements Serializable {
     @Column(name = "selectionCount")
     private Integer selectionCount;
 
+    /**
+     * MCQ only: deliver the options in a random order instead of the authored
+     * one, so two respondents answering the same question meet the choices
+     * differently. PRESENTATION, nothing more — an answer stores an optionId,
+     * never a position, so scoring, the scoring key and every export keep
+     * reading sortOrder and are untouched by this.
+     *
+     * The order itself is not stored: PortalAssessmentDetailResponse derives
+     * it from (attempt, question) with a seeded Random, which makes it stable
+     * across a page reload and reproducible afterwards. False on a
+     * LINEAR_SCALE (the points 1—5 are ordinal) and on a LIKERT_GRID (the
+     * columns are a shared rating scale) — QuestionController refuses both.
+     */
+    @Column(name = "shuffleOptions", nullable = false)
+    private boolean shuffleOptions;
+
     @Column(name = "stem", columnDefinition = "TEXT")
     private String questionTexString;
 
@@ -172,6 +188,14 @@ public class Question implements Serializable {
     /** True when the question takes more than one option. */
     public boolean isMultiSelect() {
         return selectionRule != null;
+    }
+
+    public boolean isShuffleOptions() {
+        return shuffleOptions;
+    }
+
+    public void setShuffleOptions(boolean shuffleOptions) {
+        this.shuffleOptions = shuffleOptions;
     }
 
     public String getQuestionTexString() {

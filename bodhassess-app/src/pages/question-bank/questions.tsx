@@ -9,6 +9,7 @@ import {
   Pencil,
   Plus,
   Search,
+  Shuffle,
   SlidersHorizontal,
   Target,
   Trash2,
@@ -265,6 +266,14 @@ export default function QuestionsPage() {
                       >
                         <ListChecks className="h-3 w-3" />
                         {q.selectionRule === 'EQUALS' ? '=' : q.selectionRule === 'MAX' ? '≤' : '≥'} {q.selectionCount}
+                      </span>
+                    )}
+                    {q.shuffleOptions && (
+                      <span
+                        className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-2.5 py-0.5 text-xs font-medium text-primary"
+                        title="Options are delivered in a random order — different for each respondent. The order shown here is the authored one."
+                      >
+                        <Shuffle className="h-3 w-3" /> shuffled
                       </span>
                     )}
                     {q.riskFlag && (

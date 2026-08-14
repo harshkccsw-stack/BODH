@@ -23,8 +23,10 @@ import com.jayway.jsonpath.JsonPath;
  * Placement report tags through the public endpoints: the questions PUT is
  * the only writer of placements, so it must stamp "Q_n" on flat
  * questionnaires and "Section_X_Q_n" on sectioned ones, and re-stamp on
- * every re-save. Read back through getByQuestionnaireId, whose global
- * ordering (sortOrder, then id) interleaves sections — tags must NOT.
+ * every re-save. Read back through getByQuestionnaireId, which returns
+ * placements section by section — sortOrder is per-section, so the tags and
+ * that order now count the same way (they did not until display order was
+ * made section-first; see QuestionnaireQuestionRepository.DISPLAY_ORDER).
  */
 @SpringBootTest
 @AutoConfigureMockMvc

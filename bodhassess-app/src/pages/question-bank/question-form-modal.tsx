@@ -8,6 +8,7 @@ import {
   Link2,
   Loader2,
   Plus,
+  Shuffle,
   Target,
   Type,
   Video,
@@ -217,6 +218,11 @@ export interface QuestionForm {
   /** '' = single choice. The count is a string so the input can be emptied. */
   selectionRule: SelectionRule | '';
   selectionCount: string;
+  /**
+   * MCQ only — randomise the order the options are DELIVERED in. Never sent
+   * for a scale or a grid (both are ordered, and the backend 400s on it).
+   */
+  shuffleOptions: boolean;
   /** LINEAR_SCALE only — captions under the first and last point. */
   scaleLowLabel: string;
   scaleHighLabel: string;
@@ -238,6 +244,7 @@ export const formFrom = (initial: QuestionResponse | null): QuestionForm =>
         riskFlag: false,
         selectionRule: '',
         selectionCount: '',
+        shuffleOptions: false,
         scaleLowLabel: '',
         scaleHighLabel: '',
         // Four blank options by default — the common case. Blank rows are
@@ -257,6 +264,8 @@ export const formFrom = (initial: QuestionResponse | null): QuestionForm =>
         riskFlag: initial.riskFlag,
         selectionRule: initial.selectionRule ?? '',
         selectionCount: initial.selectionCount == null ? '' : String(initial.selectionCount),
+        // ?? false so a response from an older backend still opens the form.
+        shuffleOptions: initial.shuffleOptions ?? false,
         scaleLowLabel: initial.scaleLowLabel || '',
         scaleHighLabel: initial.scaleHighLabel || '',
         options: initial.options.map((o) => ({
@@ -388,6 +397,9 @@ export function questionPayloadFrom(form: QuestionForm): QuestionPayload {
     // A grid is one pick per row for now, so it sends no rule either.
     selectionRule: scale || grid ? null : form.selectionRule || null,
     selectionCount: !scale && !grid && form.selectionRule ? Number(form.selectionCount) : null,
+    // A scale's points and a grid's columns are ordered — the backend refuses
+    // the flag on both, so it is cleared here as well as in the type switch.
+    shuffleOptions: !scale && !grid && form.shuffleOptions,
     scaleLowLabel: scale ? form.scaleLowLabel.trim() || null : null,
     scaleHighLabel: scale ? form.scaleHighLabel.trim() || null : null,
     options: rows.map((o) => ({
@@ -533,6 +545,10 @@ export function QuestionFormFields({
             set({
               questionType,
               ...(questionType === 'LINEAR_SCALE' ? { selectionRule: '' as const, selectionCount: '' } : {}),
+              // Shuffling belongs to an MCQ: a scale's points and a grid's
+              // columns are ordered, so leaving MCQ drops the flag rather
+              // than sending one the backend would refuse.
+              ...(questionType === 'MCQ' ? {} : { shuffleOptions: false }),
             });
           }}
           className="w-full h-9 rounded-lg border border-border bg-background px-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
@@ -715,10 +731,57 @@ export function QuestionFormFields({
       <div className="space-y-1.5">
         <div className="flex items-center justify-between">
           <label className="text-sm font-medium">{isGrid ? 'Columns (the rating scale)' : 'Options'}</label>
-          <Button variant="outline" size="sm" onClick={addOption}>
-            <Plus className="h-3 w-3" /> Add {isGrid ? 'column' : 'option'}
-          </Button>
+          <div className="flex items-center gap-2">
+            {/* Shuffle sits beside Add option because it is about this list.
+                Hidden on a grid — those columns are one shared rating scale
+                and reordering them would scramble the scale itself. */}
+            {!isGrid && (
+              <button
+                type="button"
+                role="switch"
+                aria-checked={form.shuffleOptions}
+                onClick={() => set({ shuffleOptions: !form.shuffleOptions })}
+                title={
+                  form.shuffleOptions
+                    ? 'Each respondent sees these options in a different order'
+                    : 'Every respondent sees these options in the order below'
+                }
+                className={cn(
+                  'inline-flex items-center gap-1.5 rounded-lg border px-2 h-8 text-xs font-medium transition-colors',
+                  form.shuffleOptions
+                    ? 'border-primary bg-primary/10 text-primary'
+                    : 'border-border bg-muted/40 text-muted-foreground hover:text-foreground',
+                )}
+              >
+                <Shuffle className="h-3 w-3" />
+                Shuffle
+                <span
+                  className={cn(
+                    'ml-0.5 h-4 w-7 rounded-full p-0.5 transition-colors',
+                    form.shuffleOptions ? 'bg-primary' : 'bg-border',
+                  )}
+                >
+                  <span
+                    className={cn(
+                      'block h-3 w-3 rounded-full bg-white transition-transform',
+                      form.shuffleOptions && 'translate-x-3',
+                    )}
+                  />
+                </span>
+              </button>
+            )}
+            <Button variant="outline" size="sm" onClick={addOption}>
+              <Plus className="h-3 w-3" /> Add {isGrid ? 'column' : 'option'}
+            </Button>
+          </div>
         </div>
+        {!isGrid && form.shuffleOptions && (
+          <p className="text-[0.6875rem] text-muted-foreground">
+            Options are delivered in a random order — different for each respondent, and
+            fixed for the whole of their attempt. The order below stays the authored one:
+            it is what previews, exports and the scoring key use.
+          </p>
+        )}
         {isGrid && scoringGaps > 0 && (
           <p className="text-[0.6875rem] text-amber-600 dark:text-amber-500 inline-flex items-center gap-1">
             <AlertTriangle className="h-3 w-3" />

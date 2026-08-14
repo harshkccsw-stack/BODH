@@ -106,11 +106,14 @@ public class QuestionController {
         return questionRepository.findAll().stream().map(this::toResponse).toList();
     }
 
-    /** Questions of one questionnaire, each carrying THAT placement's section and order. */
+    /**
+     * Questions of one questionnaire, each carrying THAT placement's section
+     * and order. Display order: section by section, positions inside each —
+     * NOT sortOrder alone, which is per-section and would interleave them.
+     */
     @GetMapping("/getByQuestionnaireId/{questionnaireId}")
     public List<QuestionResponse> getQuestionsByQuestionnaire(@PathVariable Long questionnaireId) {
-        return questionnaireQuestionRepository
-                .findByQuestionnaireQuestionnaireIdOrderBySortOrderAscQuestionnaireQuestionIdAsc(questionnaireId)
+        return questionnaireQuestionRepository.findInDisplayOrder(questionnaireId)
                 .stream().map(m -> toResponse(m.getQuestion(), m)).toList();
     }
 
@@ -243,6 +246,10 @@ public class QuestionController {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("message",
                     "This question already has responses — how many options it takes is locked"));
         }
+        // shuffleOptions is deliberately NOT frozen: an answer stores an
+        // optionId, never a position, so flipping it strands nothing. The only
+        // effect mid-collection is that earlier respondents saw the authored
+        // order and later ones see a shuffled one — which is what was asked for.
         applyFields(question, request);
         // Scores are owned by this flow: wipe and rewrite. Option scores must
         // hit the DB before option rows are replaced, or the FK blocks.
@@ -425,6 +432,11 @@ public class QuestionController {
         question.setRiskFlag(Boolean.TRUE.equals(request.riskFlag()));
         question.setSelectionRule(request.selectionRule());
         question.setSelectionCount(requestedCount(request));
+        // Shuffling belongs to an MCQ (validateType refuses it elsewhere) and
+        // is stored false for the rest, so switching a shuffled MCQ to a scale
+        // cannot leave a flag behind that would reorder the points 1—5.
+        question.setShuffleOptions(Boolean.TRUE.equals(request.shuffleOptions())
+                && typeOf(request) == QuestionType.MCQ);
         // Scale labels belong to a scale. Cleared on every other type, so
         // switching a question away from LINEAR_SCALE cannot leave captions
         // behind that no screen would ever show again.
@@ -575,6 +587,11 @@ public class QuestionController {
             if (request.selectionRule() != null || request.selectionCount() != null) {
                 return "a linear scale takes one answer — it cannot have a selection rule";
             }
+            // The points 1—5 are ordinal: a scale delivered 3,1,5,2,4 is not a
+            // randomised question, it is a broken one.
+            if (Boolean.TRUE.equals(request.shuffleOptions())) {
+                return "a linear scale's points are ordered — they cannot be shuffled";
+            }
             return null;
         }
         if (type == QuestionType.LIKERT_GRID) {
@@ -585,6 +602,13 @@ public class QuestionController {
             // would ship a cap no screen can honour.
             if (request.selectionRule() != null || request.selectionCount() != null) {
                 return "a grid takes one answer per row — it cannot have a selection rule";
+            }
+            // A grid's columns are one shared rating scale, in order, for every
+            // row — shuffling them would scramble the scale itself. Shuffling
+            // the ROWS is the version that makes sense for a grid; that is a
+            // separate flag and does not exist yet.
+            if (Boolean.TRUE.equals(request.shuffleOptions())) {
+                return "a grid's columns are a shared rating scale — they cannot be shuffled";
             }
             if (sanitizedRows(request).isEmpty()) {
                 return "a grid needs at least one row";

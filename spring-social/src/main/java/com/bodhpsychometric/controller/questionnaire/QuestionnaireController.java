@@ -345,8 +345,7 @@ public class QuestionnaireController {
         Long id = questionnaire.getQuestionnaireId();
         assignQuestionTags(questionnaire.isHasSections(),
                 sectionRepository.findByQuestionnaire_QuestionnaireIdOrderBySortOrderAscSectionIdAsc(id),
-                questionnaireQuestionRepository
-                        .findByQuestionnaireQuestionnaireIdOrderBySortOrderAscQuestionnaireQuestionIdAsc(id));
+                questionnaireQuestionRepository.findInDisplayOrder(id));
     }
 
     // ── Question mapping ──────────────────────────────────────────────────

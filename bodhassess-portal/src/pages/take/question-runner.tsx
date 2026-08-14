@@ -211,24 +211,48 @@ export function QuestionRunner({
   // Group questions into ordered sections (preserving first-appearance order),
   // keeping each question's absolute index so navigation still works. Flat
   // questionnaires collapse to a single untitled group.
-  const sectionNames = new Map(detail.sections.map((s) => [s.sectionId, s.name]));
-  const sections: { key: string; title: string | null; indices: number[] }[] = [];
+  //
+  // First appearance IS section order: the server delivers every question of
+  // section 1, then every question of section 2 — so each group's indices are
+  // one contiguous run.
+  const sectionById = new Map(detail.sections.map((s) => [s.sectionId, s]));
+  const sections: { key: string; title: string | null; instruction: string | null; indices: number[] }[] = [];
   const sectionByKey = new Map<string, number>();
   questions.forEach((qq, qi) => {
     const key = qq.sectionId !== null ? String(qq.sectionId) : '__none__';
     let pos = sectionByKey.get(key);
     if (pos === undefined) {
+      const section = qq.sectionId !== null ? sectionById.get(qq.sectionId) : undefined;
       pos = sections.length;
       sectionByKey.set(key, pos);
       sections.push({
         key,
-        title: qq.sectionId !== null ? sectionNames.get(qq.sectionId)?.trim() || null : null,
+        title: section?.name?.trim() || null,
+        instruction: section?.instruction?.trim() || null,
         indices: [],
       });
     }
     sections[pos].indices.push(qi);
   });
   const hasSections = sections.some((s) => s.title);
+
+  // Absolute index → where that question sits INSIDE its section, which is
+  // how it is NUMBERED. A placement's sortOrder is per-section on the backend
+  // and the authoring wizard numbers each section from 1, so a global running
+  // number would show "27" where the author sees "7".
+  const placeOf = new Map<number, { pos: number; title: string | null; instruction: string | null }>();
+  sections.forEach((sec) => {
+    sec.indices.forEach((qi, pos) => {
+      placeOf.set(qi, {
+        pos,
+        title: sec.title,
+        // Only the section's first question carries it — this is the banner
+        // shown when the respondent crosses into a new section.
+        instruction: pos === 0 ? sec.instruction : null,
+      });
+    });
+  });
+  const here = placeOf.get(index);
   // The question index panel lets respondents see their progress and jump
   // between questions. Per-assessment toggle (create/edit form); defaults on.
   const showIndex = detail.showQuestionIndex;
@@ -244,7 +268,14 @@ export function QuestionRunner({
         subtitle={subtitle}
         maxWidth={showIndex ? '6xl' : '3xl'}
         progress={progress}
-        right={<div className="text-xs text-muted-foreground shrink-0">Question {index + 1} of {total}</div>}
+        /* Section name + the GLOBAL count: the navigator numbers restart at 1
+           in each section, so the header is where "how far through the whole
+           assessment am I" still has to be answerable. */
+        right={(
+          <div className="text-xs text-muted-foreground shrink-0">
+            {here?.title ? `${here.title} · ` : ''}Question {index + 1} of {total}
+          </div>
+        )}
       />
 
       <div
@@ -279,7 +310,11 @@ export function QuestionRunner({
                           </div>
                         )}
                         <div className="grid grid-cols-5 gap-1.5">
-                          {sec.indices.map((qi) => {
+                          {/* pos is the number the respondent sees — it
+                              restarts at 1 in every section, matching the
+                              authoring screen. qi stays the absolute index,
+                              which is what navigation and answers use. */}
+                          {sec.indices.map((qi, pos) => {
                             const qq = questions[qi];
                             const isCurrent = qi === index;
                             const isAnswered = isQuestionAnswered(qi);
@@ -288,7 +323,9 @@ export function QuestionRunner({
                                 key={qq.questionId}
                                 type="button"
                                 onClick={() => goTo(qi)}
-                                title={`Question ${qi + 1}${isAnswered ? ' — answered' : ''}`}
+                                title={`${sec.title ? `${sec.title} · ` : ''}Question ${pos + 1}${
+                                  isAnswered ? ' — answered' : ''
+                                }`}
                                 className={cn(
                                   'h-8 w-full rounded-md text-xs font-medium border transition-colors',
                                   isCurrent
@@ -298,7 +335,7 @@ export function QuestionRunner({
                                       : 'border-border bg-background text-muted-foreground hover:border-primary/40',
                                 )}
                               >
-                                {qi + 1}
+                                {pos + 1}
                               </button>
                             );
                           })}
@@ -324,6 +361,18 @@ export function QuestionRunner({
         )}
 
         <main>
+          {/* The section's own instruction, on the question that opens it —
+              the respondent's only signal that they have crossed from one
+              section into the next. Authored per section in the wizard;
+              sections without one show nothing. */}
+          {here?.instruction && (
+            <div className="mb-5 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3">
+              {here.title && (
+                <p className="text-xs font-semibold uppercase tracking-wider text-primary">{here.title}</p>
+              )}
+              <p className="mt-1 text-sm text-foreground whitespace-pre-line">{here.instruction}</p>
+            </div>
+          )}
           <Card>
             <CardContent className="p-6 space-y-5">
               {q.stem && <p className="text-base font-medium leading-relaxed">{q.stem}</p>}

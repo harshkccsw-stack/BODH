@@ -165,10 +165,11 @@ export default function CreateAssessmentPage() {
       ]);
       setQSections(secs.data);
       setMqtChoices(choicesFromQualities(mq.data));
-      const sorted = [...mine.data].sort(
-        (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.questionId - b.questionId,
-      );
-      setDrafts(sorted.map((q) => draftFromQuestion(q, q.sectionId)));
+      // Kept in the order the server sent — section by section, positions
+      // inside each. Re-sorting by sortOrder here would BRAID the sections
+      // back together: sortOrder is per-section, so every section's first
+      // question shares the value 0.
+      setDrafts(mine.data.map((q) => draftFromQuestion(q, q.sectionId)));
       setLoadedForQid(qid);
     } catch (e: any) {
       setStep2Error(e?.response?.data?.message || e?.message || 'Failed to load this questionnaire’s questions');
@@ -407,10 +408,11 @@ export default function CreateAssessmentPage() {
     setImportError('');
     setImportLoading(true);
     try {
+      // Server order (section by section) — see loadStep2 for why this must
+      // not be re-sorted by sortOrder. The source questionnaire's sections are
+      // not loaded here, so its own order is the only one available anyway.
       const res = await questionApis.getQuestionsByQuestionnaireId(q.questionnaireId);
-      setImportQuestions(
-        [...res.data].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.questionId - b.questionId),
-      );
+      setImportQuestions(res.data);
     } catch (e: any) {
       setImportError(e?.response?.data?.message || e?.message || 'Failed to load that questionnaire’s questions');
     } finally {
@@ -501,6 +503,7 @@ export default function CreateAssessmentPage() {
         // an unsaved edit too — the whole point of previewing here.
         selectionRule: d.form.selectionRule || null,
         selectionCount: d.form.selectionRule ? Number(d.form.selectionCount) || null : null,
+        shuffleOptions: d.form.shuffleOptions,
         scaleLowLabel: d.form.scaleLowLabel || null,
         scaleHighLabel: d.form.scaleHighLabel || null,
         // Draft rows have no id yet — index is enough for a preview key.
