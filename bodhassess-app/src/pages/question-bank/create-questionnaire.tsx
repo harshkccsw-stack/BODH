@@ -501,6 +501,7 @@ export default function CreateAssessmentPage() {
         // an unsaved edit too — the whole point of previewing here.
         selectionRule: d.form.selectionRule || null,
         selectionCount: d.form.selectionRule ? Number(d.form.selectionCount) || null : null,
+        shuffleOptions: d.form.shuffleOptions,
         scaleLowLabel: d.form.scaleLowLabel || null,
         scaleHighLabel: d.form.scaleHighLabel || null,
         // Draft rows have no id yet — index is enough for a preview key.

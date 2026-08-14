@@ -58,31 +58,26 @@ const LEVEL_LABEL: Record<MappingLevel, string> = {
   GROUP: 'Group',
 };
 
-/** One row of the Existing Mappings table, from either source. */
+/**
+ * One row of the Existing Mappings table — an ORGANIZATION-level mapping,
+ * which is to say one catalog entry and the registration link that hangs off
+ * it. Respondent allotments are deliberately NOT listed here: they carry no
+ * link, and the Respondent Mapping page already lists and removes them per
+ * organization.
+ */
 interface MappingRow {
   key: string;
-  level: MappingLevel;
   assessmentId: number;
   assessmentName: string;
   details: string;
   status: string;
-  /** Catalog rows only — an allotment can never carry one. */
   link: RegistrationLinkRef | null;
-  /** Allotment rows only — what delete addresses. */
-  allotmentId?: number;
 }
 
-const statusChip = (status: string) => {
-  switch (status) {
-    case 'ACTIVE':
-    case 'COMPLETED':
-      return 'border-green-300 bg-green-50 text-green-700 dark:border-green-900 dark:bg-green-950/40 dark:text-green-400';
-    case 'ONGOING':
-      return 'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-400';
-    default:
-      return 'border-border bg-muted/40 text-muted-foreground';
-  }
-};
+const statusChip = (status: string) =>
+  status === 'ACTIVE'
+    ? 'border-green-300 bg-green-50 text-green-700 dark:border-green-900 dark:bg-green-950/40 dark:text-green-400'
+    : 'border-border bg-muted/40 text-muted-foreground';
 
 const pretty = (s: string) =>
   s.charAt(0) + s.slice(1).toLowerCase().replace(/_/g, ' ');
@@ -181,34 +176,23 @@ export default function OrganizationMappingPage() {
   const org = organizations.find((o) => o.organizationId === orgId) ?? null;
   const mappedIds = useMemo(() => new Set(catalog.map((c) => c.assessmentId)), [catalog]);
 
-  // Existing Mappings — catalog entries first, then the allotments inside
-  // this organization. One table, one Level column (see the note above).
-  const rows: MappingRow[] = useMemo(() => {
-    const catalogRows: MappingRow[] = [...catalog]
-      .sort((a, b) => a.name.localeCompare(b.name))
-      .map((c) => ({
-        key: `org-${c.assessmentId}`,
-        level: 'ORGANIZATION',
-        assessmentId: c.assessmentId,
-        assessmentName: c.name,
-        details: `Whole organization · ${c.assignedMemberCount} member assignment${c.assignedMemberCount !== 1 ? 's' : ''}`,
-        status: c.status,
-        link: links.byAssessmentId.get(c.assessmentId) ?? null,
-      }));
-    const allotmentRows: MappingRow[] = [...allotments]
-      .sort((a, b) => a.assessmentName.localeCompare(b.assessmentName) || a.respondentName.localeCompare(b.respondentName))
-      .map((a) => ({
-        key: `res-${a.respondentAssessmentMappingId}`,
-        level: 'RESPONDENT',
-        assessmentId: a.assessmentId,
-        assessmentName: a.assessmentName,
-        details: `${a.respondentName} · ${a.respondentEmail}`,
-        status: a.assessmentStatus,
-        link: null,
-        allotmentId: a.respondentAssessmentMappingId,
-      }));
-    return [...catalogRows, ...allotmentRows];
-  }, [catalog, allotments, links]);
+  // Existing Mappings — organization-level entries only. The allotments are
+  // still loaded (they drive the "already holds this" checks below), they are
+  // just not rows here.
+  const rows: MappingRow[] = useMemo(
+    () =>
+      [...catalog]
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map((c) => ({
+          key: `org-${c.assessmentId}`,
+          assessmentId: c.assessmentId,
+          assessmentName: c.name,
+          details: `${c.assignedMemberCount} member assignment${c.assignedMemberCount !== 1 ? 's' : ''}`,
+          status: c.status,
+          link: links.byAssessmentId.get(c.assessmentId) ?? null,
+        })),
+    [catalog, links],
+  );
 
   const filteredMembers = useMemo(() => {
     if (!respondentSearch) return members;
@@ -366,13 +350,9 @@ export default function OrganizationMappingPage() {
     setDeleteError('');
     setBusy('delete');
     try {
-      if (confirmDelete.level === 'ORGANIZATION') {
-        // Refuses while members hold allotments for it, and takes the
-        // catalog entry's registration link with it.
-        await organizationApis.unassignAssessments(orgId, [confirmDelete.assessmentId]);
-      } else {
-        await respondentMappingApis.deleteAssignment(confirmDelete.allotmentId!);
-      }
+      // Refuses while members hold allotments for it, and takes the catalog
+      // entry's registration link with it.
+      await organizationApis.unassignAssessments(orgId, [confirmDelete.assessmentId]);
       setConfirmDelete(null);
       await loadOrganization(orgId, false);
     } catch (e: any) {
@@ -575,7 +555,6 @@ export default function OrganizationMappingPage() {
                         onClick={() =>
                           setConfirmDelete({
                             key: `org-${c.assessmentId}`,
-                            level: 'ORGANIZATION',
                             assessmentId: c.assessmentId,
                             assessmentName: c.name,
                             details: 'Whole organization',
@@ -757,17 +736,24 @@ export default function OrganizationMappingPage() {
           {/* ── Existing mappings ────────────────────────────────────── */}
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-3 py-3.5">
-              <CardTitle className="text-base flex items-center gap-2">
-                <Users className="h-4 w-4 shrink-0 text-primary" />
-                Existing Mappings
-              </CardTitle>
+              <div>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Users className="h-4 w-4 shrink-0 text-primary" />
+                  Existing Mappings
+                </CardTitle>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Organization-level mappings and their registration links.
+                  Assessments allotted to individual respondents are managed on
+                  the Respondent Mapping page.
+                </p>
+              </div>
               <span className="shrink-0 rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground tabular-nums">
                 {rows.length} total
               </span>
             </CardHeader>
             <CardContent className="p-0">
               {rows.length === 0 ? (
-                <p className="px-5 pb-5 text-sm text-muted-foreground">
+                <p className="px-5 py-5 text-sm text-muted-foreground">
                   Nothing mapped to this organization yet.
                 </p>
               ) : (
@@ -775,10 +761,9 @@ export default function OrganizationMappingPage() {
                   {/* Fixed widths on every column but Details: the link cell
                       is the tall one, and letting it size itself made each
                       row a different shape. */}
-                  <table className="w-full min-w-5xl text-sm">
+                  <table className="w-full min-w-4xl text-sm">
                     <colgroup>
-                      <col className="w-64" />
-                      <col className="w-34" />
+                      <col className="w-72" />
                       <col />
                       <col className="w-30" />
                       <col className="w-96" />
@@ -787,7 +772,6 @@ export default function OrganizationMappingPage() {
                     <thead>
                       <tr className="border-y border-border bg-muted/40 text-left text-[0.6875rem] uppercase tracking-wider text-muted-foreground">
                         <th className="px-4 py-2.5 font-medium">Assessment</th>
-                        <th className="px-4 py-2.5 font-medium">Level</th>
                         <th className="px-4 py-2.5 font-medium">Details</th>
                         <th className="px-4 py-2.5 font-medium">Status</th>
                         <th className="px-4 py-2.5 font-medium">Registration Link</th>
@@ -802,16 +786,6 @@ export default function OrganizationMappingPage() {
                               {r.assessmentName}
                             </span>
                           </td>
-                          <td className="px-4 py-3">
-                            <span className={cn(
-                              'inline-flex items-center whitespace-nowrap rounded-full border px-2 py-0.5 text-[0.6875rem] font-medium',
-                              r.level === 'ORGANIZATION'
-                                ? 'border-primary/40 bg-primary/10 text-primary'
-                                : 'border-border bg-muted/40 text-muted-foreground',
-                            )}>
-                              {r.level === 'ORGANIZATION' ? 'Organization' : 'Respondent'}
-                            </span>
-                          </td>
                           <td className="px-4 py-3 text-muted-foreground">
                             <span className="block truncate" title={r.details}>{r.details}</span>
                           </td>
@@ -821,16 +795,7 @@ export default function OrganizationMappingPage() {
                             </span>
                           </td>
                           <td className="px-4 py-3">
-                            {r.level === 'ORGANIZATION' ? (
-                              <LinkControls link={r.link} assessmentId={r.assessmentId} />
-                            ) : (
-                              <span
-                                className="text-xs text-muted-foreground"
-                                title="Registration links create respondents — this one already exists"
-                              >
-                                —
-                              </span>
-                            )}
+                            <LinkControls link={r.link} assessmentId={r.assessmentId} />
                           </td>
                           <td className="px-4 py-3">
                             <div className="flex justify-end">
@@ -869,20 +834,12 @@ export default function OrganizationMappingPage() {
               </button>
             </CardHeader>
             <CardContent className="space-y-4">
-              {confirmDelete.level === 'ORGANIZATION' ? (
-                <p className="text-sm">
-                  Take <strong>{confirmDelete.assessmentName}</strong> out of{' '}
-                  <strong>{org?.name}</strong>'s catalog? Its registration link is
-                  deleted with it, and the URL stops working. Members already
-                  holding this assessment must be removed first.
-                </p>
-              ) : (
-                <p className="text-sm">
-                  Remove <strong>{confirmDelete.assessmentName}</strong> from{' '}
-                  <strong>{confirmDelete.details.split(' · ')[0]}</strong>? A
-                  completed attempt cannot be removed.
-                </p>
-              )}
+              <p className="text-sm">
+                Take <strong>{confirmDelete.assessmentName}</strong> out of{' '}
+                <strong>{org?.name}</strong>'s catalog? Its registration link is
+                deleted with it, and the URL stops working. Members already
+                holding this assessment must be removed first.
+              </p>
               {deleteError && (
                 <div className="rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-3 py-2 text-sm text-red-700 dark:text-red-400">
                   {deleteError}

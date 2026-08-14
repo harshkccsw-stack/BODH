@@ -29,6 +29,16 @@ public interface QuestionnaireQuestionRepository extends JpaRepository<Questionn
             + "order by qq.sortOrder asc, qq.questionnaireQuestionId asc")
     List<QuestionnaireQuestion> findForExportColumns(Long questionnaireId);
 
+    /**
+     * Which questions this questionnaire places, ids only — the scoring plan's
+     * membership check. An answer to a question that has since been unplaced
+     * already has no column in the export sheet, so it must not reach a total
+     * either.
+     */
+    @Query("select qq.question.questionId from QuestionnaireQuestion qq "
+            + "where qq.questionnaire.questionnaireId = :questionnaireId")
+    List<Long> findPlacedQuestionIds(Long questionnaireId);
+
     List<QuestionnaireQuestion> findByQuestionQuestionId(Long questionId);
 
     List<QuestionnaireQuestion> findBySectionSectionId(Long sectionId);

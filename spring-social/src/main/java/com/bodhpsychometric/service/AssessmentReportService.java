@@ -6,6 +6,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -18,7 +19,10 @@ import com.bodhpsychometric.dto.ExportSheetResponse;
 import com.bodhpsychometric.dto.ExportSheetResponse.DemographicColumn;
 import com.bodhpsychometric.dto.ExportSheetResponse.ExportAssessmentRef;
 import com.bodhpsychometric.dto.ExportSheetResponse.ExportRow;
+import com.bodhpsychometric.dto.ExportSheetResponse.MqColumn;
+import com.bodhpsychometric.dto.ExportSheetResponse.MqtColumn;
 import com.bodhpsychometric.dto.ExportSheetResponse.QuestionColumn;
+import com.bodhpsychometric.dto.ExportSheetResponse.ScoringKeyEntry;
 import com.bodhpsychometric.dto.ReportAssessmentOption;
 import com.bodhpsychometric.dto.ReportOrganizationOption;
 import com.bodhpsychometric.dto.ReportPageResponse;
@@ -70,6 +74,7 @@ public class AssessmentReportService {
     private final DemographicResponseRepository demographicResponses;
     private final QuestionnaireQuestionRepository placements;
     private final QuestionnaireDemographicFieldRepository demographicFields;
+    private final MqtScoringService scoring;
 
     public AssessmentReportService(OrganizationRepository organizations,
             AssessmentRepository assessments,
@@ -78,7 +83,8 @@ public class AssessmentReportService {
             AssessmentAnswerRepository answers,
             DemographicResponseRepository demographicResponses,
             QuestionnaireQuestionRepository placements,
-            QuestionnaireDemographicFieldRepository demographicFields) {
+            QuestionnaireDemographicFieldRepository demographicFields,
+            MqtScoringService scoring) {
         this.organizations = organizations;
         this.assessments = assessments;
         this.respondents = respondents;
@@ -87,6 +93,7 @@ public class AssessmentReportService {
         this.demographicResponses = demographicResponses;
         this.placements = placements;
         this.demographicFields = demographicFields;
+        this.scoring = scoring;
     }
 
     @Transactional(readOnly = true)
@@ -213,9 +220,13 @@ public class AssessmentReportService {
     /**
      * Assemble the sheet: columns come from the assessment's questionnaire (its
      * demographic fields in form order, its question placements in display
-     * order keyed by questionTag); each COMPLETED allotment becomes a row whose
-     * cells are looked up by fieldId / questionTag. Multi-select questions join
-     * their chosen options with "; " in option order.
+     * order keyed by questionTag, and the MQ / MQT traits it measures); each
+     * COMPLETED allotment becomes a row whose cells are looked up by fieldId /
+     * questionTag and whose scores are looked up by mqtId / mqId. Multi-select
+     * questions join their chosen options with "; " in option order.
+     *
+     * The scoring plan is read ONCE here and applied per row — see
+     * {@link MqtScoringService} for what the numbers mean.
      */
     private ExportSheetResponse buildSheet(Assessment assessment, Long organizationId,
             List<RespondentAssessmentMapping> completed) {
@@ -263,15 +274,33 @@ public class AssessmentReportService {
             }
         }
 
+        // ── Scoring columns (one plan for the whole sheet) ────────────────
+        MqtScoringService.ScoringPlan plan = scoring.planFor(questionnaireId);
+        List<MqColumn> mqColumns = plan.mqs().stream()
+                .map(mq -> new MqColumn(mq.measuredQualityId(), mq.name()))
+                .toList();
+        List<MqtColumn> mqtColumns = plan.mqts().stream()
+                .map(mqt -> new MqtColumn(mqt.measuredQualityTypeId(), mqt.measuredQualityId(),
+                        mqt.mqName(), mqt.name(), mqt.path(), mqt.depth(),
+                        mqt.parentTypeId(), mqt.hasChildren()))
+                .toList();
+        List<ScoringKeyEntry> scoringKey = buildScoringKey(questionnaireId, plan, tagByKey);
+
         // ── Row data (two group-bys over the whole page) ──────────────────
         List<Long> respondentIds = completed.stream().map(m -> m.getRespondent().getId()).toList();
 
         // respondentId → (questionId, rowId) → chosen cell strings (already option-ordered)
         Map<Long, Map<ExportKey, List<String>>> answersByRespondent = new HashMap<>();
+        // respondentId → the answers themselves, which is what scoring consumes
+        // (a cell is text, a score needs the option and grid row behind it).
+        Map<Long, List<AssessmentAnswer>> rawAnswersByRespondent = new HashMap<>();
         // respondentId → fieldId → value
         Map<Long, Map<Long, String>> demographicsByRespondent = new HashMap<>();
         if (!respondentIds.isEmpty()) {
             for (AssessmentAnswer a : answers.findForExport(assessmentId, respondentIds)) {
+                rawAnswersByRespondent
+                        .computeIfAbsent(a.getRespondent().getId(), k -> new ArrayList<>())
+                        .add(a);
                 Option option = a.getOption();
                 String cell = option != null ? option.getOptionText() : a.getAnswerText();
                 if (cell == null) {
@@ -311,6 +340,9 @@ public class AssessmentReportService {
                 answerCells.put(tag, String.join("; ", entry.getValue()));
             }
 
+            MqtScoringService.Scores scores = scoring.score(
+                    rawAnswersByRespondent.getOrDefault(respondentUserId, List.of()), plan);
+
             rows.add(new ExportRow(
                     respondentUserId,
                     respondent.getUser().getSerialId(),
@@ -321,13 +353,91 @@ public class AssessmentReportService {
                     mapping.getAssessmentStatus(),
                     mapping.getPopUpCount(),
                     demographicsByRespondent.getOrDefault(respondentUserId, Map.of()),
-                    answerCells));
+                    answerCells,
+                    scores.mqtScores(),
+                    scores.mqtTotals(),
+                    scores.mqScores()));
         }
 
         return new ExportSheetResponse(
                 new ExportAssessmentRef(assessmentId, assessment.getName(),
                         questionnaireId, questionnaire.getName()),
-                organizationId, demographicColumns, questionColumns, rows);
+                organizationId, demographicColumns, questionColumns,
+                mqColumns, mqtColumns, scoringKey, rows);
+    }
+
+    /**
+     * Spell out every scoring edge the sheet's numbers come from, in column
+     * order: the question-level flat scores first (they land once the question
+     * is answered, whatever was picked), then what each option is worth.
+     *
+     * A grid is listed per ROW and already filtered by that row's nomination,
+     * so the entries under a row tag are exactly what can be earned there —
+     * the same filter {@link MqtScoringService} applies when scoring.
+     *
+     * Options come off the portal-delivery fetch, which loads them in one
+     * query; the grid rows it leaves lazy are already in the persistence
+     * context from building the columns above.
+     */
+    private List<ScoringKeyEntry> buildScoringKey(Long questionnaireId,
+            MqtScoringService.ScoringPlan plan, Map<ExportKey, String> tagByKey) {
+        if (plan.mqts().isEmpty()) {
+            return List.of();
+        }
+        Map<Long, String> pathByMqt = new HashMap<>();
+        plan.mqts().forEach(mqt -> pathByMqt.put(mqt.measuredQualityTypeId(), mqt.path()));
+
+        List<ScoringKeyEntry> entries = new ArrayList<>();
+        for (QuestionnaireQuestion qq : placements.findForPortalDelivery(questionnaireId)) {
+            Question question = qq.getQuestion();
+            Long questionId = question.getQuestionId();
+            String tag = qq.getQuestionTag() != null ? qq.getQuestionTag() : ("Q_" + questionId);
+            String stem = question.getQuestionTexString();
+
+            plan.questionScores().getOrDefault(questionId, Map.of()).forEach((mqtId, score) -> {
+                if (pathByMqt.containsKey(mqtId)) {
+                    entries.add(new ScoringKeyEntry(tag, stem, null, null, mqtId, pathByMqt.get(mqtId), score));
+                }
+            });
+
+            List<Option> options = question.getOptions().stream()
+                    .sorted(Comparator.comparingInt(Option::getSortOrder)).toList();
+            List<QuestionRow> gridRows = question.getQuestionType() == QuestionType.LIKERT_GRID
+                    ? question.getRows().stream().sorted(Comparator.comparingInt(QuestionRow::getSortOrder)).toList()
+                    : List.of();
+
+            if (gridRows.isEmpty()) {
+                for (Option option : options) {
+                    addOptionEntries(entries, tag, stem, null, option, null, plan, pathByMqt);
+                }
+                continue;
+            }
+            for (int i = 0; i < gridRows.size(); i++) {
+                QuestionRow row = gridRows.get(i);
+                String rowTag = tagByKey.getOrDefault(new ExportKey(questionId, row.getQuestionRowId()),
+                        tag + "_R" + (i + 1));
+                Set<Long> nominated = plan.rowNominations().getOrDefault(row.getQuestionRowId(), Set.of());
+                for (Option option : options) {
+                    addOptionEntries(entries, rowTag, stem, row.getRowText(), option, nominated, plan, pathByMqt);
+                }
+            }
+        }
+        return entries;
+    }
+
+    /** One option's edges; {@code nominated} null = no grid filter applies. */
+    private static void addOptionEntries(List<ScoringKeyEntry> entries, String tag, String stem,
+            String rowText, Option option, Set<Long> nominated,
+            MqtScoringService.ScoringPlan plan, Map<Long, String> pathByMqt) {
+        for (Map.Entry<Long, Integer> score
+                : plan.optionScores().getOrDefault(option.getOptionId(), Map.of()).entrySet()) {
+            Long mqtId = score.getKey();
+            if ((nominated != null && !nominated.contains(mqtId)) || !pathByMqt.containsKey(mqtId)) {
+                continue;
+            }
+            entries.add(new ScoringKeyEntry(tag, stem, rowText, option.getOptionText(),
+                    mqtId, pathByMqt.get(mqtId), score.getValue()));
+        }
     }
 
     /**

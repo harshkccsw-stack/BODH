@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Circle, Clock, ExternalLink, Layers, ListChecks, Square } from 'lucide-react';
+import { Circle, Clock, ExternalLink, Layers, ListChecks, Shuffle, Square } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { selectionLabel, type QuestionType, type SelectionRule } from '../question-bank/questionApis';
@@ -30,6 +30,12 @@ export interface PreviewQuestion {
   /** Both null = single choice; otherwise how many options may be picked. */
   selectionRule?: SelectionRule | null;
   selectionCount?: number | null;
+  /**
+   * MCQ only — the respondent gets these options in a random order. The
+   * preview cannot show one: the order is per attempt, so it stays authored
+   * and says so instead of pretending to be a particular respondent's screen.
+   */
+  shuffleOptions?: boolean;
   scaleLowLabel?: string | null;
   scaleHighLabel?: string | null;
   /** LIKERT_GRID only — the statements rated against `options`. */
@@ -113,6 +119,12 @@ export function QuestionView({ q, number }: { q: PreviewQuestion; number: number
       {rule && (
         <p className="pl-9 text-xs font-medium text-primary">
           {selectionLabel(rule, q.selectionCount ?? null, q.options.length)}
+        </p>
+      )}
+      {q.shuffleOptions && !isScale && gridRows.length === 0 && (
+        <p className="pl-9 text-xs text-muted-foreground inline-flex items-center gap-1">
+          <Shuffle className="h-3 w-3" />
+          Each respondent sees these options in a different order — shown here as authored.
         </p>
       )}
       {gridRows.length > 0 ? (

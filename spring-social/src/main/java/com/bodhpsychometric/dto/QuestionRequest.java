@@ -24,6 +24,11 @@ import jakarta.validation.constraints.Size;
  * columns — scored exactly as an MCQ's options are — and rows carry the items,
  * each naming the MQTs it measures. rows is ignored on every other type.
  *
+ * shuffleOptions randomises the order the options are DELIVERED in — MCQ only
+ * (a scale's points and a grid's columns are ordinal, and both are refused).
+ * Omitted or null means false, the authored order, which is what every payload
+ * written before the field existed means.
+ *
  * selectionRule + selectionCount say how many options the respondent may pick
  * (MIN/MAX/EQUALS n). Both omitted = single choice, so callers written before
  * they existed keep meaning exactly what they meant. They cannot be validated
@@ -39,6 +44,7 @@ public record QuestionRequest(
         Boolean riskFlag,
         SelectionRule selectionRule,
         Integer selectionCount,
+        Boolean shuffleOptions,
         @Size(max = 100, message = "scaleLowLabel is at most 100 characters")
         String scaleLowLabel,
         @Size(max = 100, message = "scaleHighLabel is at most 100 characters")

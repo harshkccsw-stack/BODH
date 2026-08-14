@@ -1,11 +1,14 @@
 package com.bodhpsychometric.dto;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Random;
+import java.util.stream.Collectors;
 
 import com.bodhpsychometric.model.assessment.Assessment;
 import com.bodhpsychometric.model.assessment.AssessmentTerms;
@@ -107,7 +110,12 @@ public record PortalAssessmentDetailResponse(
     public record PortalRow(Long questionRowId, String rowText, int sortOrder) {
     }
 
-    /** One selectable option — no scoring data. */
+    /**
+     * One selectable option — no scoring data. The list is already in DELIVERY
+     * order (shuffled per attempt when the author asked for it), and sortOrder
+     * is that delivered position, not the authored one: render the list as it
+     * arrives and never re-sort it.
+     */
     public record PortalOption(
             Long optionId,
             String optionText,
@@ -147,11 +155,8 @@ public record PortalAssessmentDetailResponse(
                                 section.getSortOrder()));
             }
             Question question = placement.getQuestion();
-            List<PortalOption> options = question.getOptions().stream()
-                    .sorted(Comparator.comparingInt(Option::getSortOrder))
-                    .map(o -> new PortalOption(o.getOptionId(), o.getOptionText(), o.getContentType(),
-                            o.getMediaUrl(), o.getSortOrder()))
-                    .toList();
+            List<PortalOption> options = deliveredOptions(question,
+                    mapping.getRespondentAssessmentMappingId());
             SelectionBounds bounds = SelectionBounds.of(question);
             questions.add(new PortalQuestion(
                     question.getQuestionId(),
@@ -209,5 +214,41 @@ public record PortalAssessmentDetailResponse(
                                 .thenComparing(PortalSection::sectionId))
                         .toList(),
                 questions);
+    }
+
+    /**
+     * The options in the order THIS attempt is to be shown them: the authored
+     * order, or — when the author ticked shuffleOptions — a random one.
+     *
+     * The random order is derived, never stored. Seeding on
+     * (attempt, question) buys three things at once: it is the same order every
+     * time this attempt loads the assessment, so a mid-take refresh does not
+     * rearrange the screen; it differs between two respondents and between two
+     * attempts by the same respondent, which is the point of the feature; and
+     * it can be recomputed afterwards from two ids, so "what did they actually
+     * see?" is still answerable (the option set is frozen once anyone answers).
+     *
+     * sortOrder is renumbered to the DELIVERED position rather than left at the
+     * authored one, for the same reason the resolved minSelections/maxSelections
+     * are sent: the list and the field cannot then disagree, and a client that
+     * sorts by sortOrder cannot silently undo the shuffle.
+     */
+    private static List<PortalOption> deliveredOptions(Question question, Long mappingId) {
+        List<Option> authored = question.getOptions().stream()
+                .sorted(Comparator.comparingInt(Option::getSortOrder))
+                .collect(Collectors.toCollection(ArrayList::new));
+        // The flag is only ever stored on an MCQ, but delivery is the last
+        // gate before a respondent's screen — re-checking the type here means
+        // no row edited around QuestionController can scramble a rating scale.
+        if (question.isShuffleOptions() && question.getQuestionType() == QuestionType.MCQ) {
+            Collections.shuffle(authored, new Random(31L * mappingId + question.getQuestionId()));
+        }
+        List<PortalOption> delivered = new ArrayList<>(authored.size());
+        for (int i = 0; i < authored.size(); i++) {
+            Option o = authored.get(i);
+            delivered.add(new PortalOption(o.getOptionId(), o.getOptionText(), o.getContentType(),
+                    o.getMediaUrl(), i));
+        }
+        return delivered;
     }
 }

@@ -8,6 +8,7 @@ import {
   Link2,
   ListChecks,
   Loader2,
+  Shuffle,
   Target,
   Trash2,
   Upload,
@@ -31,8 +32,9 @@ import { contentMeta, type MqtChoice } from './question-form-modal';
 // wizard's Step 2 ───────────────────────────────────────────────────────────
 // ONE template for both flows. One row per question. Headers (case/space-
 // insensitive): stem*, type (TEXT/URL/IMAGE/VIDEO — default TEXT), mediaUrl
-// (required for non-TEXT), risk (yes/true/1), selectRule (blank/min/max/
-// equals), selectCount (the n that rule applies to), section, scores,
+// (required for non-TEXT), risk (yes/true/1), shuffle (yes/true/1 — deliver
+// the options in a random order), selectRule (blank/min/max/equals),
+// selectCount (the n that rule applies to), section, scores,
 // option1..optionN, option1Scores..optionNScores.
 // Score cells: entries separated by |, each "mqtName:score" or "mqtId:score".
 // The `section` column is used ONLY when uploading inside a sectioned
@@ -159,6 +161,10 @@ export async function parseQuestionsXlsx(
       return;
     }
     const riskFlag = ['1', 'true', 'yes', 'y'].includes((row.risk || '').toLowerCase());
+    // Blank = false = the authored order, which is what every sheet written
+    // before this column existed means. Read exactly like `risk`, so the two
+    // yes/no columns behave the same.
+    const shuffleOptions = ['1', 'true', 'yes', 'y'].includes((row.shuffle || '').toLowerCase());
     const mqtScores = parseScoreCell(row.scores || '', `Row ${rowNo} scores`, choices, errors);
 
     const optionNums = Object.keys(row)
@@ -191,6 +197,7 @@ export async function parseQuestionsXlsx(
       stem,
       mediaUrl: type === 'TEXT' ? null : mediaUrl,
       riskFlag,
+      shuffleOptions,
       ...selection,
       scaleLowLabel: null,
       scaleHighLabel: null,
@@ -213,7 +220,7 @@ export async function downloadTemplate(choices: MqtChoice[]) {
   // "up to n", and "exactly n".
   const ws = XLSX.utils.json_to_sheet([
     {
-      stem: 'I enjoy meeting new people.', type: 'TEXT', mediaUrl: '', risk: 'no',
+      stem: 'I enjoy meeting new people.', type: 'TEXT', mediaUrl: '', risk: 'no', shuffle: 'no',
       selectRule: '', selectCount: '',
       section: 'Part A',
       scores: 'MqtNameOrId:2 | MqtNameOrId:1',
@@ -222,7 +229,7 @@ export async function downloadTemplate(choices: MqtChoice[]) {
     },
     {
       stem: 'Which diagram shows the correct flow?', type: 'URL',
-      mediaUrl: 'https://example.com/diagram.png', risk: 'yes',
+      mediaUrl: 'https://example.com/diagram.png', risk: 'yes', shuffle: 'no',
       selectRule: '', selectCount: '',
       section: 'Part B', scores: '',
       option1: 'The first one', option1Scores: 'MqtNameOrId:3', option2: 'The second one', option2Scores: '',
@@ -230,6 +237,7 @@ export async function downloadTemplate(choices: MqtChoice[]) {
     },
     {
       stem: 'Which of these apply to you? Pick up to two.', type: 'TEXT', mediaUrl: '', risk: 'no',
+      shuffle: 'yes',
       selectRule: 'max', selectCount: 2,
       section: 'Part B', scores: '',
       option1: 'I plan ahead', option1Scores: 'MqtNameOrId:1',
@@ -305,6 +313,14 @@ function QuestionPreview({
           <span className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-2.5 py-0.5 text-xs font-medium text-primary">
             <ListChecks className="h-3 w-3" />
             {selectionLabel(p.selectionRule, p.selectionCount, p.options.length)}
+          </span>
+        )}
+        {p.shuffleOptions && (
+          <span
+            className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-2.5 py-0.5 text-xs font-medium text-primary"
+            title="Options are delivered in a random order — different for each respondent. Listed below in the authored order."
+          >
+            <Shuffle className="h-3 w-3" /> shuffled
           </span>
         )}
         {p.riskFlag && (

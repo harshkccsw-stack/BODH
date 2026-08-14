@@ -15,6 +15,10 @@ import com.bodhpsychometric.model.question.enums.SelectionRule;
  * bank-wide reads because a question placed in several questionnaires has
  * several placements (and a different tag in each).
  *
+ * shuffleOptions is delivery order only — the options in THIS response are
+ * always the authored ones, in sortOrder; the randomising happens per attempt
+ * in the portal payload.
+ *
  * selectionRule/selectionCount are both null on single-choice questions.
  * questionType is never null (MCQ for everything authored before it existed);
  * the two scale labels are set only on a LINEAR_SCALE, whose options are the
@@ -35,6 +39,7 @@ public record QuestionResponse(
         boolean riskFlag,
         SelectionRule selectionRule,
         Integer selectionCount,
+        boolean shuffleOptions,
         String scaleLowLabel,
         String scaleHighLabel,
         List<QuestionOptionResponse> options,
@@ -61,6 +66,7 @@ public record QuestionResponse(
                 q.isRiskFlag(),
                 q.getSelectionRule(),
                 q.getSelectionCount(),
+                q.isShuffleOptions(),
                 q.getScaleLowLabel(),
                 q.getScaleHighLabel(),
                 options,
