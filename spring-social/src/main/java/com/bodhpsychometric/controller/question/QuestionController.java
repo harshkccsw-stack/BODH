@@ -106,11 +106,14 @@ public class QuestionController {
         return questionRepository.findAll().stream().map(this::toResponse).toList();
     }
 
-    /** Questions of one questionnaire, each carrying THAT placement's section and order. */
+    /**
+     * Questions of one questionnaire, each carrying THAT placement's section
+     * and order. Display order: section by section, positions inside each —
+     * NOT sortOrder alone, which is per-section and would interleave them.
+     */
     @GetMapping("/getByQuestionnaireId/{questionnaireId}")
     public List<QuestionResponse> getQuestionsByQuestionnaire(@PathVariable Long questionnaireId) {
-        return questionnaireQuestionRepository
-                .findByQuestionnaireQuestionnaireIdOrderBySortOrderAscQuestionnaireQuestionIdAsc(questionnaireId)
+        return questionnaireQuestionRepository.findInDisplayOrder(questionnaireId)
                 .stream().map(m -> toResponse(m.getQuestion(), m)).toList();
     }
 

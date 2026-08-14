@@ -135,6 +135,26 @@ public record PortalAssessmentDetailResponse(
             int sortOrder) {
     }
 
+    /**
+     * The order the respondent is walked through the questionnaire: every
+     * question of section 1, then every question of section 2, and so on;
+     * section-less placements (their section was deleted) last.
+     *
+     * The delivery query already sorts this way — this repeats it in Java
+     * because THIS is the respondent-facing path: a caller handing an unsorted
+     * list must not be able to interleave the sections again, and sorting a
+     * few dozen already-ordered rows costs nothing.
+     *
+     * Note that a placement's own sortOrder is per-SECTION (the wizard numbers
+     * each section from 0), which is precisely why it cannot be the first key.
+     */
+    private static final Comparator<QuestionnaireQuestion> DISPLAY_ORDER =
+            Comparator.comparingInt((QuestionnaireQuestion p) -> p.getSection() == null ? 1 : 0)
+                    .thenComparingInt(p -> p.getSection() == null ? 0 : p.getSection().getSortOrder())
+                    .thenComparingLong(p -> p.getSection() == null ? 0L : p.getSection().getSectionId())
+                    .thenComparingInt(QuestionnaireQuestion::getSortOrder)
+                    .thenComparingLong(QuestionnaireQuestion::getQuestionnaireQuestionId);
+
     public static PortalAssessmentDetailResponse from(RespondentAssessmentMapping mapping,
             List<QuestionnaireQuestion> placements,
             List<QuestionnaireDemographicField> demographicMappings) {
@@ -147,7 +167,7 @@ public record PortalAssessmentDetailResponse(
         // being emitted — question order must not decide section order.
         Map<Long, PortalSection> sections = new LinkedHashMap<>();
         List<PortalQuestion> questions = new ArrayList<>();
-        for (QuestionnaireQuestion placement : placements.stream().distinct().toList()) {
+        for (QuestionnaireQuestion placement : placements.stream().distinct().sorted(DISPLAY_ORDER).toList()) {
             Section section = placement.getSection();
             if (section != null) {
                 sections.putIfAbsent(section.getSectionId(),
