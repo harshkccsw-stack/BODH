@@ -26,3 +26,7 @@ spring-social/target
 docker-compose.prod.yml
 docker-compose.dev.yml
 docker-compose.override.yml
+
+# Filled-in backup config / Spaces credentials live only on the droplet.
+ops/bodh-backup.env
+ops/.s3cfg*

@@ -21,6 +21,11 @@ public record QuestionnaireRequest(
         Vertical vertical,
         String description,
         Integer durationMinutes,
+        // Shown to respondents before the first question, as the editor's HTML
+        // subset — or as plain prose, for everything authored before the editor
+        // existed. The allowed markup is enforced in the controller (see
+        // RichTextHtml); a blank body is stored as null.
+        @Size(max = 20_000, message = "generalInstruction must be at most 20000 characters")
         String generalInstruction,
         Boolean hasSections) {
 }

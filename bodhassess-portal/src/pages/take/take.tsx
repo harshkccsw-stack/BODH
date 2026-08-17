@@ -3,7 +3,14 @@ import { useNavigate, useParams } from 'react-router';
 import { ScreenLoader } from '@/components/screen-loader';
 import { ErrorCard } from '@/components/error-card';
 import { useAuth } from '@/lib/auth';
-import { portalAssessmentsApi, ApiError, parseAnswerKey, type PortalAssessmentDetail } from '@/lib/api';
+import { isBlankRichText } from '@/lib/rich-text';
+import {
+  portalAssessmentsApi,
+  ApiError,
+  parseAnswerKey,
+  type PortalAnswerEntry,
+  type PortalAssessmentDetail,
+} from '@/lib/api';
 import { TermsStep } from './terms-step';
 import { DemographicsStep } from './demographics-step';
 import { InstructionsStep } from './instructions-step';
@@ -35,6 +42,10 @@ export default function TakePage() {
   // option — exactly the rows the server writes.
   // Keyed by answerKey(questionId[, rowId]) — see PortalAnswerEntry.
   const [answers, setAnswers] = useState<Record<string, number[]>>({});
+  // Free text lives beside the picked options rather than inside them: a
+  // SHORT_ANSWER has no optionIds to hold, and one map of two shapes would
+  // need unwrapping at every read.
+  const [textAnswers, setTextAnswers] = useState<Record<string, string>>({});
   const [loadError, setLoadError] = useState('');
   // Applicable steps, frozen at load so mid-flow state changes can never
   // resync stepIndex to a now-shorter list.
@@ -71,7 +82,10 @@ export default function TakePage() {
         const applicable: GateStep[] = [];
         if (d.showTermsAndConditions) applicable.push('terms');
         if (d.demographicFields.length > 0) applicable.push('demographics');
-        if (d.generalInstruction && d.generalInstruction.trim()) applicable.push('instructions');
+        // isBlankRichText, not trim(): an author who emptied the rich-text
+        // editor left "<p><br></p>" behind, and that is truthy — the
+        // respondent would meet an Instructions step with nothing on it.
+        if (!isBlankRichText(d.generalInstruction)) applicable.push('instructions');
         applicable.push('questions');
         setDetail(d);
         setSteps(applicable);
@@ -156,10 +170,21 @@ export default function TakePage() {
     setSubmitError('');
     // Keys are answer SLOTS — a question, or one row of a grid — so a grid
     // fans out into one entry per (row, picked column).
-    const entries = Object.entries(answers).flatMap(([key, optionIds]) => {
+    const entries: PortalAnswerEntry[] = Object.entries(answers).flatMap(([key, optionIds]) => {
       const { questionId, questionRowId } = parseAnswerKey(key);
       return optionIds.map((optionId) => ({ questionId, optionId, questionRowId }));
     });
+    // One entry per written answer, with no option — the shape the submit
+    // validator expects, and the mirror image of a picked one.
+    for (const [key, text] of Object.entries(textAnswers)) {
+      if (!text.trim()) continue;
+      entries.push({
+        questionId: parseAnswerKey(key).questionId,
+        optionId: null,
+        questionRowId: null,
+        answerText: text.trim(),
+      });
+    }
     try {
       await portalAssessmentsApi.submit(detail.respondentAssessmentMappingId, entries, popUpCount);
       setDone(true);
@@ -210,6 +235,8 @@ export default function TakePage() {
           subtitle={subtitle}
           answers={answers}
           setAnswers={setAnswers}
+          textAnswers={textAnswers}
+          setTextAnswers={setTextAnswers}
           onSubmit={submit}
           submitting={submitting}
           submitError={submitError}

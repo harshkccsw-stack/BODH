@@ -94,6 +94,14 @@ public record PortalAssessmentDetailResponse(
             Integer selectionCount,
             int minSelections,
             int maxSelections,
+            /**
+             * LINEAR_SCALE only: the ends of the slider. The portal renders
+             * the track from THESE, not from options.size() — a 0—100 scale
+             * is a slider, never a hundred buttons — and maps the value the
+             * respondent lands on back to the option carrying that number.
+             */
+            Integer scaleFrom,
+            Integer scaleTo,
             String scaleLowLabel,
             String scaleHighLabel,
             List<PortalRow> rows,
@@ -190,6 +198,8 @@ public record PortalAssessmentDetailResponse(
                     question.getSelectionCount(),
                     bounds.floor(),
                     bounds.cap(),
+                    question.getScaleFrom(),
+                    question.getScaleTo(),
                     question.getScaleLowLabel(),
                     question.getScaleHighLabel(),
                     question.getRows().stream()

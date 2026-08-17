@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { BrandHeader } from '@/components/brand-header';
 import { Media, mediaTypeFor } from '@/components/media';
 import { cn } from '@/lib/utils';
+import { RichText, isBlankRichText } from '@/lib/rich-text';
 import { answerKey, type PortalAssessmentDetail, type PortalQuestion } from '@/lib/api';
 
 // Answers are keyed by SLOT — answerKey(questionId) for an ordinary question,
@@ -27,12 +28,111 @@ function selectionHint(q: PortalQuestion): string | null {
   return `Select at least ${n} option${s}`;
 }
 
+/**
+ * The linear-scale widget: a real <input type="range">, so dragging, tapping,
+ * arrow keys and screen readers all work without re-implementing any of them.
+ *
+ * The range comes from scaleFrom/scaleTo, and the value maps back to the
+ * generated option whose text is that number — the question is still an
+ * ordinary cap-1 pick underneath.
+ *
+ * UNSET is a real state here, not a zero: the thumb is hidden until the
+ * respondent interacts, because a thumb resting at the midpoint makes a
+ * skipped question look answered and quietly records a number nobody chose.
+ */
+function ScaleSlider({
+  question,
+  selectedOptionId,
+  onPick,
+}: {
+  question: PortalQuestion;
+  selectedOptionId: number | undefined;
+  onPick: (optionId: number) => void;
+}) {
+  const points = question.options;
+  const valueOf = (text: string | null) => Number(text);
+  // Fall back to the option numbers themselves for a scale saved before the
+  // range was stored (null there has always meant 1—5).
+  const min = question.scaleFrom ?? valueOf(points[0]?.optionText ?? '1');
+  const max = question.scaleTo ?? valueOf(points[points.length - 1]?.optionText ?? '5');
+
+  const idByValue = new Map(points.map((o) => [valueOf(o.optionText), o.optionId]));
+  const selectedValue = selectedOptionId == null
+    ? null
+    : valueOf(points.find((o) => o.optionId === selectedOptionId)?.optionText ?? null);
+  const unset = selectedValue == null || Number.isNaN(selectedValue);
+
+  const pick = (value: number) => {
+    const optionId = idByValue.get(value);
+    if (optionId !== undefined) onPick(optionId);
+  };
+
+  // Every point gets a label on a short scale; on a long one they thin out to
+  // about a dozen, always keeping both ends.
+  const step = Math.max(1, Math.ceil((max - min + 1) / 11));
+  const ticks: number[] = [];
+  for (let v = min; v <= max; v += step) ticks.push(v);
+  if (ticks[ticks.length - 1] !== max) ticks.push(max);
+
+  return (
+    <div className="space-y-3">
+      {(question.scaleLowLabel || question.scaleHighLabel) && (
+        <div className="flex items-start justify-between gap-3 text-xs text-muted-foreground">
+          <span className="max-w-[45%]">{question.scaleLowLabel}</span>
+          <span className="max-w-[45%] text-right">{question.scaleHighLabel}</span>
+        </div>
+      )}
+
+      <div className="px-1">
+        <input
+          type="range"
+          min={min}
+          max={max}
+          step={1}
+          value={unset ? min : selectedValue}
+          onChange={(e) => pick(Number(e.target.value))}
+          onKeyDown={(e) => {
+            // From unset, the browser's own arrow handling would move off a
+            // value that was never chosen — and at the minimum it would do
+            // nothing at all. First key press lands on the low end instead.
+            if (!unset) return;
+            if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(e.key)) {
+              e.preventDefault();
+              pick(e.key === 'End' ? max : min);
+            }
+          }}
+          aria-valuetext={unset ? 'Not answered' : String(selectedValue)}
+          className={cn(
+            'w-full cursor-pointer accent-primary',
+            // Hidden rather than absent, so the track still measures and the
+            // control keeps its keyboard focus.
+            unset && '[&::-webkit-slider-thumb]:invisible [&::-moz-range-thumb]:invisible',
+          )}
+        />
+        <div className="mt-1 flex items-center justify-between text-[0.6875rem] text-muted-foreground">
+          {ticks.map((t) => (
+            <span key={t} className={cn(!unset && t === selectedValue && 'font-semibold text-primary')}>
+              {t}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      <p className="text-xs text-muted-foreground">
+        {unset ? 'Drag the slider to answer' : <>You chose <span className="font-semibold text-primary">{selectedValue}</span></>}
+      </p>
+    </div>
+  );
+}
+
 export function QuestionRunner({
   detail,
   title,
   subtitle,
   answers,
   setAnswers,
+  textAnswers,
+  setTextAnswers,
   onSubmit,
   submitting,
   submitError,
@@ -43,6 +143,9 @@ export function QuestionRunner({
   subtitle?: string;
   answers: Record<string, number[]>;
   setAnswers: (a: Record<string, number[]>) => void;
+  /** SHORT_ANSWER payloads, keyed the same way — see take.tsx. */
+  textAnswers: Record<string, string>;
+  setTextAnswers: (a: Record<string, string>) => void;
   onSubmit: () => void;
   submitting: boolean;
   submitError?: string;
@@ -52,11 +155,22 @@ export function QuestionRunner({
   const [index, setIndex] = useState(0);
   const questions = detail.questions;
   const total = questions.length;
+  // Absolute indices the respondent has actually landed on. Leaving one
+  // unanswered is what makes it a SKIP rather than a question not reached yet
+  // — the navigator marks the two differently, so this has to be tracked.
+  const [visited, setVisited] = useState<Set<number>>(() => new Set([0]));
+  // Flipped by a Submit that found pending questions: from then on EVERY
+  // unanswered question is marked, visited or not.
+  const [submitAttempted, setSubmitAttempted] = useState(false);
+  useEffect(() => {
+    setVisited((seen) => (seen.has(index) ? seen : new Set(seen).add(index)));
+  }, [index]);
 
   const q = questions[index];
   const progress = Math.round(((index + 1) / total) * 100);
   const isScale = q.questionType === 'LINEAR_SCALE';
   const isGrid = q.questionType === 'LIKERT_GRID';
+  const isText = q.questionType === 'SHORT_ANSWER';
   // Every slot this question must fill: one per grid row, otherwise one for
   // the question itself. Mirrors slotsOf() in PortalAssessmentService.
   const slotsOf = (qq: PortalQuestion): string[] =>
@@ -65,6 +179,12 @@ export function QuestionRunner({
       : [answerKey(qq.questionId)];
   const picked = (slot: string): number[] => answers[slot] ?? [];
   const slotSatisfied = (qq: PortalQuestion, slot: string): boolean => {
+    // Free text has nothing to count: min/maxSelections arrive as 1/1 like
+    // any single choice, and against zero options that would reject every
+    // possible answer. Non-blank IS the rule, exactly as on the server.
+    if (qq.questionType === 'SHORT_ANSWER') {
+      return (textAnswers[slot] ?? '').trim().length > 0;
+    }
     const n = (answers[slot] ?? []).length;
     return n >= qq.minSelections && n <= qq.maxSelections;
   };
@@ -228,7 +348,9 @@ export function QuestionRunner({
       sections.push({
         key,
         title: section?.name?.trim() || null,
-        instruction: section?.instruction?.trim() || null,
+        // isBlankRichText, not trim(): an author who emptied the editor left
+        // "<p><br></p>" behind, which would draw an empty section banner.
+        instruction: isBlankRichText(section?.instruction) ? null : (section?.instruction ?? null),
         indices: [],
       });
     }
@@ -256,6 +378,39 @@ export function QuestionRunner({
   // The question index panel lets respondents see their progress and jump
   // between questions. Per-assessment toggle (create/edit form); defaults on.
   const showIndex = detail.showQuestionIndex;
+
+  // How a question is NAMED when we have to point at it — "Section B · Q4",
+  // numbered inside its section exactly as the navigator numbers it, so the
+  // label sends them to the square they are looking at. Flat questionnaires
+  // (no section names) get the plain number. PortalAssessmentService builds
+  // the same string server-side for the submit-validator messages.
+  const labelOf = (qi: number): string => {
+    const place = placeOf.get(qi);
+    if (place === undefined) return `Q${qi + 1}`;
+    return place.title ? `${place.title} · Q${place.pos + 1}` : `Q${place.pos + 1}`;
+  };
+  // Every question still short of its rule, in delivery order. Recomputed
+  // each render, so the pending banner shrinks as they fill them in and
+  // disappears on its own once nothing is left.
+  const pending = questions.map((_, qi) => qi).filter((qi) => !isQuestionAnswered(qi));
+  // Marked red in the navigator: left unanswered after being visited, or —
+  // once Submit has been refused — anything still unanswered.
+  const isSkipped = (qi: number): boolean =>
+    !isQuestionAnswered(qi) && (submitAttempted || visited.has(qi));
+  const PENDING_SHOWN = 5;
+
+  // Submit is only offered on the last question, and only once THAT question
+  // is answered — but the navigator lets them jump, so earlier questions can
+  // still be pending. Name them and go to the first one instead of letting
+  // the server reject the payload with raw question ids.
+  const trySubmit = () => {
+    if (pending.length > 0) {
+      setSubmitAttempted(true);
+      goTo(pending[0]);
+      return;
+    }
+    onSubmit();
+  };
 
   return (
     <div
@@ -318,13 +473,14 @@ export function QuestionRunner({
                             const qq = questions[qi];
                             const isCurrent = qi === index;
                             const isAnswered = isQuestionAnswered(qi);
+                            const skipped = isSkipped(qi);
                             return (
                               <button
                                 key={qq.questionId}
                                 type="button"
                                 onClick={() => goTo(qi)}
                                 title={`${sec.title ? `${sec.title} · ` : ''}Question ${pos + 1}${
-                                  isAnswered ? ' — answered' : ''
+                                  isAnswered ? ' — answered' : skipped ? ' — not answered' : ''
                                 }`}
                                 className={cn(
                                   'h-8 w-full rounded-md text-xs font-medium border transition-colors',
@@ -332,7 +488,9 @@ export function QuestionRunner({
                                     ? 'border-primary bg-primary text-primary-foreground'
                                     : isAnswered
                                       ? 'border-green-500/40 bg-green-500/10 text-green-700 dark:text-green-400 hover:bg-green-500/20'
-                                      : 'border-border bg-background text-muted-foreground hover:border-primary/40',
+                                      : skipped
+                                        ? 'border-red-500/50 bg-red-500/10 text-red-700 dark:text-red-400 hover:bg-red-500/20'
+                                        : 'border-border bg-background text-muted-foreground hover:border-primary/40',
                                 )}
                               >
                                 {pos + 1}
@@ -350,6 +508,9 @@ export function QuestionRunner({
                   </div>
                   <div className="flex items-center gap-1.5">
                     <span className="inline-block h-3 w-3 rounded-sm bg-green-500/20 border border-green-500/40" /> Answered
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="inline-block h-3 w-3 rounded-sm bg-red-500/20 border border-red-500/50" /> Skipped
                   </div>
                   <div className="flex items-center gap-1.5">
                     <span className="inline-block h-3 w-3 rounded-sm border border-border bg-background" /> Not answered
@@ -370,7 +531,7 @@ export function QuestionRunner({
               {here.title && (
                 <p className="text-xs font-semibold uppercase tracking-wider text-primary">{here.title}</p>
               )}
-              <p className="mt-1 text-sm text-foreground whitespace-pre-line">{here.instruction}</p>
+              <RichText value={here.instruction} className="mt-1 text-sm text-foreground" />
             </div>
           )}
           <Card>
@@ -481,47 +642,39 @@ export function QuestionRunner({
                     </tbody>
                   </table>
                 </div>
+              ) : isText ? (
+                /* Free text. No auto-advance: there is no moment that says
+                   "done" while someone is typing, and sliding the page away
+                   mid-sentence is the worst thing this screen could do. */
+                <textarea
+                  rows={3}
+                  value={textAnswers[answerKey(q.questionId)] ?? ''}
+                  onChange={(e) =>
+                    setTextAnswers({ ...textAnswers, [answerKey(q.questionId)]: e.target.value })
+                  }
+                  placeholder="Type your answer…"
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                />
               ) : isScale ? (
-                /* A linear scale is the same cap-1 question in a different
-                   shape: one row of points between the two end labels. It
-                   goes through selectOption like everything else, so nothing
-                   about answering or submitting differs. */
-                <div className="space-y-3">
-                  <div className="flex items-stretch gap-2 overflow-x-auto pb-1">
-                    {q.options.map((opt, oi) => {
-                      const on = selected.includes(opt.optionId);
-                      return (
-                        <button
-                          key={opt.optionId}
-                          type="button"
-                          onClick={() => selectOption(opt.optionId)}
-                          className={cn(
-                            'flex-1 min-w-14 flex flex-col items-center gap-2 rounded-lg border px-2 py-3 transition-colors',
-                            on ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40',
-                          )}
-                        >
-                          <span
-                            className={cn(
-                              'flex h-6 w-6 items-center justify-center rounded-full border',
-                              on ? 'border-primary bg-primary text-primary-foreground' : 'border-border',
-                            )}
-                          >
-                            {on && <Check className="h-3.5 w-3.5" />}
-                          </span>
-                          <span className={cn('text-sm', on ? 'font-semibold text-primary' : 'text-muted-foreground')}>
-                            {opt.optionText || oi + 1}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                  {(q.scaleLowLabel || q.scaleHighLabel) && (
-                    <div className="flex items-start justify-between gap-3 text-xs text-muted-foreground">
-                      <span className="max-w-[45%]">{q.scaleLowLabel}</span>
-                      <span className="max-w-[45%] text-right">{q.scaleHighLabel}</span>
-                    </div>
-                  )}
-                </div>
+                /* A slider, not a row of buttons — which is what lets the
+                   author pick any range: 0—100 is unusable as a hundred
+                   buttons and natural as a track.
+
+                   It starts UNSET, and that is the important part. A thumb
+                   parked at the midpoint would make an untouched question
+                   look answered, and every respondent who skipped it would
+                   silently record the middle — invisible in the data
+                   afterwards. Until they interact there is no value, and
+                   Next stays closed.
+
+                   Underneath it is still an ordinary cap-1 question: the
+                   value maps to the option whose text is that number and
+                   goes through selectOption, so submitting is unchanged. */
+                <ScaleSlider
+                  question={q}
+                  selectedOptionId={selected[0]}
+                  onPick={(optionId) => selectOption(optionId)}
+                />
               ) : (
               <div className="space-y-2">
                 {q.options.map((opt, oi) => {
@@ -562,6 +715,36 @@ export function QuestionRunner({
             </CardContent>
           </Card>
 
+          {/* Raised by a refused Submit and cleared by answering — the list
+              is live, so it shrinks as they work through it. Long lists are
+              capped: naming twenty questions is a wall of text, and the
+              chips are for jumping, not for taking inventory. */}
+          {submitAttempted && pending.length > 0 && (
+            <div className="mt-5 rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-3 py-3">
+              <p className="text-xs font-semibold text-red-700 dark:text-red-400">
+                {pending.length} question{pending.length === 1 ? '' : 's'} pending — answer{' '}
+                {pending.length === 1 ? 'it' : 'them'} before submitting
+              </p>
+              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                {pending.slice(0, PENDING_SHOWN).map((qi) => (
+                  <button
+                    key={questions[qi].questionId}
+                    type="button"
+                    onClick={() => goTo(qi)}
+                    className="rounded-md border border-red-300 dark:border-red-800 bg-background px-2 py-1 text-[0.6875rem] font-medium text-red-700 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors"
+                  >
+                    {labelOf(qi)}
+                  </button>
+                ))}
+                {pending.length > PENDING_SHOWN && (
+                  <span className="text-[0.6875rem] text-red-700/80 dark:text-red-400/80">
+                    and {pending.length - PENDING_SHOWN} more
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
           {submitError && (
             <div className="mt-5 rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-3 py-2 text-xs text-red-700 dark:text-red-400">
               {submitError}
@@ -574,7 +757,7 @@ export function QuestionRunner({
               Previous
             </Button>
             {isLast ? (
-              <Button variant="primary" onClick={onSubmit} disabled={!answered || submitting}>
+              <Button variant="primary" onClick={trySubmit} disabled={!answered || submitting}>
                 {submitting ? 'Submitting...' : 'Submit Assessment'}
                 <Check className="h-4 w-4" />
               </Button>

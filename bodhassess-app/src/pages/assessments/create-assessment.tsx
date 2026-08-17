@@ -12,7 +12,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
-import { RichTextEditor, isBlankHtml } from '@/components/rich-text-editor';
+import { RichTextEditor, isBlankHtml, normalizeEditorHtml } from '@/components/rich-text-editor';
 import { cn } from '@/lib/utils';
 import {
   assessmentsApi,
@@ -184,8 +184,10 @@ export default function CreateAssessmentPage() {
       status: form.status,
       showTermsAndConditions: form.showTermsAndConditions,
       // Sent whether the gate is on or off — that is what preserves the text
-      // across a toggle off/on round trip.
-      termsAndConditions: form.termsAndConditions,
+      // across a toggle off/on round trip. Normalized first: an author who
+      // cleared the box and retyped it gets the browser's own <div> line
+      // breaks, which the API refuses.
+      termsAndConditions: normalizeEditorHtml(form.termsAndConditions),
       autoNext: form.autoNext,
       showQuestionIndex: form.showQuestionIndex,
       // Empty input clears the stored date — send null, not ''.

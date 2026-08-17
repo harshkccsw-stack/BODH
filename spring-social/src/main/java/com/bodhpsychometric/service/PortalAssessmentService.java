@@ -3,6 +3,7 @@ package com.bodhpsychometric.service;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
+import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -33,6 +34,8 @@ import com.bodhpsychometric.model.question.QuestionRow;
 import com.bodhpsychometric.model.question.SelectionBounds;
 import com.bodhpsychometric.model.question.enums.QuestionType;
 import com.bodhpsychometric.model.question.enums.SelectionRule;
+import com.bodhpsychometric.model.questionnaire.QuestionnaireQuestion;
+import com.bodhpsychometric.model.questionnaire.Section;
 import com.bodhpsychometric.repository.assessment.AssessmentAnswerRepository;
 import com.bodhpsychometric.repository.assessment.RespondentAssessmentMappingRepository;
 import com.bodhpsychometric.repository.demographics.DemographicResponseRepository;
@@ -199,10 +202,17 @@ public class PortalAssessmentService {
         }
 
         Long questionnaireId = mapping.getAssessment().getQuestionnaire().getQuestionnaireId();
-        Map<Long, Question> questionsById = placements.findForPortalDelivery(questionnaireId).stream()
-                .distinct()
+        // Delivery order, which is also NUMBERING order — see navigatorLabels.
+        // The option fetch join repeats each placement, and entity identity
+        // makes distinct() collapse the repeats without disturbing the order.
+        List<QuestionnaireQuestion> delivered = placements.findForPortalDelivery(questionnaireId).stream()
+                .distinct().toList();
+        Map<Long, Question> questionsById = delivered.stream()
                 .collect(Collectors.toMap(p -> p.getQuestion().getQuestionId(),
                         p -> p.getQuestion(), (a, b) -> a, LinkedHashMap::new));
+        // What to CALL a question when a message has to point the respondent
+        // back at one. Never its id — that names nothing they can see.
+        Map<Long, String> labels = navigatorLabels(delivered);
         if (questionsById.isEmpty()) {
             throw conflict("This assessment has no questions yet");
         }
@@ -226,14 +236,49 @@ public class PortalAssessmentService {
         // question with one slot per row, everything else is one question
         // with a single null-row slot. Every rule below then reads the same
         // for both, and SelectionBounds is applied per row for free.
+        //
+        // Free text is the exception the option map cannot hold, so it gets
+        // its own: SHORT_ANSWER has no options at all, and one entry IS the
+        // whole answer.
         Map<AnswerSlot, Set<Option>> chosen = new LinkedHashMap<>();
+        Map<Long, String> typed = new LinkedHashMap<>();
         for (PortalSubmitRequest.AnswerEntry entry : entries) {
-            if (entry.questionId() == null || entry.optionId() == null) {
-                throw badRequest("Each answer needs a questionId and an optionId");
+            if (entry.questionId() == null) {
+                throw badRequest("Each answer needs a questionId");
             }
             Question question = questionsById.get(entry.questionId());
             if (question == null) {
                 throw badRequest("Question " + entry.questionId() + " is not part of this assessment");
+            }
+            if (question.getQuestionType() == QuestionType.SHORT_ANSWER) {
+                if (entry.optionId() != null || entry.questionRowId() != null) {
+                    throw badRequest("Question " + entry.questionId()
+                            + " is a short answer — it takes answerText, not an option");
+                }
+                if (entry.answerText() == null || entry.answerText().isBlank()) {
+                    throw badRequest("Question " + entry.questionId() + " needs a written answer");
+                }
+                String text = entry.answerText().trim();
+                // TEXT holds 65 535 BYTES, not characters. Refused rather
+                // than truncated: half an answer stored silently is worse
+                // than a submission the respondent can fix.
+                if (text.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > MAX_ANSWER_TEXT_BYTES) {
+                    throw badRequest("The answer to question " + entry.questionId() + " is too long");
+                }
+                // A second entry for one question would be an overwrite the
+                // respondent never sees; the option path treats a repeat as a
+                // duplicate too, it just dedupes rather than rejecting.
+                if (typed.putIfAbsent(entry.questionId(), text) != null) {
+                    throw badRequest("Question " + entry.questionId() + " was answered twice");
+                }
+                continue;
+            }
+            if (entry.answerText() != null) {
+                throw badRequest("Question " + entry.questionId()
+                        + " is answered by picking an option, not by typing");
+            }
+            if (entry.optionId() == null) {
+                throw badRequest("Each answer needs a questionId and an optionId");
             }
             Option option = question.getOptions().stream()
                     .filter(o -> o.getOptionId().equals(entry.optionId()))
@@ -265,18 +310,29 @@ public class PortalAssessmentService {
         // than a quietly incomplete answer set. A slot with no selections
         // never entered the map, so the floor of 1 that every rule shares
         // needs no separate check.
-        List<String> unanswered = new java.util.ArrayList<>();
+        //
+        // Named the way the respondent's question index names them, and a SET
+        // so a grid missing three rows is reported once, as the one question
+        // they have to go back to.
+        Set<String> unanswered = new LinkedHashSet<>();
         for (Question question : questionsById.values()) {
+            // A short answer fills no slot — its answer is text, and it is
+            // present or it is not.
+            if (question.getQuestionType() == QuestionType.SHORT_ANSWER) {
+                if (!typed.containsKey(question.getQuestionId())) {
+                    unanswered.add(labels.get(question.getQuestionId()));
+                }
+                continue;
+            }
             for (AnswerSlot slot : slotsOf(question)) {
                 if (!chosen.containsKey(slot)) {
-                    unanswered.add(slot.questionRowId() == null
-                            ? String.valueOf(slot.questionId())
-                            : slot.questionId() + " row " + slot.questionRowId());
+                    unanswered.add(labels.get(slot.questionId()));
                 }
             }
         }
         if (!unanswered.isEmpty()) {
-            throw badRequest("All questions must be answered — missing: " + String.join(", ", unanswered));
+            throw badRequest(unanswered.size() + " question" + (unanswered.size() == 1 ? " is" : "s are")
+                    + " still pending — please answer " + summarise(unanswered));
         }
 
         // How many, per slot. Worded from the rule the author picked, not the
@@ -285,8 +341,7 @@ public class PortalAssessmentService {
             Question question = questionsById.get(e.getKey().questionId());
             int picked = e.getValue().size();
             if (!SelectionBounds.of(question).allows(picked)) {
-                throw badRequest("Question " + e.getKey().questionId()
-                        + (e.getKey().questionRowId() == null ? "" : " row " + e.getKey().questionRowId())
+                throw badRequest(labels.get(e.getKey().questionId())
                         + " " + expectation(question) + " — " + picked + " selected");
             }
         }
@@ -313,6 +368,17 @@ public class PortalAssessmentService {
                 answer.setOption(option);
                 assessmentAnswers.save(answer);
             }
+        }
+        // One row per written answer, with no option — the shape
+        // AssessmentAnswer has reserved for free text since it was written,
+        // and the one the export already reads (option ?: answerText).
+        for (Map.Entry<Long, String> e : typed.entrySet()) {
+            AssessmentAnswer answer = new AssessmentAnswer();
+            answer.setRespondent(mapping.getRespondent());
+            answer.setAssessment(mapping.getAssessment());
+            answer.setQuestion(questionsById.get(e.getKey()));
+            answer.setAnswerText(e.getValue());
+            assessmentAnswers.save(answer);
         }
         // Force the answer inserts now, so isPersisted is only ever set after
         // the rows have actually reached MySQL — a failure here rolls the
@@ -356,6 +422,13 @@ public class PortalAssessmentService {
     private record AnswerSlot(Long questionId, Long questionRowId) {
     }
 
+    /**
+     * What MySQL's TEXT column holds, in bytes. The submit validator refuses
+     * anything longer instead of letting MySQL truncate it — there is no
+     * per-question length limit by design, only this storage fact.
+     */
+    private static final int MAX_ANSWER_TEXT_BYTES = 65_535;
+
     /** Every slot a question must fill: one per grid row, otherwise just one. */
     private static List<AnswerSlot> slotsOf(Question question) {
         if (question.getQuestionType() != QuestionType.LIKERT_GRID) {
@@ -364,6 +437,47 @@ public class PortalAssessmentService {
         return question.getRows().stream()
                 .map(r -> new AnswerSlot(question.getQuestionId(), r.getQuestionRowId()))
                 .toList();
+    }
+
+    /** How many pending questions a message names before it says "and n more". */
+    private static final int LABELS_SHOWN = 5;
+
+    /**
+     * questionId → the name the respondent's question index shows: "Section B
+     * · Q4", numbered from 1 WITHIN its section, which is how the authoring
+     * wizard and the portal's navigator both number them — a global running
+     * number would say "Q27" where the respondent is looking at "Q7". A flat
+     * questionnaire, or a section with no name, gets the bare "Q4".
+     *
+     * Placements arrive in delivery order (every question of section 1, then
+     * every question of section 2 — see DISPLAY_ORDER on the repository), so
+     * one counter per section is the whole algorithm. question-runner.tsx
+     * builds the identical string client-side; the two must not diverge.
+     */
+    private static Map<Long, String> navigatorLabels(List<QuestionnaireQuestion> placements) {
+        Map<Long, Integer> counters = new LinkedHashMap<>();
+        Map<Long, String> labels = new LinkedHashMap<>();
+        for (QuestionnaireQuestion placement : placements) {
+            Section section = placement.getSection();
+            // 0 is not a real sectionId, so it can stand for "no section"
+            // without a nullable map key.
+            int number = counters.merge(section == null ? 0L : section.getSectionId(), 1, Integer::sum);
+            String name = section == null || section.getName() == null ? "" : section.getName().trim();
+            labels.put(placement.getQuestion().getQuestionId(),
+                    name.isEmpty() ? "Q" + number : name + " · Q" + number);
+        }
+        return labels;
+    }
+
+    /**
+     * "Section B · Q4, Section B · Q7 and 3 more" — a respondent who left
+     * twenty questions blank needs the first few and a count, not a wall of
+     * labels. The portal caps its own list the same way.
+     */
+    private static String summarise(Collection<String> labels) {
+        List<String> shown = labels.stream().limit(LABELS_SHOWN).toList();
+        int rest = labels.size() - shown.size();
+        return String.join(", ", shown) + (rest == 0 ? "" : " and " + rest + " more");
     }
 
     /** "needs exactly 3 selections" — the rule as the respondent was told it. */

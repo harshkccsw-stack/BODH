@@ -201,13 +201,17 @@ class LikertGridTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("does not belong")));
 
-        // Half a grid is not an answer: row two is still missing.
+        // Half a grid is not an answer: row two is still missing. The message
+        // names the QUESTION as the respondent's index numbers it — an
+        // unrated row sends them back to the same one grid, and a row id
+        // names nothing they can see.
         mvc.perform(post("/api/portal/assessments/submit/" + mappingId).header("Authorization", bearer)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"answers\":[{\"questionId\":" + questionId + ",\"optionId\":" + columnOne
                                 + ",\"questionRowId\":" + rowOne + "}]}"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("row " + rowTwo)));
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("1 question is still pending")))
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("Q1")));
 
         // Two columns on ONE row breaches the per-row cap of 1...
         mvc.perform(post("/api/portal/assessments/submit/" + mappingId).header("Authorization", bearer)

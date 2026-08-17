@@ -19,7 +19,12 @@ public record PortalSubmitRequest(List<AnswerEntry> answers, Integer popUpCount)
      * before grids existed keeps sending exactly what it always sent. The
      * submit validator refuses the two ways round it can be wrong: a grid
      * answer without a row, and a row on a question that has none.
+     *
+     * {@code answerText} is the SHORT_ANSWER payload and the mirror image:
+     * required on that type, where optionId is null, and refused on every
+     * other, where an option is what an answer is. One entry per question —
+     * a second is a 400 rather than a silent overwrite.
      */
-    public record AnswerEntry(Long questionId, Long optionId, Long questionRowId) {
+    public record AnswerEntry(Long questionId, Long optionId, Long questionRowId, String answerText) {
     }
 }

@@ -132,6 +132,25 @@ class SectionDisplayOrderTest {
                 .andExpect(jsonPath("$.sections[0].instruction").value("Read Order Part A carefully."))
                 .andExpect(jsonPath("$.sections[1].name").value("Order Part B"));
 
+        // ── What an unfinished submission is TOLD ────────────────────────
+        // The pending questions are named the way the portal's question index
+        // names them — inside their section, so Part B starts at Q1 again —
+        // and never by questionId, which names nothing the respondent can see.
+        mvc.perform(post("/api/portal/assessments/begin/" + mappingId)
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"demographics\":[]}"))
+                .andExpect(status().isOk());
+        mvc.perform(post("/api/portal/assessments/submit/" + mappingId)
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"answers\":[]}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString(
+                        "4 questions are still pending")))
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString(
+                        "Order Part A · Q1, Order Part A · Q2, Order Part B · Q1, Order Part B · Q2")));
+
         // ── The export sheet's columns ───────────────────────────────────
         mvc.perform(get("/api/reports/export/assessment/" + assessmentId))
                 .andExpect(status().isOk())

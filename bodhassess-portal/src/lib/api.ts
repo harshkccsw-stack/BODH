@@ -124,7 +124,7 @@ export type PortalSelectionRule = 'MIN' | 'MAX' | 'EQUALS';
 // What shape the question is. Matches QuestionType on the backend — RENDERING
 // only: a LINEAR_SCALE is an ordinary cap-1 question whose options are the
 // points 1—5, so every gate still reads min/maxSelections.
-export type PortalQuestionType = 'MCQ' | 'LINEAR_SCALE' | 'LIKERT_GRID';
+export type PortalQuestionType = 'MCQ' | 'LINEAR_SCALE' | 'LIKERT_GRID' | 'SHORT_ANSWER' | 'PARAGRAPH';
 // Matches PortalAssessmentDetailResponse.PortalQuestion on the backend.
 export interface PortalQuestion {
   questionId: number;
@@ -145,6 +145,14 @@ export interface PortalQuestion {
    */
   minSelections: number;
   maxSelections: number;
+  /**
+   * LINEAR_SCALE only — the ends of the slider. Render the TRACK from these,
+   * not from options.length: a 0—100 scale is a slider, never a hundred
+   * buttons. The value the respondent lands on maps back to the option whose
+   * text is that number, which is what gets submitted.
+   */
+  scaleFrom: number | null;
+  scaleTo: number | null;
   /** LINEAR_SCALE only — captions for the first and last point. */
   scaleLowLabel: string | null;
   scaleHighLabel: string | null;
@@ -213,7 +221,10 @@ export interface PortalDemographicEntry {
 // Matches PortalSubmitRequest.AnswerEntry on the backend.
 export interface PortalAnswerEntry {
   questionId: number;
-  optionId: number;
+  /** Null on a SHORT_ANSWER, which is answered by answerText instead. */
+  optionId: number | null;
+  /** SHORT_ANSWER only — the mirror image of optionId. */
+  answerText?: string;
   /**
    * Which grid ROW this rating answers. Null on every other question type —
    * the submit validator refuses a grid answer without one, and a row on a

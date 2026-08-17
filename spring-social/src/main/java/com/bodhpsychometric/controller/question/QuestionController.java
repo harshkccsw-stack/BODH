@@ -71,14 +71,21 @@ import jakarta.validation.Valid;
 public class QuestionController {
 
     /**
-     * A linear scale is 1—5. Fixed, not author-chosen: every instrument here
-     * uses the same width, and a stored range would be a second source of
-     * truth about a set of options that already says what it is. Widening it
-     * later is these two numbers plus a re-save of the affected questions.
+     * What a linear scale means when the payload does not say — every scale
+     * authored before the range existed, and every caller that still omits it.
      */
-    private static final int SCALE_FROM = 1;
-    private static final int SCALE_TO = 5;
-    private static final int SCALE_POINTS = SCALE_TO - SCALE_FROM + 1;
+    private static final int DEFAULT_SCALE_FROM = 1;
+    private static final int DEFAULT_SCALE_TO = 5;
+
+    /**
+     * Not a design limit — the author may pick any range, and negative ones
+     * (a bipolar -3—3) are deliberately allowed. This is a guard against a
+     * TYPO: the points are stored as real Option rows, so "1 to 1000000" is a
+     * million-row insert in one transaction with nothing to undo it. 1000 is
+     * two orders of magnitude past any real instrument and three short of the
+     * accident.
+     */
+    private static final int MAX_SCALE_POINTS = 1000;
 
     @Autowired
     private QuestionRepository questionRepository;
@@ -443,6 +450,11 @@ public class QuestionController {
         boolean scale = typeOf(request) == QuestionType.LINEAR_SCALE;
         question.setScaleLowLabel(scale ? trimmedOrNull(request.scaleLowLabel()) : null);
         question.setScaleHighLabel(scale ? trimmedOrNull(request.scaleHighLabel()) : null);
+        // The range is stored RESOLVED, not as sent: an omitted pair means
+        // 1—5, and writing that down is what stops "no range" and "1—5" being
+        // two different states for anything reading the row later.
+        question.setScaleFrom(scale ? scaleFrom(request) : null);
+        question.setScaleTo(scale ? scaleTo(request) : null);
     }
 
     /** MCQ whenever the payload does not say — what every pre-type caller means. */
@@ -549,21 +561,34 @@ public class QuestionController {
      * type decides what the options are, so validation, the freeze comparison,
      * the rebuild and the score write can never disagree about them.
      *
-     * MCQ: the sanitized payload, as always. LINEAR_SCALE: the points 1—5,
-     * GENERATED and ignoring whatever options the caller sent, each carrying
-     * its own value as the score for every MQT the QUESTION is mapped to.
-     * That derivation is what lets a scale be scored with no option-level
-     * mapping in the UI while staying an ordinary single-choice question
-     * downstream — the submit validator, the export sheet and any future
-     * scoring pass all see option rows with scores, exactly like an MCQ.
+     * MCQ: the sanitized payload, as always. LINEAR_SCALE: the points
+     * scaleFrom—scaleTo, GENERATED and ignoring whatever options the caller
+     * sent, each carrying its own value as the score for every MQT the
+     * QUESTION is mapped to. That derivation is what lets a scale be scored
+     * with no option-level mapping in the UI while staying an ordinary
+     * single-choice question downstream — the submit validator, the export
+     * sheet and MqtScoringService all see option rows with scores, exactly
+     * like an MCQ. SHORT_ANSWER: none at all, which is the whole point of it.
      */
     private List<QuestionOptionRequest> desiredOptions(QuestionRequest request) {
-        if (typeOf(request) != QuestionType.LINEAR_SCALE) {
+        QuestionType type = typeOf(request);
+        if (type == QuestionType.SHORT_ANSWER || type == QuestionType.PARAGRAPH) {
+            return List.of();
+        }
+        if (type != QuestionType.LINEAR_SCALE) {
             return sanitized(request.options());
         }
+        int from = scaleFrom(request);
+        int to = scaleTo(request);
+        // Validation refuses an inverted or absurd range, but this runs for
+        // the freeze comparison too — clamp rather than allocate a list from
+        // a payload that is about to be rejected anyway.
+        if (to < from || (long) to - from + 1 > MAX_SCALE_POINTS) {
+            return List.of();
+        }
         List<Long> mqtIds = List.copyOf(dedupe(request.mqtScores()).keySet());
-        List<QuestionOptionRequest> points = new java.util.ArrayList<>(SCALE_POINTS);
-        for (int point = SCALE_FROM; point <= SCALE_TO; point++) {
+        List<QuestionOptionRequest> points = new java.util.ArrayList<>(to - from + 1);
+        for (int point = from; point <= to; point++) {
             final int value = point;
             points.add(new QuestionOptionRequest(
                     String.valueOf(point),
@@ -572,6 +597,15 @@ public class QuestionController {
                     mqtIds.stream().map(id -> new MqtScoreRequest(id, value)).toList()));
         }
         return points;
+    }
+
+    /** The range as it will be STORED — both ends default together, or neither. */
+    private int scaleFrom(QuestionRequest request) {
+        return request.scaleFrom() == null ? DEFAULT_SCALE_FROM : request.scaleFrom();
+    }
+
+    private int scaleTo(QuestionRequest request) {
+        return request.scaleTo() == null ? DEFAULT_SCALE_TO : request.scaleTo();
     }
 
     /**
@@ -587,12 +621,53 @@ public class QuestionController {
             if (request.selectionRule() != null || request.selectionCount() != null) {
                 return "a linear scale takes one answer — it cannot have a selection rule";
             }
-            // The points 1—5 are ordinal: a scale delivered 3,1,5,2,4 is not a
+            // The points are ordinal: a scale delivered 3,1,5,2,4 is not a
             // randomised question, it is a broken one.
             if (Boolean.TRUE.equals(request.shuffleOptions())) {
                 return "a linear scale's points are ordered — they cannot be shuffled";
             }
+            // Both ends travel together: one alone would silently pair the
+            // author's number with a default they never saw.
+            if ((request.scaleFrom() == null) != (request.scaleTo() == null)) {
+                return "a scale range needs both scaleFrom and scaleTo, or neither";
+            }
+            int from = scaleFrom(request);
+            int to = scaleTo(request);
+            if (to <= from) {
+                return "scaleTo (" + to + ") must be greater than scaleFrom (" + from + ")";
+            }
+            // long, because to - from overflows int at the extremes and would
+            // wrap into a value that passes.
+            long points = (long) to - from + 1;
+            if (points > MAX_SCALE_POINTS) {
+                return "a scale of " + points + " points is too wide — the most is " + MAX_SCALE_POINTS;
+            }
             return null;
+        }
+        if (type == QuestionType.SHORT_ANSWER) {
+            // Free text: no options, no rows, no rule, no shuffle. Refused
+            // rather than ignored, so nothing can store a shape that no
+            // screen honours.
+            if (request.selectionRule() != null || request.selectionCount() != null) {
+                return "a short answer is typed, not picked — it cannot have a selection rule";
+            }
+            if (Boolean.TRUE.equals(request.shuffleOptions())) {
+                return "a short answer has no options to shuffle";
+            }
+            if (!sanitized(request.options()).isEmpty()) {
+                return "a short answer has no options";
+            }
+            if (request.rows() != null && !request.rows().isEmpty()) {
+                return "a short answer has no rows";
+            }
+            // Question-level MQT scores ARE allowed and are earned for
+            // answering at all — see the class comment on MqtScoringService.
+            return null;
+        }
+        if (type == QuestionType.PARAGRAPH) {
+            // Reserved so widening the MySQL enum was paid for once (V17).
+            // Nothing may write it until the type is actually built.
+            return "long-answer questions are not available yet";
         }
         if (type == QuestionType.LIKERT_GRID) {
             // One pick per row for now. The rule PLUMBING is per-row already

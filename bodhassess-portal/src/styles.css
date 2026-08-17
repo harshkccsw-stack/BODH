@@ -115,45 +115,48 @@ html {
 }
 
 /**
- * Authored terms & conditions (pages/take/terms-step.tsx). Tailwind's
- * preflight removes list markers and heading sizes, so bullets and headings a
- * practitioner wrote would render as flat text without these. Keep in step
- * with .rte-content in the dashboard, which is where the markup is authored.
+ * Prose a practitioner authored in the dashboard: terms & conditions
+ * (pages/take/terms-step.tsx), a questionnaire's general instruction
+ * (pages/take/instructions-step.tsx) and a section's instruction
+ * (pages/take/question-runner.tsx). Tailwind's preflight removes list markers
+ * and heading sizes, so bullets and headings they wrote would render as flat
+ * text without these. Keep in step with .rte-content in the dashboard, which
+ * is where the markup is authored.
  */
-.terms-body p {
+.rich-text p {
   margin: 0 0 0.5rem;
 }
-.terms-body ul,
-.terms-body ol {
+.rich-text ul,
+.rich-text ol {
   margin: 0 0 0.5rem;
   padding-inline-start: 1.5rem;
 }
-.terms-body ul {
+.rich-text ul {
   list-style: disc;
 }
-.terms-body ol {
+.rich-text ol {
   list-style: decimal;
 }
-.terms-body li {
+.rich-text li {
   margin: 0.125rem 0;
 }
-.terms-body h2 {
+.rich-text h2 {
   font-size: 1.125rem;
   font-weight: 600;
   margin: 0.75rem 0 0.5rem;
 }
-.terms-body h3 {
+.rich-text h3 {
   font-size: 1rem;
   font-weight: 600;
   margin: 0.75rem 0 0.5rem;
 }
-.terms-body b,
-.terms-body strong {
+.rich-text b,
+.rich-text strong {
   font-weight: 600;
 }
-.terms-body u {
+.rich-text u {
   text-decoration: underline;
 }
-.terms-body > *:last-child {
+.rich-text > *:last-child {
   margin-bottom: 0;
 }
