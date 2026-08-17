@@ -148,11 +148,12 @@ html {
 }
 
 /**
- * Rich-text editor content (components/rich-text-editor.tsx). Tailwind's
- * preflight strips list markers and heading sizes, so authored bullets and
- * headings would be invisible inside a contentEditable without these. Keep in
- * step with .terms-body in the portal, which renders the same markup to
- * respondents.
+ * Rich-text content — both the editor (components/rich-text-editor.tsx) and
+ * the read-only RichTextView beside it, which is how questionnaire and section
+ * instructions render in the preview. Tailwind's preflight strips list markers
+ * and heading sizes, so authored bullets and headings would be invisible
+ * without these. Keep in step with .rich-text in the portal, which renders the
+ * same markup to respondents.
  */
 .rte-content p {
   margin: 0 0 0.5rem;
@@ -187,6 +188,11 @@ html {
 }
 .rte-content u {
   text-decoration: underline;
+}
+/* No trailing gap inside a padded preview box — the last block's margin would
+   sit below the text and unbalance the padding. */
+.rte-content > *:last-child {
+  margin-bottom: 0;
 }
 
 /** Custom Containers **/

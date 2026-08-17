@@ -86,6 +86,69 @@ class QuestionTypeTest {
     }
 
     @Test
+    void theAuthorPicksTheRangeAndThePointsFollowIt() throws Exception {
+        int mqtId = newMqt("__smoke__range");
+
+        // 0—10: eleven points, and the point picked is still the score — so
+        // the bottom of THIS scale is worth 0.
+        String wide = postJson("/api/questions/create", scaleJson("__smoke__ range 0-10",
+                "\"scaleFrom\":0,\"scaleTo\":10,",
+                "{\"measuredQualityTypeId\":" + mqtId + ",\"score\":0}"));
+        mvc.perform(get("/api/questions/getById/" + (int) (Integer) JsonPath.read(wide, "$.questionId")))
+                .andExpect(jsonPath("$.scaleFrom").value(0))
+                .andExpect(jsonPath("$.scaleTo").value(10))
+                .andExpect(jsonPath("$.options.length()").value(11))
+                .andExpect(jsonPath("$.options[0].optionText").value("0"))
+                .andExpect(jsonPath("$.options[0].mqtScores[0].score").value(0))
+                .andExpect(jsonPath("$.options[10].optionText").value("10"))
+                .andExpect(jsonPath("$.options[10].mqtScores[0].score").value(10));
+
+        // Bipolar: negative points score negatively, which is the entire
+        // point of a semantic differential and needs no engine change.
+        String bipolar = postJson("/api/questions/create", scaleJson("__smoke__ range -3-3",
+                "\"scaleFrom\":-3,\"scaleTo\":3,",
+                "{\"measuredQualityTypeId\":" + mqtId + ",\"score\":0}"));
+        mvc.perform(get("/api/questions/getById/" + (int) (Integer) JsonPath.read(bipolar, "$.questionId")))
+                .andExpect(jsonPath("$.options.length()").value(7))
+                .andExpect(jsonPath("$.options[0].optionText").value("-3"))
+                .andExpect(jsonPath("$.options[0].mqtScores[0].score").value(-3))
+                .andExpect(jsonPath("$.options[6].mqtScores[0].score").value(3));
+
+        // Omitting the range still means 1—5 — and is STORED as 1—5, so
+        // "no range" and "1—5" are not two states for anything reading later.
+        String plain = postJson("/api/questions/create", scaleJson("__smoke__ range default", "", ""));
+        mvc.perform(get("/api/questions/getById/" + (int) (Integer) JsonPath.read(plain, "$.questionId")))
+                .andExpect(jsonPath("$.scaleFrom").value(1))
+                .andExpect(jsonPath("$.scaleTo").value(5))
+                .andExpect(jsonPath("$.options.length()").value(5));
+    }
+
+    @Test
+    void anImpossibleRangeIsRefused() throws Exception {
+        // Inverted, and zero-width.
+        mvc.perform(post("/api/questions/create").contentType(MediaType.APPLICATION_JSON)
+                        .content(scaleJson("__smoke__ range inverted", "\"scaleFrom\":5,\"scaleTo\":1,", "")))
+                .andExpect(status().isBadRequest());
+        mvc.perform(post("/api/questions/create").contentType(MediaType.APPLICATION_JSON)
+                        .content(scaleJson("__smoke__ range flat", "\"scaleFrom\":3,\"scaleTo\":3,", "")))
+                .andExpect(status().isBadRequest());
+
+        // One end alone would silently pair the author's number with a
+        // default they never saw.
+        mvc.perform(post("/api/questions/create").contentType(MediaType.APPLICATION_JSON)
+                        .content(scaleJson("__smoke__ range half", "\"scaleFrom\":0,", "")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("both")));
+
+        // The typo guard: the points are real rows, so a range this wide is a
+        // million-row insert, not a question.
+        mvc.perform(post("/api/questions/create").contentType(MediaType.APPLICATION_JSON)
+                        .content(scaleJson("__smoke__ range absurd", "\"scaleFrom\":1,\"scaleTo\":1000000,", "")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("too wide")));
+    }
+
+    @Test
     void aLinearScaleCannotCarryASelectionRule() throws Exception {
         mvc.perform(post("/api/questions/create").contentType(MediaType.APPLICATION_JSON)
                         .content(scaleJson("__smoke__ scale ruled",

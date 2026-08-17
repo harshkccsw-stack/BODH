@@ -25,6 +25,12 @@ import {
   type QuestionnaireResponse,
   type SectionResponse,
 } from '@/pages/questionnaires/questionnairesApi';
+import {
+  RichTextEditor,
+  isBlankHtml,
+  normalizeEditorHtml,
+  toPlainText,
+} from '@/components/rich-text-editor';
 import { demographicsApi, type DemographicFieldResponse } from '@/pages/questionnaires/demographicsApi';
 import { questionApis, type QuestionResponse } from './questionApis';
 import { qualitiesApi } from '@/pages/MeasuredQuality/qualitiesApi';
@@ -52,6 +58,18 @@ import {
   QuestionnairePreviewView,
   type PreviewQuestion,
 } from '@/pages/questionnaires/questionnaire-preview-view';
+
+/**
+ * An instruction as it should be SENT: null when the editor holds nothing
+ * visible, otherwise its markup reduced to the tags the API accepts.
+ *
+ * The editor already normalizes on blur, and clicking Save blurs it first —
+ * this is the guarantee that does not depend on that ordering, because the
+ * only thing the API does with a stray <div> is reject the whole save.
+ */
+function instructionPayload(html: string): string | null {
+  return isBlankHtml(html) ? null : normalizeEditorHtml(html);
+}
 
 // ── Draft model ────────────────────────────────────────────────────────────
 /**
@@ -257,7 +275,9 @@ export default function CreateAssessmentPage() {
   const addQSection = async () => {
     const name = newSectionName.trim();
     if (!name || backendQid == null) return;
-    const instruction = newSectionInstruction.trim() || null;
+    // Blankness is decided on the TEXT, not with trim(): an editor the author
+    // typed in and cleared leaves "<p><br></p>" behind.
+    const instruction = instructionPayload(newSectionInstruction);
     try {
       const res = await questionnairesApi.createQuestionnaireSection(backendQid, { name, instruction });
       setQSections((prev) => [...prev, res.data]);
@@ -292,7 +312,7 @@ export default function CreateAssessmentPage() {
     try {
       const res = await questionnairesApi.updateQuestionnaireSection(backendQid, editingSection, {
         name,
-        instruction: editSectionInstruction.trim() || null,
+        instruction: instructionPayload(editSectionInstruction),
       });
       setQSections((prev) => prev.map((s) => (s.sectionId === res.data.sectionId ? res.data : s)));
       setEditingSection(null);
@@ -468,7 +488,7 @@ export default function CreateAssessmentPage() {
       vertical: instVertical || null,
       description: instDescription.trim() || null,
       durationMinutes: Number.isFinite(instDuration) ? instDuration : null,
-      generalInstruction: instInstructions.trim() || null,
+      generalInstruction: instructionPayload(instInstructions),
       hasSections: useSections,
     }),
     [instName, instShortName, instCategory, instVertical, instDescription, instDuration, instInstructions, useSections],
@@ -584,7 +604,7 @@ export default function CreateAssessmentPage() {
       vertical: instVertical,
       description: instDescription.trim() || null,
       durationMinutes: Number.isFinite(instDuration) ? instDuration : null,
-      generalInstruction: instInstructions.trim() || null,
+      generalInstruction: instructionPayload(instInstructions),
       hasSections: useSections,
     };
     setSaving(true);
@@ -737,7 +757,9 @@ export default function CreateAssessmentPage() {
               {d.form.questionType !== 'MCQ' && <>{' · '}{typeLabel}</>}
               {d.form.questionType === 'LIKERT_GRID'
                 ? <>{' · '}{rowCount} row{rowCount !== 1 ? 's' : ''} × {optionCount} column{optionCount !== 1 ? 's' : ''}</>
-                : <>{' · '}{optionCount} option{optionCount !== 1 ? 's' : ''}</>}
+                : d.form.questionType === 'SHORT_ANSWER'
+                  ? <>{' · '}typed answer</>
+                  : <>{' · '}{optionCount} option{optionCount !== 1 ? 's' : ''}</>}
               {d.questionId == null
                 ? ' · new — added to the question bank when you save'
                 : ` · bank question #${d.questionId}`}
@@ -918,13 +940,17 @@ export default function CreateAssessmentPage() {
 
               <div className="space-y-1.5">
                 <label className="text-sm font-medium">General Instruction</label>
-                <textarea
+                <RichTextEditor
+                  ariaLabel="General instruction"
                   value={instInstructions}
-                  onChange={(e) => setInstInstructions(e.target.value)}
-                  rows={4}
-                  placeholder="Optional — shown to the respondent before the first question. e.g. Read each question carefully. Answer honestly — there are no right or wrong answers."
-                  className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                  onChange={setInstInstructions}
+                  contentClassName="min-h-[9rem]"
                 />
+                <p className="text-xs text-muted-foreground">
+                  Optional — shown to the respondent before the first question.
+                  Bold, italics, underline, lists and headings are supported;
+                  other formatting and pasted styling are stripped.
+                </p>
               </div>
 
               <div className="space-y-1.5">
@@ -1118,13 +1144,15 @@ export default function CreateAssessmentPage() {
                         <Plus className="h-4 w-4" /> Add Section
                       </Button>
                     </div>
-                    <textarea
+                    <RichTextEditor
+                      ariaLabel="New section instruction"
                       value={newSectionInstruction}
-                      onChange={(e) => setNewSectionInstruction(e.target.value)}
-                      placeholder="Section instruction (optional) — shown above this section's questions"
-                      rows={2}
-                      className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 resize-y"
+                      onChange={setNewSectionInstruction}
+                      contentClassName="min-h-[5rem] max-h-[16rem]"
                     />
+                    <p className="text-xs text-muted-foreground">
+                      Section instruction (optional) — shown above this section's questions.
+                    </p>
                   </div>
                   {qSections.length === 0 ? (
                     <p className="py-6 text-center text-sm text-muted-foreground">
@@ -1150,12 +1178,11 @@ export default function CreateAssessmentPage() {
                                 placeholder="Section name"
                                 className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
                               />
-                              <textarea
+                              <RichTextEditor
+                                ariaLabel="Section instruction"
                                 value={editSectionInstruction}
-                                onChange={(e) => setEditSectionInstruction(e.target.value)}
-                                placeholder="Section instruction (optional) — shown above this section's questions"
-                                rows={2}
-                                className="w-full resize-y rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                                onChange={setEditSectionInstruction}
+                                contentClassName="min-h-[5rem] max-h-[16rem]"
                               />
                               <div className="flex justify-end gap-2">
                                 <Button variant="outline" size="sm" onClick={() => setEditingSection(null)} disabled={sectionBusy}>
@@ -1170,8 +1197,14 @@ export default function CreateAssessmentPage() {
                             <div className="flex items-center justify-between gap-2 border-b border-border bg-muted/40 px-3 py-2">
                               <div className="min-w-0">
                                 <p className="text-sm font-medium">{sec.name}</p>
+                                {/* One tight line in a header row — bullets and
+                                    headings would break the layout, so the
+                                    instruction is flattened to its words here
+                                    and rendered properly in the preview. */}
                                 {sec.instruction && (
-                                  <p className="text-xs text-muted-foreground whitespace-pre-wrap">{sec.instruction}</p>
+                                  <p className="truncate text-xs text-muted-foreground">
+                                    {toPlainText(sec.instruction)}
+                                  </p>
                                 )}
                               </div>
                               <div className="flex items-center gap-2 shrink-0">

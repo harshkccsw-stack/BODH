@@ -8,10 +8,16 @@ package com.bodhpsychometric.model.question.enums;
  *
  * <pre>
  * MCQ           options the author writes, each carrying its own MQT scores
- * LINEAR_SCALE  points 1—5, generated; only the QUESTION is mapped to MQTs and
- *               the point picked IS the score (see QuestionController)
+ * LINEAR_SCALE  points scaleFrom—scaleTo, generated; only the QUESTION is
+ *               mapped to MQTs and the point picked IS the score
  * LIKERT_GRID   rows (each naming its own MQTs) x columns (ordinary options
  *               carrying the scores) — one pick per row
+ * SHORT_ANSWER  free text, the first type with NO options: the answer lands in
+ *               AssessmentAnswer.answerText and the question-level MQT score
+ *               (if any) is earned for answering, not for what was written
+ * PARAGRAPH     long answer — RESERVED. Listed so that widening the MySQL enum
+ *               (a table rebuild) is already paid for; QuestionController
+ *               refuses it until the UI exists.
  * </pre>
  *
  * MCQ is the default and is exactly what every question meant before this
@@ -22,5 +28,7 @@ package com.bodhpsychometric.model.question.enums;
 public enum QuestionType {
     MCQ,
     LINEAR_SCALE,
-    LIKERT_GRID
+    LIKERT_GRID,
+    SHORT_ANSWER,
+    PARAGRAPH
 }

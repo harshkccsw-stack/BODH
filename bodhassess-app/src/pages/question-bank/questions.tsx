@@ -7,6 +7,7 @@ import {
   ListChecks,
   Loader2,
   Pencil,
+  PenLine,
   Plus,
   Search,
   Shuffle,
@@ -19,7 +20,13 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { questionApis, selectionLabel, SCALE_FROM, SCALE_TO, type QuestionResponse } from './questionApis';
+import {
+  questionApis,
+  selectionLabel,
+  DEFAULT_SCALE_FROM,
+  DEFAULT_SCALE_TO,
+  type QuestionResponse,
+} from './questionApis';
 import { questionnairesApi, type QuestionnaireResponse } from '../questionnaires/questionnairesApi';
 import { qualitiesApi } from '../MeasuredQuality/qualitiesApi';
 // The create/edit form itself lives in question-form-modal.tsx so the
@@ -253,10 +260,18 @@ export default function QuestionsPage() {
                     {q.questionType === 'LINEAR_SCALE' && (
                       <span
                         className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-2.5 py-0.5 text-xs font-medium text-primary"
-                        title={`Linear scale ${SCALE_FROM}—${SCALE_TO}${q.scaleLowLabel || q.scaleHighLabel ? ` · ${q.scaleLowLabel ?? ''} → ${q.scaleHighLabel ?? ''}` : ''}`}
+                        title={`Linear scale ${q.scaleFrom ?? DEFAULT_SCALE_FROM}—${q.scaleTo ?? DEFAULT_SCALE_TO}${q.scaleLowLabel || q.scaleHighLabel ? ` · ${q.scaleLowLabel ?? ''} → ${q.scaleHighLabel ?? ''}` : ''}`}
                       >
                         <SlidersHorizontal className="h-3 w-3" />
-                        {SCALE_FROM}–{SCALE_TO}
+                        {q.scaleFrom ?? DEFAULT_SCALE_FROM}–{q.scaleTo ?? DEFAULT_SCALE_TO}
+                      </span>
+                    )}
+                    {q.questionType === 'SHORT_ANSWER' && (
+                      <span
+                        className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-2.5 py-0.5 text-xs font-medium text-primary"
+                        title="Short answer — respondents type their answer"
+                      >
+                        <PenLine className="h-3 w-3" /> text
                       </span>
                     )}
                     {q.selectionRule && (

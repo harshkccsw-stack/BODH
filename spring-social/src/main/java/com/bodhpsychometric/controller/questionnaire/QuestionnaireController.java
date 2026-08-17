@@ -26,6 +26,7 @@ import com.bodhpsychometric.dto.QuestionnaireRequest;
 import com.bodhpsychometric.dto.QuestionnaireResponse;
 import com.bodhpsychometric.dto.SectionRequest;
 import com.bodhpsychometric.dto.SectionResponse;
+import com.bodhpsychometric.model.RichTextHtml;
 import com.bodhpsychometric.model.demographics.DemographicField;
 import com.bodhpsychometric.model.demographics.QuestionnaireDemographicField;
 import com.bodhpsychometric.model.question.Question;
@@ -52,6 +53,12 @@ import jakarta.validation.Valid;
 @RequestMapping("/api/questionnaire")
 @Transactional
 public class QuestionnaireController {
+
+    /** Matches the @Size cap on QuestionnaireRequest.generalInstruction. */
+    private static final int GENERAL_INSTRUCTION_MAX = 20_000;
+
+    /** Matches the @Size cap on SectionRequest.instruction. */
+    private static final int SECTION_INSTRUCTION_MAX = 5_000;
 
     @Autowired
     private QuestionnaireRepository questionnaireRepository;
@@ -93,8 +100,13 @@ public class QuestionnaireController {
     }
 
     @PostMapping("/create")
-    public ResponseEntity<QuestionnaireResponse> createQuestionnaire(
+    public ResponseEntity<?> createQuestionnaire(
             @Valid @RequestBody QuestionnaireRequest request) {
+        String error = RichTextHtml.validationErrorOf(
+                "generalInstruction", request.generalInstruction(), GENERAL_INSTRUCTION_MAX);
+        if (error != null) {
+            return ResponseEntity.badRequest().body(Map.of("message", error));
+        }
         Questionnaire q = new Questionnaire();
         apply(q, request);
         return ResponseEntity.status(HttpStatus.CREATED)
@@ -102,13 +114,18 @@ public class QuestionnaireController {
     }
 
     @PutMapping("/update/{id}")
-    public ResponseEntity<QuestionnaireResponse> updateQuestionnaire(@PathVariable Long id,
+    public ResponseEntity<?> updateQuestionnaire(@PathVariable Long id,
             @Valid @RequestBody QuestionnaireRequest request) {
+        String error = RichTextHtml.validationErrorOf(
+                "generalInstruction", request.generalInstruction(), GENERAL_INSTRUCTION_MAX);
+        if (error != null) {
+            return ResponseEntity.badRequest().body(Map.of("message", error));
+        }
         return questionnaireRepository.findById(id)
                 .map(q -> {
                     apply(q, request);
                     return ResponseEntity.ok(
-                            QuestionnaireResponse.from(questionnaireRepository.save(q), questionCountOf(id)));
+                            (Object) QuestionnaireResponse.from(questionnaireRepository.save(q), questionCountOf(id)));
                 })
                 .orElse(ResponseEntity.notFound().build());
     }
@@ -212,16 +229,21 @@ public class QuestionnaireController {
     }
 
     @PostMapping("/{id}/sections")
-    public ResponseEntity<SectionResponse> createSection(@PathVariable Long id,
+    public ResponseEntity<?> createSection(@PathVariable Long id,
             @Valid @RequestBody SectionRequest request) {
         Questionnaire questionnaire = questionnaireRepository.findById(id).orElse(null);
         if (questionnaire == null) {
             return ResponseEntity.notFound().build();
         }
+        String error = RichTextHtml.validationErrorOf(
+                "instruction", request.instruction(), SECTION_INSTRUCTION_MAX);
+        if (error != null) {
+            return ResponseEntity.badRequest().body(Map.of("message", error));
+        }
         Section section = new Section();
         section.setQuestionnaire(questionnaire);
         section.setName(request.name().trim());
-        section.setInstruction(request.instruction());
+        section.setInstruction(instructionOrNull(request.instruction()));
         // Appended last. sortOrder is kept dense by reorder/delete, so the
         // count IS the next free position — no MAX(sortOrder) + 1 needed.
         section.setSortOrder(
@@ -237,15 +259,19 @@ public class QuestionnaireController {
      * A blank instruction comes back as null rather than "".
      */
     @PutMapping("/{id}/sections/{sectionId}")
-    public ResponseEntity<SectionResponse> updateSection(@PathVariable Long id, @PathVariable Long sectionId,
+    public ResponseEntity<?> updateSection(@PathVariable Long id, @PathVariable Long sectionId,
             @Valid @RequestBody SectionRequest request) {
         Section section = sectionRepository.findById(sectionId).orElse(null);
         if (section == null || !section.getQuestionnaire().getQuestionnaireId().equals(id)) {
             return ResponseEntity.notFound().build();
         }
+        String error = RichTextHtml.validationErrorOf(
+                "instruction", request.instruction(), SECTION_INSTRUCTION_MAX);
+        if (error != null) {
+            return ResponseEntity.badRequest().body(Map.of("message", error));
+        }
         section.setName(request.name().trim());
-        section.setInstruction(
-                request.instruction() == null || request.instruction().isBlank() ? null : request.instruction());
+        section.setInstruction(instructionOrNull(request.instruction()));
         return ResponseEntity.ok(SectionResponse.from(sectionRepository.save(section)));
     }
 
@@ -470,7 +496,21 @@ public class QuestionnaireController {
         q.setVertical(request.vertical());
         q.setDescription(request.description());
         q.setDurationMinutes(request.durationMinutes());
-        q.setGeneralInstruction(request.generalInstruction());
+        q.setGeneralInstruction(instructionOrNull(request.generalInstruction()));
         q.setHasSections(Boolean.TRUE.equals(request.hasSections()));
+    }
+
+    /**
+     * An instruction body as it should be stored: null when it carries no
+     * visible text, otherwise exactly what the author wrote.
+     *
+     * <p>String.isBlank() is not enough now that these fields hold markup —
+     * an editor the author emptied sends "&lt;p&gt;&lt;br&gt;&lt;/p&gt;",
+     * which is blank on screen but not to Java. Storing that would make the
+     * portal open an empty Instructions gate, and every "has an instruction?"
+     * check in the clients treat the field as filled.
+     */
+    private String instructionOrNull(String body) {
+        return RichTextHtml.isBlank(body) ? null : body;
     }
 }

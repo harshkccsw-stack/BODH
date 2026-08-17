@@ -199,6 +199,8 @@ export async function parseQuestionsXlsx(
       riskFlag,
       shuffleOptions,
       ...selection,
+      scaleFrom: null,
+      scaleTo: null,
       scaleLowLabel: null,
       scaleHighLabel: null,
       options,

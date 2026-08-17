@@ -1,0 +1,19 @@
+# Nightly BodhAssess production database backup -> DigitalOcean Spaces.
+# Install as /etc/cron.d/bodh-db-backup, root-owned, mode 0644.
+# NOTE: cron silently ignores a cron.d file that lacks a trailing newline.
+
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# 18:30 UTC == 00:00 IST, and the droplet's clock is UTC (Etc/UTC).
+#
+# Do NOT "simplify" this to `0 0 * * *` plus CRON_TZ=Asia/Kolkata: Debian/Ubuntu
+# cron does not implement CRON_TZ. Verified on this droplet (Ubuntu 24.04,
+# cron 3.0pl1-184) — a CRON_TZ job scheduled for a given instant never ran,
+# while an identical job scheduled in server-local time did. A CRON_TZ entry
+# fails silently, which is the worst way for a backup to fail.
+#
+# India observes no DST, so this offset never drifts. The script itself stamps
+# filenames with TZ=Asia/Kolkata (BACKUP_TZ), so the run started here is named
+# with the IST date it belongs to.
+30 18 * * * root /usr/local/bin/bodh-db-backup.sh >/dev/null 2>&1

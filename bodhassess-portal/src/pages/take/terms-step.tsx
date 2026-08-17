@@ -66,7 +66,7 @@ export function TermsStep({
           ref={boxRef}
           onScroll={checkScroll}
           tabIndex={0}
-          className="terms-body rounded-lg border border-border bg-muted/30 p-4 text-sm leading-relaxed max-h-[50vh] overflow-y-auto focus:outline-none focus:ring-2 focus:ring-primary/30"
+          className="rich-text rounded-lg border border-border bg-muted/30 p-4 text-sm leading-relaxed max-h-[50vh] overflow-y-auto focus:outline-none focus:ring-2 focus:ring-primary/30"
           // Safe by construction: the server stores only the tag subset above
           // and rejects anything else, so no attributes and no scripts can
           // reach this string.

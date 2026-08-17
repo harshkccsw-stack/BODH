@@ -21,10 +21,11 @@ import com.bodhpsychometric.model.question.enums.SelectionRule;
  *
  * selectionRule/selectionCount are both null on single-choice questions.
  * questionType is never null (MCQ for everything authored before it existed);
- * the two scale labels are set only on a LINEAR_SCALE, whose options are the
- * generated points 1—5 carrying the derived per-point scores. On a
- * LIKERT_GRID the options are the shared columns and rows are the items, each
- * naming the MQTs it measures; rows is empty on every other type.
+ * the range and the two scale labels are set only on a LINEAR_SCALE, whose
+ * options are the generated points scaleFrom—scaleTo carrying the derived
+ * per-point scores (a null range means 1—5). On a LIKERT_GRID the options are
+ * the shared columns and rows are the items, each naming the MQTs it measures;
+ * rows is empty on every other type. A SHORT_ANSWER has neither.
  */
 public record QuestionResponse(
         Long questionId,
@@ -40,6 +41,8 @@ public record QuestionResponse(
         SelectionRule selectionRule,
         Integer selectionCount,
         boolean shuffleOptions,
+        Integer scaleFrom,
+        Integer scaleTo,
         String scaleLowLabel,
         String scaleHighLabel,
         List<QuestionOptionResponse> options,
@@ -67,6 +70,8 @@ public record QuestionResponse(
                 q.getSelectionRule(),
                 q.getSelectionCount(),
                 q.isShuffleOptions(),
+                q.getScaleFrom(),
+                q.getScaleTo(),
                 q.getScaleLowLabel(),
                 q.getScaleHighLabel(),
                 options,

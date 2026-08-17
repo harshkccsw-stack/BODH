@@ -20,8 +20,9 @@ import { cn } from '@/lib/utils';
 import {
   questionApis,
   QUESTION_TYPES,
-  SCALE_FROM,
-  SCALE_TO,
+  DEFAULT_SCALE_FROM,
+  DEFAULT_SCALE_TO,
+  MAX_SCALE_POINTS,
   type MqtScorePayload,
   type MqtScoreView,
   type QuestionContentType,
@@ -223,6 +224,12 @@ export interface QuestionForm {
    * for a scale or a grid (both are ordered, and the backend 400s on it).
    */
   shuffleOptions: boolean;
+  /**
+   * LINEAR_SCALE only — the range, as strings so the inputs can be emptied
+   * while typing. Blank on both ends means 1—5.
+   */
+  scaleFrom: string;
+  scaleTo: string;
   /** LINEAR_SCALE only — captions under the first and last point. */
   scaleLowLabel: string;
   scaleHighLabel: string;
@@ -245,6 +252,8 @@ export const formFrom = (initial: QuestionResponse | null): QuestionForm =>
         selectionRule: '',
         selectionCount: '',
         shuffleOptions: false,
+        scaleFrom: String(DEFAULT_SCALE_FROM),
+        scaleTo: String(DEFAULT_SCALE_TO),
         scaleLowLabel: '',
         scaleHighLabel: '',
         // Four blank options by default — the common case. Blank rows are
@@ -266,6 +275,10 @@ export const formFrom = (initial: QuestionResponse | null): QuestionForm =>
         selectionCount: initial.selectionCount == null ? '' : String(initial.selectionCount),
         // ?? false so a response from an older backend still opens the form.
         shuffleOptions: initial.shuffleOptions ?? false,
+        // A scale saved before the range existed comes back null, and null
+        // has always meant 1—5.
+        scaleFrom: String(initial.scaleFrom ?? DEFAULT_SCALE_FROM),
+        scaleTo: String(initial.scaleTo ?? DEFAULT_SCALE_TO),
         scaleLowLabel: initial.scaleLowLabel || '',
         scaleHighLabel: initial.scaleHighLabel || '',
         options: initial.options.map((o) => ({
@@ -295,15 +308,38 @@ const liveOptions = (form: QuestionForm): OptionForm[] =>
  * the same list, for anything that has to SHOW a scale before it is saved:
  * the preview, and the "n options" summary on the questionnaire editor.
  */
-export const scalePoints = (): OptionForm[] =>
-  Array.from({ length: SCALE_TO - SCALE_FROM + 1 }, (_, i) => ({
-    ...emptyOption(),
-    optionText: String(SCALE_FROM + i),
-  }));
+export const scalePoints = (from: number, to: number): OptionForm[] =>
+  to <= from || to - from + 1 > MAX_SCALE_POINTS
+    ? []
+    : Array.from({ length: to - from + 1 }, (_, i) => ({
+        ...emptyOption(),
+        optionText: String(from + i),
+      }));
+
+/**
+ * The range as a pair of numbers, whatever state the two inputs are in. A
+ * blank or half-typed end falls back to the default rather than NaN, so the
+ * preview keeps rendering while someone is still typing.
+ */
+export const scaleRange = (form: QuestionForm): { from: number; to: number } => {
+  const from = Number.parseInt(form.scaleFrom, 10);
+  const to = Number.parseInt(form.scaleTo, 10);
+  return {
+    from: Number.isFinite(from) ? from : DEFAULT_SCALE_FROM,
+    to: Number.isFinite(to) ? to : DEFAULT_SCALE_TO,
+  };
+};
 
 /** What the respondent will actually be shown, whoever wrote it. */
-export const effectiveOptions = (form: QuestionForm): OptionForm[] =>
-  form.questionType === 'LINEAR_SCALE' ? scalePoints() : liveOptions(form);
+export const effectiveOptions = (form: QuestionForm): OptionForm[] => {
+  if (form.questionType === 'LINEAR_SCALE') {
+    const { from, to } = scaleRange(form);
+    return scalePoints(from, to);
+  }
+  // Free text has nothing to pick from at all — the one type with no options.
+  if (form.questionType === 'SHORT_ANSWER') return [];
+  return liveOptions(form);
+};
 
 /**
  * Rows that will actually be stored, trimmed. Matches sanitizedRows on the
@@ -346,8 +382,21 @@ export function validateQuestionForm(form: QuestionForm): string | null {
     if (form.scaleLowLabel.trim().length > 100 || form.scaleHighLabel.trim().length > 100) {
       return 'Scale labels are at most 100 characters';
     }
+    // Mirrors validateType on the backend, message for message.
+    const from = Number.parseInt(form.scaleFrom, 10);
+    const to = Number.parseInt(form.scaleTo, 10);
+    if (!Number.isFinite(from) || !Number.isFinite(to)) {
+      return 'A scale needs a whole number at each end';
+    }
+    if (to <= from) return `Scale end (${to}) must be greater than the start (${from})`;
+    if (to - from + 1 > MAX_SCALE_POINTS) {
+      return `A scale of ${to - from + 1} points is too wide — the most is ${MAX_SCALE_POINTS}`;
+    }
     return null;
   }
+  // Free text: nothing else to check. No options, no rows, no rule — the
+  // type switch already cleared them and the payload builder drops them.
+  if (form.questionType === 'SHORT_ANSWER') return null;
   const rows = liveOptions(form);
   const noun = form.questionType === 'LIKERT_GRID' ? 'Column' : 'Option';
   for (let i = 0; i < rows.length; i++) {
@@ -381,10 +430,13 @@ export function validateQuestionForm(form: QuestionForm): string | null {
 export function questionPayloadFrom(form: QuestionForm): QuestionPayload {
   const scale = form.questionType === 'LINEAR_SCALE';
   const grid = form.questionType === 'LIKERT_GRID';
-  // A scale's options are generated by the backend, and it takes one answer:
-  // sending either would be refused. Cleared HERE as well as in the type
-  // switch, so a form that reached this point some other way still saves.
-  const rows = scale ? [] : liveOptions(form);
+  const text = form.questionType === 'SHORT_ANSWER';
+  // A scale's options are generated by the backend and a short answer has
+  // none at all; both take one answer, so a rule would be refused too.
+  // Cleared HERE as well as in the type switch, so a form that reached this
+  // point some other way still saves.
+  const rows = scale || text ? [] : liveOptions(form);
+  const range = scaleRange(form);
   return {
     contentType: form.contentType,
     questionType: form.questionType,
@@ -395,11 +447,14 @@ export function questionPayloadFrom(form: QuestionForm): QuestionPayload {
     // a stale count left behind by switching back to single choice is the
     // only way that happens.
     // A grid is one pick per row for now, so it sends no rule either.
-    selectionRule: scale || grid ? null : form.selectionRule || null,
-    selectionCount: !scale && !grid && form.selectionRule ? Number(form.selectionCount) : null,
-    // A scale's points and a grid's columns are ordered — the backend refuses
-    // the flag on both, so it is cleared here as well as in the type switch.
-    shuffleOptions: !scale && !grid && form.shuffleOptions,
+    selectionRule: scale || grid || text ? null : form.selectionRule || null,
+    selectionCount: !scale && !grid && !text && form.selectionRule ? Number(form.selectionCount) : null,
+    // A scale's points and a grid's columns are ordered, and a short answer
+    // has nothing to order — the backend refuses the flag on all three, so it
+    // is cleared here as well as in the type switch.
+    shuffleOptions: !scale && !grid && !text && form.shuffleOptions,
+    scaleFrom: scale ? range.from : null,
+    scaleTo: scale ? range.to : null,
     scaleLowLabel: scale ? form.scaleLowLabel.trim() || null : null,
     scaleHighLabel: scale ? form.scaleHighLabel.trim() || null : null,
     options: rows.map((o) => ({
@@ -434,7 +489,10 @@ export function QuestionFormFields({
   const set = (patch: Partial<QuestionForm>) => onChange({ ...form, ...patch });
   const isScale = form.questionType === 'LINEAR_SCALE';
   const isGrid = form.questionType === 'LIKERT_GRID';
+  const isText = form.questionType === 'SHORT_ANSWER';
   const scoringGaps = gridScoringGaps(form);
+  const range = scaleRange(form);
+  const points = scalePoints(range.from, range.to);
   // Options that will actually be stored — what the selection count is
   // validated against, here and on the backend.
   const liveCount = liveOptions(form).length;
@@ -544,7 +602,9 @@ export function QuestionFormFields({
             // back and forth does not throw away what was typed.
             set({
               questionType,
-              ...(questionType === 'LINEAR_SCALE' ? { selectionRule: '' as const, selectionCount: '' } : {}),
+              ...(questionType === 'LINEAR_SCALE' || questionType === 'SHORT_ANSWER'
+                ? { selectionRule: '' as const, selectionCount: '' }
+                : {}),
               // Shuffling belongs to an MCQ: a scale's points and a grid's
               // columns are ordered, so leaving MCQ drops the flag rather
               // than sending one the backend would refuse.
@@ -573,19 +633,61 @@ export function QuestionFormFields({
         />
         {isScale && (
           <p className="text-[0.6875rem] text-muted-foreground mt-1.5">
-            No number to enter — the point the respondent picks IS the score for
-            every MQT mapped here ({SCALE_FROM} scores {SCALE_FROM}, {SCALE_TO} scores {SCALE_TO}).
+            No number to enter — the point the respondent lands on IS the score
+            for every MQT mapped here ({range.from} scores {range.from}, {range.to} scores {range.to}).
+          </p>
+        )}
+        {isText && (
+          <p className="text-[0.6875rem] text-muted-foreground mt-1.5">
+            There is nothing to pick, so this score is earned for ANSWERING —
+            the same whatever is written. Leave it unmapped for questions that
+            collect text rather than measure something.
           </p>
         )}
       </div>
 
-      {isScale ? (
-        /* A scale is authored as two captions: the points themselves are
-           fixed 1—5 and generated on save, so there is nothing to type. */
+      {isText ? (
+        /* Free text: no options, no rows, no rule, no length limit. The only
+           thing to show is what the respondent will meet. */
         <div className="rounded-lg border border-border/70 p-3 space-y-2">
-          <label className="text-sm font-medium">Scale labels</label>
+          <label className="text-sm font-medium">Answer</label>
+          <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-3">
+            <p className="text-[0.6875rem] text-muted-foreground mb-2">Respondents will see</p>
+            <div className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-muted-foreground">
+              Their answer…
+            </div>
+          </div>
+          <p className="text-[0.6875rem] text-muted-foreground">
+            Every placed question is mandatory, so a blank answer is refused at
+            submit. Free text is exported and reported as written.
+          </p>
+        </div>
+      ) : isScale ? (
+        /* A scale is authored as a range and two captions: the points
+           themselves are generated on save, so there is nothing to type. */
+        <div className="rounded-lg border border-border/70 p-3 space-y-2">
+          <label className="text-sm font-medium">Scale</label>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs text-muted-foreground">From</span>
+            <input
+              type="number"
+              value={form.scaleFrom}
+              onChange={(e) => set({ scaleFrom: e.target.value })}
+              className="h-9 w-20 rounded-lg border border-border bg-background px-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+            />
+            <span className="text-xs text-muted-foreground">to</span>
+            <input
+              type="number"
+              value={form.scaleTo}
+              onChange={(e) => set({ scaleTo: e.target.value })}
+              className="h-9 w-20 rounded-lg border border-border bg-background px-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+            />
+            <span className="text-xs text-muted-foreground">
+              {points.length} point{points.length === 1 ? '' : 's'} · negative ends are allowed
+            </span>
+          </div>
           <div className="flex items-center gap-2">
-            <span className="w-4 text-xs text-muted-foreground shrink-0">{SCALE_FROM}</span>
+            <span className="w-8 text-right text-xs text-muted-foreground shrink-0">{range.from}</span>
             <input
               value={form.scaleLowLabel}
               onChange={(e) => set({ scaleLowLabel: e.target.value })}
@@ -595,7 +697,7 @@ export function QuestionFormFields({
             />
           </div>
           <div className="flex items-center gap-2">
-            <span className="w-4 text-xs text-muted-foreground shrink-0">{SCALE_TO}</span>
+            <span className="w-8 text-right text-xs text-muted-foreground shrink-0">{range.to}</span>
             <input
               value={form.scaleHighLabel}
               onChange={(e) => set({ scaleHighLabel: e.target.value })}
@@ -604,19 +706,18 @@ export function QuestionFormFields({
               className="flex-1 rounded-lg border border-border bg-background px-3 py-1.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
             />
           </div>
-          <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-3">
-            <p className="text-[0.6875rem] text-muted-foreground mb-2">Respondents will see</p>
-            <div className="flex items-end justify-between gap-2">
-              <span className="text-xs text-muted-foreground max-w-[30%] truncate">{form.scaleLowLabel}</span>
-              <div className="flex items-end gap-4">
-                {scalePoints().map((p) => (
-                  <div key={p.optionText} className="flex flex-col items-center gap-1">
-                    <span className="h-4 w-4 rounded-full border border-border bg-background" />
-                    <span className="text-[0.6875rem] text-muted-foreground">{p.optionText}</span>
-                  </div>
-                ))}
-              </div>
-              <span className="text-xs text-muted-foreground max-w-[30%] truncate text-right">{form.scaleHighLabel}</span>
+          {/* The respondent drags a slider, so the preview is one too —
+              unset, exactly as they first meet it. */}
+          <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-3 space-y-1.5">
+            <p className="text-[0.6875rem] text-muted-foreground">Respondents will see</p>
+            <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+              <span className="max-w-[40%] truncate">{form.scaleLowLabel}</span>
+              <span className="max-w-[40%] truncate text-right">{form.scaleHighLabel}</span>
+            </div>
+            <div className="h-1.5 rounded-full bg-border" />
+            <div className="flex items-center justify-between text-[0.6875rem] text-muted-foreground">
+              <span>{range.from}</span>
+              <span>{range.to}</span>
             </div>
           </div>
         </div>

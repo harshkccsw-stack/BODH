@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { Circle, Clock, ExternalLink, Layers, ListChecks, Shuffle, Square } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
+import { RichTextView } from '@/components/rich-text-editor';
 import { selectionLabel, type QuestionType, type SelectionRule } from '../question-bank/questionApis';
 
 // The respondent-view rendering of a questionnaire, with no data fetching of
@@ -36,6 +37,9 @@ export interface PreviewQuestion {
    * and says so instead of pretending to be a particular respondent's screen.
    */
   shuffleOptions?: boolean;
+  /** LINEAR_SCALE only — the ends of the slider. Null means 1—5. */
+  scaleFrom?: number | null;
+  scaleTo?: number | null;
   scaleLowLabel?: string | null;
   scaleHighLabel?: string | null;
   /** LIKERT_GRID only — the statements rated against `options`. */
@@ -102,6 +106,7 @@ export function QuestionView({ q, number }: { q: PreviewQuestion; number: number
   // A linear scale is laid out the way the portal lays it out — a row of
   // points between the two labels — not as a stack of options called "1".."5".
   const isScale = q.questionType === 'LINEAR_SCALE';
+  const isText = q.questionType === 'SHORT_ANSWER';
   // A grid is rows x columns, one pick per row — shown as the table the
   // respondent meets, so the preview is not quietly kinder than the portal.
   const gridRows = q.questionType === 'LIKERT_GRID' ? q.rows ?? [] : [];
@@ -154,18 +159,25 @@ export function QuestionView({ q, number }: { q: PreviewQuestion; number: number
             </tbody>
           </table>
         </div>
-      ) : isScale ? (
-        <div className="pl-9 flex items-end justify-between gap-3">
-          <span className="text-xs text-muted-foreground max-w-[25%] truncate">{q.scaleLowLabel}</span>
-          <div className="flex items-end gap-5">
-            {q.options.map((o) => (
-              <div key={o.optionId} className="flex flex-col items-center gap-1">
-                <Circle className="h-4 w-4 text-muted-foreground/50" />
-                <span className="text-[0.6875rem] text-muted-foreground">{o.optionText}</span>
-              </div>
-            ))}
+      ) : isText ? (
+        <div className="pl-9">
+          <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+            Their answer…
           </div>
-          <span className="text-xs text-muted-foreground max-w-[25%] truncate text-right">{q.scaleHighLabel}</span>
+        </div>
+      ) : isScale ? (
+        /* The respondent drags a slider, so the preview is one — and unset,
+           which is how they first meet it. */
+        <div className="pl-9 space-y-1.5">
+          <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+            <span className="max-w-[40%] truncate">{q.scaleLowLabel}</span>
+            <span className="max-w-[40%] truncate text-right">{q.scaleHighLabel}</span>
+          </div>
+          <div className="h-1.5 rounded-full bg-border" />
+          <div className="flex items-center justify-between text-[0.6875rem] text-muted-foreground">
+            <span>{q.scaleFrom ?? q.options[0]?.optionText ?? 1}</span>
+            <span>{q.scaleTo ?? q.options[q.options.length - 1]?.optionText ?? 5}</span>
+          </div>
         </div>
       ) : q.options.length > 0 && (
         <div className="space-y-1.5 pl-9">
@@ -253,9 +265,10 @@ export function QuestionnairePreviewView({
             )}
           </div>
           {meta.generalInstruction && (
-            <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm whitespace-pre-wrap">
-              {meta.generalInstruction}
-            </div>
+            <RichTextView
+              value={meta.generalInstruction}
+              className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm"
+            />
           )}
         </CardContent>
       </Card>
@@ -296,7 +309,10 @@ export function QuestionnairePreviewView({
                   {group.section ? group.section.name : 'Without a section'}
                 </CardTitle>
                 {group.section?.instruction && (
-                  <p className="text-sm text-muted-foreground whitespace-pre-wrap">{group.section.instruction}</p>
+                  <RichTextView
+                    value={group.section.instruction}
+                    className="text-sm text-muted-foreground"
+                  />
                 )}
               </CardHeader>
             )}

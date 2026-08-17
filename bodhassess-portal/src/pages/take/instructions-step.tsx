@@ -1,6 +1,7 @@
 import { Check, ListChecks } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { StepShell } from '@/components/step-shell';
+import { RichText } from '@/lib/rich-text';
 
 // Gate (general instructions) — informational, no checkbox.
 export function InstructionsStep({
@@ -27,9 +28,15 @@ export function InstructionsStep({
           <h2 className="text-xl font-semibold tracking-tight">Instructions</h2>
         </div>
       </div>
-      <div className="rounded-lg border border-border bg-muted/30 p-4 whitespace-pre-wrap text-sm leading-relaxed max-h-[60vh] overflow-y-auto">
-        {instructions}
-      </div>
+      {/* Authored in the dashboard's rich-text editor, so bold, lists and
+          headings render as written. Instructions saved before that editor
+          existed are plain prose — RichText escapes those and keeps their
+          line breaks, which is what this box used to do with
+          whitespace-pre-wrap. */}
+      <RichText
+        value={instructions}
+        className="rounded-lg border border-border bg-muted/30 p-4 text-sm leading-relaxed max-h-[60vh] overflow-y-auto"
+      />
       <div className="flex items-center justify-between gap-3 pt-1">
         <Button variant="outline" onClick={onCancel}>
           Cancel

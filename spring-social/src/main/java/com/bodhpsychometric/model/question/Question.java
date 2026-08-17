@@ -66,7 +66,21 @@ public class Question implements Serializable {
     @Column(name = "questionType", nullable = false, length = 15)
     private QuestionType questionType = QuestionType.MCQ;
 
-    /** LINEAR_SCALE only: the caption under point 1 ("Strongly disagree"). */
+    /**
+     * LINEAR_SCALE only: the range the author chose, inclusive — 1—5, 0—10,
+     * -3—3. NULL on every other type, and NULL on a scale means 1—5, which is
+     * what every scale authored before the range existed was.
+     *
+     * These are INPUT; the option rows are generated from them and never the
+     * other way round, so the two cannot drift.
+     */
+    @Column(name = "scaleFrom")
+    private Integer scaleFrom;
+
+    @Column(name = "scaleTo")
+    private Integer scaleTo;
+
+    /** LINEAR_SCALE only: the caption under the first point ("Strongly disagree"). */
     @Column(name = "scaleLowLabel", length = 100)
     private String scaleLowLabel;
 
@@ -151,6 +165,22 @@ public class Question implements Serializable {
 
     public void setQuestionType(QuestionType questionType) {
         this.questionType = questionType == null ? QuestionType.MCQ : questionType;
+    }
+
+    public Integer getScaleFrom() {
+        return scaleFrom;
+    }
+
+    public void setScaleFrom(Integer scaleFrom) {
+        this.scaleFrom = scaleFrom;
+    }
+
+    public Integer getScaleTo() {
+        return scaleTo;
+    }
+
+    public void setScaleTo(Integer scaleTo) {
+        this.scaleTo = scaleTo;
     }
 
     public String getScaleLowLabel() {
