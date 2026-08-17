@@ -1,8 +1,15 @@
 # Production database backup
 
 Nightly `mysqldump` of the production `bodhpsychometric` database, gzipped and
-uploaded to the DigitalOcean Space `bodh-db-backups` (sgp1 region), keeping 10
-days of history both on the droplet and in the Space.
+uploaded to `s3://storage-c9/bodhpsychometric/` (DigitalOcean Spaces, sgp1),
+keeping 10 days of history both on the droplet and in the Space.
+
+> **`storage-c9` is shared.** It holds ~3.4 GB of another product's data
+> (`bet-reports/`, `navigator-reports/`, `school-logos/`, …). Backups live under
+> the `bodhpsychometric/` prefix, and the prune step deletes only keys under that
+> prefix matching `bodhpsychometric-<date>.sql.gz`. This was tested by planting a
+> non-backup object inside the prefix and confirming it survived a prune. Preserve
+> that property if you touch the pruning code.
 
 Everything runs **on the production droplet** (`root@168.144.118.157` —
 `REMOTE_HOST` in `deploy.production.env`), where the `bodhpsychometric-mysql`
@@ -17,7 +24,7 @@ container lives. Nothing here runs on a developer machine.
 | — (created by hand) | `/root/.s3cfg-bodh-backup` (root, 0600) — **the only place the Spaces keys live** |
 
 Dumps land in `/var/backups/bodhpsychometric/` and in
-`s3://bodh-db-backups/bodhpsychometric/`, named
+`s3://storage-c9/bodhpsychometric/`, named
 `bodhpsychometric-YYYY-MM-DD_HH-MM-SS.sql.gz`, stamped in IST.
 
 ## About the schedule
@@ -66,9 +73,9 @@ signature_v2 = False
 EOF
 chmod 600 /root/.s3cfg-bodh-backup
 
-# 2. Confirm the Space exists and the keys work (create the Space in the DO
-#    console first — the script deliberately will not create it).
-s3cmd -c /root/.s3cfg-bodh-backup info s3://bodh-db-backups
+# 2. Confirm the Space is reachable with these keys. The script deliberately
+#    never creates a Space.
+s3cmd -c /root/.s3cfg-bodh-backup info s3://storage-c9
 
 # 3. Script, config, schedule, log rotation.
 install -m 700 -o root -g root bodh-db-backup.sh        /usr/local/bin/bodh-db-backup.sh
@@ -79,25 +86,44 @@ install -d -m 700 -o root -g root /var/backups/bodhpsychometric
 
 # 4. Prove it works before trusting the schedule.
 /usr/local/bin/bodh-db-backup.sh
-s3cmd -c /root/.s3cfg-bodh-backup ls s3://bodh-db-backups/bodhpsychometric/
+s3cmd -c /root/.s3cfg-bodh-backup ls s3://storage-c9/bodhpsychometric/
 ```
 
 ## Restore
 
-Never restore straight onto production. Pull the dump down, load it into a
-scratch database, check it, and only then decide.
+Never restore straight onto production — and **not onto the dev MySQL on
+127.0.0.1:3307 either**, which is an SSH tunnel to shared staging. Restore into a
+throwaway container, check it, and only then decide. This is the exact procedure
+used to verify the first backup.
 
 ```bash
-# Fetch a specific night.
-s3cmd -c /root/.s3cfg-bodh-backup get \
-  s3://bodh-db-backups/bodhpsychometric/bodhpsychometric-2026-08-18_00-00-01.sql.gz .
+DUMP=$(ls -t /var/backups/bodhpsychometric/*.sql.gz | head -1)   # or s3cmd get one
 
-# Load into a scratch database (local dev MySQL on 127.0.0.1:3307).
-mysql -h127.0.0.1 -P3307 -ubodh -pbodh -e 'CREATE DATABASE restore_check'
-gunzip -c bodhpsychometric-2026-08-18_00-00-01.sql.gz \
-  | mysql -h127.0.0.1 -P3307 -ubodh -pbodh restore_check
-mysql -h127.0.0.1 -P3307 -ubodh -pbodh restore_check \
-  -e 'SELECT COUNT(*) FROM Organization; SELECT COUNT(*) FROM Question;'
+docker run -d --name restore-check -e MYSQL_ROOT_PASSWORD=tmprestore \
+  -v /var/backups/bodhpsychometric:/dumps:ro mysql:8.0
+
+# Wait for real readiness - `mysqladmin ping` reports alive BEFORE init finishes.
+until docker exec restore-check mysql -uroot -ptmprestore -e 'SELECT 1' >/dev/null 2>&1
+  do sleep 2; done
+
+docker exec restore-check mysql -uroot -ptmprestore -e 'CREATE DATABASE restore_check'
+docker exec restore-check sh -c \
+  "gunzip -c /dumps/$(basename "$DUMP") | mysql -uroot -ptmprestore restore_check"
+
+# Tables are snake_case (Hibernate's default naming strategy), not PascalCase.
+docker exec restore-check mysql -uroot -ptmprestore -N restore_check -e '
+  SELECT "organization", COUNT(*) FROM organization
+  UNION ALL SELECT "question", COUNT(*) FROM question
+  UNION ALL SELECT "assessment_answer", COUNT(*) FROM assessment_answer'
+
+docker rm -f restore-check
+```
+
+To fetch a specific night from Spaces instead:
+
+```bash
+s3cmd -c /root/.s3cfg-bodh-backup get \
+  s3://storage-c9/bodhpsychometric/bodhpsychometric-2026-08-18_00-00-01.sql.gz .
 ```
 
 The dump includes `CREATE TABLE` for every table plus the `flyway_schema_history`
@@ -120,5 +146,5 @@ the credentials appear.
   older backups are intact. Fix the container and run the script by hand.
 - **`dump is truncated`** — usually the disk filled up. Check `df -h`; nothing
   was pruned, so history is intact.
-- **Upload fails** — `s3cmd -c /root/.s3cfg-bodh-backup info s3://bodh-db-backups`
+- **Upload fails** — `s3cmd -c /root/.s3cfg-bodh-backup info s3://storage-c9`
   to separate a credential problem from a network one. The local copy was kept.
