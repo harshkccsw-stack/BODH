@@ -22,5 +22,26 @@ services:
       timeout: 5s
       retries: 20
 
+  redis:
+    image: redis:7-alpine
+    container_name: bodhpsychometric-redis
+    restart: unless-stopped
+    ports:
+      # Default Redis port straight through — the app's spring.data.redis
+      # defaults (localhost:6379) hit this with no env vars set.
+      - "6379:6379"
+    # Cache + staging store, not a system of record: staged submissions are
+    # re-creatable only until digested, so appendonly keeps a restart from
+    # dropping a submission that has not reached MySQL yet.
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
 volumes:
   mysql-data:
+  redis-data:

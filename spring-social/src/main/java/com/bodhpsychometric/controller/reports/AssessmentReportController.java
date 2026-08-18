@@ -12,11 +12,14 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.bodhpsychometric.dto.LiveTrackingResponse;
+import com.bodhpsychometric.dto.PendingSubmissionResponse;
 import com.bodhpsychometric.dto.ReportAssessmentOption;
 import com.bodhpsychometric.dto.ReportOrganizationOption;
 import com.bodhpsychometric.dto.ReportPageResponse;
 import com.bodhpsychometric.dto.ReportRespondentRow;
 import com.bodhpsychometric.service.AssessmentReportService;
+import com.bodhpsychometric.service.SubmissionDigestService;
 
 /**
  * Reports area. Feeds the dashboard's Reports Hub: two paged filter dropdowns
@@ -31,6 +34,9 @@ public class AssessmentReportController {
 
     @Autowired
     private AssessmentReportService assessmentReportService;
+
+    @Autowired
+    private SubmissionDigestService submissionDigestService;
 
     /** Organization dropdown — paged, searchable by name. */
     @GetMapping("/getOrganizations")
@@ -122,5 +128,45 @@ public class AssessmentReportController {
                 .orElseGet(() -> ResponseEntity.status(HttpStatus.NOT_FOUND)
                         .body(Map.of("message", "Assessment allotment "
                                 + respondentAssessmentMappingId + " not found")));
+    }
+
+    /**
+     * The Live Tracking page's poll: whole-filter state totals plus one
+     * most-alive-first page. Both filters optional — omitted means all
+     * organizations / any assessment. Excluded from the activity trail
+     * (machine polling, see ActivityLogFilter); MySQL cost is bounded by the
+     * service's short base-list cache regardless of poll rate.
+     */
+    @GetMapping("/liveTracking")
+    public LiveTrackingResponse getLiveTracking(
+            @RequestParam(required = false) Long organizationId,
+            @RequestParam(required = false) Long assessmentId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "25") int size) {
+        return assessmentReportService.liveTracking(organizationId, assessmentId, page, size);
+    }
+
+    /**
+     * Redis-staged submissions the digest has not landed in MySQL yet —
+     * queued (still retrying) and failed (all attempts spent, waiting for a
+     * requeue) alike. Empty when everything is digested or Redis is away.
+     */
+    @GetMapping("/pendingSubmissions")
+    public java.util.List<PendingSubmissionResponse> getPendingSubmissions() {
+        return submissionDigestService.pendingSubmissions();
+    }
+
+    /**
+     * Puts a held (or stuck) staged submission back under the digest with
+     * fresh attempts and fires one immediately. 404 when nothing is staged
+     * for that allotment — already digested, expired, or never existed.
+     */
+    @PostMapping("/requeueSubmission/{respondentAssessmentMappingId}")
+    public ResponseEntity<?> requeueSubmission(@PathVariable Long respondentAssessmentMappingId) {
+        return submissionDigestService.requeue(respondentAssessmentMappingId)
+                .<ResponseEntity<?>>map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(Map.of("message", "No staged submission for allotment "
+                                + respondentAssessmentMappingId)));
     }
 }

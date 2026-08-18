@@ -37,6 +37,8 @@ interface AssessmentForm {
   showTermsAndConditions: boolean;
   autoNext: boolean;
   showQuestionIndex: boolean;
+  attentionTimer: boolean;
+  savePartialAnswers: boolean;
   startDate: string; // '' = not set; otherwise 'YYYY-MM-DD'
   endDate: string;
   /** Consent body as the editor's HTML. Kept even while the toggle is off. */
@@ -50,6 +52,8 @@ const EMPTY_FORM: AssessmentForm = {
   showTermsAndConditions: true,
   autoNext: false,
   showQuestionIndex: true,
+  attentionTimer: false,
+  savePartialAnswers: false,
   startDate: '',
   endDate: '',
   termsAndConditions: '', // replaced by the server's template once loaded
@@ -132,6 +136,8 @@ export default function CreateAssessmentPage() {
             showTermsAndConditions: a.showTermsAndConditions,
             autoNext: a.autoNext,
             showQuestionIndex: a.showQuestionIndex,
+            attentionTimer: a.attentionTimer,
+            savePartialAnswers: a.savePartialAnswers,
             startDate: a.startDate ?? '',
             endDate: a.endDate ?? '',
             termsAndConditions: a.termsAndConditions,
@@ -190,6 +196,8 @@ export default function CreateAssessmentPage() {
       termsAndConditions: normalizeEditorHtml(form.termsAndConditions),
       autoNext: form.autoNext,
       showQuestionIndex: form.showQuestionIndex,
+      attentionTimer: form.attentionTimer,
+      savePartialAnswers: form.savePartialAnswers,
       // Empty input clears the stored date — send null, not ''.
       startDate: form.startDate || null,
       endDate: form.endDate || null,
@@ -339,7 +347,7 @@ export default function CreateAssessmentPage() {
                 </div>
                 <ToggleRow
                   label="Auto-advance to the next question"
-                  hint="Moves on as soon as an option is selected."
+                  hint="Moves on as soon as a choice question is answered. Sliders and typed answers always wait for Next."
                   checked={form.autoNext}
                   onChange={(v) => setForm({ ...form, autoNext: v })}
                 />
@@ -348,6 +356,18 @@ export default function CreateAssessmentPage() {
                   hint="The navigator panel that lets respondents jump between questions."
                   checked={form.showQuestionIndex}
                   onChange={(v) => setForm({ ...form, showQuestionIndex: v })}
+                />
+                <ToggleRow
+                  label="Attention timer"
+                  hint="Gives the inactivity “Focus on your assessment” popup a 10-minute budget. The clock runs only while that popup is on screen and pauses when the respondent continues; if it runs out, the attempt is stopped and handed back unstarted so they take it again from the beginning."
+                  checked={form.attentionTimer}
+                  onChange={(v) => setForm({ ...form, attentionTimer: v })}
+                />
+                <ToggleRow
+                  label="Save partial answers"
+                  hint="Saves the respondent's marked answers (to Redis) each time they move between sections, so resuming an in-progress attempt continues from where they left off instead of starting over. The attention timer's restart still wipes them for a fresh start."
+                  checked={form.savePartialAnswers}
+                  onChange={(v) => setForm({ ...form, savePartialAnswers: v })}
                 />
               </div>
             </CardContent>

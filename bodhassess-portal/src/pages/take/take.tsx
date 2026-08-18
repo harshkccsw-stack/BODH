@@ -7,9 +7,11 @@ import { isBlankRichText } from '@/lib/rich-text';
 import {
   portalAssessmentsApi,
   ApiError,
+  answerKey,
   parseAnswerKey,
   type PortalAnswerEntry,
   type PortalAssessmentDetail,
+  type PortalQuestion,
 } from '@/lib/api';
 import { TermsStep } from './terms-step';
 import { DemographicsStep } from './demographics-step';
@@ -18,6 +20,59 @@ import { QuestionRunner } from './question-runner';
 import { CompleteStep } from './complete-step';
 
 type GateStep = 'terms' | 'demographics' | 'instructions' | 'questions';
+
+// ── Resume helpers ──────────────────────────────────────────────────────────
+// A saved snapshot arrives as submit-shaped entries; the runner keys its
+// state by answer SLOT (answerKey). These rebuild the two state maps and find
+// where to drop the respondent back in.
+
+function seedAnswerMaps(saved: PortalAnswerEntry[]): {
+  answers: Record<string, number[]>;
+  textAnswers: Record<string, string>;
+} {
+  const answers: Record<string, number[]> = {};
+  const textAnswers: Record<string, string> = {};
+  for (const e of saved) {
+    if (e.answerText != null && e.answerText.trim() !== '') {
+      textAnswers[answerKey(e.questionId)] = e.answerText;
+    } else if (e.optionId != null) {
+      const key = answerKey(e.questionId, e.questionRowId);
+      (answers[key] ??= []).push(e.optionId);
+    }
+  }
+  return { answers, textAnswers };
+}
+
+// Mirrors the runner's slotSatisfied gates so "first unanswered" agrees with
+// what the navigator will mark pending.
+function questionSatisfied(
+  q: PortalQuestion,
+  answers: Record<string, number[]>,
+  textAnswers: Record<string, string>,
+): boolean {
+  if (q.questionType === 'SHORT_ANSWER') {
+    return (textAnswers[answerKey(q.questionId)] ?? '').trim().length > 0;
+  }
+  const slots =
+    q.questionType === 'LIKERT_GRID'
+      ? q.rows.map((r) => answerKey(q.questionId, r.questionRowId))
+      : [answerKey(q.questionId)];
+  return slots.every((slot) => {
+    const n = (answers[slot] ?? []).length;
+    return n >= q.minSelections && n <= q.maxSelections;
+  });
+}
+
+function firstUnansweredIndex(
+  questions: PortalQuestion[],
+  answers: Record<string, number[]>,
+  textAnswers: Record<string, string>,
+): number {
+  const idx = questions.findIndex((q) => !questionSatisfied(q, answers, textAnswers));
+  // Everything answered (they quit right before submitting): land on the last
+  // question, where the Submit button lives.
+  return idx === -1 ? Math.max(0, questions.length - 1) : idx;
+}
 
 // The consent body is per-assessment now and arrives with the detail payload
 // (`termsAndConditions`), authored in the dashboard's editor. The standard
@@ -59,6 +114,13 @@ export default function TakePage() {
   // In-memory only — a refresh restarts the whole attempt, so this resets to 0
   // with it (consistent). Sent to the backend with the final submission.
   const [popUpCount, setPopUpCount] = useState(0);
+  // Set when the attention timer ran out and the abandon call that resets the
+  // attempt failed — shown inside the stopped modal, because the respondent's
+  // next step (launch it again) depends on that reset having landed.
+  const [attentionResetError, setAttentionResetError] = useState('');
+  // Where the runner opens. 0 on a fresh attempt; the first unanswered
+  // question when a resume backfilled saved answers.
+  const [startIndex, setStartIndex] = useState(0);
 
   const backToList = () => navigate('/portal/assessment', { replace: true });
   const current: GateStep = steps[stepIndex] ?? 'questions';
@@ -77,6 +139,21 @@ export default function TakePage() {
         if (cancelled) return;
         if (d.assessmentStatus === 'COMPLETED') {
           setLoadError('This assessment has already been submitted.');
+          return;
+        }
+        if (d.assessmentStatus === 'ONGOING') {
+          // RESUME: begin already ran (that is what made it ONGOING), so the
+          // terms consent and demographic form are stored — replaying the
+          // gates would wipe and re-ask the form. Straight to the questions,
+          // with the Redis snapshot (if any) backfilled and the respondent
+          // dropped on their first unanswered question.
+          const seeded = seedAnswerMaps(d.savedAnswers ?? []);
+          setAnswers(seeded.answers);
+          setTextAnswers(seeded.textAnswers);
+          setStartIndex(firstUnansweredIndex(d.questions, seeded.answers, seeded.textAnswers));
+          setBegun(true);
+          setDetail(d);
+          setSteps(['questions']);
           return;
         }
         const applicable: GateStep[] = [];
@@ -165,17 +242,31 @@ export default function TakePage() {
     goNext();
   };
 
-  const submit = async () => {
-    setSubmitting(true);
-    setSubmitError('');
-    // Keys are answer SLOTS — a question, or one row of a grid — so a grid
-    // fans out into one entry per (row, picked column).
+  // The attention budget is gone: hand the attempt back unstarted so the
+  // dashboard offers "Launch Assessment" again. Fire-and-report — the runner
+  // has already stopped the attempt on screen, and the only thing left to say
+  // is whether the reset landed.
+  const abandonAttempt = () => {
+    setAttentionResetError('');
+    portalAssessmentsApi.abandon(detail.respondentAssessmentMappingId).catch((e) => {
+      setAttentionResetError(
+        e instanceof ApiError
+          ? `This attempt could not be reset automatically (${e.serverMessage}) — please tell your administrator.`
+          : 'This attempt could not be reset automatically — please tell your administrator.',
+      );
+    });
+  };
+
+  // Keys are answer SLOTS — a question, or one row of a grid — so a grid
+  // fans out into one entry per (row, picked column). One entry per written
+  // answer, with no option — the shape the submit validator expects. Shared
+  // by submit and the partial-answer save, so the snapshot and the final
+  // payload can never drift apart in format.
+  const buildEntries = (): PortalAnswerEntry[] => {
     const entries: PortalAnswerEntry[] = Object.entries(answers).flatMap(([key, optionIds]) => {
       const { questionId, questionRowId } = parseAnswerKey(key);
       return optionIds.map((optionId) => ({ questionId, optionId, questionRowId }));
     });
-    // One entry per written answer, with no option — the shape the submit
-    // validator expects, and the mirror image of a picked one.
     for (const [key, text] of Object.entries(textAnswers)) {
       if (!text.trim()) continue;
       entries.push({
@@ -185,8 +276,28 @@ export default function TakePage() {
         answerText: text.trim(),
       });
     }
+    return entries;
+  };
+
+  // Partial-answer snapshot — fire-and-forget: a failed save costs a future
+  // backfill, never data, so the respondent is never interrupted over it.
+  const savePartialAnswers = () => {
+    if (!detail.savePartialAnswers || !begun) return;
+    portalAssessmentsApi
+      .saveProgress(detail.respondentAssessmentMappingId, buildEntries())
+      .catch(() => {
+        /* skipped save — the next section change tries again */
+      });
+  };
+
+  const submit = async () => {
+    setSubmitting(true);
+    setSubmitError('');
     try {
-      await portalAssessmentsApi.submit(detail.respondentAssessmentMappingId, entries, popUpCount);
+      // 200 means the submission is in — either staged in Redis with the
+      // digest landing it in MySQL moments later (submissionPending), or
+      // already written synchronously. The respondent's flow is identical.
+      await portalAssessmentsApi.submit(detail.respondentAssessmentMappingId, buildEntries(), popUpCount);
       setDone(true);
     } catch (e) {
       setSubmitError(e instanceof ApiError ? e.serverMessage : 'Failed to submit — please try again.');
@@ -237,10 +348,15 @@ export default function TakePage() {
           setAnswers={setAnswers}
           textAnswers={textAnswers}
           setTextAnswers={setTextAnswers}
+          initialIndex={startIndex}
+          onPartialSave={detail.savePartialAnswers ? savePartialAnswers : undefined}
           onSubmit={submit}
           submitting={submitting}
           submitError={submitError}
           onFocusPopup={() => setPopUpCount((n) => n + 1)}
+          onAttentionTimeout={abandonAttempt}
+          onRestart={backToList}
+          attentionResetError={attentionResetError}
         />
       );
   }

@@ -339,6 +339,71 @@ class PortalAssessmentControllerTest {
                 .andExpect(jsonPath("$.respondent.allottedAssessments[0].isPersisted").value(true));
     }
 
+    /**
+     * The attention timer's two halves: the flag reaches the respondent's
+     * payload (the portal cannot start a countdown it was never told about),
+     * and the abandon call the countdown makes when it runs out puts the
+     * attempt back to NOT_STARTED — which is what lets them launch it again.
+     */
+    @Test
+    void attentionTimerAttemptIsAbandonedBackToNotStarted() throws Exception {
+        Fixture f = buildFixture("Portal Timer", "portal.timer@test.local", "07-07-2007", "2007-07-07");
+        String bearer = "Bearer " + f.token();
+
+        // Off unless asked for — an omitted field must never arm the timer.
+        mvc.perform(get("/api/portal/assessments/getById/" + f.mappingId()).header("Authorization", bearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.attentionTimer").value(false));
+
+        mvc.perform(put("/api/assessments/update/" + f.assessmentId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Portal Timer Assessment\",\"questionnaireId\":" + f.questionnaireId()
+                                + ",\"showTermsAndConditions\":true,\"status\":\"ACTIVE\",\"autoNext\":false,"
+                                + "\"attentionTimer\":true}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.attentionTimer").value(true));
+        mvc.perform(get("/api/portal/assessments/getById/" + f.mappingId()).header("Authorization", bearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.attentionTimer").value(true));
+
+        mvc.perform(post("/api/portal/assessments/begin/" + f.mappingId())
+                        .header("Authorization", bearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"demographics\":[{\"demographicFieldId\":" + f.fieldId() + ",\"value\":\"9th\"}]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.assessmentStatus").value("ONGOING"));
+
+        // Budget spent → the portal abandons the attempt. Anonymous callers
+        // cannot, and a second call is a harmless no-op.
+        mvc.perform(post("/api/portal/assessments/abandon/" + f.mappingId()))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(post("/api/portal/assessments/abandon/" + f.mappingId()).header("Authorization", bearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.assessmentStatus").value("NOT_STARTED"))
+                .andExpect(jsonPath("$.isPersisted").value(false));
+        mvc.perform(post("/api/portal/assessments/abandon/" + f.mappingId()).header("Authorization", bearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.assessmentStatus").value("NOT_STARTED"));
+
+        // And it really is takeable again, all the way to COMPLETED — after
+        // which abandon is refused, since a submitted attempt is frozen.
+        mvc.perform(post("/api/portal/assessments/begin/" + f.mappingId())
+                        .header("Authorization", bearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"demographics\":[{\"demographicFieldId\":" + f.fieldId() + ",\"value\":\"10th\"}]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.assessmentStatus").value("ONGOING"));
+        mvc.perform(post("/api/portal/assessments/submit/" + f.mappingId())
+                        .header("Authorization", bearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"answers\":[{\"questionId\":" + f.questionId() + ",\"optionId\":"
+                                + f.option1Id() + "}]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.assessmentStatus").value("COMPLETED"));
+        mvc.perform(post("/api/portal/assessments/abandon/" + f.mappingId()).header("Authorization", bearer))
+                .andExpect(status().isConflict());
+    }
+
     @Test
     void ongoingAllotmentCanBeUnmapped() throws Exception {
         Fixture f = buildFixture("Portal Unmap", "portal.unmap@test.local", "06-06-2006", "2006-06-06");

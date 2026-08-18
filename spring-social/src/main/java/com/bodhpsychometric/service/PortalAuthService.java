@@ -12,6 +12,7 @@ import org.springframework.web.server.ResponseStatusException;
 import com.bodhpsychometric.dto.PortalAuthResponse;
 import com.bodhpsychometric.dto.PortalLoginResponse;
 import com.bodhpsychometric.dto.RespondentAssessmentResponse;
+import com.bodhpsychometric.model.assessment.enums.RespondentAssessmentStatus;
 import com.bodhpsychometric.model.auth.RespondentUser;
 import com.bodhpsychometric.model.auth.User;
 import com.bodhpsychometric.repository.assessment.RespondentAssessmentMappingRepository;
@@ -35,13 +36,16 @@ public class PortalAuthService {
     private final RespondentUserRepository respondents;
     private final RespondentAssessmentMappingRepository respondentAssessments;
     private final JwtService jwt;
+    private final PortalRedisStore redis;
 
     public PortalAuthService(UserRepository users, RespondentUserRepository respondents,
-            RespondentAssessmentMappingRepository respondentAssessments, JwtService jwt) {
+            RespondentAssessmentMappingRepository respondentAssessments, JwtService jwt,
+            PortalRedisStore redis) {
         this.users = users;
         this.respondents = respondents;
         this.respondentAssessments = respondentAssessments;
         this.jwt = jwt;
+        this.redis = redis;
     }
 
     /**
@@ -138,7 +142,15 @@ public class PortalAuthService {
     private PortalAuthResponse toPortalUser(RespondentUser respondent) {
         List<RespondentAssessmentResponse> allotted = respondentAssessments
                 .findByRespondentForListing(respondent.getId()).stream()
-                .map(RespondentAssessmentResponse::from)
+                // submissionPending — a Redis-staged submission the digest has
+                // not landed yet: the portal home shows "being processed"
+                // instead of a Resume button. Only an ONGOING+unpersisted row
+                // can be in that state, so the Redis check is skipped for
+                // every other row rather than paid per allotment.
+                .map(m -> RespondentAssessmentResponse.from(m,
+                        m.getAssessmentStatus() == RespondentAssessmentStatus.ONGOING
+                                && !m.isPersisted()
+                                && redis.hasPendingSubmission(m.getRespondentAssessmentMappingId())))
                 .toList();
         return PortalAuthResponse.from(respondent, allotted);
     }

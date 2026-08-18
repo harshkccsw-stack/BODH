@@ -78,6 +78,14 @@ public interface QuestionnaireQuestionRepository extends JpaRepository<Questionn
 
     List<QuestionnaireQuestion> findByQuestionQuestionId(Long questionId);
 
+    /**
+     * Which questionnaires place this question — the portal content cache's
+     * eviction fan-out when a bank question is edited (ids only, no entities).
+     */
+    @Query("select distinct qq.questionnaire.questionnaireId from QuestionnaireQuestion qq "
+            + "where qq.question.questionId = :questionId")
+    List<Long> findQuestionnaireIdsPlacingQuestion(Long questionId);
+
     List<QuestionnaireQuestion> findBySectionSectionId(Long sectionId);
 
     void deleteByQuestionnaireQuestionnaireId(Long questionnaireId);

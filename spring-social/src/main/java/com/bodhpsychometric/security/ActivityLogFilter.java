@@ -59,8 +59,16 @@ public class ActivityLogFilter extends OncePerRequestFilter {
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
         // Recording the activity viewer's own reads would make the trail a
-        // record of people looking at the trail.
-        return !enabled || request.getRequestURI().startsWith("/api/activity");
+        // record of people looking at the trail. The heartbeat ping and the
+        // live-tracking poll are excluded for the load half of the same
+        // reasoning: machine chatter every few seconds per respondent/viewer
+        // would write thousands of MySQL rows a minute about nothing a human
+        // did — and the heartbeat path is deliberately MySQL-free.
+        String uri = request.getRequestURI();
+        return !enabled
+                || uri.startsWith("/api/activity")
+                || uri.startsWith("/api/portal/assessments/heartbeat/")
+                || uri.startsWith("/api/reports/liveTracking");
     }
 
     @Override

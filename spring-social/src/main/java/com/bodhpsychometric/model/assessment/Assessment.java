@@ -70,6 +70,24 @@ public class Assessment implements java.io.Serializable {
     @Column(name = "showQuestionIndex", nullable = false)
     private boolean showQuestionIndex = true;
 
+    // Portal UX: put the inactivity ("Focus on your assessment") popup on a
+    // 10-minute budget. The clock runs only while that popup is up — OKAY
+    // pauses it, the next popup resumes it — and when it runs out the attempt
+    // is abandoned back to NOT_STARTED so the respondent starts over. Defaults
+    // false: an assessment that never asked for this keeps the plain nag popup.
+    @Column(name = "attentionTimer", nullable = false)
+    private boolean attentionTimer;
+
+    // Portal behaviour: snapshot the respondent's marked answers into Redis as
+    // they move between sections (partial saving), so an ONGOING attempt
+    // resumed from the dashboard backfills what was already answered. The
+    // snapshots never touch MySQL — with Redis down the toggle silently does
+    // nothing, which is also why it may default off. Cleared by the attention
+    // timer's abandon and by a practitioner reset, so a restarted attempt
+    // starts clean.
+    @Column(name = "savePartialAnswers", nullable = false)
+    private boolean savePartialAnswers;
+
     // Availability window, both nullable ("no window"). METADATA ONLY today:
     // nothing gates on these — only status == ACTIVE does (see
     // PortalAssessmentService#requireOwnAttempt). Whoever wires enforcement
@@ -142,6 +160,22 @@ public class Assessment implements java.io.Serializable {
 
     public void setShowQuestionIndex(boolean showQuestionIndex) {
         this.showQuestionIndex = showQuestionIndex;
+    }
+
+    public boolean isAttentionTimer() {
+        return attentionTimer;
+    }
+
+    public void setAttentionTimer(boolean attentionTimer) {
+        this.attentionTimer = attentionTimer;
+    }
+
+    public boolean isSavePartialAnswers() {
+        return savePartialAnswers;
+    }
+
+    public void setSavePartialAnswers(boolean savePartialAnswers) {
+        this.savePartialAnswers = savePartialAnswers;
     }
 
     public LocalDate getStartDate() {

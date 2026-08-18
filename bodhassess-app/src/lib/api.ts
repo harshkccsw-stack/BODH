@@ -587,43 +587,9 @@ export const assessmentsApi = {
 // Backwards-compatible alias.
 export const portalSessionsApi = assessmentsApi;
 
-// ---------- Admin live tracking ----------
-export interface LiveAssessmentSummary {
-  instrument: string;
-  instrumentFullName?: string;
-  groupId?: string | null;
-  groupName?: string | null;
-  totalSessions: number;
-  completed: number;
-  activeNow: number;
-  notStarted: number;
-}
-
-export type LiveStatus = 'not_started' | 'live' | 'idle' | 'completed';
-
-export interface LiveSessionRow {
-  sessionId: string;
-  respondentId: string;
-  respondentName: string;
-  respondentEmail?: string;
-  sessionStatus: string;
-  liveStatus: LiveStatus;
-  currentIndex?: number;
-  totalQuestions?: number;
-  percentComplete?: number;
-  lastSeen?: string;
-  startedAt?: string;
-  completedAt?: string;
-}
-
-export const liveTrackingApi = {
-  listAssessments: () => jsonFetch<LiveAssessmentSummary[]>('/admin/live-tracking/assessments'),
-  listSessions: (instrument: string, groupId?: string | null) => {
-    const params = new URLSearchParams({ instrument });
-    if (groupId) params.set('groupId', groupId);
-    return jsonFetch<LiveSessionRow[]>(`/admin/live-tracking/assessments/sessions?${params.toString()}`);
-  },
-};
+// (The old "Admin live tracking" types/api that lived here targeted the
+// retired backend; the page now has colocated liveTrackingApis.ts against
+// spring-social's /reports/liveTracking.)
 
 // ---------- Verticals ----------
 export interface Vertical {

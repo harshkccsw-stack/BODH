@@ -108,6 +108,13 @@ public class QuestionController {
     @Autowired
     private QuestionnaireQuestionRepository questionnaireQuestionRepository;
 
+    // A bank question edit changes what every questionnaire placing it
+    // delivers, so update evicts their Redis content entries. Delete needs no
+    // hook: a placed question cannot be deleted (the 409 below), so a delete
+    // never touches delivered content.
+    @Autowired
+    private com.bodhpsychometric.service.PortalContentService portalContentService;
+
     @GetMapping("/getAll")
     public List<QuestionResponse> getAllQuestions() {
         return questionRepository.findAll().stream().map(this::toResponse).toList();
@@ -276,6 +283,7 @@ public class QuestionController {
         }
         questionRepository.save(question);
         writeScores(question, request, mqts);
+        portalContentService.evictForQuestion(id);
         return ResponseEntity.ok(toResponse(question));
     }
 

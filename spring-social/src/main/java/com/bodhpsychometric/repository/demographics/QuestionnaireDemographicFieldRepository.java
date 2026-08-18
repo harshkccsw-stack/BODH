@@ -18,5 +18,13 @@ public interface QuestionnaireDemographicFieldRepository extends JpaRepository<Q
 
     List<QuestionnaireDemographicField> findByQuestionnaireQuestionnaireIdOrderBySortOrderAsc(Long questionnaireId);
 
+    /**
+     * Which questionnaires map this field into their form — the portal content
+     * cache's eviction fan-out when a demographic field is edited.
+     */
+    @Query("select distinct qdf.questionnaire.questionnaireId from QuestionnaireDemographicField qdf "
+            + "where qdf.demographicField.demographicFieldId = :demographicFieldId")
+    List<Long> findQuestionnaireIdsMappingField(Long demographicFieldId);
+
     void deleteByQuestionnaireQuestionnaireId(Long questionnaireId);
 }

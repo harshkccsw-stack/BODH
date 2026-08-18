@@ -20,6 +20,19 @@ export interface AssessmentPayload {
   /** Show the portal question index/navigator during the attempt. */
   showQuestionIndex: boolean;
   /**
+   * Put the portal's "Focus on your assessment" popup on a 10-minute budget:
+   * the clock runs only while that popup is up, and when it runs out the
+   * attempt is stopped and handed back unstarted (NOT_STARTED) so the
+   * respondent takes it again from the beginning.
+   */
+  attentionTimer: boolean;
+  /**
+   * Save the respondent's marked answers to Redis as they move between
+   * sections, so an ONGOING attempt resumed from the portal dashboard
+   * backfills what was already answered instead of starting over.
+   */
+  savePartialAnswers: boolean;
+  /**
    * Availability window as 'YYYY-MM-DD' (what <input type="date"> emits and
    * what the backend parses into LocalDate). null = not set; send null to
    * clear a saved date. Metadata only — nothing gates on it, only status.
@@ -40,6 +53,8 @@ export interface AssessmentResponse {
   status: AssessmentStatus;
   autoNext: boolean;
   showQuestionIndex: boolean;
+  attentionTimer: boolean;
+  savePartialAnswers: boolean;
   startDate: string | null;
   endDate: string | null;
   respondentCount: number;

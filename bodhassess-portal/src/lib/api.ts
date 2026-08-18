@@ -72,6 +72,12 @@ export interface AllottedAssessment {
   assessmentStatus: 'NOT_STARTED' | 'ONGOING' | 'COMPLETED';
   /** True once the submitted answers are committed to MySQL. */
   isPersisted: boolean;
+  /**
+   * The submission is staged in Redis but not digested into MySQL yet —
+   * status still reads ONGOING, but the assessment is finished for the
+   * respondent. The dashboard shows "being processed" and offers no button.
+   */
+  submissionPending: boolean;
 }
 // The signed-in respondent + their allotted assessments. Matches
 // PortalAuthResponse on the backend.
@@ -203,6 +209,20 @@ export interface PortalAssessmentDetail {
   termsAndConditions: string;
   autoNext: boolean;
   showQuestionIndex: boolean;
+  /**
+   * Arms the attention timer: the inactivity popup's open time is counted
+   * down from ATTENTION_BUDGET_MS across the attempt, and running out
+   * abandons it (see question-runner.tsx). The budget itself lives in the
+   * portal — the backend only stores whether it applies.
+   */
+  attentionTimer: boolean;
+  /**
+   * Arms partial-answer saving: the runner snapshots all marked answers to
+   * the progress endpoint on section change (and every few questions on a
+   * sectionless paper), and a resumed ONGOING attempt arrives with
+   * `savedAnswers` to backfill.
+   */
+  savePartialAnswers: boolean;
   questionnaireId: number;
   questionnaireName: string;
   description: string | null;
@@ -212,6 +232,12 @@ export interface PortalAssessmentDetail {
   demographicFields: PortalDemographicField[];
   sections: PortalSection[];
   questions: PortalQuestion[];
+  /**
+   * The attempt's Redis partial-answer snapshot, in submit-entry shape —
+   * null when there is none (fresh attempt, toggle off, or Redis away), in
+   * which case the runner starts from question 1 exactly as before.
+   */
+  savedAnswers: PortalAnswerEntry[] | null;
 }
 // Matches PortalBeginRequest.DemographicEntry on the backend.
 export interface PortalDemographicEntry {
@@ -256,6 +282,12 @@ export interface PortalAttemptStatus {
   respondentAssessmentMappingId: number;
   assessmentStatus: 'NOT_STARTED' | 'ONGOING' | 'COMPLETED';
   isPersisted: boolean;
+  /**
+   * True when the submission was staged in Redis and MySQL will catch up via
+   * the digest — the 200 is still a completed submission as far as the
+   * respondent is concerned.
+   */
+  submissionPending: boolean;
 }
 export const portalAssessmentsApi = {
   // The id is the allotment (respondentAssessmentMappingId), not the Assessment.
@@ -268,7 +300,36 @@ export const portalAssessmentsApi = {
       method: 'POST',
       body: JSON.stringify({ demographics }),
     }),
-  // The once-and-for-all submission: every answer at once, ONGOING → COMPLETED.
+  // Stops an in-flight attempt and hands it back unstarted (→ NOT_STARTED),
+  // so the list offers "Launch Assessment" again instead of "Resume". What
+  // the attention timer calls when its budget runs out; nothing is deleted,
+  // because answers are only written at submit. 409 once COMPLETED.
+  abandon: (mappingId: number | string) =>
+    jsonFetch<PortalAttemptStatus>(`/portal/assessments/abandon/${encodeURIComponent(mappingId)}`, {
+      method: 'POST',
+    }),
+  // Live-position ping for the admin tracking page: every ~10s and on every
+  // question change while on the questions screen. Redis-only server side and
+  // fire-and-forget here — a dropped ping just reads as a moment of silence.
+  heartbeat: (
+    mappingId: number | string,
+    beat: { currentQuestion: number; answeredCount: number; totalQuestions: number },
+  ) =>
+    jsonFetch<null>(`/portal/assessments/heartbeat/${encodeURIComponent(mappingId)}`, {
+      method: 'POST',
+      body: JSON.stringify(beat),
+    }),
+  // Partial-answer snapshot: the FULL set of answers marked so far, replacing
+  // the previous snapshot in Redis. Fire-and-forget from the runner — a
+  // failure (or saved=false) costs a future backfill, never data.
+  saveProgress: (mappingId: number | string, answers: PortalAnswerEntry[]) =>
+    jsonFetch<{ saved: boolean; answerCount: number }>(
+      `/portal/assessments/progress/${encodeURIComponent(mappingId)}`,
+      { method: 'PUT', body: JSON.stringify({ answers }) },
+    ),
+  // The once-and-for-all submission: every answer at once. Redis-staged (the
+  // digest lands it in MySQL moments later — submissionPending=true) or, with
+  // Redis away, written synchronously as before (→ COMPLETED immediately).
   // popUpCount is the attempt-level inactivity-popup tally (defaults to 0).
   submit: (mappingId: number | string, answers: PortalAnswerEntry[], popUpCount = 0) =>
     jsonFetch<PortalAttemptStatus>(`/portal/assessments/submit/${encodeURIComponent(mappingId)}`, {

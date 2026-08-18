@@ -208,6 +208,11 @@ public class AssessmentController {
         // Default true (like showTermsAndConditions): null keeps the index on.
         assessment.setShowQuestionIndex(
                 request.showQuestionIndex() == null || request.showQuestionIndex());
+        // Default FALSE (like autoNext): an omitted field must not arm a timer
+        // that can end a respondent's attempt.
+        assessment.setAttentionTimer(Boolean.TRUE.equals(request.attentionTimer()));
+        // Default FALSE: partial saving is opt-in per assessment.
+        assessment.setSavePartialAnswers(Boolean.TRUE.equals(request.savePartialAnswers()));
         // Window: null clears it — the form always sends both fields, so an
         // emptied date input must be able to remove a previously saved one.
         assessment.setStartDate(request.startDate());
