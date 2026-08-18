@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, Check, ChevronLeft, ChevronRight } from 'lucide-react';
+import { AlertTriangle, Check, ChevronLeft, ChevronRight, Timer, TimerOff } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { BrandHeader } from '@/components/brand-header';
 import { Media, mediaTypeFor } from '@/components/media';
 import { cn } from '@/lib/utils';
 import { RichText, isBlankRichText } from '@/lib/rich-text';
-import { answerKey, type PortalAssessmentDetail, type PortalQuestion } from '@/lib/api';
+import { answerKey, portalAssessmentsApi, type PortalAssessmentDetail, type PortalQuestion } from '@/lib/api';
 
 // Answers are keyed by SLOT — answerKey(questionId) for an ordinary question,
 // answerKey(questionId, rowId) for one row of a grid — and hold every selected
@@ -26,6 +26,14 @@ function selectionHint(q: PortalQuestion): string | null {
   if (q.selectionRule === 'EQUALS') return `Select exactly ${n} option${s}`;
   if (q.selectionRule === 'MAX') return `Select up to ${n} option${s}`;
   return `Select at least ${n} option${s}`;
+}
+
+/** "9:47" — the attention budget as the popup shows it, never negative. */
+function formatCountdown(ms: number): string {
+  const total = Math.max(0, Math.ceil(ms / 1000));
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  return `${minutes}:${String(seconds).padStart(2, '0')}`;
 }
 
 /**
@@ -133,10 +141,15 @@ export function QuestionRunner({
   setAnswers,
   textAnswers,
   setTextAnswers,
+  initialIndex = 0,
+  onPartialSave,
   onSubmit,
   submitting,
   submitError,
   onFocusPopup,
+  onAttentionTimeout,
+  onRestart,
+  attentionResetError,
 }: {
   detail: PortalAssessmentDetail;
   title: string;
@@ -146,19 +159,38 @@ export function QuestionRunner({
   /** SHORT_ANSWER payloads, keyed the same way — see take.tsx. */
   textAnswers: Record<string, string>;
   setTextAnswers: (a: Record<string, string>) => void;
+  /** Where to open — the first unanswered question on a resumed attempt. */
+  initialIndex?: number;
+  /**
+   * Snapshot every answer marked so far (take.tsx PUTs it to the progress
+   * endpoint). Fired on section change — and every few answers when the
+   * paper has no sections to change between. Absent when the assessment's
+   * savePartialAnswers toggle is off, which disables both triggers.
+   */
+  onPartialSave?: () => void;
   onSubmit: () => void;
   submitting: boolean;
   submitError?: string;
   /** Called once each time the inactivity popup is dismissed (OKAY). */
   onFocusPopup: () => void;
+  /**
+   * Called ONCE, when the attention budget runs out — the attempt is over and
+   * has to be handed back unstarted (take.tsx posts the abandon call).
+   */
+  onAttentionTimeout: () => void;
+  /** Leave the stopped attempt — back to the respondent's dashboard. */
+  onRestart: () => void;
+  /** Set when the abandon call failed, shown inside the stopped modal. */
+  attentionResetError?: string;
 }) {
-  const [index, setIndex] = useState(0);
   const questions = detail.questions;
+  const startAt = Math.max(0, Math.min(questions.length - 1, initialIndex));
+  const [index, setIndex] = useState(startAt);
   const total = questions.length;
   // Absolute indices the respondent has actually landed on. Leaving one
   // unanswered is what makes it a SKIP rather than a question not reached yet
   // — the navigator marks the two differently, so this has to be tracked.
-  const [visited, setVisited] = useState<Set<number>>(() => new Set([0]));
+  const [visited, setVisited] = useState<Set<number>>(() => new Set([startAt]));
   // Flipped by a Submit that found pending questions: from then on EVERY
   // unanswered question is marked, visited or not.
   const [submitAttempted, setSubmitAttempted] = useState(false);
@@ -228,18 +260,86 @@ export function QuestionRunner({
   // being re-created — while the popup is up, activity must NOT reset anything.
   const modalOpenRef = useRef(false);
 
+  // ── Attention timer (per-assessment) ────────────────────────────────────
+  // With attentionTimer on, the popup is not just a nag: it spends a budget.
+  // Ten minutes are counted down ONLY while the popup is on screen — the
+  // clock starts the first time it appears, OKAY pauses it, the next popup
+  // resumes it where it stopped — and when the budget is gone the attempt is
+  // stopped, reset to NOT_STARTED, and the respondent starts over.
+  //
+  // The countdown is DEADLINE-based, not a decrementing counter: browsers
+  // throttle timers in a background tab, so a tick-per-second tally would
+  // grant extra minutes to whoever leaves the popup open in another tab. The
+  // interval only reads the clock; the remaining time is (deadline - now).
+  const ATTENTION_BUDGET_MS = 10 * 60_000;
+  const attentionOn = detail.attentionTimer;
+  // Milliseconds still unspent. The ref is authoritative (timers read it);
+  // the state exists only to redraw the countdown inside the popup.
+  const attentionLeftRef = useRef(ATTENTION_BUDGET_MS);
+  const [attentionLeftMs, setAttentionLeftMs] = useState(ATTENTION_BUDGET_MS);
+  // When the running budget would hit zero; null while paused.
+  const attentionDeadline = useRef<number | null>(null);
+  const attentionTicker = useRef<number | null>(null);
+  const [attentionExpired, setAttentionExpired] = useState(false);
+  // The timeout is a one-way door and fires a write — never twice.
+  const attentionFired = useRef(false);
+
   const clearFocusTimer = () => {
     if (focusTimer.current !== null) {
       window.clearTimeout(focusTimer.current);
       focusTimer.current = null;
     }
   };
+  const stopAttentionTicker = () => {
+    if (attentionTicker.current !== null) {
+      window.clearInterval(attentionTicker.current);
+      attentionTicker.current = null;
+    }
+  };
+  /** Budget spent: stop everything, show the stopped modal, reset the attempt. */
+  const expireAttention = () => {
+    if (attentionFired.current) return;
+    attentionFired.current = true;
+    stopAttentionTicker();
+    clearFocusTimer();
+    attentionDeadline.current = null;
+    attentionLeftRef.current = 0;
+    setAttentionLeftMs(0);
+    setAttentionExpired(true);
+    onAttentionTimeout();
+  };
+  /** Resume (or start) the countdown — called as the popup goes up. */
+  const runAttentionTimer = () => {
+    if (!attentionOn || attentionFired.current) return;
+    attentionDeadline.current = Date.now() + attentionLeftRef.current;
+    stopAttentionTicker();
+    attentionTicker.current = window.setInterval(() => {
+      const left = (attentionDeadline.current ?? 0) - Date.now();
+      if (left <= 0) {
+        expireAttention();
+        return;
+      }
+      attentionLeftRef.current = left;
+      setAttentionLeftMs(left);
+    }, 500);
+  };
+  /** Pause it — called as the popup is dismissed. The remainder is kept. */
+  const pauseAttentionTimer = () => {
+    if (attentionDeadline.current === null) return;
+    const left = Math.max(0, attentionDeadline.current - Date.now());
+    attentionDeadline.current = null;
+    stopAttentionTicker();
+    attentionLeftRef.current = left;
+    setAttentionLeftMs(left);
+  };
+
   const armFocusTimer = () => {
     clearFocusTimer();
     focusTimer.current = window.setTimeout(() => {
       focusTimer.current = null;
       modalOpenRef.current = true;
       setShowFocusModal(true);
+      runAttentionTimer();
     }, INACTIVITY_MS);
   };
   // Any respondent activity restarts the countdown — unless the popup is up,
@@ -249,6 +349,10 @@ export function QuestionRunner({
     armFocusTimer();
   };
   const dismissFocusPopup = () => {
+    // The budget may have run out between the click and this handler; the
+    // stopped modal has no OKAY, but a queued click must not restart the run.
+    if (attentionFired.current) return;
+    pauseAttentionTimer();
     modalOpenRef.current = false;
     setShowFocusModal(false);
     onFocusPopup();
@@ -258,6 +362,10 @@ export function QuestionRunner({
   useEffect(() => {
     armFocusTimer();
     const onVisibility = () => {
+      // The attention budget deliberately keeps running while the tab is
+      // hidden: the popup is up, and walking away from it is exactly what it
+      // is meant to be counting. Only the INACTIVITY countdown pauses — that
+      // one asks "are they still here?", which a hidden tab cannot answer.
       if (document.hidden) {
         clearFocusTimer();
       } else if (!modalOpenRef.current) {
@@ -268,6 +376,7 @@ export function QuestionRunner({
     return () => {
       document.removeEventListener('visibilitychange', onVisibility);
       clearFocusTimer();
+      stopAttentionTicker();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -305,15 +414,24 @@ export function QuestionRunner({
     setCapWarning(false);
     const updated = { ...answers, [slot]: next };
     setAnswers(updated);
-    // Auto-advance only on a selection that COMPLETES the question and cannot
-    // grow — single choice, or EQUALS on its last tick. Under MIN/MAX there is
-    // no such signal, and advancing would slide the page away mid-selection.
-    // On a grid that means EVERY row is settled, not just the one just ticked.
+    // Auto-advance needs an interaction that is ATOMIC AND TERMINAL: one
+    // gesture that both answers the question and finishes it. A tap on a
+    // choice is that — single choice, EQUALS on its last tick, or a grid once
+    // EVERY row is filled. Under MIN/MAX there is no such signal, and
+    // advancing would slide the page away mid-selection.
+    //
+    // A LINEAR_SCALE never qualifies, whatever the numbers say. Its cap is 1,
+    // so any point looks "settled", but the control is a slider: onChange
+    // fires on every value the thumb passes, a click on the track is already
+    // a full answer, and 350ms is not long enough to move 7 to 6. Worse, a
+    // stray click would record a number the respondent never meant AND carry
+    // them off the question before they saw it — the very failure the unset
+    // thumb exists to prevent, arriving from the other end.
     const settled = slotsOf(q).every((s) => {
       const n = (updated[s] ?? []).length;
       return n === q.minSelections && n === q.maxSelections;
     });
-    if (!autoNext || isLast || !settled) return;
+    if (!autoNext || isLast || isScale || !settled) return;
     clearAdvance();
     advanceTimer.current = window.setTimeout(() => {
       advanceTimer.current = null;
@@ -327,6 +445,69 @@ export function QuestionRunner({
     return slotsOf(qq).every((slot) => slotSatisfied(qq, slot));
   };
   const answeredCount = questions.reduce((n, _, i) => n + (isQuestionAnswered(i) ? 1 : 0), 0);
+
+  // ── Live-tracking heartbeat ─────────────────────────────────────────────
+  // Tells the admin tracking page where this respondent is: an immediate
+  // ping on every question change plus one every 10s in between. Redis-only
+  // on the server and best-effort here — failures are swallowed, and the
+  // page reads silence itself as the signal (no signal → disconnected). The
+  // ref keeps the interval's payload current without re-arming the timer on
+  // every answer selection; browsers throttling hidden-tab timers is
+  // deliberately unfought, since a hidden tab SHOULD read as silence.
+  const HEARTBEAT_MS = 10_000;
+  const beatRef = useRef({ currentQuestion: 1, answeredCount: 0, totalQuestions: total });
+  beatRef.current = { currentQuestion: index + 1, answeredCount, totalQuestions: total };
+  useEffect(() => {
+    const ping = () => {
+      // An abandoned attempt must fall silent — the abandon call just
+      // deleted the server-side beat, and re-creating it would show a
+      // stopped respondent as live. Mid-submit pings are skipped the same
+      // way; submit deletes the beat too.
+      if (attentionFired.current || submitting) return;
+      portalAssessmentsApi
+        .heartbeat(detail.respondentAssessmentMappingId, beatRef.current)
+        .catch(() => {
+          /* silence is itself the disconnection signal */
+        });
+    };
+    ping();
+    const t = window.setInterval(ping, HEARTBEAT_MS);
+    return () => window.clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [index]);
+
+  // ── Partial-answer saving ───────────────────────────────────────────────
+  // Two triggers, both sending the FULL snapshot (take.tsx builds it): the
+  // respondent crossing into another section, or — when the paper has no
+  // sections to cross between — every few newly answered questions. Refs,
+  // not state: a save must never cause a redraw. Both no-op when
+  // onPartialSave is absent (the assessment's toggle is off).
+  const PARTIAL_SAVE_EVERY = 5;
+  const sectionKeyOf = (qi: number): string =>
+    questions[qi]?.sectionId != null ? String(questions[qi].sectionId) : '__none__';
+  const distinctSections = new Set(questions.map((_, qi) => sectionKeyOf(qi))).size;
+  const lastSectionKey = useRef(sectionKeyOf(startAt));
+  // Starts at the mount count so a resume never re-saves what was just
+  // backfilled from the very snapshot being written.
+  const lastSavedCount = useRef(answeredCount);
+  useEffect(() => {
+    if (!onPartialSave) return;
+    const key = sectionKeyOf(index);
+    if (key !== lastSectionKey.current) {
+      lastSectionKey.current = key;
+      lastSavedCount.current = answeredCount;
+      onPartialSave();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [index]);
+  useEffect(() => {
+    if (!onPartialSave || distinctSections > 1) return;
+    if (answeredCount - lastSavedCount.current >= PARTIAL_SAVE_EVERY) {
+      lastSavedCount.current = answeredCount;
+      onPartialSave();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [answeredCount]);
 
   // Group questions into ordered sections (preserving first-appearance order),
   // keeping each question's absolute index so navigation still works. Flat
@@ -771,27 +952,68 @@ export function QuestionRunner({
         </main>
       </div>
 
-      {showFocusModal && (
+      {(showFocusModal || attentionExpired) && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
           role="dialog"
           aria-modal="true"
         >
           <Card className="w-full max-w-sm">
-            <CardContent className="p-6 space-y-4 text-center">
-              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-950/40">
-                <AlertTriangle className="h-6 w-6 text-amber-600 dark:text-amber-400" />
-              </div>
-              <div className="space-y-1">
-                <h2 className="text-lg font-semibold">Focus on your assessment</h2>
-                <p className="text-sm text-muted-foreground">
-                  You've been inactive for a little while. Tap OKAY to continue.
-                </p>
-              </div>
-              <Button variant="primary" className="w-full" onClick={dismissFocusPopup}>
-                OKAY
-              </Button>
-            </CardContent>
+            {attentionExpired ? (
+              /* The budget is gone. Same modal, different state — the
+                 respondent is not being nudged any more, the attempt is over
+                 and the only way on is out. No OKAY: the attempt has already
+                 been handed back unstarted, so continuing here would type
+                 answers into an attempt the server no longer considers
+                 in flight. */
+              <CardContent className="p-6 space-y-4 text-center">
+                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-red-100 dark:bg-red-950/40">
+                  <TimerOff className="h-6 w-6 text-red-600 dark:text-red-400" />
+                </div>
+                <div className="space-y-1">
+                  <h2 className="text-lg font-semibold">Assessment stopped</h2>
+                  <p className="text-sm text-muted-foreground">
+                    You spent the full {ATTENTION_BUDGET_MS / 60_000} minutes on focus
+                    reminders, so this attempt has been stopped. It has been reset —
+                    start it again from your dashboard whenever you are ready.
+                  </p>
+                </div>
+                {attentionResetError && (
+                  <p className="rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-3 py-2 text-xs text-red-700 dark:text-red-400">
+                    {attentionResetError}
+                  </p>
+                )}
+                <Button variant="primary" className="w-full" onClick={onRestart}>
+                  Restart Assessment
+                </Button>
+              </CardContent>
+            ) : (
+              <CardContent className="p-6 space-y-4 text-center">
+                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-950/40">
+                  <AlertTriangle className="h-6 w-6 text-amber-600 dark:text-amber-400" />
+                </div>
+                <div className="space-y-1">
+                  <h2 className="text-lg font-semibold">Focus on your assessment</h2>
+                  <p className="text-sm text-muted-foreground">
+                    You've been inactive for a little while. Tap OKAY to continue.
+                  </p>
+                </div>
+                {/* Only with the timer armed: what it costs to sit here. The
+                    number is the WHOLE attempt's remaining budget, not this
+                    popup's — that is what actually runs out. */}
+                {attentionOn && (
+                  <div className="flex items-center justify-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-400">
+                    <Timer className="h-3.5 w-3.5 shrink-0" />
+                    <span>
+                      {formatCountdown(attentionLeftMs)} left before this attempt restarts
+                    </span>
+                  </div>
+                )}
+                <Button variant="primary" className="w-full" onClick={dismissFocusPopup}>
+                  OKAY
+                </Button>
+              </CardContent>
+            )}
           </Card>
         </div>
       )}

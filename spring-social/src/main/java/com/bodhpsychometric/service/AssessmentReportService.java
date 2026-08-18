@@ -3,10 +3,12 @@ package com.bodhpsychometric.service;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -23,6 +25,9 @@ import com.bodhpsychometric.dto.ExportSheetResponse.MqColumn;
 import com.bodhpsychometric.dto.ExportSheetResponse.MqtColumn;
 import com.bodhpsychometric.dto.ExportSheetResponse.QuestionColumn;
 import com.bodhpsychometric.dto.ExportSheetResponse.ScoringKeyEntry;
+import com.bodhpsychometric.dto.LiveTrackingBaseRow;
+import com.bodhpsychometric.dto.LiveTrackingResponse;
+import com.bodhpsychometric.dto.PortalHeartbeat;
 import com.bodhpsychometric.dto.ReportAssessmentOption;
 import com.bodhpsychometric.dto.ReportOrganizationOption;
 import com.bodhpsychometric.dto.ReportPageResponse;
@@ -75,6 +80,7 @@ public class AssessmentReportService {
     private final QuestionnaireQuestionRepository placements;
     private final QuestionnaireDemographicFieldRepository demographicFields;
     private final MqtScoringService scoring;
+    private final PortalRedisStore redis;
 
     public AssessmentReportService(OrganizationRepository organizations,
             AssessmentRepository assessments,
@@ -84,7 +90,8 @@ public class AssessmentReportService {
             DemographicResponseRepository demographicResponses,
             QuestionnaireQuestionRepository placements,
             QuestionnaireDemographicFieldRepository demographicFields,
-            MqtScoringService scoring) {
+            MqtScoringService scoring,
+            PortalRedisStore redis) {
         this.organizations = organizations;
         this.assessments = assessments;
         this.respondents = respondents;
@@ -94,6 +101,7 @@ public class AssessmentReportService {
         this.placements = placements;
         this.demographicFields = demographicFields;
         this.scoring = scoring;
+        this.redis = redis;
     }
 
     @Transactional(readOnly = true)
@@ -460,6 +468,15 @@ public class AssessmentReportService {
         Long respondentUserId = mapping.getRespondent().getId();
         Long assessmentId = mapping.getAssessment().getAssessmentId();
 
+        // A reset DISCARDS the attempt, so its Redis state goes with it: the
+        // partial-answer snapshot (or the resumed attempt would backfill the
+        // discarded answers) and any staged-but-undigested submission (or the
+        // digest would resurrect it as COMPLETED after this reset). Envelope
+        // first: once it is gone the digest has nothing to replay.
+        redis.completeSubmission(respondentAssessmentMappingId);
+        redis.deletePartial(respondentAssessmentMappingId);
+        redis.deleteHeartbeat(respondentAssessmentMappingId);
+
         answers.deleteByRespondent_IdAndAssessment_AssessmentId(respondentUserId, assessmentId);
         demographicResponses.deleteByRespondent_IdAndAssessment_AssessmentId(respondentUserId, assessmentId);
         // Push the deletes out now: the status flip below is what tells the
@@ -476,6 +493,161 @@ public class AssessmentReportService {
         long totalQuestions = placements.countByQuestionnaireQuestionnaireId(
                 saved.getAssessment().getQuestionnaire().getQuestionnaireId());
         return Optional.of(ReportRespondentAssessmentRow.from(saved, 0L, totalQuestions, 0L));
+    }
+
+    // ── Live Tracking ─────────────────────────────────────────────────────
+
+    /** Heartbeat age ceilings: live, then no-signal, then disconnected. */
+    private static final long LIVE_MAX_AGE_MS = 25_000;
+    private static final long NO_SIGNAL_MAX_AGE_MS = 60_000;
+
+    /**
+     * How long one filter's MySQL base list is reused before re-querying.
+     * This is the tracking page's entire MySQL budget: however many admins
+     * poll however fast, the database sees at most one base query (plus one
+     * count per distinct questionnaire) per filter per this window. The
+     * trade, stated on the page's plan: a status flip that happens in MySQL
+     * (digest completing, a new allotment) can lag up to this long — the
+     * live/no-signal/disconnected overlay is still Redis-fresh every poll.
+     */
+    private static final long LIVE_BASE_CACHE_MS = 15_000;
+
+    private record LiveBase(long fetchedAtMillis, List<LiveTrackingBaseRow> rows,
+            Map<Long, Long> questionCounts) {
+    }
+
+    /** filter key → cached base list. Bounded by distinct filters actually used. */
+    private final ConcurrentHashMap<String, LiveBase> liveBaseCache = new ConcurrentHashMap<>();
+
+    /**
+     * One poll of the Live Tracking page. MySQL supplies the cast (who is
+     * allotted, terminal statuses) from the short-lived cache above; Redis
+     * supplies the liveness overlay fresh on every call: one batched
+     * heartbeat MGET over the ONGOING rows plus the two pending-submission
+     * sets — never a per-row round trip.
+     */
+    @Transactional(readOnly = true)
+    public LiveTrackingResponse liveTracking(Long organizationId, Long assessmentId, int page, int size) {
+        LiveBase base = liveBase(organizationId, assessmentId);
+
+        Set<Long> pendingIds = new HashSet<>(redis.queuedSubmissionIds());
+        pendingIds.addAll(redis.failedSubmissionIds());
+        List<Long> ongoingIds = base.rows().stream()
+                .filter(r -> r.status() == RespondentAssessmentStatus.ONGOING
+                        && !pendingIds.contains(r.mappingId()))
+                .map(LiveTrackingBaseRow::mappingId)
+                .toList();
+        Map<Long, PortalHeartbeat> beats = redis.readHeartbeats(ongoingIds);
+
+        long now = System.currentTimeMillis();
+        List<LiveTrackingResponse.Row> rows = new ArrayList<>(base.rows().size());
+        for (LiveTrackingBaseRow r : base.rows()) {
+            long totalQuestions = base.questionCounts().getOrDefault(r.questionnaireId(), 0L);
+            LiveTrackingResponse.State state;
+            Integer currentQuestion = null;
+            Integer answeredCount = null;
+            Long lastSeen = null;
+            if (r.status() == RespondentAssessmentStatus.COMPLETED) {
+                state = LiveTrackingResponse.State.COMPLETED;
+                answeredCount = (int) totalQuestions;
+            } else if (pendingIds.contains(r.mappingId())) {
+                state = LiveTrackingResponse.State.PROCESSING;
+                answeredCount = (int) totalQuestions;
+            } else if (r.status() == RespondentAssessmentStatus.ONGOING) {
+                PortalHeartbeat beat = beats.get(r.mappingId());
+                // The ownership check the DB-free heartbeat write skipped: a
+                // beat written under someone else's token counts as no beat.
+                if (beat != null && !r.respondentUserId().equals(beat.userId())) {
+                    beat = null;
+                }
+                if (beat == null) {
+                    state = LiveTrackingResponse.State.OFFLINE;
+                } else {
+                    long age = now - beat.lastSeenMillis();
+                    state = age <= LIVE_MAX_AGE_MS ? LiveTrackingResponse.State.LIVE
+                            : age <= NO_SIGNAL_MAX_AGE_MS ? LiveTrackingResponse.State.NO_SIGNAL
+                                    : LiveTrackingResponse.State.DISCONNECTED;
+                    currentQuestion = beat.currentQuestion();
+                    answeredCount = beat.answeredCount();
+                    lastSeen = beat.lastSeenMillis();
+                    // The portal counts what it delivered; trust it over the
+                    // possibly-stale placement count for this row.
+                    if (beat.totalQuestions() > 0) {
+                        totalQuestions = beat.totalQuestions();
+                    }
+                }
+            } else {
+                state = LiveTrackingResponse.State.NOT_STARTED;
+            }
+            rows.add(new LiveTrackingResponse.Row(
+                    r.mappingId(), r.respondentName(), r.respondentEmail(), r.serialId(),
+                    r.organizationId(), r.organizationName(),
+                    r.assessmentId(), r.assessmentName(),
+                    state, currentQuestion, answeredCount, totalQuestions, lastSeen));
+        }
+
+        // Most-alive-first (State declaration order IS the priority), so page
+        // one is always the action; name keeps the order stable within a state.
+        rows.sort(Comparator.comparing(LiveTrackingResponse.Row::state)
+                .thenComparing(LiveTrackingResponse.Row::respondentName,
+                        Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)));
+
+        LiveTrackingResponse.Summary summary = summarize(rows);
+
+        int safePage = Math.max(page, 0);
+        int safeSize = Math.clamp(size, 1, MAX_PAGE_SIZE);
+        int totalItems = rows.size();
+        int totalPages = (int) Math.ceil(totalItems / (double) safeSize);
+        int from = safePage * safeSize;
+        List<LiveTrackingResponse.Row> slice = from >= totalItems ? List.of()
+                : rows.subList(from, Math.min(totalItems, from + safeSize));
+        return new LiveTrackingResponse(summary,
+                new ReportPageResponse<>(List.copyOf(slice), safePage, safeSize, totalItems, totalPages));
+    }
+
+    private LiveBase liveBase(Long organizationId, Long assessmentId) {
+        String key = organizationId + ":" + assessmentId;
+        LiveBase cached = liveBaseCache.get(key);
+        long now = System.currentTimeMillis();
+        if (cached != null && now - cached.fetchedAtMillis() <= LIVE_BASE_CACHE_MS) {
+            return cached;
+        }
+        List<LiveTrackingBaseRow> rows = allotments.findForLiveTracking(organizationId, assessmentId);
+        // Placement counts memoised WITH the cache entry (same reasoning as
+        // respondentDetail's memo — assessments commonly share a
+        // questionnaire), so refreshing the cache is the only time these
+        // count queries run.
+        Map<Long, Long> counts = new HashMap<>();
+        for (LiveTrackingBaseRow r : rows) {
+            counts.computeIfAbsent(r.questionnaireId(),
+                    placements::countByQuestionnaireQuestionnaireId);
+        }
+        LiveBase fresh = new LiveBase(now, List.copyOf(rows), Map.copyOf(counts));
+        liveBaseCache.put(key, fresh);
+        return fresh;
+    }
+
+    private static LiveTrackingResponse.Summary summarize(List<LiveTrackingResponse.Row> rows) {
+        long live = 0;
+        long noSignal = 0;
+        long disconnected = 0;
+        long offline = 0;
+        long processing = 0;
+        long completed = 0;
+        long notStarted = 0;
+        for (LiveTrackingResponse.Row row : rows) {
+            switch (row.state()) {
+                case LIVE -> live++;
+                case NO_SIGNAL -> noSignal++;
+                case DISCONNECTED -> disconnected++;
+                case OFFLINE -> offline++;
+                case PROCESSING -> processing++;
+                case COMPLETED -> completed++;
+                case NOT_STARTED -> notStarted++;
+            }
+        }
+        return new LiveTrackingResponse.Summary(live, noSignal, disconnected, offline,
+                processing, completed, notStarted, rows.size());
     }
 
     /** assessmentId → count, off a group-by projection. */

@@ -21,6 +21,12 @@ spring:
         auto_quote_keyword: true
 
 app:
+  # Redis is OFF for tests: PortalRedisStore then no-ops on every call and the
+  # whole take flow runs its MySQL-degraded path — which is also the pre-Redis
+  # behaviour the existing tests were written against. No Redis server is
+  # needed to run the suite.
+  redis:
+    enabled: false
   # Two entries on purpose: seeding more than one superadmin is a supported
   # configuration, so the tests cover it rather than only the first element.
   superadmins:

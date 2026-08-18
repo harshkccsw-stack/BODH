@@ -22,6 +22,10 @@ public record AssessmentResponse(
         AssessmentStatus status,
         boolean autoNext,
         boolean showQuestionIndex,
+        /** Focus popup on a 10-minute budget; running out abandons the attempt. */
+        boolean attentionTimer,
+        /** Redis partial-answer saving on section change; resume backfills. */
+        boolean savePartialAnswers,
         /** Availability window — metadata only; nothing gates on it yet. */
         LocalDate startDate,
         LocalDate endDate,
@@ -40,6 +44,8 @@ public record AssessmentResponse(
                 a.getStatus(),
                 a.isAutoNext(),
                 a.isShowQuestionIndex(),
+                a.isAttentionTimer(),
+                a.isSavePartialAnswers(),
                 a.getStartDate(),
                 a.getEndDate(),
                 respondentCount);

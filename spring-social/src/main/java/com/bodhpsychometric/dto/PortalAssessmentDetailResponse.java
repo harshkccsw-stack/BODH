@@ -2,36 +2,33 @@ package com.bodhpsychometric.dto;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.Objects;
 import java.util.Random;
-import java.util.stream.Collectors;
 
+import com.bodhpsychometric.dto.PortalQuestionnaireContent.ContentQuestion;
+import com.bodhpsychometric.dto.PortalSubmitRequest.AnswerEntry;
 import com.bodhpsychometric.model.assessment.Assessment;
 import com.bodhpsychometric.model.assessment.AssessmentTerms;
 import com.bodhpsychometric.model.assessment.RespondentAssessmentMapping;
 import com.bodhpsychometric.model.assessment.enums.RespondentAssessmentStatus;
-import com.bodhpsychometric.model.demographics.QuestionnaireDemographicField;
 import com.bodhpsychometric.model.demographics.enums.DemographicFieldType;
-import com.bodhpsychometric.model.question.Option;
-import com.bodhpsychometric.model.question.Question;
-import com.bodhpsychometric.model.question.QuestionRow;
-import com.bodhpsychometric.model.question.SelectionBounds;
 import com.bodhpsychometric.model.question.enums.ContentType;
 import com.bodhpsychometric.model.question.enums.QuestionType;
 import com.bodhpsychometric.model.question.enums.SelectionRule;
-import com.bodhpsychometric.model.questionnaire.Questionnaire;
-import com.bodhpsychometric.model.questionnaire.QuestionnaireQuestion;
-import com.bodhpsychometric.model.questionnaire.Section;
 
 /**
  * Everything the portal take flow renders for one allotment: assessment config,
  * the questionnaire, its sections, questions with options, and the demographic
  * form. Deliberately excludes MQT scores, risk flags, and IRT parameters —
  * scoring data never reaches the respondent's browser.
+ *
+ * <p>Assembled from two halves with different lifetimes: the
+ * questionnaire-shaped content comes from {@link PortalQuestionnaireContent}
+ * (Redis-cached, shared by every attempt of the questionnaire) and the
+ * attempt/assessment fields are read live off the mapping — which is why an
+ * assessment toggle flips take effect immediately while the heavy content is
+ * served from cache. The per-attempt option shuffle happens HERE, after the
+ * cache, so the cache entry stays shareable.
  */
 public record PortalAssessmentDetailResponse(
         Long respondentAssessmentMappingId,
@@ -48,6 +45,19 @@ public record PortalAssessmentDetailResponse(
         String termsAndConditions,
         boolean autoNext,
         boolean showQuestionIndex,
+        /**
+         * Arms the portal's 10-minute attention budget: the focus popup's
+         * open time is counted down across the attempt, and running out
+         * abandons it (see the abandon endpoint). The BUDGET itself is the
+         * portal's constant — only whether it applies is stored here.
+         */
+        boolean attentionTimer,
+        /**
+         * Arms partial-answer saving: the portal snapshots marked answers to
+         * the progress endpoint on section change, and an ONGOING attempt is
+         * resumed with {@code savedAnswers} backfilled.
+         */
+        boolean savePartialAnswers,
         Long questionnaireId,
         String questionnaireName,
         String description,
@@ -56,7 +66,14 @@ public record PortalAssessmentDetailResponse(
         boolean hasSections,
         List<PortalDemographicField> demographicFields,
         List<PortalSection> sections,
-        List<PortalQuestion> questions) {
+        List<PortalQuestion> questions,
+        /**
+         * The attempt's partial-answer snapshot, in submit-entry shape, so a
+         * resumed attempt backfills without a second call. Null when there is
+         * none — a fresh attempt, the toggle off, or Redis unavailable — and
+         * the portal starts from question 1 exactly as before.
+         */
+        List<AnswerEntry> savedAnswers) {
 
     /**
      * A named question group; only present when the questionnaire hasSections.
@@ -143,83 +160,13 @@ public record PortalAssessmentDetailResponse(
             int sortOrder) {
     }
 
-    /**
-     * The order the respondent is walked through the questionnaire: every
-     * question of section 1, then every question of section 2, and so on;
-     * section-less placements (their section was deleted) last.
-     *
-     * The delivery query already sorts this way — this repeats it in Java
-     * because THIS is the respondent-facing path: a caller handing an unsorted
-     * list must not be able to interleave the sections again, and sorting a
-     * few dozen already-ordered rows costs nothing.
-     *
-     * Note that a placement's own sortOrder is per-SECTION (the wizard numbers
-     * each section from 0), which is precisely why it cannot be the first key.
-     */
-    private static final Comparator<QuestionnaireQuestion> DISPLAY_ORDER =
-            Comparator.comparingInt((QuestionnaireQuestion p) -> p.getSection() == null ? 1 : 0)
-                    .thenComparingInt(p -> p.getSection() == null ? 0 : p.getSection().getSortOrder())
-                    .thenComparingLong(p -> p.getSection() == null ? 0L : p.getSection().getSectionId())
-                    .thenComparingInt(QuestionnaireQuestion::getSortOrder)
-                    .thenComparingLong(QuestionnaireQuestion::getQuestionnaireQuestionId);
-
     public static PortalAssessmentDetailResponse from(RespondentAssessmentMapping mapping,
-            List<QuestionnaireQuestion> placements,
-            List<QuestionnaireDemographicField> demographicMappings) {
+            PortalQuestionnaireContent content,
+            List<AnswerEntry> savedAnswers) {
         Assessment assessment = mapping.getAssessment();
-        Questionnaire questionnaire = assessment.getQuestionnaire();
 
-        // Collected by first appearance (the fetch join may duplicate
-        // placement rows per option, and entity identity makes distinct()
-        // collapse them), then sorted by the section's own sortOrder before
-        // being emitted — question order must not decide section order.
-        Map<Long, PortalSection> sections = new LinkedHashMap<>();
-        List<PortalQuestion> questions = new ArrayList<>();
-        for (QuestionnaireQuestion placement : placements.stream().distinct().sorted(DISPLAY_ORDER).toList()) {
-            Section section = placement.getSection();
-            if (section != null) {
-                sections.putIfAbsent(section.getSectionId(),
-                        new PortalSection(section.getSectionId(), section.getName(), section.getInstruction(),
-                                section.getSortOrder()));
-            }
-            Question question = placement.getQuestion();
-            List<PortalOption> options = deliveredOptions(question,
-                    mapping.getRespondentAssessmentMappingId());
-            SelectionBounds bounds = SelectionBounds.of(question);
-            questions.add(new PortalQuestion(
-                    question.getQuestionId(),
-                    section == null ? null : section.getSectionId(),
-                    placement.getSortOrder(),
-                    question.getContentType(),
-                    question.getQuestionType(),
-                    question.getQuestionTexString(),
-                    question.getMediaUrl(),
-                    question.getSelectionRule(),
-                    question.getSelectionCount(),
-                    bounds.floor(),
-                    bounds.cap(),
-                    question.getScaleFrom(),
-                    question.getScaleTo(),
-                    question.getScaleLowLabel(),
-                    question.getScaleHighLabel(),
-                    question.getRows().stream()
-                            .sorted(Comparator.comparingInt(QuestionRow::getSortOrder))
-                            .map(r -> new PortalRow(r.getQuestionRowId(), r.getRowText(), r.getSortOrder()))
-                            .toList(),
-                    options));
-        }
-
-        List<PortalDemographicField> demographicFields = demographicMappings.stream()
-                .map(qdf -> new PortalDemographicField(
-                        qdf.getDemographicField().getDemographicFieldId(),
-                        qdf.getDemographicField().getLabel(),
-                        qdf.getDemographicField().getFieldType(),
-                        qdf.getDemographicField().getPlaceholder(),
-                        qdf.getDemographicField().getOptions().stream()
-                                .filter(Objects::nonNull)
-                                .toList(),
-                        qdf.isRequired(),
-                        qdf.getSortOrder()))
+        List<PortalQuestion> questions = content.questions().stream()
+                .map(q -> deliveredQuestion(q, mapping.getRespondentAssessmentMappingId()))
                 .toList();
 
         return new PortalAssessmentDetailResponse(
@@ -232,23 +179,46 @@ public record PortalAssessmentDetailResponse(
                 AssessmentTerms.effective(assessment.getTermsAndConditions()),
                 assessment.isAutoNext(),
                 assessment.isShowQuestionIndex(),
-                questionnaire.getQuestionnaireId(),
-                questionnaire.getName(),
-                questionnaire.getDescription(),
-                questionnaire.getDurationMinutes(),
-                questionnaire.getGeneralInstruction(),
-                questionnaire.isHasSections(),
-                demographicFields,
-                sections.values().stream()
-                        .sorted(Comparator.comparingInt(PortalSection::sortOrder)
-                                .thenComparing(PortalSection::sectionId))
-                        .toList(),
-                questions);
+                assessment.isAttentionTimer(),
+                assessment.isSavePartialAnswers(),
+                content.questionnaireId(),
+                content.questionnaireName(),
+                content.description(),
+                content.durationMinutes(),
+                content.generalInstruction(),
+                content.hasSections(),
+                content.demographicFields(),
+                content.sections(),
+                questions,
+                savedAnswers);
+    }
+
+    /** The cached question re-shaped for THIS attempt — shuffle applied, flag dropped. */
+    private static PortalQuestion deliveredQuestion(ContentQuestion q, Long mappingId) {
+        return new PortalQuestion(
+                q.questionId(),
+                q.sectionId(),
+                q.sortOrder(),
+                q.contentType(),
+                q.questionType(),
+                q.stem(),
+                q.mediaUrl(),
+                q.selectionRule(),
+                q.selectionCount(),
+                q.minSelections(),
+                q.maxSelections(),
+                q.scaleFrom(),
+                q.scaleTo(),
+                q.scaleLowLabel(),
+                q.scaleHighLabel(),
+                q.rows(),
+                deliveredOptions(q, mappingId));
     }
 
     /**
      * The options in the order THIS attempt is to be shown them: the authored
-     * order, or — when the author ticked shuffleOptions — a random one.
+     * order (how the cache stores them), or — when the author ticked
+     * shuffleOptions — a random one.
      *
      * The random order is derived, never stored. Seeding on
      * (attempt, question) buys three things at once: it is the same order every
@@ -263,21 +233,20 @@ public record PortalAssessmentDetailResponse(
      * are sent: the list and the field cannot then disagree, and a client that
      * sorts by sortOrder cannot silently undo the shuffle.
      */
-    private static List<PortalOption> deliveredOptions(Question question, Long mappingId) {
-        List<Option> authored = question.getOptions().stream()
-                .sorted(Comparator.comparingInt(Option::getSortOrder))
-                .collect(Collectors.toCollection(ArrayList::new));
+    private static List<PortalOption> deliveredOptions(ContentQuestion question, Long mappingId) {
         // The flag is only ever stored on an MCQ, but delivery is the last
         // gate before a respondent's screen — re-checking the type here means
         // no row edited around QuestionController can scramble a rating scale.
-        if (question.isShuffleOptions() && question.getQuestionType() == QuestionType.MCQ) {
-            Collections.shuffle(authored, new Random(31L * mappingId + question.getQuestionId()));
+        if (!question.shuffleOptions() || question.questionType() != QuestionType.MCQ) {
+            return question.options();
         }
-        List<PortalOption> delivered = new ArrayList<>(authored.size());
-        for (int i = 0; i < authored.size(); i++) {
-            Option o = authored.get(i);
-            delivered.add(new PortalOption(o.getOptionId(), o.getOptionText(), o.getContentType(),
-                    o.getMediaUrl(), i));
+        List<PortalOption> shuffled = new ArrayList<>(question.options());
+        Collections.shuffle(shuffled, new Random(31L * mappingId + question.questionId()));
+        List<PortalOption> delivered = new ArrayList<>(shuffled.size());
+        for (int i = 0; i < shuffled.size(); i++) {
+            PortalOption o = shuffled.get(i);
+            delivered.add(new PortalOption(o.optionId(), o.optionText(), o.contentType(),
+                    o.mediaUrl(), i));
         }
         return delivered;
     }

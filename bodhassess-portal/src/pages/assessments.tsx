@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router';
-import { ClipboardCheck, LogOut, Play, CheckCircle2 } from 'lucide-react';
+import { ClipboardCheck, LogOut, Play, CheckCircle2, Loader2 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { BrandHeader } from '@/components/brand-header';
@@ -78,6 +78,11 @@ export default function AssessmentsPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {active.map((s) => {
                 const started = s.assessmentStatus === 'ONGOING';
+                // Submitted and staged — the backend digest is landing it in
+                // the database. Finished as far as the respondent is
+                // concerned, so no button leads back into the take flow (the
+                // server would 409 it anyway).
+                const processing = s.submissionPending;
                 return (
                   <Card
                     key={s.respondentAssessmentMappingId}
@@ -88,7 +93,12 @@ export default function AssessmentsPage() {
                         <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
                           <ClipboardCheck className="h-5 w-5" />
                         </div>
-                        {started ? (
+                        {processing ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 text-amber-700 dark:text-amber-400 px-2 py-0.5 text-[0.6875rem] font-medium">
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                            Processing
+                          </span>
+                        ) : started ? (
                           <span className="inline-flex items-center rounded-full bg-primary/10 text-primary px-2 py-0.5 text-[0.6875rem] font-medium">
                             In progress
                           </span>
@@ -104,15 +114,22 @@ export default function AssessmentsPage() {
                           <span className="font-mono">#{s.respondentAssessmentMappingId}</span>
                         </div>
                       </div>
-                      <Button
-                        variant="primary"
-                        size="md"
-                        className="w-full"
-                        onClick={() => navigate(`/portal/assessment/${s.respondentAssessmentMappingId}`)}
-                      >
-                        <Play className="h-4 w-4" />
-                        {started ? 'Resume Assessment' : 'Launch Assessment'}
-                      </Button>
+                      {processing ? (
+                        <div className="rounded-lg border border-amber-300/60 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30 px-3 py-2.5 text-xs text-amber-700 dark:text-amber-400">
+                          Your submission for this assessment is being processed — kindly
+                          wait. It will move to Completed shortly.
+                        </div>
+                      ) : (
+                        <Button
+                          variant="primary"
+                          size="md"
+                          className="w-full"
+                          onClick={() => navigate(`/portal/assessment/${s.respondentAssessmentMappingId}`)}
+                        >
+                          <Play className="h-4 w-4" />
+                          {started ? 'Resume Assessment' : 'Launch Assessment'}
+                        </Button>
+                      )}
                     </CardContent>
                   </Card>
                 );

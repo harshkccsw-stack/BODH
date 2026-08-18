@@ -20,6 +20,20 @@ spring:
     password: ${DB_PASSWORD:bodh}
     driver-class-name: com.mysql.cj.jdbc.Driver
 
+  # ── Redis (optional at runtime) ─────────────────────────────────────────
+  # Backs the portal content cache, partial-answer saves and staged
+  # submissions (PortalRedisStore). Short timeouts on purpose: Redis being
+  # unreachable must cost a moment once, not hang every request — callers
+  # fall back to MySQL and a circuit breaker skips Redis for a while after
+  # a failure.
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      timeout: 2s
+      connect-timeout: 2s
+
   # ── Schema changes ──────────────────────────────────────────────────────
   # V1 is the current model's full schema. An empty database is built by it;
   # a database that already holds this schema is stamped at version 1 by
@@ -77,6 +91,12 @@ logging:
     level: "%5p [%X{requestId:-} %X{actor:-}]"
 
 app:
+  redis:
+    # Master switch for every Redis-backed path (content cache, partial
+    # answers, staged submissions, the digest sweeper). OFF means the app
+    # never touches Redis and behaves exactly as before the integration —
+    # one restart, no code change. Tests run with it off.
+    enabled: ${REDIS_ENABLED:true}
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173,http://localhost:3002}
   security:
@@ -135,6 +155,15 @@ spring:
     password: ${DB_PASSWORD:bodh}
     driver-class-name: com.mysql.cj.jdbc.Driver
 
+  # See the development profile — same Redis role, container-network host.
+  data:
+    redis:
+      host: ${REDIS_HOST:bodhpsychometric-redis}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      timeout: 2s
+      connect-timeout: 2s
+
   # ── Schema changes ──────────────────────────────────────────────────────
   # V1 is the current model's full schema. An empty database is built by it;
   # a database that already holds this schema is stamped at version 1 by
@@ -183,6 +212,9 @@ logging:
     level: "%5p [%X{requestId:-} %X{actor:-}]"
 
 app:
+  redis:
+    # See the development profile — OFF restores the pre-Redis behaviour.
+    enabled: ${REDIS_ENABLED:true}
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173,https://admin.bodh.biz,https://*.bodh.biz,https://portal.bodh.biz}
   security:

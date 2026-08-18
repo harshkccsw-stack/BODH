@@ -81,6 +81,14 @@ public class QuestionnaireController {
     @Autowired
     private AssessmentRepository assessmentRepository;
 
+    // Every write below reshapes what the portal delivers, so each one evicts
+    // this questionnaire's Redis content entry. Evicted inside the
+    // transaction — a concurrent portal read racing the commit could re-cache
+    // the old content for at most the entry's 1-day TTL, which is the
+    // accepted backstop.
+    @Autowired
+    private com.bodhpsychometric.service.PortalContentService portalContentService;
+
     private int questionCountOf(Long questionnaireId) {
         return (int) questionnaireQuestionRepository.countByQuestionnaireQuestionnaireId(questionnaireId);
     }
@@ -124,6 +132,7 @@ public class QuestionnaireController {
         return questionnaireRepository.findById(id)
                 .map(q -> {
                     apply(q, request);
+                    portalContentService.evict(id);
                     return ResponseEntity.ok(
                             (Object) QuestionnaireResponse.from(questionnaireRepository.save(q), questionCountOf(id)));
                 })
@@ -153,6 +162,7 @@ public class QuestionnaireController {
         sectionRepository.deleteAll(sectionRepository.findByQuestionnaire_QuestionnaireIdOrderBySectionIdAsc(id));
         sectionRepository.flush();
         questionnaireRepository.delete(questionnaire);
+        portalContentService.evict(id);
         return ResponseEntity.noContent().build();
     }
 
@@ -209,6 +219,7 @@ public class QuestionnaireController {
             row.setSortOrder(i);
             rows.add(row);
         }
+        portalContentService.evict(id);
         return ResponseEntity.ok(
                 questionnaireDemographicFieldRepository.saveAll(rows).stream()
                         .map(QuestionnaireDemographicFieldResponse::from)
@@ -248,6 +259,7 @@ public class QuestionnaireController {
         // count IS the next free position — no MAX(sortOrder) + 1 needed.
         section.setSortOrder(
                 sectionRepository.findByQuestionnaire_QuestionnaireIdOrderBySortOrderAscSectionIdAsc(id).size());
+        portalContentService.evict(id);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(SectionResponse.from(sectionRepository.save(section)));
     }
@@ -272,6 +284,7 @@ public class QuestionnaireController {
         }
         section.setName(request.name().trim());
         section.setInstruction(instructionOrNull(request.instruction()));
+        portalContentService.evict(id);
         return ResponseEntity.ok(SectionResponse.from(sectionRepository.save(section)));
     }
 
@@ -320,6 +333,7 @@ public class QuestionnaireController {
         }
         sectionRepository.flush();
         restampQuestionTags(questionnaire);
+        portalContentService.evict(id);
         return ResponseEntity.ok(
                 sectionRepository.findByQuestionnaire_QuestionnaireIdOrderBySortOrderAscSectionIdAsc(id).stream()
                         .map(SectionResponse::from)
@@ -359,6 +373,7 @@ public class QuestionnaireController {
         }
         sectionRepository.flush();
         restampQuestionTags(section.getQuestionnaire());
+        portalContentService.evict(id);
         return ResponseEntity.noContent().build();
     }
 
@@ -443,6 +458,7 @@ public class QuestionnaireController {
         }
         assignQuestionTags(questionnaire.isHasSections(), sections, rows);
         questionnaireQuestionRepository.saveAll(rows);
+        portalContentService.evict(id);
         return ResponseEntity.ok(Map.of("attached", entries.size()));
     }
 

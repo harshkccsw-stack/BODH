@@ -8,7 +8,9 @@ import {
   Loader2,
   Pencil,
   Plus,
+  Save,
   Search,
+  Timer,
   Trash2,
   Users,
   X,
@@ -257,6 +259,16 @@ export default function AssessmentLibraryPage() {
                     {a.autoNext && (
                       <span className="inline-flex items-center gap-1 shrink-0">
                         <Zap className="h-3 w-3" /> auto-next
+                      </span>
+                    )}
+                    {a.attentionTimer && (
+                      <span className="inline-flex items-center gap-1 shrink-0">
+                        <Timer className="h-3 w-3" /> attention timer
+                      </span>
+                    )}
+                    {a.savePartialAnswers && (
+                      <span className="inline-flex items-center gap-1 shrink-0">
+                        <Save className="h-3 w-3" /> partial saves
                       </span>
                     )}
                     {a.showTermsAndConditions && <span className="shrink-0">T&amp;C shown</span>}

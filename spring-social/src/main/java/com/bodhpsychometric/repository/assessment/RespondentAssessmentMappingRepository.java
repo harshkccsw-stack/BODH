@@ -84,6 +84,24 @@ public interface RespondentAssessmentMappingRepository extends JpaRepository<Res
     Optional<RespondentAssessmentMapping> findForPortalDelivery(Long id);
 
     /**
+     * Live Tracking base list — a flat projection, deliberately NOT an entity
+     * fetch: the tracking poll re-runs this every few seconds (behind a short
+     * in-process cache), so it must be one cheap indexed query with nothing
+     * lazy behind it. All joins are M:1 — no row fan-out. Unordered: the
+     * caller sorts by Redis-derived liveness, which SQL cannot see.
+     */
+    @Query("select new com.bodhpsychometric.dto.LiveTrackingBaseRow("
+            + "m.respondentAssessmentMappingId, m.assessmentStatus, u.id, r.name, u.email, u.serialId, "
+            + "o.organizationId, o.name, a.assessmentId, a.name, q.questionnaireId) "
+            + "from RespondentAssessmentMapping m "
+            + "join m.respondent r join r.user u left join r.organization o "
+            + "join m.assessment a join a.questionnaire q "
+            + "where (:organizationId is null or o.organizationId = :organizationId) "
+            + "and (:assessmentId is null or a.assessmentId = :assessmentId)")
+    List<com.bodhpsychometric.dto.LiveTrackingBaseRow> findForLiveTracking(
+            Long organizationId, Long assessmentId);
+
+    /**
      * Export rows: the COMPLETED allotments for one assessment, with respondent
      * identity fetched. Both optional filters narrow it — an organizationId
      * scopes to that org's members (respondents with no org are excluded), a

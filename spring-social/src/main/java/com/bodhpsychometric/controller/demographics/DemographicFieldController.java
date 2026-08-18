@@ -50,6 +50,13 @@ public class DemographicFieldController {
     @Autowired
     private DemographicResponseRepository demographicResponseRepository;
 
+    // A field edit changes every questionnaire form that maps it, so update
+    // evicts their Redis content entries. Delete needs no hook: a mapped
+    // field cannot be deleted (the 409 below), so a delete never touches
+    // delivered content.
+    @Autowired
+    private com.bodhpsychometric.service.PortalContentService portalContentService;
+
     @GetMapping("/getAll")
     public List<DemographicFieldResponse> getAllDemographicFields() {
         return demographicFieldRepository.findAll().stream()
@@ -96,6 +103,7 @@ public class DemographicFieldController {
             return duplicateLabel();
         }
         apply(field, request, options);
+        portalContentService.evictForDemographicField(id);
         return ResponseEntity.ok(DemographicFieldResponse.from(demographicFieldRepository.save(field)));
     }
 
