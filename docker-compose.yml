@@ -1,3 +1,17 @@
+# ── Port publishing policy (2026-08-19) ──────────────────────────────────────
+# Nothing in this stack needs a publicly published port. Every service talks to
+# every other over the `bodhpsychometric` bridge by container name:
+#   api   -> bodhpsychometric-mysql:3306   (production datasource)
+#   api   -> bodhpsychometric-redis:6379   (partial-save / cache store)
+#   nginx -> bodhpsychometric-api:8080     (nginx/conf.d/default.conf)
+# nginx joins this same network as an external network and is the ONLY service
+# that publishes to 0.0.0.0 (80/443). Everything else binds to 127.0.0.1 so the
+# port stays usable for local curl/mysql smoke tests but is invisible from the
+# internet. Prompted by a DigitalOcean/Shadowserver notice about public Redis;
+# MySQL and the API were equally exposed and are being probed by scanners.
+# NOTE: Docker writes iptables directly and BYPASSES ufw — a ufw rule would not
+# have covered these. /usr/local/sbin/docker-port-guard.sh adds DOCKER-USER
+# DROP rules as a second layer in case a mapping is ever reverted.
 services:
   mysql:
     image: mysql:8.0
@@ -9,7 +23,9 @@ services:
       MYSQL_USER: ${DB_USERNAME:-bodh}
       MYSQL_PASSWORD: ${DB_PASSWORD:-bodh}
     ports:
-      - "3306:3306"
+      # Loopback only — the API reaches this at bodhpsychometric-mysql:3306.
+      # Local `mysql -h 127.0.0.1` and SSH tunnels still work.
+      - "127.0.0.1:3306:3306"
     volumes:
       - mysql-data:/var/lib/mysql
       - ./docker/mysql-init:/docker-entrypoint-initdb.d:ro
@@ -21,22 +37,33 @@ services:
     networks:
       - bodhpsychometric
 
-  # redis:
-  #   image: redis:7-alpine
-  #   container_name: bodhpsychometric-redis
-  #   restart: unless-stopped
-  #   command: ["redis-server", "--save", "", "--appendonly", "no"]
-  #   ports:
-  #     - "6379:6379"
-  #   healthcheck:
-  #     test: ["CMD", "redis-cli", "ping"]
-  #     interval: 5s
-  #     timeout: 3s
-  #     retries: 10
-  #   volumes:
-  #     - redis-data:/data
-  #   networks:
-  #     - bodhpsychometric
+  redis:
+    image: redis:7-alpine
+    container_name: bodhpsychometric-redis
+    restart: unless-stopped
+    # requirepass comes from secrets.env at RUNTIME: `sh -c` expands
+    # $REDIS_PASSWORD inside the container, so the secret never lands in this
+    # file, in git, or on the redis process command line (it is still visible in
+    # `docker inspect` Env, like every other env-passed secret here). `$$`
+    # escapes compose's own interpolation, and exec keeps redis-server as PID 1
+    # so signals still reach it.
+    command: ["sh", "-c", "exec redis-server --save '' --appendonly no --requirepass \"$$REDIS_PASSWORD\""]
+    env_file:
+      - ./secrets.env
+    ports:
+      # Loopback only — the API reaches this at bodhpsychometric-redis:6379.
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      # REDISCLI_AUTH is read by redis-cli automatically, which keeps the
+      # password off the process command line (no "insecure" warning).
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - redis-data:/data
+    networks:
+      - bodhpsychometric
 
   api:
     profiles: ["production"]
@@ -57,9 +84,16 @@ services:
       SPRING_PROFILES_ACTIVE: production
       DB_USERNAME: ${DB_USERNAME:-bodh}
       DB_PASSWORD: ${DB_PASSWORD:-bodh}
+    env_file:
+      # Supplies REDIS_PASSWORD, bound by spring.data.redis.password in the
+      # production profile. Must match the redis service's requirepass.
+      - ./secrets.env
 
     ports:
-      - "8080:8080"
+      # Loopback only — public traffic arrives via nginx (443 -> api.bodh.biz),
+      # which proxies to bodhpsychometric-api:8080 over this network. Keeping
+      # 8080 on 127.0.0.1 preserves local curl smoke tests.
+      - "127.0.0.1:8080:8080"
     # volumes:
     #   - app-uploads:/app/uploads
     networks:
