@@ -21,6 +21,7 @@ target/
 
 spring-social/target
 .envss
+secrets.env
 .env.production
 .env.development
 docker-compose.prod.yml
