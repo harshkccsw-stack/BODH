@@ -22,7 +22,7 @@ public record AssessmentResponse(
         AssessmentStatus status,
         boolean autoNext,
         boolean showQuestionIndex,
-        /** Focus popup on a 10-minute budget; running out abandons the attempt. */
+        /** Focus popup on a 10-minute deadline; sitting one out abandons the attempt. */
         boolean attentionTimer,
         /** Redis partial-answer saving on section change; resume backfills. */
         boolean savePartialAnswers,

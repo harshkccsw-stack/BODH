@@ -20,9 +20,9 @@ export interface AssessmentPayload {
   /** Show the portal question index/navigator during the attempt. */
   showQuestionIndex: boolean;
   /**
-   * Put the portal's "Focus on your assessment" popup on a 10-minute budget:
-   * the clock runs only while that popup is up, and when it runs out the
-   * attempt is stopped and handed back unstarted (NOT_STARTED) so the
+   * Give the portal's "Focus on your assessment" popup a 10-minute deadline.
+   * Every popup starts a fresh ten, and leaving one unanswered that long
+   * stops the attempt and hands it back unstarted (NOT_STARTED) so the
    * respondent takes it again from the beginning.
    */
   attentionTimer: boolean;

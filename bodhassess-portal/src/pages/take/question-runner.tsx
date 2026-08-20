@@ -286,11 +286,17 @@ export function QuestionRunner({
   const modalOpenRef = useRef(false);
 
   // ── Attention timer (per-assessment) ────────────────────────────────────
-  // With attentionTimer on, the popup is not just a nag: it spends a budget.
-  // Ten minutes are counted down ONLY while the popup is on screen — the
-  // clock starts the first time it appears, OKAY pauses it, the next popup
-  // resumes it where it stopped — and when the budget is gone the attempt is
-  // stopped, reset to NOT_STARTED, and the respondent starts over.
+  // With attentionTimer on, the popup carries a deadline: ten minutes to
+  // answer it. The clock runs ONLY while the popup is on screen, and EVERY
+  // popup starts a fresh ten — dismissing it does not bank the remainder, so
+  // nothing accumulates across the attempt. Sitting out one full countdown is
+  // the only way to reach zero, and reaching it stops the attempt, resets it
+  // to NOT_STARTED, and sends the respondent back to start over.
+  //
+  // So this catches a respondent who WALKED AWAY, not one who is merely
+  // distracted: there is deliberately no ceiling on how many popups an
+  // attempt may collect. What records that is popUpCount — tallied here,
+  // persisted at submit, and read by the practitioner afterwards.
   //
   // The countdown is DEADLINE-based, not a decrementing counter: browsers
   // throttle timers in a background tab, so a tick-per-second tally would
@@ -298,11 +304,10 @@ export function QuestionRunner({
   // interval only reads the clock; the remaining time is (deadline - now).
   const ATTENTION_BUDGET_MS = 10 * 60_000;
   const attentionOn = detail.attentionTimer;
-  // Milliseconds still unspent. The ref is authoritative (timers read it);
-  // the state exists only to redraw the countdown inside the popup.
-  const attentionLeftRef = useRef(ATTENTION_BUDGET_MS);
+  // Drives the clock drawn inside the popup; the countdown itself runs off
+  // the deadline below, so this is display state and nothing reads it back.
   const [attentionLeftMs, setAttentionLeftMs] = useState(ATTENTION_BUDGET_MS);
-  // When the running budget would hit zero; null while paused.
+  // When the running countdown hits zero; null while no popup is up.
   const attentionDeadline = useRef<number | null>(null);
   const attentionTicker = useRef<number | null>(null);
   const [attentionExpired, setAttentionExpired] = useState(false);
@@ -321,22 +326,24 @@ export function QuestionRunner({
       attentionTicker.current = null;
     }
   };
-  /** Budget spent: stop everything, show the stopped modal, reset the attempt. */
+  /** Countdown ran out: stop everything, show the stopped modal, reset the attempt. */
   const expireAttention = () => {
     if (attentionFired.current) return;
     attentionFired.current = true;
     stopAttentionTicker();
     clearFocusTimer();
     attentionDeadline.current = null;
-    attentionLeftRef.current = 0;
     setAttentionLeftMs(0);
     setAttentionExpired(true);
     onAttentionTimeout();
   };
-  /** Resume (or start) the countdown — called as the popup goes up. */
+  /** Start the countdown — called as the popup goes up. Always a full ten. */
   const runAttentionTimer = () => {
     if (!attentionOn || attentionFired.current) return;
-    attentionDeadline.current = Date.now() + attentionLeftRef.current;
+    attentionDeadline.current = Date.now() + ATTENTION_BUDGET_MS;
+    // Set the clock before the first tick, or the popup opens showing 0:00
+    // (or the previous countdown's last value) for up to half a second.
+    setAttentionLeftMs(ATTENTION_BUDGET_MS);
     stopAttentionTicker();
     attentionTicker.current = window.setInterval(() => {
       const left = (attentionDeadline.current ?? 0) - Date.now();
@@ -344,18 +351,18 @@ export function QuestionRunner({
         expireAttention();
         return;
       }
-      attentionLeftRef.current = left;
       setAttentionLeftMs(left);
     }, 500);
   };
-  /** Pause it — called as the popup is dismissed. The remainder is kept. */
-  const pauseAttentionTimer = () => {
+  /**
+   * Stop the countdown — called as the popup is dismissed. What is left is
+   * DISCARDED, not banked: the next popup is a fresh ten minutes.
+   */
+  const stopAttentionTimer = () => {
     if (attentionDeadline.current === null) return;
-    const left = Math.max(0, attentionDeadline.current - Date.now());
     attentionDeadline.current = null;
     stopAttentionTicker();
-    attentionLeftRef.current = left;
-    setAttentionLeftMs(left);
+    setAttentionLeftMs(ATTENTION_BUDGET_MS);
   };
 
   const armFocusTimer = () => {
@@ -377,7 +384,7 @@ export function QuestionRunner({
     // The budget may have run out between the click and this handler; the
     // stopped modal has no OKAY, but a queued click must not restart the run.
     if (attentionFired.current) return;
-    pauseAttentionTimer();
+    stopAttentionTimer();
     modalOpenRef.current = false;
     setShowFocusModal(false);
     onFocusPopup();
@@ -604,7 +611,7 @@ export function QuestionRunner({
   // each render, so the pending banner shrinks as they fill them in and
   // disappears on its own once nothing is left.
   const pending = questions.map((_, qi) => qi).filter((qi) => !isQuestionAnswered(qi));
-  // Marked red in the navigator: left unanswered after being visited, or —
+  // Marked amber in the navigator: left unanswered after being visited, or —
   // once Submit has been refused — anything still unanswered.
   const isSkipped = (qi: number): boolean =>
     !isQuestionAnswered(qi) && (submitAttempted || visited.has(qi));
@@ -679,7 +686,7 @@ export function QuestionRunner({
                           : isAnswered
                             ? 'border-green-500/40 bg-green-500/10 text-green-700 dark:text-green-400 hover:bg-green-500/20'
                             : skipped
-                              ? 'border-red-500/50 bg-red-500/10 text-red-700 dark:text-red-400 hover:bg-red-500/20'
+                              ? 'border-amber-500/50 bg-amber-500/10 text-amber-700 dark:text-amber-400 hover:bg-amber-500/20'
                               : 'border-border bg-background text-muted-foreground hover:border-primary/40',
                       )}
                     >
@@ -700,7 +707,7 @@ export function QuestionRunner({
           <span className="inline-block h-3 w-3 rounded-sm bg-green-500/20 border border-green-500/40" /> Answered
         </div>
         <div className="flex items-center gap-1.5">
-          <span className="inline-block h-3 w-3 rounded-sm bg-red-500/20 border border-red-500/50" /> Skipped
+          <span className="inline-block h-3 w-3 rounded-sm bg-amber-500/20 border border-amber-500/50" /> Skipped
         </div>
         <div className="flex items-center gap-1.5">
           <span className="inline-block h-3 w-3 rounded-sm border border-border bg-background" /> Not answered
@@ -1151,9 +1158,9 @@ export function QuestionRunner({
                 <div className="space-y-1">
                   <h2 className="text-lg font-semibold">Assessment stopped</h2>
                   <p className="text-sm text-muted-foreground">
-                    You spent the full {ATTENTION_BUDGET_MS / 60_000} minutes on focus
-                    reminders, so this attempt has been stopped. It has been reset —
-                    start it again from your dashboard whenever you are ready.
+                    A focus reminder went unanswered for {ATTENTION_BUDGET_MS / 60_000} minutes,
+                    so this attempt has been stopped. It has been reset — start it again
+                    from your dashboard whenever you are ready.
                   </p>
                 </div>
                 {attentionResetError && (
@@ -1180,11 +1187,17 @@ export function QuestionRunner({
                     number is the WHOLE attempt's remaining budget, not this
                     popup's — that is what actually runs out. */}
                 {attentionOn && (
-                  <div className="flex items-center justify-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-400">
-                    <Timer className="h-3.5 w-3.5 shrink-0" />
-                    <span>
-                      {formatCountdown(attentionLeftMs)} left before this attempt restarts
-                    </span>
+                  <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-3 text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-400">
+                    <div className="flex items-center justify-center gap-2">
+                      <Timer className="h-6 w-6 shrink-0" />
+                      {/* tabular-nums: the digits change twice a second, and
+                          proportional ones re-measure the line each time —
+                          the clock would twitch while they are reading it. */}
+                      <span className="text-3xl font-bold tabular-nums tracking-tight">
+                        {formatCountdown(attentionLeftMs)}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs font-medium">left before this attempt restarts</p>
                   </div>
                 )}
                 <Button variant="primary" className="w-full" onClick={dismissFocusPopup}>

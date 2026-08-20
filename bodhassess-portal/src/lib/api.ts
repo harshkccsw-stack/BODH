@@ -210,9 +210,9 @@ export interface PortalAssessmentDetail {
   autoNext: boolean;
   showQuestionIndex: boolean;
   /**
-   * Arms the attention timer: the inactivity popup's open time is counted
-   * down from ATTENTION_BUDGET_MS across the attempt, and running out
-   * abandons it (see question-runner.tsx). The budget itself lives in the
+   * Arms the attention timer: each inactivity popup carries its own
+   * ATTENTION_BUDGET_MS countdown, and letting one run out abandons the
+   * attempt (see question-runner.tsx). The deadline itself lives in the
    * portal — the backend only stores whether it applies.
    */
   attentionTimer: boolean;

@@ -212,9 +212,9 @@ public class PortalAssessmentService {
      * NOT_STARTED already) → NOT_STARTED, so the portal offers "Launch
      * Assessment" again rather than "Resume".
      *
-     * <p>What the attention timer calls when its budget runs out — the
-     * respondent spent ten minutes sitting on focus popups, the attempt is
-     * stopped, and they must take it from the top. The one thing there now IS
+     * <p>What the attention timer calls when a countdown runs out — the
+     * respondent left a focus popup unanswered for ten minutes, so the attempt
+     * is stopped and they must take it from the top. The one thing there now IS
      * to clean is the Redis partial-answer snapshot: dropping it here is what
      * makes the restart genuinely fresh instead of backfilling the abandoned
      * attempt's answers. MySQL still has nothing to delete — answers are only
