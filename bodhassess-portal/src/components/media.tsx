@@ -21,8 +21,12 @@ export function mediaTypeFor(contentType?: string, url?: string | null): string 
 
 export function Media({ url, type }: { url?: string; type?: string }) {
   if (!url || !type || type === 'none') return null;
-  if (type === 'image') return <img src={url} alt="" className="max-h-72 rounded-lg border border-border" />;
-  if (type === 'video') return <video src={url} controls className="max-h-72 rounded-lg border border-border" />;
+  // max-w-full: question media is an arbitrary URL, and an image wider than
+  // the phone would push the whole page sideways.
+  if (type === 'image')
+    return <img src={url} alt="" className="h-auto max-h-72 max-w-full rounded-lg border border-border" />;
+  if (type === 'video')
+    return <video src={url} controls className="max-h-72 w-full max-w-full rounded-lg border border-border" />;
   if (type === 'youtube') {
     const id = extractYoutubeId(url);
     return id ? (

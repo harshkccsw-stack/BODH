@@ -84,6 +84,61 @@
   * {
     @apply border-border;
   }
+
+  /*
+   * The page roots are flex items of <body> (#root is display:contents, so the
+   * page div is the real flex item). A flex item's default `min-width: auto`
+   * refuses to shrink below its content's min-content width, so ONE wide
+   * descendant — a Likert grid, a pasted URL, a long unbroken word — widens the
+   * whole page past the phone screen. The page then scrolls sideways and the
+   * sticky header, which is only as wide as the viewport, slides half out of
+   * frame. This floor is what keeps the layout inside the screen.
+   */
+  #root > * {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  /* Author-supplied strings (question stems, option text, respondent names,
+     emails) are arbitrary: without this a single long token is an unbreakable
+     box wider than the phone. */
+  h1,
+  h2,
+  h3,
+  p,
+  label,
+  li,
+  td,
+  th,
+  span {
+    overflow-wrap: break-word;
+  }
+
+  /*
+   * iOS Safari auto-zooms the page whenever a focused form control has a font
+   * smaller than 16px — and it never zooms back out, which leaves the header
+   * and the question card cropped for the rest of the attempt. The portal's
+   * controls are text-sm (14px), so lift them to 16px on phone widths only;
+   * `sm` and up keeps the designed size.
+   */
+  @media (max-width: 639.98px) {
+    input:not([type='checkbox']):not([type='radio']):not([type='range']),
+    select,
+    textarea {
+      font-size: 16px;
+    }
+  }
+
+  /* Kill the 300ms tap delay and the grey flash on the portal's many
+     tap targets (option cards, grid cells, navigator squares). */
+  button,
+  a,
+  label,
+  select,
+  [role='button'] {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
   *:focus-visible {
     @apply outline-ring rounded-xs shadow-none outline-2 outline-offset-3 transition-none!;
   }
@@ -112,6 +167,27 @@
 
 html {
   scroll-behavior: smooth;
+}
+
+/**
+ * The phone-only Likert layout (pages/take/question-runner.tsx): one block per
+ * statement, its scale points laid out left to right underneath it.
+ *
+ * The column count is data, not layout — it comes from how many points the
+ * scale has — so it arrives as a custom property the component sets inline.
+ * `--scale-cols-narrow` is the same count folded onto two lines, applied below
+ * 430px — which covers every common phone. The component sets it EQUAL to
+ * `--scale-cols` when the labels are short enough not to need it, so a numeric
+ * or yes/no scale still gets one line there.
+ */
+.scale-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--scale-cols), minmax(0, 1fr));
+}
+@media (max-width: 429.98px) {
+  .scale-grid {
+    grid-template-columns: repeat(var(--scale-cols-narrow, var(--scale-cols)), minmax(0, 1fr));
+  }
 }
 
 /**

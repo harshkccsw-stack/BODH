@@ -17,8 +17,12 @@ import { config } from '@/config';
 import { useAuth } from '@/lib/auth';
 import { autoFormatDdmmyyyy, ddmmyyyyToIso, formatDDMMYYYY } from '@/lib/helpers';
 
+// h-11 on a phone: a 44px control is the smallest that is comfortable to tap,
+// and the base stylesheet lifts the font to 16px at the same widths so
+// focusing one never makes iOS zoom the page. Back to the designed height
+// from `sm` up.
 const INPUT =
-  'w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20';
+  'h-11 w-full rounded-lg border border-border bg-background px-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 sm:h-auto sm:py-2';
 
 /**
  * /portal/register. With ?token=… the link came from an admin invite, so we
@@ -197,13 +201,13 @@ function TokenRegister({ token }: { token: string }) {
 
   const isLogin = tokenInfo?.kind === 'login';
   return (
-    <div className="flex-1 min-h-screen w-full flex items-center justify-center bg-linear-to-br from-primary/10 via-background to-primary/5 px-4 py-10">
+    <div className="flex-1 min-h-dvh w-full flex items-center justify-center bg-linear-to-br from-primary/10 via-background to-primary/5 px-4 py-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:py-10">
       <div className="w-full max-w-md space-y-6">
         <div className="text-center space-y-2">
           <div className="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-primary text-primary-foreground">
             <Brain className="h-6 w-6" />
           </div>
-          <h1 className="text-2xl font-semibold tracking-tight">{isLogin ? 'Sign in to begin' : 'Register to begin'}</h1>
+          <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">{isLogin ? 'Sign in to begin' : 'Register to begin'}</h1>
           {tokenInfo?.assessmentName && <p className="text-sm text-muted-foreground">{tokenInfo.assessmentName}</p>}
         </div>
         {orgName && !isLogin && (
@@ -256,7 +260,7 @@ function TokenRegister({ token }: { token: string }) {
                   />
                   <p className="text-[0.6875rem] text-muted-foreground">Enter your date of birth to verify it's you.</p>
                 </div>
-                <Button type="submit" variant="primary" size="md" className="w-full" disabled={saving}>
+                <Button type="submit" variant="primary" size="md" className="h-11 w-full sm:h-8.5" disabled={saving}>
                   <LogIn className="h-4 w-4" /> {saving ? 'Signing in…' : 'Sign in & begin assessment'}
                 </Button>
               </form>
@@ -270,7 +274,7 @@ function TokenRegister({ token }: { token: string }) {
                   </div>
                 </div>
                 {error && <FormError msg={error} />}
-                <Button variant="primary" size="md" className="w-full" onClick={claimExisting} disabled={saving}>
+                <Button variant="primary" size="md" className="h-11 w-full sm:h-8.5" onClick={claimExisting} disabled={saving}>
                   <LogIn className="h-4 w-4" /> {saving ? 'Signing in…' : 'Log in & begin assessment'}
                 </Button>
                 <a href={loginHref} className="block w-full text-center text-xs text-muted-foreground hover:text-foreground">
@@ -331,7 +335,7 @@ function TokenRegister({ token }: { token: string }) {
                     className={INPUT}
                   />
                 </Field>
-                <Button type="submit" variant="primary" size="md" className="w-full" disabled={saving}>
+                <Button type="submit" variant="primary" size="md" className="h-11 w-full sm:h-8.5" disabled={saving}>
                   <UserPlus className="h-4 w-4" /> {saving ? 'Registering…' : 'Register & begin assessment'}
                 </Button>
                 <p className="text-center text-sm text-muted-foreground">
@@ -466,13 +470,13 @@ function SelfSignup() {
   };
 
   return (
-    <div className="flex-1 min-h-screen w-full flex items-center justify-center bg-linear-to-br from-primary/10 via-background to-primary/5 px-4 py-10">
+    <div className="flex-1 min-h-dvh w-full flex items-center justify-center bg-linear-to-br from-primary/10 via-background to-primary/5 px-4 py-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:py-10">
       <div className="w-full max-w-md space-y-6">
         <div className="text-center space-y-2">
           <div className="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-primary text-primary-foreground">
             <Brain className="h-6 w-6" />
           </div>
-          <h1 className="text-2xl font-semibold tracking-tight">Create your {config.appName} account</h1>
+          <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">Create your {config.appName} account</h1>
           <p className="text-sm text-muted-foreground">Register to take assessments online. No admin needed.</p>
         </div>
 
@@ -564,7 +568,7 @@ function SelfSignup() {
                     className={INPUT}
                   />
                 </Field>
-                <Button type="submit" variant="primary" size="md" className="w-full" disabled={submitting}>
+                <Button type="submit" variant="primary" size="md" className="h-11 w-full sm:h-8.5" disabled={submitting}>
                   <UserPlus className="h-4 w-4" />
                   {submitting ? 'Creating account...' : 'Create Account'}
                 </Button>
@@ -608,7 +612,7 @@ function FormError({ msg }: { msg: string }) {
 
 function CenterCard({ title, message, error }: { title: string; message: string; error?: boolean }) {
   return (
-    <div className="flex-1 min-h-screen w-full flex items-center justify-center px-4">
+    <div className="flex-1 min-h-dvh w-full flex items-center justify-center px-4">
       <Card className="w-full max-w-md">
         <CardHeader>
           <CardTitle className="text-base">{title}</CardTitle>

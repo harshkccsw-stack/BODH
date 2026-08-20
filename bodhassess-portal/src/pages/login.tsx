@@ -54,13 +54,13 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="flex-1 min-h-screen w-full flex items-center justify-center bg-linear-to-br from-primary/10 via-background to-primary/5 px-4 py-10">
+    <div className="flex-1 min-h-dvh w-full flex items-center justify-center bg-linear-to-br from-primary/10 via-background to-primary/5 px-4 py-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:py-10">
       <div className="w-full max-w-md space-y-6">
         <div className="text-center space-y-2">
           <div className="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-primary text-primary-foreground">
             <Brain className="h-6 w-6" />
           </div>
-          <h1 className="text-2xl font-semibold tracking-tight">{config.appName} Respondent Portal</h1>
+          <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">{config.appName} Respondent Portal</h1>
           <p className="text-sm text-muted-foreground">Sign in to take your assigned assessments.</p>
         </div>
 
@@ -87,7 +87,7 @@ export default function LoginPage() {
                   onChange={(e) => setIdentifier(e.target.value)}
                   placeholder="you@example.com or EMP1042"
                   autoComplete="username"
-                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                  className="h-11 w-full rounded-lg border border-border bg-background px-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 sm:h-auto sm:py-2"
                 />
               </div>
               <div className="space-y-1.5">
@@ -99,10 +99,10 @@ export default function LoginPage() {
                   placeholder="DD/MM/YYYY"
                   autoComplete="current-password"
                   maxLength={10}
-                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                  className="h-11 w-full rounded-lg border border-border bg-background px-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 sm:h-auto sm:py-2"
                 />
               </div>
-              <Button type="submit" variant="primary" size="md" className="w-full" disabled={loading}>
+              <Button type="submit" variant="primary" size="md" className="h-11 w-full sm:h-8.5" disabled={loading}>
                 <LogIn className="h-4 w-4" />
                 {loading ? 'Signing in...' : 'Sign In'}
               </Button>

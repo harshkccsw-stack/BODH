@@ -13,7 +13,7 @@ export function ErrorCard({
   onAction?: () => void;
 }) {
   return (
-    <div className="flex-1 min-h-screen w-full flex items-center justify-center p-6">
+    <div className="flex-1 min-h-dvh w-full flex items-center justify-center p-4 sm:p-6">
       <Card className="max-w-md w-full">
         <CardContent className="p-6 space-y-4 text-center">
           <AlertTriangle className="h-10 w-10 text-amber-500 mx-auto" />

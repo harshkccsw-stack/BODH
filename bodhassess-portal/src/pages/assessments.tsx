@@ -30,7 +30,7 @@ export default function AssessmentsPage() {
   const completed = sessions.filter((s) => s.assessmentStatus === 'COMPLETED');
 
   return (
-    <div className="flex-1 min-h-screen w-full bg-linear-to-b from-muted/30 via-background to-background">
+    <div className="flex-1 min-h-dvh w-full bg-linear-to-b from-muted/30 via-background to-background">
       <BrandHeader
         title={`${config.appName} Portal`}
         subtitle={`${user.name} · ${user.serialId}`}
@@ -43,11 +43,11 @@ export default function AssessmentsPage() {
         }
       />
 
-      <main className="max-w-5xl mx-auto px-5 lg:px-8 py-10 space-y-10">
+      <main className="mx-auto max-w-5xl space-y-8 px-4 py-6 sm:space-y-10 sm:px-5 sm:py-10 lg:px-8">
         <section className="space-y-3">
           <div>
             <p className="text-xs font-medium uppercase tracking-wider text-primary/80">Respondent dashboard</p>
-            <h1 className="text-3xl font-semibold tracking-tight mt-1">Welcome back, {user.name}.</h1>
+            <h1 className="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl">Welcome back, {user.name}.</h1>
             <p className="text-sm text-muted-foreground mt-2 max-w-xl">
               {sessions.length === 0
                 ? 'You have no assessments assigned yet. When an administrator assigns one, it will appear below.'
@@ -57,11 +57,13 @@ export default function AssessmentsPage() {
 
           {sessions.length > 0 && (
             <div className="flex flex-wrap gap-3 pt-2">
-              <div className="rounded-xl border border-border bg-background px-4 py-3 min-w-[140px]">
+              {/* basis-0 + grow: the two cards split a phone row evenly rather
+                  than leaving a stranded 140px stub on the second line. */}
+              <div className="min-w-[8.75rem] grow basis-0 rounded-xl border border-border bg-background px-4 py-3 sm:grow-0">
                 <p className="text-xs text-muted-foreground">Pending</p>
                 <p className="text-2xl font-semibold text-primary">{active.length}</p>
               </div>
-              <div className="rounded-xl border border-border bg-background px-4 py-3 min-w-[140px]">
+              <div className="min-w-[8.75rem] grow basis-0 rounded-xl border border-border bg-background px-4 py-3 sm:grow-0">
                 <p className="text-xs text-muted-foreground">Completed</p>
                 <p className="text-2xl font-semibold text-green-600">{completed.length}</p>
               </div>
@@ -75,7 +77,7 @@ export default function AssessmentsPage() {
               <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Pending</h2>
               <span className="text-xs text-muted-foreground">{active.length} to complete</span>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               {active.map((s) => {
                 const started = s.assessmentStatus === 'ONGOING';
                 // Submitted and staged — the backend digest is landing it in
@@ -88,7 +90,7 @@ export default function AssessmentsPage() {
                     key={s.respondentAssessmentMappingId}
                     className="group overflow-hidden hover:shadow-md transition-shadow border-border/70"
                   >
-                    <CardContent className="p-5 space-y-4">
+                    <CardContent className="space-y-4 p-4 sm:p-5">
                       <div className="flex items-start justify-between gap-3">
                         <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
                           <ClipboardCheck className="h-5 w-5" />
@@ -123,7 +125,7 @@ export default function AssessmentsPage() {
                         <Button
                           variant="primary"
                           size="md"
-                          className="w-full"
+                          className="h-11 w-full sm:h-8.5"
                           onClick={() => navigate(`/portal/assessment/${s.respondentAssessmentMappingId}`)}
                         >
                           <Play className="h-4 w-4" />
@@ -148,7 +150,7 @@ export default function AssessmentsPage() {
               {completed.map((s, i) => (
                 <div
                   key={s.respondentAssessmentMappingId}
-                  className={`flex items-center gap-4 px-5 py-4 ${i < completed.length - 1 ? 'border-b border-border' : ''}`}
+                  className={`flex items-center gap-3 px-4 py-3.5 sm:gap-4 sm:px-5 sm:py-4 ${i < completed.length - 1 ? 'border-b border-border' : ''}`}
                 >
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-green-100 text-green-600 dark:bg-green-900/30">
                     <CheckCircle2 className="h-5 w-5" />
@@ -159,7 +161,7 @@ export default function AssessmentsPage() {
                       #{s.respondentAssessmentMappingId}
                     </p>
                   </div>
-                  <span className="text-xs font-semibold text-green-700 dark:text-green-400">Submitted</span>
+                  <span className="shrink-0 text-xs font-semibold text-green-700 dark:text-green-400">Submitted</span>
                 </div>
               ))}
             </div>
@@ -168,7 +170,7 @@ export default function AssessmentsPage() {
 
         {sessions.length === 0 && (
           <Card className="border-dashed">
-            <CardContent className="p-14 text-center">
+            <CardContent className="p-8 text-center sm:p-14">
               <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-muted">
                 <ClipboardCheck className="h-7 w-7 text-muted-foreground/60" />
               </div>
@@ -181,8 +183,8 @@ export default function AssessmentsPage() {
         )}
       </main>
 
-      <footer className="border-t border-border/60 mt-16">
-        <div className="max-w-5xl mx-auto px-5 lg:px-8 py-5 text-xs text-muted-foreground flex items-center justify-between">
+      <footer className="mt-12 border-t border-border/60 sm:mt-16">
+        <div className="mx-auto flex max-w-5xl flex-col gap-1 px-4 py-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between sm:px-5 lg:px-8">
           <span>© {config.appName} — Respondent Portal</span>
           <span>Need help? Contact your administrator.</span>
         </div>

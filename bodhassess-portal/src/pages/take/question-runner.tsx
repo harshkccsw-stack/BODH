@@ -1,5 +1,14 @@
-import { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, Check, ChevronLeft, ChevronRight, Timer, TimerOff } from 'lucide-react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import {
+  AlertTriangle,
+  Check,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  LayoutGrid,
+  Timer,
+  TimerOff,
+} from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { BrandHeader } from '@/components/brand-header';
@@ -85,7 +94,7 @@ function ScaleSlider({
   return (
     <div className="space-y-3">
       {(question.scaleLowLabel || question.scaleHighLabel) && (
-        <div className="flex items-start justify-between gap-3 text-xs text-muted-foreground">
+        <div className="flex items-start justify-between gap-2 sm:gap-3 text-[0.6875rem] sm:text-xs text-muted-foreground">
           <span className="max-w-[45%]">{question.scaleLowLabel}</span>
           <span className="max-w-[45%] text-right">{question.scaleHighLabel}</span>
         </div>
@@ -111,15 +120,19 @@ function ScaleSlider({
           }}
           aria-valuetext={unset ? 'Not answered' : String(selectedValue)}
           className={cn(
-            'w-full cursor-pointer accent-primary',
+            // h-6: the drawn track is unchanged, the area a thumb can grab is
+            // the full height of it.
+            'h-6 w-full cursor-pointer accent-primary',
             // Hidden rather than absent, so the track still measures and the
             // control keeps its keyboard focus.
             unset && '[&::-webkit-slider-thumb]:invisible [&::-moz-range-thumb]:invisible',
           )}
         />
-        <div className="mt-1 flex items-center justify-between text-[0.6875rem] text-muted-foreground">
+        {/* A 0—100 scale prints eleven ticks, and on a 360px screen those only
+            fit at the smaller size. */}
+        <div className="mt-1 flex items-center justify-between text-[0.625rem] sm:text-[0.6875rem] text-muted-foreground">
           {ticks.map((t) => (
-            <span key={t} className={cn(!unset && t === selectedValue && 'font-semibold text-primary')}>
+            <span key={t} className={cn('tabular-nums', !unset && t === selectedValue && 'font-semibold text-primary')}>
               {t}
             </span>
           ))}
@@ -201,6 +214,18 @@ export function QuestionRunner({
   const q = questions[index];
   const progress = Math.round(((index + 1) / total) * 100);
   const isScale = q.questionType === 'LINEAR_SCALE';
+  // Columns for the phone-only stacked grid below. Up to five points sit on one
+  // line; beyond that they split over two balanced lines rather than shrinking
+  // every label past reading.
+  const gridColumns = q.options.length <= 5 ? Math.max(1, q.options.length) : Math.ceil(q.options.length / 2);
+  // The same points folded onto two lines on a phone-width screen — but only
+  // when the labels need it. Five columns give each point about 48px of text at
+  // 390px: enough for "Agree" or a number, not for "Sometimes", which would
+  // have to break mid-word. Short scales therefore stay one line at every
+  // width. Read by .scale-grid in styles.css.
+  const longestOptionLabel = q.options.reduce((n, o) => Math.max(n, (o.optionText ?? '').length), 0);
+  const gridColumnsNarrow =
+    gridColumns <= 3 || longestOptionLabel <= 6 ? gridColumns : Math.ceil(gridColumns / 2);
   const isGrid = q.questionType === 'LIKERT_GRID';
   const isText = q.questionType === 'SHORT_ANSWER';
   // Every slot this question must fill: one per grid row, otherwise one for
@@ -559,6 +584,11 @@ export function QuestionRunner({
   // The question index panel lets respondents see their progress and jump
   // between questions. Per-assessment toggle (create/edit form); defaults on.
   const showIndex = detail.showQuestionIndex;
+  // Phones get the same panel as a disclosure instead of a sidebar, CLOSED by
+  // default: rendered open it is a full screen of numbered squares plus a
+  // legend sitting on top of the question, which is what pushed the question
+  // itself below the fold. Collapsed it costs one 44px row.
+  const [navOpen, setNavOpen] = useState(false);
 
   // How a question is NAMED when we have to point at it — "Section B · Q4",
   // numbered inside its section exactly as the navigator numbers it, so the
@@ -593,9 +623,97 @@ export function QuestionRunner({
     onSubmit();
   };
 
+  // The navigator, rendered twice: as the sticky sidebar on a large screen and
+  // as a collapsed disclosure above the question on a phone. Defined once, so
+  // the two can never drift.
+  const navigatorBody = (
+    <>
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Questions</p>
+        <span className="text-[0.6875rem] text-muted-foreground">
+          {answeredCount}/{total}
+        </span>
+      </div>
+      <div className="space-y-3">
+        {sections.map((sec) => {
+          const secAnswered = sec.indices.reduce((n, qi) => n + (isQuestionAnswered(qi) ? 1 : 0), 0);
+          return (
+            <div key={sec.key}>
+              {hasSections && (
+                <div className="flex items-center justify-between mb-1.5">
+                  <p className="text-[0.6875rem] font-semibold text-foreground truncate pr-2">
+                    {sec.title || 'Other'}
+                  </p>
+                  <span className="text-[0.625rem] text-muted-foreground shrink-0">
+                    {secAnswered}/{sec.indices.length}
+                  </span>
+                </div>
+              )}
+              <div className="grid grid-cols-8 sm:grid-cols-10 lg:grid-cols-5 gap-1.5">
+                {/* pos is the number the respondent sees — it restarts at 1
+                    in every section, matching the authoring screen. qi stays
+                    the absolute index, which is what navigation and answers
+                    use. */}
+                {sec.indices.map((qi, pos) => {
+                  const qq = questions[qi];
+                  const isCurrent = qi === index;
+                  const isAnswered = isQuestionAnswered(qi);
+                  const skipped = isSkipped(qi);
+                  return (
+                    <button
+                      key={qq.questionId}
+                      type="button"
+                      onClick={() => {
+                        goTo(qi);
+                        // Jumping from the phone sheet closes it, so the
+                        // question landed on is what fills the screen.
+                        setNavOpen(false);
+                      }}
+                      title={`${sec.title ? `${sec.title} · ` : ''}Question ${pos + 1}${
+                        isAnswered ? ' — answered' : skipped ? ' — not answered' : ''
+                      }`}
+                      className={cn(
+                        'h-9 lg:h-8 w-full rounded-md text-xs font-medium border transition-colors',
+                        isCurrent
+                          ? 'border-primary bg-primary text-primary-foreground'
+                          : isAnswered
+                            ? 'border-green-500/40 bg-green-500/10 text-green-700 dark:text-green-400 hover:bg-green-500/20'
+                            : skipped
+                              ? 'border-red-500/50 bg-red-500/10 text-red-700 dark:text-red-400 hover:bg-red-500/20'
+                              : 'border-border bg-background text-muted-foreground hover:border-primary/40',
+                      )}
+                    >
+                      {pos + 1}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-3 pt-3 border-t border-border space-y-1.5 text-[0.6875rem] text-muted-foreground">
+        <div className="flex items-center gap-1.5">
+          <span className="inline-block h-3 w-3 rounded-sm bg-primary" /> Current
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="inline-block h-3 w-3 rounded-sm bg-green-500/20 border border-green-500/40" /> Answered
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="inline-block h-3 w-3 rounded-sm bg-red-500/20 border border-red-500/50" /> Skipped
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="inline-block h-3 w-3 rounded-sm border border-border bg-background" /> Not answered
+        </div>
+      </div>
+    </>
+  );
+
   return (
+    // min-h-dvh, not min-h-screen: 100vh on a mobile browser counts the
+    // retracting address bar, so a 100vh screen never quite fits one.
     <div
-      className="flex-1 min-h-screen w-full bg-muted/20"
+      className="flex-1 min-h-dvh w-full bg-muted/20"
       onPointerDown={noteActivity}
       onKeyDown={noteActivity}
     >
@@ -609,97 +727,68 @@ export function QuestionRunner({
            assessment am I" still has to be answerable. */
         right={(
           <div className="text-xs text-muted-foreground shrink-0">
-            {here?.title ? `${here.title} · ` : ''}Question {index + 1} of {total}
+            {/* A phone has no room for "Section B · Question 3 of 40" beside
+                the assessment name, so the wording shortens to the part that
+                matters rather than wrapping or truncating. */}
+            <span className="hidden sm:inline">
+              {here?.title ? `${here.title} · ` : ''}Question {index + 1} of {total}
+            </span>
+            <span className="sm:hidden font-medium tabular-nums">
+              {index + 1} / {total}
+            </span>
           </div>
         )}
       />
 
       <div
         className={cn(
-          'mx-auto px-5 py-8',
-          showIndex ? 'max-w-6xl grid grid-cols-1 lg:grid-cols-[14rem_minmax(0,1fr)] gap-6' : 'max-w-3xl',
+          'mx-auto px-4 py-5 sm:px-5 sm:py-8',
+          showIndex
+            ? 'max-w-6xl grid grid-cols-1 lg:grid-cols-[14rem_minmax(0,1fr)] gap-4 sm:gap-6'
+            : 'max-w-3xl',
         )}
       >
         {showIndex && (
-          <aside className="lg:sticky lg:top-20 lg:self-start">
-            <Card>
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Questions</p>
-                  <span className="text-[0.6875rem] text-muted-foreground">
-                    {answeredCount}/{total}
+          <>
+            {/* PHONE / TABLET — a single collapsed row. Open it to jump, and
+                jumping closes it again. Rendered as the sidebar is on desktop
+                it would be a grid of forty squares plus a legend standing
+                between the respondent and the question. */}
+            <div className="lg:hidden">
+              <button
+                type="button"
+                onClick={() => setNavOpen((o) => !o)}
+                aria-expanded={navOpen}
+                className="flex h-11 w-full items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 text-sm shadow-xs transition-colors hover:border-primary/40"
+              >
+                <span className="flex items-center gap-2 min-w-0 font-medium">
+                  <LayoutGrid className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span className="truncate">Question index</span>
+                </span>
+                <span className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
+                  <span className="tabular-nums">
+                    {answeredCount}/{total} answered
                   </span>
-                </div>
-                <div className="space-y-3">
-                  {sections.map((sec) => {
-                    const secAnswered = sec.indices.reduce((n, qi) => n + (isQuestionAnswered(qi) ? 1 : 0), 0);
-                    return (
-                      <div key={sec.key}>
-                        {hasSections && (
-                          <div className="flex items-center justify-between mb-1.5">
-                            <p className="text-[0.6875rem] font-semibold text-foreground truncate pr-2">
-                              {sec.title || 'Other'}
-                            </p>
-                            <span className="text-[0.625rem] text-muted-foreground shrink-0">
-                              {secAnswered}/{sec.indices.length}
-                            </span>
-                          </div>
-                        )}
-                        <div className="grid grid-cols-5 gap-1.5">
-                          {/* pos is the number the respondent sees — it
-                              restarts at 1 in every section, matching the
-                              authoring screen. qi stays the absolute index,
-                              which is what navigation and answers use. */}
-                          {sec.indices.map((qi, pos) => {
-                            const qq = questions[qi];
-                            const isCurrent = qi === index;
-                            const isAnswered = isQuestionAnswered(qi);
-                            const skipped = isSkipped(qi);
-                            return (
-                              <button
-                                key={qq.questionId}
-                                type="button"
-                                onClick={() => goTo(qi)}
-                                title={`${sec.title ? `${sec.title} · ` : ''}Question ${pos + 1}${
-                                  isAnswered ? ' — answered' : skipped ? ' — not answered' : ''
-                                }`}
-                                className={cn(
-                                  'h-8 w-full rounded-md text-xs font-medium border transition-colors',
-                                  isCurrent
-                                    ? 'border-primary bg-primary text-primary-foreground'
-                                    : isAnswered
-                                      ? 'border-green-500/40 bg-green-500/10 text-green-700 dark:text-green-400 hover:bg-green-500/20'
-                                      : skipped
-                                        ? 'border-red-500/50 bg-red-500/10 text-red-700 dark:text-red-400 hover:bg-red-500/20'
-                                        : 'border-border bg-background text-muted-foreground hover:border-primary/40',
-                                )}
-                              >
-                                {pos + 1}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-                <div className="mt-3 pt-3 border-t border-border space-y-1.5 text-[0.6875rem] text-muted-foreground">
-                  <div className="flex items-center gap-1.5">
-                    <span className="inline-block h-3 w-3 rounded-sm bg-primary" /> Current
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="inline-block h-3 w-3 rounded-sm bg-green-500/20 border border-green-500/40" /> Answered
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="inline-block h-3 w-3 rounded-sm bg-red-500/20 border border-red-500/50" /> Skipped
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="inline-block h-3 w-3 rounded-sm border border-border bg-background" /> Not answered
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </aside>
+                  <ChevronDown className={cn('h-4 w-4 transition-transform', navOpen && 'rotate-180')} />
+                </span>
+              </button>
+              {navOpen && (
+                <Card className="mt-2">
+                  {/* Capped and scrollable: a sixty-question paper would
+                      otherwise be a screenful of squares to scroll past. */}
+                  <CardContent className="p-4 max-h-[45dvh] overflow-y-auto overscroll-contain">
+                    {navigatorBody}
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+
+            <aside className="hidden lg:block lg:sticky lg:top-20 lg:self-start">
+              <Card>
+                <CardContent className="p-4">{navigatorBody}</CardContent>
+              </Card>
+            </aside>
+          </>
         )}
 
         <main>
@@ -716,8 +805,8 @@ export function QuestionRunner({
             </div>
           )}
           <Card>
-            <CardContent className="p-6 space-y-5">
-              {q.stem && <p className="text-base font-medium leading-relaxed">{q.stem}</p>}
+            <CardContent className="p-4 sm:p-6 space-y-4 sm:space-y-5">
+              {q.stem && <p className="text-[0.9375rem] sm:text-base font-medium leading-relaxed">{q.stem}</p>}
               <Media url={q.mediaUrl ?? undefined} type={mediaTypeFor(q.contentType, q.mediaUrl)} />
 
               {isGrid && (
@@ -725,7 +814,7 @@ export function QuestionRunner({
                    on a long grid an unrated row is easy to scroll past. */
                 <div
                   className={cn(
-                    'flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-xs font-medium',
+                    'flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-lg border px-3 py-2 text-xs font-medium',
                     answered
                       ? 'border-green-500/40 bg-green-500/5 text-green-700 dark:text-green-400'
                       : 'border-primary/30 bg-primary/5 text-primary',
@@ -742,7 +831,7 @@ export function QuestionRunner({
               {hint && (
                 <div
                   className={cn(
-                    'flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-xs font-medium transition-colors',
+                    'flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-lg border px-3 py-2 text-xs font-medium transition-colors',
                     capWarning
                       ? 'border-amber-400 bg-amber-50 text-amber-700 dark:border-amber-600 dark:bg-amber-950/30 dark:text-amber-400'
                       : 'border-primary/30 bg-primary/5 text-primary',
@@ -756,73 +845,141 @@ export function QuestionRunner({
               )}
 
               {isGrid ? (
-                /* Rows x shared columns, one pick per row. Every row is
-                   mandatory, so an unanswered one is marked rather than left
-                   to be discovered by the Next button. On a narrow screen the
-                   table scrolls sideways instead of wrapping — a Likert row
-                   is only readable in scale order. */
-                <div className="overflow-x-auto -mx-2 px-2">
-                  <table className="w-full border-separate border-spacing-0 text-sm">
-                    <thead>
-                      <tr>
-                        <th className="sticky left-0 z-10 bg-card text-left pb-2 pr-3 font-normal text-xs text-muted-foreground">
-                          &nbsp;
-                        </th>
-                        {q.options.map((opt, oi) => (
-                          <th
-                            key={opt.optionId}
-                            className="px-2 pb-2 text-center align-bottom font-medium text-xs text-muted-foreground whitespace-nowrap"
+                <>
+                  {/* PHONE — one block per statement, its scale laid out left
+                      to right underneath it. The table below needs a sideways
+                      swipe to reach the last column on a 390px screen, and a
+                      column the respondent never scrolled to is a column they
+                      never considered. Stacking keeps every point on screen
+                      and still reads in scale order, which is the one thing a
+                      Likert row cannot lose. */}
+                  <div className="sm:hidden space-y-2.5">
+                    {q.rows.map((row, ri) => {
+                      const slot = answerKey(q.questionId, row.questionRowId);
+                      const rowPicked = picked(slot);
+                      const rowDone = slotSatisfied(q, slot);
+                      return (
+                        <div
+                          key={row.questionRowId}
+                          className={cn(
+                            'rounded-lg border p-3',
+                            rowDone ? 'border-border bg-background' : 'border-primary/30 bg-primary/[0.03]',
+                          )}
+                        >
+                          <p className="flex gap-2 text-sm">
+                            <span className="shrink-0 text-xs text-muted-foreground">{ri + 1}.</span>
+                            <span>{row.rowText}</span>
+                          </p>
+                          {/* An even grid rather than flex-wrap: wrapping
+                              stretched the leftover option across the whole
+                              second line, which read as a bigger, different
+                              kind of choice than the four beside it. */}
+                          <div
+                            className="scale-grid mt-2.5 gap-1.5"
+                            style={
+                              {
+                                '--scale-cols': gridColumns,
+                                '--scale-cols-narrow': gridColumnsNarrow,
+                              } as CSSProperties
+                            }
                           >
-                            {opt.optionText || `Option ${oi + 1}`}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {q.rows.map((row, ri) => {
-                        const slot = answerKey(q.questionId, row.questionRowId);
-                        const rowPicked = picked(slot);
-                        const rowDone = slotSatisfied(q, slot);
-                        return (
-                          <tr key={row.questionRowId}>
-                            <td
-                              className={cn(
-                                'sticky left-0 z-10 bg-card border-t border-border py-3 pr-3 align-middle',
-                                !rowDone && 'text-foreground',
-                              )}
-                            >
-                              <span className="flex items-start gap-2">
-                                <span className="text-xs text-muted-foreground mt-0.5 shrink-0">{ri + 1}.</span>
-                                <span className="text-sm">{row.rowText}</span>
-                              </span>
-                            </td>
-                            {q.options.map((opt) => {
+                            {q.options.map((opt, oi) => {
                               const on = rowPicked.includes(opt.optionId);
                               return (
-                                <td key={opt.optionId} className="border-t border-border px-2 py-3 text-center">
-                                  <button
-                                    type="button"
-                                    onClick={() => selectOption(opt.optionId, row.questionRowId)}
-                                    aria-label={`${row.rowText ?? `Row ${ri + 1}`}: ${opt.optionText ?? ''}`}
-                                    aria-pressed={on}
-                                    className={cn(
-                                      'inline-flex h-6 w-6 items-center justify-center rounded-full border transition-colors',
-                                      on
-                                        ? 'border-primary bg-primary text-primary-foreground'
-                                        : 'border-border hover:border-primary/60',
-                                    )}
-                                  >
-                                    {on && <Check className="h-3.5 w-3.5" />}
-                                  </button>
-                                </td>
+                                <button
+                                  key={opt.optionId}
+                                  type="button"
+                                  onClick={() => selectOption(opt.optionId, row.questionRowId)}
+                                  aria-pressed={on}
+                                  className={cn(
+                                    // break-words is the backstop: the column
+                                    // count already gives each point room for
+                                    // an ordinary label, but nothing stops an
+                                    // author writing one long word.
+                                    'min-h-11 rounded-md border px-1 py-1.5 text-[0.625rem] font-medium leading-tight break-words transition-colors',
+                                    on
+                                      ? 'border-primary bg-primary text-primary-foreground'
+                                      : 'border-border bg-background text-muted-foreground',
+                                  )}
+                                >
+                                  {opt.optionText || `Option ${oi + 1}`}
+                                </button>
                               );
                             })}
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* TABLET AND UP — rows x shared columns, one pick per row.
+                     Every row is mandatory, so an unanswered one is marked
+                     rather than left to be discovered by the Next button. The
+                     table scrolls sideways rather than wrapping, because a
+                     Likert row is only readable in scale order. */}
+                  <div className="hidden sm:block overflow-x-auto overscroll-x-contain -mx-2 px-2">
+                    <table className="w-full border-separate border-spacing-0 text-sm">
+                      <thead>
+                        <tr>
+                          <th className="sticky left-0 z-10 bg-card text-left pb-2 pr-3 font-normal text-xs text-muted-foreground">
+                            &nbsp;
+                          </th>
+                          {q.options.map((opt, oi) => (
+                            <th
+                              key={opt.optionId}
+                              className="px-2 pb-2 text-center align-bottom font-medium text-xs text-muted-foreground whitespace-nowrap"
+                            >
+                              {opt.optionText || `Option ${oi + 1}`}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {q.rows.map((row, ri) => {
+                          const slot = answerKey(q.questionId, row.questionRowId);
+                          const rowPicked = picked(slot);
+                          const rowDone = slotSatisfied(q, slot);
+                          return (
+                            <tr key={row.questionRowId}>
+                              <td
+                                className={cn(
+                                  'sticky left-0 z-10 bg-card border-t border-border py-3 pr-3 align-middle',
+                                  !rowDone && 'text-foreground',
+                                )}
+                              >
+                                <span className="flex items-start gap-2">
+                                  <span className="text-xs text-muted-foreground mt-0.5 shrink-0">{ri + 1}.</span>
+                                  <span className="text-sm">{row.rowText}</span>
+                                </span>
+                              </td>
+                              {q.options.map((opt) => {
+                                const on = rowPicked.includes(opt.optionId);
+                                return (
+                                  <td key={opt.optionId} className="border-t border-border px-2 py-3 text-center">
+                                    <button
+                                      type="button"
+                                      onClick={() => selectOption(opt.optionId, row.questionRowId)}
+                                      aria-label={`${row.rowText ?? `Row ${ri + 1}`}: ${opt.optionText ?? ''}`}
+                                      aria-pressed={on}
+                                      className={cn(
+                                        'inline-flex h-6 w-6 items-center justify-center rounded-full border transition-colors',
+                                        on
+                                          ? 'border-primary bg-primary text-primary-foreground'
+                                          : 'border-border hover:border-primary/60',
+                                      )}
+                                    >
+                                      {on && <Check className="h-3.5 w-3.5" />}
+                                    </button>
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
               ) : isText ? (
                 /* Free text. No auto-advance: there is no moment that says
                    "done" while someone is typing, and sliding the page away
@@ -834,7 +991,7 @@ export function QuestionRunner({
                     setTextAnswers({ ...textAnswers, [answerKey(q.questionId)]: e.target.value })
                   }
                   placeholder="Type your answer…"
-                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
                 />
               ) : isScale ? (
                 /* A slider, not a row of buttons — which is what lets the
@@ -866,7 +1023,7 @@ export function QuestionRunner({
                       type="button"
                       onClick={() => selectOption(opt.optionId)}
                       className={cn(
-                        'w-full text-left rounded-lg border p-4 transition-colors',
+                        'w-full text-left rounded-lg border p-3.5 sm:p-4 transition-colors',
                         on ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40',
                         // At the cap the unticked options are visibly inert —
                         // the tick is refused, so it must not look available.
@@ -932,18 +1089,39 @@ export function QuestionRunner({
             </div>
           )}
 
-          <div className="flex items-center justify-between mt-5">
-            <Button variant="outline" onClick={() => goTo(index - 1)} disabled={index === 0}>
+          {/* Pinned to the bottom of the phone screen, in normal flow from sm
+              up. On a long question — a twenty-row grid, ten options with
+              images — Next was a scroll away at the end of the page; pinned,
+              the way forward is always under the thumb. Sticky and never
+              fixed, so it still comes to rest at the end of the content, and
+              the safe-area inset keeps it clear of the home indicator. */}
+          <div className="sticky bottom-0 z-10 -mx-4 mt-5 flex items-center gap-3 border-t border-border bg-background/95 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:static sm:mx-0 sm:justify-between sm:border-0 sm:bg-transparent sm:p-0 sm:backdrop-blur-none">
+            <Button
+              variant="outline"
+              onClick={() => goTo(index - 1)}
+              disabled={index === 0}
+              className="h-11 flex-1 sm:h-8.5 sm:flex-none"
+            >
               <ChevronLeft className="h-4 w-4" />
               Previous
             </Button>
             {isLast ? (
-              <Button variant="primary" onClick={trySubmit} disabled={!answered || submitting}>
+              <Button
+                variant="primary"
+                onClick={trySubmit}
+                disabled={!answered || submitting}
+                className="h-11 flex-1 sm:h-8.5 sm:flex-none"
+              >
                 {submitting ? 'Submitting...' : 'Submit Assessment'}
                 <Check className="h-4 w-4" />
               </Button>
             ) : (
-              <Button variant="primary" onClick={() => goTo(index + 1)} disabled={!answered}>
+              <Button
+                variant="primary"
+                onClick={() => goTo(index + 1)}
+                disabled={!answered}
+                className="h-11 flex-1 sm:h-8.5 sm:flex-none"
+              >
                 Next
                 <ChevronRight className="h-4 w-4" />
               </Button>

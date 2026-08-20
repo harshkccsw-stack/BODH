@@ -66,7 +66,7 @@ export function TermsStep({
           ref={boxRef}
           onScroll={checkScroll}
           tabIndex={0}
-          className="rich-text rounded-lg border border-border bg-muted/30 p-4 text-sm leading-relaxed max-h-[50vh] overflow-y-auto focus:outline-none focus:ring-2 focus:ring-primary/30"
+          className="rich-text max-h-[45dvh] overflow-y-auto overscroll-contain rounded-lg border border-border bg-muted/30 p-3 text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-primary/30 sm:max-h-[50dvh] sm:p-4"
           // Safe by construction: the server stores only the tag subset above
           // and rejects anything else, so no attributes and no scripts can
           // reach this string.
@@ -94,7 +94,7 @@ export function TermsStep({
           checked={checked}
           disabled={!readToEnd}
           onChange={(e) => setChecked(e.target.checked)}
-          className="mt-0.5 rounded disabled:cursor-not-allowed"
+          className="mt-0.5 h-5 w-5 shrink-0 rounded accent-primary disabled:cursor-not-allowed"
         />
         <span className="text-sm">
           I have read and understood the terms above, and I agree to continue with this assessment.
@@ -106,11 +106,16 @@ export function TermsStep({
         </span>
       </label>
 
-      <div className="flex items-center justify-between gap-3 pt-1">
-        <Button variant="outline" onClick={onCancel}>
+      <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+        <Button variant="outline" onClick={onCancel} className="h-11 w-full sm:h-8.5 sm:w-auto">
           Cancel
         </Button>
-        <Button variant="primary" onClick={onAgree} disabled={!checked}>
+        <Button
+          variant="primary"
+          onClick={onAgree}
+          disabled={!checked}
+          className="h-11 w-full sm:h-8.5 sm:w-auto"
+        >
           <Check className="h-4 w-4" />
           Agree &amp; Continue
         </Button>

@@ -53,8 +53,11 @@ export function DemographicsStep({
     }
   };
 
+  // h-11 on the control itself: a 44px target is the minimum comfortable
+  // tap size, and the base stylesheet already lifts the font to 16px on phone
+  // widths so focusing one does not make iOS zoom the page.
   const inputClass =
-    'w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20';
+    'h-11 w-full rounded-lg border border-border bg-background px-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 sm:h-auto sm:py-2';
 
   return (
     <StepShell title={title} subtitle={subtitle}>
@@ -79,7 +82,7 @@ export function DemographicsStep({
           No demographic fields configured. Ask your administrator to add some in the Questionnaire Library.
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           {fields.map((f) => {
             const value = values[keyOf(f)] || '';
             return (
@@ -121,11 +124,16 @@ export function DemographicsStep({
         </div>
       )}
 
-      <div className="flex items-center justify-between gap-3 pt-1">
-        <Button variant="outline" onClick={onCancel}>
+      <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+        <Button variant="outline" onClick={onCancel} className="h-11 w-full sm:h-8.5 sm:w-auto">
           Cancel
         </Button>
-        <Button variant="primary" onClick={submit} disabled={saving}>
+        <Button
+          variant="primary"
+          onClick={submit}
+          disabled={saving}
+          className="h-11 w-full sm:h-8.5 sm:w-auto"
+        >
           <Check className="h-4 w-4" />
           {saving ? 'Saving…' : 'Continue to Assessment'}
         </Button>
