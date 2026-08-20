@@ -1,9 +1,12 @@
 <!doctype html>
-<html lang="en" class="h-full">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- viewport-fit=cover so the safe-area insets used by the sticky header
+         and the bottom nav bar resolve on notched phones. No maximum-scale:
+         pinch-zoom stays available. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>BodhAssess — Respondent Portal</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -12,7 +15,16 @@
       rel="stylesheet"
     />
   </head>
-  <body class="antialiased h-full flex text-base text-foreground bg-background">
+  <!--
+    min-h-dvh, NOT h-full. `h-full` made <body> exactly one viewport tall, and
+    because it is also a flex container every page root stretched to that same
+    fixed height. Anything taller than the phone screen (a registration form, a
+    long question) then overflowed a vertically-CENTRED box in both directions
+    — and the part above the scroll origin is unreachable, which is why the
+    organization logo and heading were showing up half cut off on mobile.
+    With min-height the row grows with its content instead.
+  -->
+  <body class="antialiased min-h-dvh flex text-base text-foreground bg-background">
     <div id="root" class="contents"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

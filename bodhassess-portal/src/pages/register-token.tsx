@@ -17,10 +17,14 @@ import { useNavigate, useParams } from 'react-router';
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
+// h-11 on a phone: a 44px control is the smallest that is comfortable to tap,
+// and the base stylesheet lifts the font to 16px at the same widths so
+// focusing one never makes iOS zoom the page. Back to the designed height
+// from `sm` up.
 const INPUT =
-  'w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20';
+  'h-11 w-full rounded-lg border border-border bg-background px-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 sm:h-auto sm:py-2';
 const INPUT_LOCKED =
-  'w-full rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground outline-none cursor-not-allowed';
+  'h-11 w-full cursor-not-allowed rounded-lg border border-border bg-muted/40 px-3 text-sm text-muted-foreground outline-none sm:h-auto sm:py-2';
 
 /**
  * /register/{token} — self-registration from a link an admin shared.
@@ -163,7 +167,7 @@ export default function RegisterTokenPage() {
     // min-h-dvh, not min-h-screen: on mobile browsers 100vh includes the
     // retracting address bar, which is exactly the overflow this layout is
     // trying to avoid.
-    <div className="flex-1 min-h-dvh w-full flex items-center justify-center bg-linear-to-br from-primary/10 via-background to-primary/5 px-4 py-6">
+    <div className="flex-1 min-h-dvh w-full flex items-center justify-center bg-linear-to-br from-primary/10 via-background to-primary/5 px-4 py-6 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
       <div className="w-full max-w-2xl space-y-4">
         {/* Who they are registering with. Laid out on ONE line rather than a
             centred stack — the stacked version cost ~60px of height for no
@@ -183,7 +187,11 @@ export default function RegisterTokenPage() {
             </div>
           )}
           <div className="min-w-0">
-            <h1 className="text-xl font-semibold tracking-tight truncate">
+            {/* Two lines on a phone, one truncated line from sm up: this is
+                the respondent's confirmation of WHOSE assessment they are
+                about to take, so a long organization name is worth the second
+                line. */}
+            <h1 className="text-lg sm:text-xl font-semibold tracking-tight line-clamp-2 sm:truncate">
               {detail.organizationName}
             </h1>
             {/* An org-wide link grants no assessment, so promising one would
@@ -197,7 +205,7 @@ export default function RegisterTokenPage() {
         </div>
 
         <Card>
-          <CardContent className="p-5">
+          <CardContent className="p-4 sm:p-5">
             <form onSubmit={submit}>
               {/* One grid holds every field. Two columns from `sm` up, which
                   is what keeps the whole form on screen without scrolling;
@@ -307,7 +315,7 @@ export default function RegisterTokenPage() {
                 </div>
               )}
 
-              <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+              <div className="mt-4 flex flex-col-reverse gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
                 <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   <ClipboardList className="h-3.5 w-3.5" />
                   Already registered?{' '}
@@ -315,7 +323,13 @@ export default function RegisterTokenPage() {
                     Sign in
                   </a>
                 </p>
-                <Button type="submit" variant="primary" size="md" disabled={saving}>
+                <Button
+                  type="submit"
+                  variant="primary"
+                  size="md"
+                  disabled={saving}
+                  className="h-11 w-full sm:h-8.5 sm:w-auto"
+                >
                   {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
                   {saving
                     ? 'Registering…'

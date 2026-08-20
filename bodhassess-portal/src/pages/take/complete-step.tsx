@@ -17,7 +17,7 @@ export function CompleteStep({
   onBackToList: () => void;
 }) {
   return (
-    <div className="flex-1 min-h-screen w-full flex items-center justify-center px-4 py-10 bg-linear-to-br from-primary/10 via-background to-green-100/40 dark:to-green-950/20">
+    <div className="flex-1 min-h-dvh w-full flex items-center justify-center px-4 py-8 pb-[max(2rem,env(safe-area-inset-bottom))] sm:py-10 bg-linear-to-br from-primary/10 via-background to-green-100/40 dark:to-green-950/20">
       <div className="w-full max-w-lg space-y-6">
         <div className="text-center">
           <div className="relative mx-auto flex h-24 w-24 items-center justify-center">
@@ -30,9 +30,9 @@ export function CompleteStep({
         </div>
 
         <Card className="border-border/70 shadow-xl shadow-black/5">
-          <CardContent className="p-8 text-center space-y-5">
+          <CardContent className="space-y-5 p-6 text-center sm:p-8">
             <div className="space-y-2">
-              <h1 className="text-3xl font-semibold tracking-tight">Thank you!</h1>
+              <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Thank you!</h1>
               <p className="text-sm text-muted-foreground leading-relaxed max-w-sm mx-auto">
                 {respondentName ? `${respondentName}, your` : 'Your'} responses have been submitted securely. Your
                 administrator will review them and share the report separately.
@@ -56,7 +56,7 @@ export function CompleteStep({
               <Button
                 variant="primary"
                 size="md"
-                className="w-full sm:w-auto sm:min-w-[14rem]"
+                className="h-11 w-full sm:h-8.5 sm:w-auto sm:min-w-[14rem]"
                 onClick={onBackToList}
               >
                 <ClipboardList className="h-4 w-4" />

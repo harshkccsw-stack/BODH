@@ -35,13 +35,13 @@ export function InstructionsStep({
           whitespace-pre-wrap. */}
       <RichText
         value={instructions}
-        className="rounded-lg border border-border bg-muted/30 p-4 text-sm leading-relaxed max-h-[60vh] overflow-y-auto"
+        className="max-h-[55dvh] overflow-y-auto overscroll-contain rounded-lg border border-border bg-muted/30 p-3 text-sm leading-relaxed sm:max-h-[60dvh] sm:p-4"
       />
-      <div className="flex items-center justify-between gap-3 pt-1">
-        <Button variant="outline" onClick={onCancel}>
+      <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+        <Button variant="outline" onClick={onCancel} className="h-11 w-full sm:h-8.5 sm:w-auto">
           Cancel
         </Button>
-        <Button variant="primary" onClick={onContinue}>
+        <Button variant="primary" onClick={onContinue} className="h-11 w-full sm:h-8.5 sm:w-auto">
           <Check className="h-4 w-4" />
           Continue
         </Button>
