@@ -30,9 +30,9 @@ public record AssessmentRequest(
         // Show the portal question index/navigator during the attempt.
         // Null falls back to the entity default (true).
         Boolean showQuestionIndex,
-        // Put the portal's focus popup on a 10-minute budget and abandon the
-        // attempt when it runs out. Null falls back to the entity default
-        // (false) — an omitted field must never switch the timer on.
+        // Give the portal's focus popup a 10-minute deadline and abandon the
+        // attempt if one is left unanswered that long. Null falls back to the
+        // entity default (false) — an omitted field must never arm the timer.
         Boolean attentionTimer,
         // Snapshot marked answers into Redis on section change so an ONGOING
         // attempt can resume with them backfilled. Null falls back to the

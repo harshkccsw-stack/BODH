@@ -4,8 +4,65 @@
 > experts** to load live assessment data, compute custom metrics with formulas,
 > and build shareable dashboards.
 
-Status: **Phases 1–3 implemented** (2026-06-04). Phases 4–6 pending. **v1 complete.**
-Author context: requirements gathered 2026-06-03.
+Status: **Ported to the spring-social backend, 2026-08-21.** Everything below
+the "Port" section describes the ORIGINAL build against `bodhassess-api-spring`
+and is kept as the design record — the architecture, the formula grammar and
+the phasing all carried over unchanged. Read the port section first; where the
+two disagree, the port wins.
+
+---
+
+## Port to spring-social (2026-08-21)
+
+The original Data Studio lived in `bodhassess-api-spring`, which is now
+`deleted/`. The frontend pages survived; the backend had to be rebuilt against
+this schema's assessment model. Both halves verified: `./mvnw test` 96 green,
+`npm run typecheck` + `npm run build` clean, and the whole flow smoke-tested
+live against the dev database with `__smoke__` data since removed.
+
+**What changed, and why**
+
+| Then | Now |
+|---|---|
+| `DatasetService.sessions(entityId, questionnaireId)` over `PortalSession` | `DataStudioDatasetService.dataset(assessmentId, organizationId)` over `RespondentAssessmentMapping`, scored by the existing `MqtScoringService` |
+| One row per portal session | **One row per ALLOTTED ATTEMPT**, unfinished ones included |
+| Score columns keyed `mqt:<mqtId>` (a string id) | `mqt:<id>` own score, `mqtt:<id>` subtree total, `mq:<id>` MQ total, all numeric ids |
+| Columns: core / scores / demographics | Adds `ans:<questionTag>` — one column per question, or per ROW of a grid |
+| `ownerId` a string user id | A real FK to `User`; shares are FKs too |
+| `ddl-auto=update` created `ds_*` | Flyway `V20__add_data_studio.sql`, six tables, no ALTER on anything existing |
+| REST-ish `/api/v1/workbooks` | `/api/data-studio/...` in this project's `getAll / getById / create / update / delete` style |
+| No auth on the routes | Anonymous is 401; access is OWNER / EDITOR / VIEWER / ADMIN, and a stranger gets **404, not 403** |
+
+**Decisions taken during the port**
+
+- **Unfinished attempts score BLANK, not zero.** `MqtScoringService` returns 0
+  for a trait nobody scored on, which is a real measurement for a COMPLETED
+  attempt and a lie for one that never started. Letting those zeros into a
+  column would drag every average and z-score toward zero by exactly the number
+  of people who have not turned up. `core:completed` (1/0) is there so
+  completion rate is still `AVERAGE()` of a column.
+- **The query endpoint takes a `dsSheetId`.** The old `/analytics/query` only
+  ever saw the raw dataset, so a dashboard could not chart a computed column —
+  the one thing the spreadsheet half exists to produce. Passing the sheet means
+  its `calc:` columns are materialised first and can be grouped by or measured.
+  The widget UI always uses this path.
+- **`IF()` infers its type from its branches.** The ported engine typed every
+  call but NORMBAND/AND/OR/NOT as a number, so `IF(x > 3, "high", "low")` — the
+  most common banding formula there is — declared itself numeric.
+- **A sheet still bound to a widget cannot be deleted** (409, pre-checked). The
+  old code deleted it and left the dashboard drawing from nothing.
+- **Naming-strategy trap.** Hibernate's camelCase→underscores strategy only
+  splits a capital with a lowercase letter on *both* sides, so a trailing one is
+  never split: a logical `posX` becomes `posx`, not `pos_x`. `DsWidget` spells
+  those two columns snake_case in `@Column` for that reason. `ddl-auto: validate`
+  catches it at boot, which is how it was found.
+
+**Not ported:** Phases 4–6 (export, share links, BodhLens NL) were never built
+and still are not. `ds_share_link` does not exist.
+
+---
+
+Author context: requirements gathered 2026-06-03; original build 2026-06-04.
 
 ## Phase 3 — implementation notes
 

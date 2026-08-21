@@ -359,7 +359,7 @@ export default function CreateAssessmentPage() {
                 />
                 <ToggleRow
                   label="Attention timer"
-                  hint="Gives the inactivity “Focus on your assessment” popup a 10-minute budget. The clock runs only while that popup is on screen and pauses when the respondent continues; if it runs out, the attempt is stopped and handed back unstarted so they take it again from the beginning."
+                  hint="Gives the inactivity “Focus on your assessment” popup a 10-minute countdown. Every popup starts a fresh ten, so nothing adds up across the attempt — but leaving one unanswered for the full ten minutes stops the attempt and hands it back unstarted, to be taken again from the beginning."
                   checked={form.attentionTimer}
                   onChange={(v) => setForm({ ...form, attentionTimer: v })}
                 />

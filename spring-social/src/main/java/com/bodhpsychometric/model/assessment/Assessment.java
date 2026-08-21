@@ -70,11 +70,17 @@ public class Assessment implements java.io.Serializable {
     @Column(name = "showQuestionIndex", nullable = false)
     private boolean showQuestionIndex = true;
 
-    // Portal UX: put the inactivity ("Focus on your assessment") popup on a
-    // 10-minute budget. The clock runs only while that popup is up — OKAY
-    // pauses it, the next popup resumes it — and when it runs out the attempt
-    // is abandoned back to NOT_STARTED so the respondent starts over. Defaults
-    // false: an assessment that never asked for this keeps the plain nag popup.
+    // Portal UX: give the inactivity ("Focus on your assessment") popup a
+    // 10-minute deadline. Every popup starts a fresh ten — nothing is banked
+    // between them — and leaving one unanswered that long abandons the attempt
+    // back to NOT_STARTED, so the respondent starts over. A walked-away
+    // detector, not a distraction budget: how OFTEN they were nudged is
+    // recorded separately, in the attempt's popUpCount. Defaults false: an
+    // assessment that never asked for this keeps the plain nag popup.
+    //
+    // (V18's header describes the earlier cumulative-budget rule. It is
+    // applied and checksummed, so it cannot be corrected in place — this is
+    // the accurate account.)
     @Column(name = "attentionTimer", nullable = false)
     private boolean attentionTimer;
 

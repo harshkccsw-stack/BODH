@@ -19,31 +19,40 @@ import {
 } from '@/components/ui/dialog';
 import { WidgetBody, type MeasureCfg, type WidgetConfig } from '@/pages/data-studio/components/DashboardWidgets';
 import {
-  dataStudioApi,
-  type Dashboard, type DatasetColumn, type Sheet, type Widget, type WidgetType, type Workbook,
-} from '@/lib/api';
+  dataStudioApis,
+  dsError,
+  type DsDashboard,
+  type DsDatasetColumn,
+  type DsSheet,
+  type DsWidget,
+  type DsWidgetType,
+  type DsWorkbook,
+} from '@/pages/data-studio/dataStudioApis';
 
 const WIDTHS: { label: string; w: number }[] = [
   { label: '¼', w: 3 }, { label: '½', w: 6 }, { label: '¾', w: 9 }, { label: 'Full', w: 12 },
 ];
 
 interface Props {
-  dashboard: Dashboard;
-  workbook: Workbook;
+  dashboard: DsDashboard;
+  workbook: DsWorkbook;
   canEdit: boolean;
   onChanged: () => void;
 }
 
 export function DashboardView({ dashboard, workbook, canEdit, onChanged }: Props) {
   const [editing, setEditing] = useState(false);
-  const [widgets, setWidgets] = useState<Widget[]>(dashboard.widgets ?? []);
+  const [widgets, setWidgets] = useState<DsWidget[]>(dashboard.widgets ?? []);
   const [addOpen, setAddOpen] = useState(false);
+  const [error, setError] = useState('');
 
-  useEffect(() => { setWidgets(dashboard.widgets ?? []); }, [dashboard.id, dashboard.widgets]);
+  useEffect(() => {
+    setWidgets(dashboard.widgets ?? []);
+  }, [dashboard.dsDashboardId, dashboard.widgets]);
 
   const sheetsById = useMemo(() => {
-    const m = new Map<number, Sheet>();
-    for (const s of workbook.sheets) m.set(s.id, s);
+    const m = new Map<number, DsSheet>();
+    for (const s of workbook.sheets) m.set(s.dsSheetId, s);
     return m;
   }, [workbook.sheets]);
 
@@ -52,23 +61,44 @@ export function DashboardView({ dashboard, workbook, canEdit, onChanged }: Props
   const onDragEnd = useCallback(async (e: DragEndEvent) => {
     const { active, over } = e;
     if (!over || active.id === over.id) return;
-    const oldIdx = widgets.findIndex((w) => w.id === active.id);
-    const newIdx = widgets.findIndex((w) => w.id === over.id);
+    const oldIdx = widgets.findIndex((w) => w.dsWidgetId === active.id);
+    const newIdx = widgets.findIndex((w) => w.dsWidgetId === over.id);
     if (oldIdx < 0 || newIdx < 0) return;
+    const previous = widgets;
     const next = arrayMove(widgets, oldIdx, newIdx);
-    setWidgets(next);
-    // Persist new ordering.
-    await Promise.all(next.map((w, i) => dataStudioApi.updateWidget(w.id, { sortOrder: i })));
+    setWidgets(next); // optimistic — the drop should feel instant
+    try {
+      await Promise.all(
+        next.map((w, i) => dataStudioApis.updateWidget(w.dsWidgetId, { sortOrder: i })),
+      );
+    } catch (e) {
+      // Put the tiles back rather than leaving the screen showing an order
+      // the server did not accept — a VIEWER dragging is exactly this case.
+      setWidgets(previous);
+      setError(dsError(e, 'Could not save the new order'));
+    }
   }, [widgets]);
 
   const setWidth = async (id: number, w: number) => {
-    setWidgets((ws) => ws.map((x) => (x.id === id ? { ...x, w } : x)));
-    await dataStudioApi.updateWidget(id, { w });
+    const previous = widgets;
+    setWidgets((ws) => ws.map((x) => (x.dsWidgetId === id ? { ...x, w } : x)));
+    try {
+      await dataStudioApis.updateWidget(id, { w });
+    } catch (e) {
+      setWidgets(previous);
+      setError(dsError(e, 'Could not resize the widget'));
+    }
   };
 
   const remove = async (id: number) => {
-    setWidgets((ws) => ws.filter((x) => x.id !== id));
-    await dataStudioApi.deleteWidget(id);
+    const previous = widgets;
+    setWidgets((ws) => ws.filter((x) => x.dsWidgetId !== id));
+    try {
+      await dataStudioApis.deleteWidget(id);
+    } catch (e) {
+      setWidgets(previous);
+      setError(dsError(e, 'Could not delete the widget'));
+    }
   };
 
   if (workbook.sheets.length === 0) {
@@ -81,6 +111,12 @@ export function DashboardView({ dashboard, workbook, canEdit, onChanged }: Props
 
   return (
     <div className="space-y-3">
+      {error && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-400">
+          {error}
+        </div>
+      )}
+
       <div className="flex items-center justify-between">
         <span className="text-sm text-muted-foreground">{widgets.length} widget{widgets.length === 1 ? '' : 's'}</span>
         {canEdit && (
@@ -109,16 +145,16 @@ export function DashboardView({ dashboard, workbook, canEdit, onChanged }: Props
         </div>
       ) : (
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
-          <SortableContext items={widgets.map((w) => w.id)} strategy={rectSortingStrategy}>
+          <SortableContext items={widgets.map((w) => w.dsWidgetId)} strategy={rectSortingStrategy}>
             <div className="grid grid-cols-12 gap-3">
               {widgets.map((w) => (
                 <WidgetCard
-                  key={w.id}
+                  key={w.dsWidgetId}
                   widget={w}
-                  sheet={w.sheetId ? sheetsById.get(w.sheetId) : undefined}
+                  sheet={w.dsSheetId ? sheetsById.get(w.dsSheetId) : undefined}
                   editing={editing}
-                  onWidth={(width) => setWidth(w.id, width)}
-                  onRemove={() => remove(w.id)}
+                  onWidth={(width) => setWidth(w.dsWidgetId, width)}
+                  onRemove={() => remove(w.dsWidgetId)}
                 />
               ))}
             </div>
@@ -129,7 +165,7 @@ export function DashboardView({ dashboard, workbook, canEdit, onChanged }: Props
       {addOpen && (
         <AddWidgetDialog
           workbook={workbook}
-          dashboardId={dashboard.id}
+          dashboardId={dashboard.dsDashboardId}
           onClose={() => setAddOpen(false)}
           onAdded={() => { setAddOpen(false); onChanged(); }}
         />
@@ -141,10 +177,11 @@ export function DashboardView({ dashboard, workbook, canEdit, onChanged }: Props
 function WidgetCard({
   widget, sheet, editing, onWidth, onRemove,
 }: {
-  widget: Widget; sheet?: Sheet; editing: boolean;
+  widget: DsWidget; sheet?: DsSheet; editing: boolean;
   onWidth: (w: number) => void; onRemove: () => void;
 }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: widget.id });
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id: widget.dsWidgetId });
   const span = widget.w ?? 6;
   const bodyHeight = (widget.h ?? 2) * 140;
   const cfg = widget.config as WidgetConfig;
@@ -193,15 +230,18 @@ function WidgetCard({
 
 /* ---------------- add-widget dialog ---------------- */
 
-const AGGS = ['avg', 'sum', 'count', 'min', 'max', 'p50'] as const;
+// `count` counts rows in the group, blanks included; `countv` counts only the
+// rows where the measure produced a number. On this dataset the two differ by
+// exactly the attempts nobody has completed, so both are worth offering.
+const AGGS = ['avg', 'sum', 'count', 'countv', 'min', 'max', 'p50'] as const;
 
 function AddWidgetDialog({
   workbook, dashboardId, onClose, onAdded,
-}: { workbook: Workbook; dashboardId: number; onClose: () => void; onAdded: () => void }) {
-  const [type, setType] = useState<WidgetType>('KPI');
-  const [sheetId, setSheetId] = useState<number>(workbook.sheets[0]?.id ?? 0);
+}: { workbook: DsWorkbook; dashboardId: number; onClose: () => void; onAdded: () => void }) {
+  const [type, setType] = useState<DsWidgetType>('KPI');
+  const [sheetId, setSheetId] = useState<number>(workbook.sheets[0]?.dsSheetId ?? 0);
   const [title, setTitle] = useState('');
-  const [columns, setColumns] = useState<DatasetColumn[]>([]);
+  const [columns, setColumns] = useState<DsDatasetColumn[]>([]);
   const [loadingCols, setLoadingCols] = useState(false);
   const [dimension, setDimension] = useState('');
   const [measureCol, setMeasureCol] = useState('');
@@ -210,11 +250,13 @@ function AddWidgetDialog({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
-  // Load the chosen sheet's columns to populate dimension/measure pickers.
+  // Read the chosen sheet's columns — its own data, not the raw dataset — so
+  // the pickers offer computed columns (`calc:…`) next to the scores and
+  // demographics. A chart of a z-score is only possible because of this.
   useEffect(() => {
     if (!sheetId) return;
     setLoadingCols(true);
-    dataStudioApi.getSheetData(sheetId)
+    dataStudioApis.getSheetData(sheetId)
       .then((d) => {
         setColumns(d.columns);
         setDimension((cur) => cur || d.columns.find((c) => c.type !== 'number')?.key || d.columns[0]?.key || '');
@@ -243,13 +285,15 @@ function AddWidgetDialog({
     if (!canSave) return;
     setSaving(true); setError('');
     try {
-      await dataStudioApi.addWidget(dashboardId, {
-        type, sheetId, config: buildConfig() as Record<string, unknown>,
-        w: type === 'KPI' ? 3 : 6, h: type === 'KPI' ? 1 : 2,
+      await dataStudioApis.addWidget(dashboardId, {
+        type,
+        dsSheetId: sheetId,
+        config: buildConfig() as Record<string, unknown>,
+        w: type === 'KPI' ? 3 : 6,
       });
       onAdded();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to add widget');
+      setError(dsError(e, 'Failed to add widget'));
       setSaving(false);
     }
   };
@@ -264,7 +308,7 @@ function AddWidgetDialog({
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label>Type</Label>
-              <select className={selectCls} value={type} onChange={(e) => setType(e.target.value as WidgetType)}>
+              <select className={selectCls} value={type} onChange={(e) => setType(e.target.value as DsWidgetType)}>
                 <option value="KPI">KPI (single number)</option>
                 <option value="CHART">Chart</option>
                 <option value="TABLE">Table</option>
@@ -273,7 +317,9 @@ function AddWidgetDialog({
             <div className="space-y-1.5">
               <Label>Sheet</Label>
               <select className={selectCls} value={sheetId} onChange={(e) => setSheetId(Number(e.target.value))}>
-                {workbook.sheets.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                {workbook.sheets.map((s) => (
+                  <option key={s.dsSheetId} value={s.dsSheetId}>{s.name}</option>
+                ))}
               </select>
             </div>
           </div>

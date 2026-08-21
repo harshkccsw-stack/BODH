@@ -46,10 +46,10 @@ public record PortalAssessmentDetailResponse(
         boolean autoNext,
         boolean showQuestionIndex,
         /**
-         * Arms the portal's 10-minute attention budget: the focus popup's
-         * open time is counted down across the attempt, and running out
-         * abandons it (see the abandon endpoint). The BUDGET itself is the
-         * portal's constant — only whether it applies is stored here.
+         * Arms the portal's attention timer: each focus popup carries a
+         * 10-minute countdown, and letting one run out abandons the attempt
+         * (see the abandon endpoint). The DEADLINE itself is the portal's
+         * constant — only whether it applies is stored here.
          */
         boolean attentionTimer,
         /**

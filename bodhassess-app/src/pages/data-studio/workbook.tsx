@@ -16,15 +16,19 @@ import {
 import { SheetView } from '@/pages/data-studio/components/SheetView';
 import { DashboardView } from '@/pages/data-studio/components/DashboardView';
 import {
-  assessmentRecordsApi,
-  dataStudioApi,
-  type AssessmentRecord, type Dashboard, type DerivedColumn, type Sheet, type Workbook,
-} from '@/lib/api';
+  dataStudioApis,
+  dsError,
+  type DsAssessmentOption,
+  type DsDashboard,
+  type DsDerivedColumn,
+  type DsSheet,
+  type DsWorkbook,
+} from '@/pages/data-studio/dataStudioApis';
 
 export default function WorkbookPage() {
   const { wid } = useParams();
   const workbookId = Number(wid);
-  const [workbook, setWorkbook] = useState<Workbook | null>(null);
+  const [workbook, setWorkbook] = useState<DsWorkbook | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [mode, setMode] = useState<'sheets' | 'dashboards'>('sheets');
@@ -38,16 +42,17 @@ export default function WorkbookPage() {
     setLoading(true);
     setError('');
     try {
-      const wb = await dataStudioApi.getWorkbook(workbookId);
-      // Tolerate older API payloads that omit a collection.
+      const wb = await dataStudioApis.getWorkbook(workbookId);
+      // Tolerate a payload that omits a collection rather than rendering a
+      // crash: every list below maps over these unconditionally.
       wb.sheets ??= [];
       wb.dashboards ??= [];
       wb.shares ??= [];
       setWorkbook(wb);
-      setActiveSheetId((prev) => prev ?? wb.sheets[0]?.id ?? null);
-      setActiveDashboardId((prev) => prev ?? wb.dashboards[0]?.id ?? null);
+      setActiveSheetId((prev) => prev ?? wb.sheets[0]?.dsSheetId ?? null);
+      setActiveDashboardId((prev) => prev ?? wb.dashboards[0]?.dsDashboardId ?? null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load workbook');
+      setError(dsError(e, 'Failed to load workbook'));
     } finally {
       setLoading(false);
     }
@@ -60,14 +65,19 @@ export default function WorkbookPage() {
   const canEdit =
     workbook?.access === 'OWNER' || workbook?.access === 'EDITOR' || workbook?.access === 'ADMIN';
   const canManage = workbook?.access === 'OWNER' || workbook?.access === 'ADMIN';
-  const activeSheet = workbook?.sheets.find((s) => s.id === activeSheetId) ?? null;
-  const activeDashboard = workbook?.dashboards.find((d) => d.id === activeDashboardId) ?? null;
+  const activeSheet = workbook?.sheets.find((s) => s.dsSheetId === activeSheetId) ?? null;
+  const activeDashboard = workbook?.dashboards.find((d) => d.dsDashboardId === activeDashboardId) ?? null;
 
   // Keep the active sheet's derived columns in sync after add/delete without a full reload.
-  const onColumnsChanged = (sheetId: number, columns: DerivedColumn[]) => {
+  const onColumnsChanged = (sheetId: number, columns: DsDerivedColumn[]) => {
     setWorkbook((wb) =>
       wb
-        ? { ...wb, sheets: wb.sheets.map((s) => (s.id === sheetId ? { ...s, derivedColumns: columns } : s)) }
+        ? {
+            ...wb,
+            sheets: wb.sheets.map((s) =>
+              s.dsSheetId === sheetId ? { ...s, derivedColumns: columns } : s,
+            ),
+          }
         : wb,
     );
   };
@@ -144,11 +154,11 @@ export default function WorkbookPage() {
           <div className="flex flex-wrap items-center gap-2 border-b border-border pb-2">
             {workbook.sheets.map((s) => (
               <button
-                key={s.id}
+                key={s.dsSheetId}
                 type="button"
-                onClick={() => setActiveSheetId(s.id)}
+                onClick={() => setActiveSheetId(s.dsSheetId)}
                 className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm transition-colors ${
-                  s.id === activeSheetId ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
+                  s.dsSheetId === activeSheetId ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
                 }`}
               >
                 <Table2 className="h-3.5 w-3.5" />
@@ -164,10 +174,10 @@ export default function WorkbookPage() {
 
           {activeSheet ? (
             <SheetView
-              key={activeSheet.id}
+              key={activeSheet.dsSheetId}
               sheet={activeSheet}
               canEdit={!!canEdit}
-              onColumnsChanged={(cols) => onColumnsChanged(activeSheet.id, cols)}
+              onColumnsChanged={(cols) => onColumnsChanged(activeSheet.dsSheetId, cols)}
             />
           ) : (
             <Card>
@@ -189,11 +199,11 @@ export default function WorkbookPage() {
           <div className="flex flex-wrap items-center gap-2 border-b border-border pb-2">
             {workbook.dashboards.map((d) => (
               <button
-                key={d.id}
+                key={d.dsDashboardId}
                 type="button"
-                onClick={() => setActiveDashboardId(d.id)}
+                onClick={() => setActiveDashboardId(d.dsDashboardId)}
                 className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm transition-colors ${
-                  d.id === activeDashboardId ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
+                  d.dsDashboardId === activeDashboardId ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
                 }`}
               >
                 <LayoutGrid className="h-3.5 w-3.5" />
@@ -209,7 +219,7 @@ export default function WorkbookPage() {
 
           {activeDashboard ? (
             <DashboardView
-              key={activeDashboard.id}
+              key={activeDashboard.dsDashboardId}
               dashboard={activeDashboard}
               workbook={workbook}
               canEdit={!!canEdit}
@@ -238,7 +248,7 @@ export default function WorkbookPage() {
           onCreated={(sheet) => {
             setSheetDialogOpen(false);
             setWorkbook((wb) => (wb ? { ...wb, sheets: [...wb.sheets, sheet] } : wb));
-            setActiveSheetId(sheet.id);
+            setActiveSheetId(sheet.dsSheetId);
           }}
         />
       )}
@@ -250,7 +260,7 @@ export default function WorkbookPage() {
           onCreated={(dash) => {
             setDashboardDialogOpen(false);
             setWorkbook((wb) => (wb ? { ...wb, dashboards: [...wb.dashboards, dash] } : wb));
-            setActiveDashboardId(dash.id);
+            setActiveDashboardId(dash.dsDashboardId);
             setMode('dashboards');
           }}
         />
@@ -269,23 +279,23 @@ export default function WorkbookPage() {
 
 function CreateSheetDialog({
   workbookId, onClose, onCreated,
-}: { workbookId: number; onClose: () => void; onCreated: (s: Sheet) => void }) {
+}: { workbookId: number; onClose: () => void; onCreated: (s: DsSheet) => void }) {
   const [name, setName] = useState('');
-  const [assessments, setAssessments] = useState<AssessmentRecord[]>([]);
+  const [assessments, setAssessments] = useState<DsAssessmentOption[]>([]);
   const [loadingList, setLoadingList] = useState(true);
-  const [selected, setSelected] = useState<AssessmentRecord | null>(null);
+  const [selected, setSelected] = useState<DsAssessmentOption | null>(null);
   const [nameTouched, setNameTouched] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    assessmentRecordsApi.list()
+    dataStudioApis.listAssessments()
       .then(setAssessments)
-      .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load assessments'))
+      .catch((e) => setError(dsError(e, 'Failed to load assessments')))
       .finally(() => setLoadingList(false));
   }, []);
 
-  const pick = (a: AssessmentRecord) => {
+  const pick = (a: DsAssessmentOption) => {
     setSelected(a);
     if (!nameTouched) setName(a.name); // default sheet name to the assessment name
   };
@@ -295,13 +305,13 @@ function CreateSheetDialog({
     setSaving(true);
     setError('');
     try {
-      const sheet = await dataStudioApi.createSheet(workbookId, {
+      const sheet = await dataStudioApis.createSheet(workbookId, {
         name: name.trim(),
-        sourceFilters: { assessmentId: selected.id },
+        sourceFilters: { assessmentId: selected.assessmentId },
       });
       onCreated(sheet);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to create sheet');
+      setError(dsError(e, 'Failed to create sheet'));
       setSaving(false);
     }
   };
@@ -322,8 +332,9 @@ function CreateSheetDialog({
               onPick={pick}
             />
             <p className="text-xs text-muted-foreground">
-              The sheet loads <strong>all respondents</strong> of the chosen assessment (one row each),
-              live from the database.
+              The sheet loads <strong>every respondent allotted</strong> this assessment — one row
+              each, unfinished attempts included — live from the database. Scores are blank until
+              an attempt is completed, so they never drag an average down.
             </p>
           </div>
           <div className="space-y-1.5">
@@ -353,10 +364,10 @@ function CreateSheetDialog({
 function AssessmentPicker({
   assessments, loading, selected, onPick,
 }: {
-  assessments: AssessmentRecord[];
+  assessments: DsAssessmentOption[];
   loading: boolean;
-  selected: AssessmentRecord | null;
-  onPick: (a: AssessmentRecord) => void;
+  selected: DsAssessmentOption | null;
+  onPick: (a: DsAssessmentOption) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -373,8 +384,11 @@ function AssessmentPicker({
 
   const q = query.trim().toLowerCase();
   const filtered = q
-    ? assessments.filter((a) =>
-        a.name.toLowerCase().includes(q) || (a.questionnaireName ?? '').toLowerCase().includes(q))
+    ? assessments.filter(
+        (a) =>
+          a.name.toLowerCase().includes(q) ||
+          (a.questionnaireName ?? '').toLowerCase().includes(q),
+      )
     : assessments;
 
   return (
@@ -408,10 +422,10 @@ function AssessmentPicker({
             ) : (
               filtered.map((a) => (
                 <button
-                  key={a.id}
+                  key={a.assessmentId}
                   type="button"
                   onClick={() => { onPick(a); setOpen(false); setQuery(''); }}
-                  className={`flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-muted ${selected?.id === a.id ? 'bg-muted' : ''}`}
+                  className={`flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-muted ${selected?.assessmentId === a.assessmentId ? 'bg-muted' : ''}`}
                 >
                   <span className="min-w-0">
                     <span className="block truncate">{a.name}</span>
@@ -420,8 +434,10 @@ function AssessmentPicker({
                     )}
                   </span>
                   <span className="shrink-0 text-xs text-muted-foreground">
-                    {a.sessionsCount ?? 0} resp.
-                    {selected?.id === a.id && <Check className="ml-1 inline h-3.5 w-3.5 text-primary" />}
+                    {a.respondentCount ?? 0} resp.
+                    {selected?.assessmentId === a.assessmentId && (
+                      <Check className="ml-1 inline h-3.5 w-3.5 text-primary" />
+                    )}
                   </span>
                 </button>
               ))
@@ -435,7 +451,7 @@ function AssessmentPicker({
 
 function CreateDashboardDialog({
   workbookId, onClose, onCreated,
-}: { workbookId: number; onClose: () => void; onCreated: (d: Dashboard) => void }) {
+}: { workbookId: number; onClose: () => void; onCreated: (d: DsDashboard) => void }) {
   const [name, setName] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -445,9 +461,9 @@ function CreateDashboardDialog({
     setSaving(true);
     setError('');
     try {
-      onCreated(await dataStudioApi.createDashboard(workbookId, { name: name.trim() }));
+      onCreated(await dataStudioApis.createDashboard(workbookId, { name: name.trim() }));
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to create dashboard');
+      setError(dsError(e, 'Failed to create dashboard'));
       setSaving(false);
     }
   };
@@ -476,34 +492,41 @@ function CreateDashboardDialog({
 
 function ShareDialog({
   workbook, onClose, onChanged,
-}: { workbook: Workbook; onClose: () => void; onChanged: () => void }) {
+}: { workbook: DsWorkbook; onClose: () => void; onChanged: () => void }) {
   const [userId, setUserId] = useState('');
   const [role, setRole] = useState<'EDITOR' | 'VIEWER'>('EDITOR');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
+  // Adding someone already on the list is not an error — the backend updates
+  // their role in place — so re-adding is how you promote a viewer.
   const add = async () => {
-    if (!userId.trim()) return;
+    const id = Number(userId.trim());
+    if (!Number.isInteger(id) || id <= 0) {
+      setError('Enter the numeric user id of the dashboard account to share with');
+      return;
+    }
     setBusy(true);
     setError('');
     try {
-      await dataStudioApi.addShare(workbook.id, { sharedWithUserId: userId.trim(), role });
+      await dataStudioApis.addShare(workbook.dsWorkbookId, { sharedWithUserId: id, role });
       setUserId('');
       onChanged();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to add share');
+      setError(dsError(e, 'Failed to add share'));
     } finally {
       setBusy(false);
     }
   };
 
-  const remove = async (uid: string) => {
+  const remove = async (sharedWithUserId: number) => {
     setBusy(true);
+    setError('');
     try {
-      await dataStudioApi.removeShare(workbook.id, uid);
+      await dataStudioApis.removeShare(workbook.dsWorkbookId, sharedWithUserId);
       onChanged();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to remove share');
+      setError(dsError(e, 'Failed to remove share'));
     } finally {
       setBusy(false);
     }
@@ -518,8 +541,14 @@ function ShareDialog({
         <div className="space-y-4">
           <div className="flex items-end gap-2">
             <div className="flex-1 space-y-1.5">
-              <Label htmlFor="share-user">Expert user ID</Label>
-              <Input id="share-user" value={userId} onChange={(e) => setUserId(e.target.value)} placeholder="user id" />
+              <Label htmlFor="share-user">Dashboard user ID</Label>
+              <Input
+                id="share-user"
+                value={userId}
+                onChange={(e) => setUserId(e.target.value)}
+                placeholder="e.g. 6"
+                inputMode="numeric"
+              />
             </div>
             <select
               value={role}
@@ -531,22 +560,33 @@ function ShareDialog({
             </select>
             <Button variant="primary" onClick={add} disabled={!userId.trim() || busy}>Add</Button>
           </div>
+          <p className="text-xs text-muted-foreground">
+            An <strong>editor</strong> can change sheets, formulas and dashboards. A{' '}
+            <strong>viewer</strong> can only read them. Neither can re-share the workbook or
+            delete it — that stays with you.
+          </p>
 
           {workbook.shares.length === 0 ? (
             <p className="text-sm text-muted-foreground">Not shared with anyone yet.</p>
           ) : (
             <ul className="space-y-1.5">
               {workbook.shares.map((s) => (
-                <li key={s.id} className="flex items-center justify-between rounded-md border border-border px-3 py-2 text-sm">
-                  <span className="flex items-center gap-2">
-                    {s.sharedWithUserId}
-                    <Badge variant="secondary" appearance="light" size="sm">{s.role.toLowerCase()}</Badge>
+                <li
+                  key={s.dsWorkbookShareId}
+                  className="flex items-center justify-between rounded-md border border-border px-3 py-2 text-sm"
+                >
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className="truncate">{s.sharedWithEmail}</span>
+                    <Badge variant="secondary" appearance="light" size="sm">
+                      {s.role.toLowerCase()}
+                    </Badge>
                   </span>
                   <button
                     type="button"
                     onClick={() => remove(s.sharedWithUserId)}
+                    disabled={busy}
                     className="text-muted-foreground hover:text-red-600"
-                    aria-label="Remove share"
+                    aria-label={`Remove ${s.sharedWithEmail}`}
                   >
                     <Trash2 className="h-4 w-4" />
                   </button>

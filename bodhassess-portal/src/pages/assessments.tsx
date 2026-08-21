@@ -1,11 +1,11 @@
+import { BrandHeader } from '@/components/brand-header';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { config } from '@/config';
+import { useAuth } from '@/lib/auth';
+import { CheckCircle2, ClipboardCheck, Loader2, LogOut, Play } from 'lucide-react';
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router';
-import { ClipboardCheck, LogOut, Play, CheckCircle2, Loader2 } from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { BrandHeader } from '@/components/brand-header';
-import { useAuth } from '@/lib/auth';
-import { config } from '@/config';
 
 export default function AssessmentsPage() {
   const navigate = useNavigate();
@@ -47,7 +47,7 @@ export default function AssessmentsPage() {
         <section className="space-y-3">
           <div>
             <p className="text-xs font-medium uppercase tracking-wider text-primary/80">Respondent dashboard</p>
-            <h1 className="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl">Welcome back, {user.name}.</h1>
+            <h1 className="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl">Welcome Back, {user.name}.</h1>
             <p className="text-sm text-muted-foreground mt-2 max-w-xl">
               {sessions.length === 0
                 ? 'You have no assessments assigned yet. When an administrator assigns one, it will appear below.'
