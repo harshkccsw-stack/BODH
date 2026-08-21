@@ -117,4 +117,24 @@ public interface RespondentAssessmentMappingRepository extends JpaRepository<Res
             + "order by r.name asc, r.id asc")
     List<RespondentAssessmentMapping> findCompletedForExport(Long assessmentId, Long organizationId,
             Long respondentUserId);
+
+    /**
+     * Data Studio rows: EVERY allotment for one assessment, whatever state the
+     * attempt is in, with respondent identity fetched. Deliberately not the
+     * COMPLETED-only fetch above — an analyst asking "what is our completion
+     * rate" or "who has not started" needs the unfinished rows present, and a
+     * sheet that silently dropped them would answer both questions wrong. The
+     * scores on those rows come back blank rather than zero, so nothing they
+     * contribute pollutes an average.
+     *
+     * <p>An organizationId narrows to that org's members (respondents with no
+     * org are then excluded). Ordered by name so the sheet is stable across
+     * reloads — a grid whose rows reshuffle under an edit is unusable.
+     */
+    @Query("select m from RespondentAssessmentMapping m "
+            + "join fetch m.respondent r join fetch r.user left join fetch r.organization o "
+            + "where m.assessment.assessmentId = :assessmentId "
+            + "and (:organizationId is null or o.organizationId = :organizationId) "
+            + "order by r.name asc, r.id asc")
+    List<RespondentAssessmentMapping> findAllForDataStudio(Long assessmentId, Long organizationId);
 }

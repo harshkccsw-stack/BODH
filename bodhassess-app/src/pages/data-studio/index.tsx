@@ -11,23 +11,23 @@ import { Label } from '@/components/ui/label';
 import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
-import { dataStudioApi, type Workbook } from '@/lib/api';
+import { dataStudioApis, dsError, type DsWorkbook } from '@/pages/data-studio/dataStudioApis';
 
 export default function DataStudioHome() {
-  const [workbooks, setWorkbooks] = useState<Workbook[]>([]);
+  const [workbooks, setWorkbooks] = useState<DsWorkbook[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [editTarget, setEditTarget] = useState<Workbook | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<Workbook | null>(null);
+  const [editTarget, setEditTarget] = useState<DsWorkbook | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<DsWorkbook | null>(null);
 
   const load = async () => {
     setLoading(true);
     setError('');
     try {
-      setWorkbooks(await dataStudioApi.listWorkbooks());
+      setWorkbooks(await dataStudioApis.listWorkbooks());
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load workbooks');
+      setError(dsError(e, 'Failed to load workbooks'));
     } finally {
       setLoading(false);
     }
@@ -87,7 +87,7 @@ export default function DataStudioHome() {
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {workbooks.map((w) => (
-            <Link key={w.id} to={`/data-studio/wb/${w.id}`}>
+            <Link key={w.dsWorkbookId} to={`/data-studio/wb/${w.dsWorkbookId}`}>
               <Card className="h-full transition-colors hover:border-primary">
                 <CardContent className="space-y-2 p-5">
                   <div className="flex items-start justify-between gap-2">
@@ -126,14 +126,22 @@ export default function DataStudioHome() {
                     <p className="line-clamp-2 text-sm text-muted-foreground">{w.description}</p>
                   )}
                   <div className="flex items-center gap-3 pt-1 text-xs text-muted-foreground">
+                    {/* Counts, not the child arrays: the gallery fetch sends
+                        empty sheets/dashboards/shares on purpose — twenty
+                        workbooks do not need two hundred sheet definitions to
+                        render three cards. */}
                     <span className="flex items-center gap-1">
                       <Table2 className="h-3.5 w-3.5" />
-                      {w.sheets?.length ?? 0} sheets
+                      {w.sheetCount} {w.sheetCount === 1 ? 'sheet' : 'sheets'}
                     </span>
-                    {(w.shares?.length ?? 0) > 0 && (
+                    <span className="flex items-center gap-1">
+                      <LayoutGrid className="h-3.5 w-3.5" />
+                      {w.dashboardCount} {w.dashboardCount === 1 ? 'dashboard' : 'dashboards'}
+                    </span>
+                    {w.access !== 'OWNER' && w.access !== 'ADMIN' && (
                       <span className="flex items-center gap-1">
                         <Users className="h-3.5 w-3.5" />
-                        {w.shares.length} shared
+                        {w.ownerEmail}
                       </span>
                     )}
                   </div>
@@ -172,7 +180,7 @@ export default function DataStudioHome() {
 
 function WorkbookFormDialog({
   workbook, onClose, onSaved,
-}: { workbook?: Workbook; onClose: () => void; onSaved: () => void }) {
+}: { workbook?: DsWorkbook; onClose: () => void; onSaved: () => void }) {
   const editing = !!workbook;
   const [name, setName] = useState(workbook?.name ?? '');
   const [description, setDescription] = useState(workbook?.description ?? '');
@@ -185,11 +193,11 @@ function WorkbookFormDialog({
     setError('');
     try {
       const body = { name: name.trim(), description: description.trim() || undefined };
-      if (editing) await dataStudioApi.updateWorkbook(workbook!.id, body);
-      else await dataStudioApi.createWorkbook(body);
+      if (editing) await dataStudioApis.updateWorkbook(workbook!.dsWorkbookId, body);
+      else await dataStudioApis.createWorkbook(body);
       onSaved();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to save workbook');
+      setError(dsError(e, 'Failed to save workbook'));
       setSaving(false);
     }
   };
@@ -225,7 +233,7 @@ function WorkbookFormDialog({
 
 function DeleteWorkbookDialog({
   workbook, onClose, onDeleted,
-}: { workbook: Workbook; onClose: () => void; onDeleted: () => void }) {
+}: { workbook: DsWorkbook; onClose: () => void; onDeleted: () => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -233,10 +241,10 @@ function DeleteWorkbookDialog({
     setBusy(true);
     setError('');
     try {
-      await dataStudioApi.deleteWorkbook(workbook.id);
+      await dataStudioApis.deleteWorkbook(workbook.dsWorkbookId);
       onDeleted();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to delete workbook');
+      setError(dsError(e, 'Failed to delete workbook'));
       setBusy(false);
     }
   };

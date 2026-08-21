@@ -1,45 +1,63 @@
 import { useMemo } from 'react';
-import type { DatasetColumn, DatasetRow, DerivedColumn } from '@/lib/api';
+import type {
+  DsDatasetColumn,
+  DsDatasetRow,
+  DsDerivedColumn,
+} from '@/pages/data-studio/dataStudioApis';
 import { evaluateFormula } from '@/pages/data-studio/lib/formula';
 
-// Sentinel value placed in SERVER-derived cells until Phase 2 computes them.
-export const SERVER_PENDING = '— (server)';
-
 export type AugmentedResult = {
-  columns: DatasetColumn[];
-  rows: DatasetRow[];
+  columns: DsDatasetColumn[];
+  rows: DsDatasetRow[];
 };
 
 /**
- * Merge a sheet's derived columns into the dataset for display. When rows come
- * from {@code GET /sheets/{id}/data} the backend has already computed every
- * derived column, so we keep those authoritative values. As a fallback (e.g.
- * an optimistic add before the next refetch), CLIENT columns are evaluated
- * in-browser and SERVER columns show a placeholder. The base dataset is never
- * mutated.
+ * Merges a sheet's computed columns into the grid — but only the ones the
+ * server has not already answered.
+ *
+ * `getSheetData` evaluates EVERY computed column server-side, over the whole
+ * population, and declares each one in `columns`. Those values are
+ * authoritative and are left exactly as they arrived: recomputing them here
+ * would be the one way the browser and the server could ever disagree about
+ * what a cell says, and a client that only holds the loaded rows cannot get a
+ * z-score right in the first place.
+ *
+ * What is left for this hook is the gap between adding a column and the
+ * refetch landing. A CLIENT column — row-local arithmetic — is evaluated in
+ * the browser so the new column appears instantly. A SERVER column cannot be,
+ * so it shows a placeholder for the moment until the refetch replaces it.
+ *
+ * The base rows are never mutated; every row is shallow-copied first.
  */
+export const SERVER_PENDING = '— computing…';
+
 export function useDerivedColumns(
-  baseColumns: DatasetColumn[],
-  baseRows: DatasetRow[],
-  derived: DerivedColumn[],
+  baseColumns: DsDatasetColumn[],
+  baseRows: DsDatasetRow[],
+  derived: DsDerivedColumn[],
 ): AugmentedResult {
   return useMemo(() => {
     if (!derived.length) return { columns: baseColumns, rows: baseRows };
 
+    // Same order the server evaluates in, so a column that references an
+    // earlier one sees it — the optimistic pass has to agree with the real one.
     const ordered = [...derived].sort(
       (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.colKey.localeCompare(b.colKey),
     );
 
-    // Derived columns the server already computed need no client work.
     const serverProvided = new Set(
       baseColumns.filter((c) => ordered.some((d) => d.colKey === c.key)).map((c) => c.key),
     );
 
-    // Work on shallow row copies so computed values don't leak into the source.
-    const rows: DatasetRow[] = baseRows.map((r) => ({ ...r }));
+    // Nothing to fill in: the common case, once a refetch has landed.
+    if (ordered.every((col) => serverProvided.has(col.colKey))) {
+      return { columns: baseColumns, rows: baseRows };
+    }
+
+    const rows: DsDatasetRow[] = baseRows.map((r) => ({ ...r }));
 
     for (const col of ordered) {
-      if (serverProvided.has(col.colKey)) continue; // authoritative value already present
+      if (serverProvided.has(col.colKey)) continue; // authoritative already
       if (col.evalTarget === 'SERVER') {
         for (const row of rows) row[col.colKey] = SERVER_PENDING;
         continue;
@@ -49,15 +67,13 @@ export function useDerivedColumns(
       }
     }
 
-    // Only add defs for columns the server didn't already declare.
-    const derivedCols: DatasetColumn[] = ordered
+    const derivedCols: DsDatasetColumn[] = ordered
       .filter((col) => !serverProvided.has(col.colKey))
       .map((col) => ({
         key: col.colKey,
         label: col.label,
         type: col.resultType === 'number' ? 'number' : 'string',
-        group: 'scores',
-        editable: 'none',
+        group: 'derived',
       }));
 
     return { columns: [...baseColumns, ...derivedCols], rows };

@@ -16,13 +16,37 @@ import {
   type Item,
 } from '@glideapps/glide-data-grid';
 import '@glideapps/glide-data-grid/dist/index.css';
-import type { DatasetColumn, DatasetRow } from '@/lib/api';
 
 type SortState = { key: string; dir: 'asc' | 'desc' } | null;
 
+/**
+ * The minimum a column has to declare for this grid to render it.
+ *
+ * Deliberately declared here rather than imported from an api file. Two
+ * different backends feed this grid — the datasets view and Data Studio —
+ * and each has its own column type with its own `group` values; typing the
+ * grid against one of them made the other's columns a compile error for no
+ * reason the grid cares about. It reads `key`, `label`, `type` and
+ * `editable`, so those are what it asks for.
+ */
+export interface GridColumnMeta {
+  key: string;
+  label: string;
+  type: string;
+  editable?: string;
+}
+
+/**
+ * A row is a flat map keyed by column key. `rowId` may be a string or a
+ * number — it is only ever passed back out through `onCellEdited`, never
+ * compared — and `_updatedAt` is the optimistic-concurrency stamp the
+ * editable views carry and Data Studio does not.
+ */
+export type GridRow = Record<string, unknown> & { rowId: string | number };
+
 export interface DataGridProps {
-  columns: DatasetColumn[];
-  rows: DatasetRow[];
+  columns: GridColumnMeta[];
+  rows: GridRow[];
   height?: number;
   // Called when an editable cell is committed. The page owns persistence
   // (PATCH + optimistic update + conflict handling); the grid just reports.
@@ -34,18 +58,18 @@ export interface DataGridProps {
   ) => void;
 }
 
-function isEditable(col: DatasetColumn): boolean {
+function isEditable(col: GridColumnMeta): boolean {
   return col.editable === 'field';
 }
 
-function defaultWidth(col: DatasetColumn): number {
+function defaultWidth(col: GridColumnMeta): number {
   if (col.type === 'datetime') return 170;
   if (col.type === 'number') return 120;
   if (col.key === 'respondentEmail') return 220;
   return 160;
 }
 
-function formatValue(col: DatasetColumn, raw: unknown): string {
+function formatValue(col: GridColumnMeta, raw: unknown): string {
   if (raw == null || raw === '') return '';
   if (col.type === 'datetime') {
     const d = new Date(String(raw));
@@ -125,7 +149,8 @@ export function DataGrid({ columns, rows, height = 600, onCellEdited }: DataGrid
       const row = sortedRows[rowIdx];
       if (!col || !row || !isEditable(col)) return;
       if (newCell.kind !== GridCellKind.Text) return;
-      onCellEdited?.(String(row.rowId), col.key, newCell.data, row._updatedAt ?? null);
+      const stamp = typeof row._updatedAt === 'string' ? row._updatedAt : null;
+      onCellEdited?.(String(row.rowId), col.key, newCell.data, stamp);
     },
     [columns, sortedRows, onCellEdited],
   );

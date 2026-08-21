@@ -7,16 +7,18 @@ import {
 } from 'recharts';
 import { Loader2 } from 'lucide-react';
 import {
-  analyticsApi,
-  type AnalyticsMeasure,
-  type DatasetResponse,
-  type Sheet,
-  type Widget,
-} from '@/lib/api';
+  dataStudioApis,
+  dsError,
+  type DsDataset,
+  type DsMeasure,
+  type DsQuery,
+  type DsSheet,
+  type DsWidget,
+} from '@/pages/data-studio/dataStudioApis';
 
 // Config shapes stored in widget.config (JSON). Kept loose; the editor writes
 // only the fields a given widget type needs.
-export type MeasureCfg = { expr: string; agg: AnalyticsMeasure['agg']; label: string };
+export type MeasureCfg = { expr: string; agg: DsMeasure['agg']; label: string };
 export type WidgetConfig = {
   title?: string;
   chartType?: 'bar' | 'line' | 'pie';
@@ -25,10 +27,6 @@ export type WidgetConfig = {
   measure?: MeasureCfg;
   measures?: MeasureCfg[];
 };
-
-function filtersOf(sheet?: Sheet): Record<string, unknown> | undefined {
-  return sheet?.sourceFilters ?? undefined;
-}
 
 function num(v: unknown): number | null {
   return typeof v === 'number' ? v : v == null || v === '' ? null : Number(v);
@@ -42,27 +40,32 @@ function fmtNum(v: unknown): string {
 }
 
 /** Renders the data body of a widget. The card chrome lives in DashboardView. */
-export function WidgetBody({ widget, sheet }: { widget: Widget; sheet?: Sheet }) {
+export function WidgetBody({ widget, sheet }: { widget: DsWidget; sheet?: DsSheet }) {
   const cfg = widget.config as WidgetConfig;
-  const [data, setData] = useState<DatasetResponse | null>(null);
+  const [data, setData] = useState<DsDataset | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  // Build the analytics query for this widget from its config.
-  const query = useMemo(() => {
-    const sourceFilters = filtersOf(sheet);
+  // Every query goes through the SHEET, never through its raw sourceFilters.
+  // That is what puts the sheet's computed columns in scope: charting a
+  // z-score means grouping by or measuring `calc:…`, and those columns only
+  // exist once the server has evaluated the sheet. Querying the bare
+  // assessment would silently 400 on the dimension instead.
+  const query = useMemo<DsQuery | null>(() => {
+    const dsSheetId = sheet?.dsSheetId;
+    if (!dsSheetId) return null;
     if (widget.type === 'KPI') {
-      return cfg.measure ? { sourceFilters, measures: [cfg.measure] } : null;
+      return cfg.measure ? { dsSheetId, measures: [cfg.measure] } : null;
     }
     if (widget.type === 'CHART') {
       return cfg.measure && cfg.dimension
-        ? { sourceFilters, dimensions: [cfg.dimension], measures: [cfg.measure] }
+        ? { dsSheetId, dimensions: [cfg.dimension], measures: [cfg.measure] }
         : null;
     }
     // TABLE / PIVOT
     const measures = cfg.measures ?? (cfg.measure ? [cfg.measure] : []);
     return measures.length
-      ? { sourceFilters, dimensions: cfg.dimensions ?? [], measures }
+      ? { dsSheetId, dimensions: cfg.dimensions ?? [], measures }
       : null;
   }, [widget.type, cfg, sheet]);
 
@@ -70,9 +73,9 @@ export function WidgetBody({ widget, sheet }: { widget: Widget; sheet?: Sheet })
     let alive = true;
     if (!query) { setLoading(false); setData(null); return; }
     setLoading(true); setError('');
-    analyticsApi.query(query)
+    dataStudioApis.query(query)
       .then((r) => { if (alive) setData(r); })
-      .catch((e) => { if (alive) setError(e instanceof Error ? e.message : 'Query failed'); })
+      .catch((e) => { if (alive) setError(dsError(e, 'Query failed')); })
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
   }, [query]);
@@ -93,7 +96,7 @@ export function WidgetBody({ widget, sheet }: { widget: Widget; sheet?: Sheet })
   return <TableBody data={data} />;
 }
 
-function KpiBody({ data, cfg }: { data: DatasetResponse; cfg: WidgetConfig }) {
+function KpiBody({ data, cfg }: { data: DsDataset; cfg: WidgetConfig }) {
   const key = cfg.measure?.label ?? data.columns.find((c) => c.group === 'measure')?.key;
   const value = key && data.rows[0] ? data.rows[0][key] : null;
   return (
@@ -106,7 +109,7 @@ function KpiBody({ data, cfg }: { data: DatasetResponse; cfg: WidgetConfig }) {
 
 const PIE_COLORS = ['#6366f1', '#22c55e', '#f59e0b', '#ef4444', '#06b6d4', '#a855f7', '#ec4899', '#84cc16'];
 
-function ChartBody({ data, cfg }: { data: DatasetResponse; cfg: WidgetConfig }) {
+function ChartBody({ data, cfg }: { data: DsDataset; cfg: WidgetConfig }) {
   const dimKey = cfg.dimension!;
   const measKey = cfg.measure?.label ?? data.columns.find((c) => c.group === 'measure')?.key ?? '';
   const type = cfg.chartType ?? 'bar';
@@ -147,7 +150,7 @@ function ChartBody({ data, cfg }: { data: DatasetResponse; cfg: WidgetConfig }) 
   );
 }
 
-function TableBody({ data }: { data: DatasetResponse }) {
+function TableBody({ data }: { data: DsDataset }) {
   return (
     <div className="h-full overflow-auto">
       <table className="w-full text-sm">

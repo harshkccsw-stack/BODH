@@ -15,31 +15,32 @@ import {
 import { DataGrid } from '@/components/data-grid/DataGrid';
 import { useDerivedColumns } from '@/pages/data-studio/components/useDerivedColumns';
 import {
-  dataStudioApi,
-  type DatasetResponse,
-  type DerivedColumn,
-  type Sheet,
-  type ValidateExprResult,
-} from '@/lib/api';
+  dataStudioApis,
+  dsError,
+  type DsDataset,
+  type DsDerivedColumn,
+  type DsExprResult,
+  type DsSheet,
+} from '@/pages/data-studio/dataStudioApis';
 
 interface SheetViewProps {
-  sheet: Sheet;
+  sheet: DsSheet;
   canEdit: boolean;
-  onColumnsChanged?: (columns: DerivedColumn[]) => void;
+  onColumnsChanged?: (columns: DsDerivedColumn[]) => void;
 }
 
 export function SheetView({ sheet, canEdit, onColumnsChanged }: SheetViewProps) {
-  const [data, setData] = useState<DatasetResponse | null>(null);
+  const [data, setData] = useState<DsDataset | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [derived, setDerived] = useState<DerivedColumn[]>(sheet.derivedColumns ?? []);
+  const [derived, setDerived] = useState<DsDerivedColumn[]>(sheet.derivedColumns ?? []);
   // null = closed; { editing: null } = add; { editing: col } = edit in place.
-  const [columnDialog, setColumnDialog] = useState<{ editing: DerivedColumn | null } | null>(null);
+  const [columnDialog, setColumnDialog] = useState<{ editing: DsDerivedColumn | null } | null>(null);
 
   // Re-seed local derived columns whenever a different sheet is shown.
   useEffect(() => {
     setDerived(sheet.derivedColumns ?? []);
-  }, [sheet.id, sheet.derivedColumns]);
+  }, [sheet.dsSheetId, sheet.derivedColumns]);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -47,13 +48,13 @@ export function SheetView({ sheet, canEdit, onColumnsChanged }: SheetViewProps) 
     try {
       // Server computes every derived column (CLIENT + SERVER) over the full
       // population and returns the merged rows.
-      setData(await dataStudioApi.getSheetData(sheet.id));
+      setData(await dataStudioApis.getSheetData(sheet.dsSheetId));
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load data');
+      setError(dsError(e, 'Failed to load data'));
     } finally {
       setLoading(false);
     }
-  }, [sheet.id]);
+  }, [sheet.dsSheetId]);
 
   useEffect(() => {
     loadData();
@@ -71,12 +72,12 @@ export function SheetView({ sheet, canEdit, onColumnsChanged }: SheetViewProps) 
     [baseColumns, derived],
   );
 
-  const commitColumns = (next: DerivedColumn[]) => {
+  const commitColumns = (next: DsDerivedColumn[]) => {
     setDerived(next);
     onColumnsChanged?.(next);
   };
 
-  const handleSaved = (col: DerivedColumn) => {
+  const handleSaved = (col: DsDerivedColumn) => {
     const next = derived.some((c) => c.colKey === col.colKey)
       ? derived.map((c) => (c.colKey === col.colKey ? col : c))
       : [...derived, col];
@@ -87,11 +88,11 @@ export function SheetView({ sheet, canEdit, onColumnsChanged }: SheetViewProps) 
 
   const handleDelete = async (colKey: string) => {
     try {
-      await dataStudioApi.deleteColumn(sheet.id, colKey);
+      await dataStudioApis.deleteColumn(sheet.dsSheetId, colKey);
       commitColumns(derived.filter((c) => c.colKey !== colKey));
       loadData();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to delete column');
+      setError(dsError(e, 'Failed to delete column'));
     }
   };
 
@@ -174,7 +175,7 @@ export function SheetView({ sheet, canEdit, onColumnsChanged }: SheetViewProps) 
 
       {columnDialog && (
         <ColumnDialog
-          sheetId={sheet.id}
+          sheetId={sheet.dsSheetId}
           editing={columnDialog.editing}
           // Exclude the column being edited so it can't reference itself.
           availableKeys={availableKeys.filter((k) => k.key !== columnDialog.editing?.colKey)}
@@ -190,16 +191,16 @@ export function SheetView({ sheet, canEdit, onColumnsChanged }: SheetViewProps) 
 
 interface ColumnDialogProps {
   sheetId: number;
-  editing: DerivedColumn | null;
+  editing: DsDerivedColumn | null;
   availableKeys: { key: string; label: string }[];
   onClose: () => void;
-  onSaved: (col: DerivedColumn) => void;
+  onSaved: (col: DsDerivedColumn) => void;
 }
 
 function ColumnDialog({ sheetId, editing, availableKeys, onClose, onSaved }: ColumnDialogProps) {
   const [label, setLabel] = useState(editing?.label ?? '');
   const [expr, setExpr] = useState(editing?.expr ?? '');
-  const [result, setResult] = useState<ValidateExprResult | null>(null);
+  const [result, setResult] = useState<DsExprResult | null>(null);
   const [validating, setValidating] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
@@ -214,7 +215,7 @@ function ColumnDialog({ sheetId, editing, availableKeys, onClose, onSaved }: Col
     setValidating(true);
     const t = setTimeout(async () => {
       try {
-        setResult(await dataStudioApi.validateExpr(sheetId, expr));
+        setResult(await dataStudioApis.validateExpr(sheetId, expr));
       } catch {
         setResult(null);
       } finally {
@@ -251,11 +252,11 @@ function ColumnDialog({ sheetId, editing, availableKeys, onClose, onSaved }: Col
     try {
       const body = { label: label.trim(), expr };
       const col = editing
-        ? await dataStudioApi.updateColumn(sheetId, editing.colKey, body)
-        : await dataStudioApi.addColumn(sheetId, body);
+        ? await dataStudioApis.updateColumn(sheetId, editing.colKey, body)
+        : await dataStudioApis.addColumn(sheetId, body);
       onSaved(col);
     } catch (e) {
-      setSaveError(e instanceof Error ? e.message : 'Failed to save column');
+      setSaveError(dsError(e, 'Failed to save column'));
     } finally {
       setSaving(false);
     }
@@ -268,9 +269,10 @@ function ColumnDialog({ sheetId, editing, availableKeys, onClose, onSaved }: Col
           <DialogTitle>{editing ? 'Edit computed column' : 'Add computed column'}</DialogTitle>
           <DialogDescription>
             Click a column below to insert it (wrapped in <code>[ ]</code>), then build a
-            formula — e.g. <code>([score:anx] + [score:dep]) / 2</code> or{' '}
-            <code>ZSCORE([score:anx])</code>. Population functions (ZSCORE, PERCENTILE, …)
-            run on the server.
+            formula — e.g. <code>([mqt:1] + [mqt:2]) / 2</code>,{' '}
+            <code>ZSCORE([mqt:1])</code>, or <code>AVERAGE([mqt:1], BY [core:status])</code>.
+            Population functions (ZSCORE, PERCENTILE, RANK, …) see every row, so they are
+            computed on the server.
           </DialogDescription>
         </DialogHeader>
 
@@ -292,7 +294,7 @@ function ColumnDialog({ sheetId, editing, availableKeys, onClose, onSaved }: Col
               ref={exprRef}
               value={expr}
               onChange={(e) => setExpr(e.target.value)}
-              placeholder="(mqt:ANX + mqt:DEP) / 2"
+              placeholder="([mqt:1] + [mqt:2]) / 2"
               className="font-mono text-sm"
               rows={3}
             />
