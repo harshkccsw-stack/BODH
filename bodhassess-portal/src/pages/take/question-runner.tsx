@@ -146,6 +146,16 @@ function ScaleSlider({
   );
 }
 
+/**
+ * The pending question after `from`, wrapping back to the earliest one behind
+ * it — a blank left behind must stay reachable, and in fix-up mode "forward"
+ * means "still unanswered", not "the next index". Null when nothing else is
+ * pending.
+ */
+function nextPendingFrom(from: number, pending: number[]): number | null {
+  return pending.find((qi) => qi > from) ?? pending.find((qi) => qi < from) ?? null;
+}
+
 export function QuestionRunner({
   detail,
   title,
@@ -204,9 +214,11 @@ export function QuestionRunner({
   // unanswered is what makes it a SKIP rather than a question not reached yet
   // — the navigator marks the two differently, so this has to be tracked.
   const [visited, setVisited] = useState<Set<number>>(() => new Set([startAt]));
-  // Flipped by a Submit that found pending questions: from then on EVERY
-  // unanswered question is marked, visited or not.
-  const [submitAttempted, setSubmitAttempted] = useState(false);
+  // Cleanup mode: forward has had to jump BACKWARDS at least once, so the
+  // paper is no longer being read in order. Raised further down, where the
+  // wrap is detected; from then on EVERY unanswered question is marked,
+  // visited or not, and the pending banner names them.
+  const [sweeping, setSweeping] = useState(false);
   useEffect(() => {
     setVisited((seen) => (seen.has(index) ? seen : new Set(seen).add(index)));
   }, [index]);
@@ -235,14 +247,22 @@ export function QuestionRunner({
       ? qq.rows.map((r) => answerKey(qq.questionId, r.questionRowId))
       : [answerKey(qq.questionId)];
   const picked = (slot: string): number[] => answers[slot] ?? [];
-  const slotSatisfied = (qq: PortalQuestion, slot: string): boolean => {
+  // The answer maps are parameters defaulting to live state: the auto-advance
+  // timer has to judge the answer the tap JUST produced, which the render's
+  // `answers` does not know about yet. Every other caller passes nothing.
+  const slotSatisfied = (
+    qq: PortalQuestion,
+    slot: string,
+    a: Record<string, number[]> = answers,
+    t: Record<string, string> = textAnswers,
+  ): boolean => {
     // Free text has nothing to count: min/maxSelections arrive as 1/1 like
     // any single choice, and against zero options that would reject every
     // possible answer. Non-blank IS the rule, exactly as on the server.
     if (qq.questionType === 'SHORT_ANSWER') {
-      return (textAnswers[slot] ?? '').trim().length > 0;
+      return (t[slot] ?? '').trim().length > 0;
     }
-    const n = (answers[slot] ?? []).length;
+    const n = (a[slot] ?? []).length;
     return n >= qq.minSelections && n <= qq.maxSelections;
   };
 
@@ -463,18 +483,34 @@ export function QuestionRunner({
       const n = (updated[s] ?? []).length;
       return n === q.minSelections && n === q.maxSelections;
     });
-    if (!autoNext || isLast || isScale || !settled) return;
+    if (!autoNext || isScale || !settled) return;
+    // Where the beat after the tap lands: the next BLANK — computed from the
+    // answers this tap just produced, because the render's `pending` still
+    // counts the question they have this moment finished. Null means nothing
+    // is blank any more, and then it stays put: auto-advance exists to carry
+    // someone through work, not through finished work, and the bar is already
+    // offering Submit. Being last is not the end condition — blanks can lie
+    // in front of the last question.
+    const after = questions
+      .map((_, qi) => qi)
+      .filter((qi) => !isQuestionAnswered(qi, updated, textAnswers));
+    const target = nextPendingFrom(index, after);
+    if (target === null) return;
     clearAdvance();
     advanceTimer.current = window.setTimeout(() => {
       advanceTimer.current = null;
-      setIndex((i) => Math.min(total - 1, i + 1));
+      setIndex(target);
     }, 350);
   };
 
-  const isQuestionAnswered = (qi: number): boolean => {
+  const isQuestionAnswered = (
+    qi: number,
+    a: Record<string, number[]> = answers,
+    t: Record<string, string> = textAnswers,
+  ): boolean => {
     const qq = questions[qi];
     if (qq === undefined) return false;
-    return slotsOf(qq).every((slot) => slotSatisfied(qq, slot));
+    return slotsOf(qq).every((slot) => slotSatisfied(qq, slot, a, t));
   };
   const answeredCount = questions.reduce((n, _, i) => n + (isQuestionAnswered(i) ? 1 : 0), 0);
 
@@ -612,18 +648,42 @@ export function QuestionRunner({
   // disappears on its own once nothing is left.
   const pending = questions.map((_, qi) => qi).filter((qi) => !isQuestionAnswered(qi));
   // Marked amber in the navigator: left unanswered after being visited, or —
-  // once Submit has been refused — anything still unanswered.
+  // once the sweep has started — anything still unanswered, including blanks
+  // that were jumped straight over and never opened.
   const isSkipped = (qi: number): boolean =>
-    !isQuestionAnswered(qi) && (submitAttempted || visited.has(qi));
+    !isQuestionAnswered(qi) && (sweeping || visited.has(qi));
   const PENDING_SHOWN = 5;
+  // Where forward goes. While ANYTHING is blank it means "the next blank",
+  // wrapping past the end so a question skipped early is still reached from
+  // the last one. Once nothing is blank it is the ordinary next question
+  // again, so a finished paper can still be paged through for review.
+  const nextTarget = pending.length > 0
+    ? nextPendingFrom(index, pending)
+    : isLast ? null : index + 1;
+  const showNext = nextTarget !== null;
+  // Submit exists only when the paper is complete. It is never rendered and
+  // then refused: an unfinished assessment simply has no Submit button, and
+  // Next is what walks them to the state where one appears.
+  const showSubmit = pending.length === 0;
+  // Forward is about to jump BACKWARDS — everything ahead is answered and only
+  // earlier blanks are left. That is the moment the missing Submit button
+  // needs explaining, so the banner is raised on ARRIVING at this state, not
+  // on pressing anything. Sticky for the rest of the sweep: a banner that
+  // vanished whenever the next blank happened to lie ahead would flicker on
+  // and off between hops.
+  const wrapping = nextTarget !== null && nextTarget < index;
+  useEffect(() => {
+    if (wrapping) setSweeping(true);
+  }, [wrapping]);
+  useEffect(() => {
+    if (pending.length === 0) setSweeping(false);
+  }, [pending.length]);
 
-  // Submit is only offered on the last question, and only once THAT question
-  // is answered — but the navigator lets them jump, so earlier questions can
-  // still be pending. Name them and go to the first one instead of letting
-  // the server reject the payload with raw question ids.
+  // Belt and braces: Submit is only rendered with nothing pending, so this
+  // branch cannot normally fire. An incomplete set must never reach the
+  // server, and if one ever tried, the respondent belongs on the first blank.
   const trySubmit = () => {
     if (pending.length > 0) {
-      setSubmitAttempted(true);
       goTo(pending[0]);
       return;
     }
@@ -1060,15 +1120,14 @@ export function QuestionRunner({
             </CardContent>
           </Card>
 
-          {/* Raised by a refused Submit and cleared by answering — the list
-              is live, so it shrinks as they work through it. Long lists are
-              capped: naming twenty questions is a wall of text, and the
-              chips are for jumping, not for taking inventory. */}
-          {submitAttempted && pending.length > 0 && (
+          {/* Raised once forward starts jumping backwards, and cleared by
+              answering — the list is live, so it shrinks as they work through
+              it. Long lists are capped: naming twenty questions is a wall of
+              text, and the chips are for jumping, not for taking inventory. */}
+          {sweeping && pending.length > 0 && (
             <div className="mt-5 rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-3 py-3">
               <p className="text-xs font-semibold text-red-700 dark:text-red-400">
-                {pending.length} question{pending.length === 1 ? '' : 's'} pending — answer{' '}
-                {pending.length === 1 ? 'it' : 'them'} before submitting
+                {pending.length} question{pending.length === 1 ? '' : 's'} still to answer
               </p>
               <div className="mt-2 flex flex-wrap items-center gap-1.5">
                 {pending.slice(0, PENDING_SHOWN).map((qi) => (
@@ -1087,6 +1146,25 @@ export function QuestionRunner({
                   </span>
                 )}
               </div>
+              {/* The chips only reach the first few; the button reaches all of
+                  them, one at a time. Said here because this is where they
+                  are reading when it changes under them. */}
+              {showNext && (
+                <p className="mt-2 text-[0.6875rem] text-red-700/80 dark:text-red-400/80">
+                  Next takes you to the next pending question.
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* The other end of the same sweep: nothing left, and Submit is now
+              in the bar under them rather than at the end of the paper. Only
+              away from the last question — there Submit is where it has
+              always been and needs no announcement. */}
+          {pending.length === 0 && !isLast && (
+            <div className="mt-5 flex items-center gap-2 rounded-lg border border-green-500/40 bg-green-500/5 px-3 py-2 text-xs font-medium text-green-700 dark:text-green-400">
+              <Check className="h-3.5 w-3.5 shrink-0" />
+              <span>All {total} questions answered — you can submit now.</span>
             </div>
           )}
 
@@ -1103,34 +1181,48 @@ export function QuestionRunner({
               fixed, so it still comes to rest at the end of the content, and
               the safe-area inset keeps it clear of the home indicator. */}
           <div className="sticky bottom-0 z-10 -mx-4 mt-5 flex items-center gap-3 border-t border-border bg-background/95 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:static sm:mx-0 sm:justify-between sm:border-0 sm:bg-transparent sm:p-0 sm:backdrop-blur-none">
+            {/* All three buttons show in one state only — a cleared sweep,
+                mid-paper — and there Previous drops its label on a phone so
+                the two that matter keep a full-width target. */}
             <Button
               variant="outline"
               onClick={() => goTo(index - 1)}
               disabled={index === 0}
-              className="h-11 flex-1 sm:h-8.5 sm:flex-none"
+              className={cn(
+                'h-11 sm:h-8.5 sm:flex-none',
+                showNext && showSubmit ? 'flex-none px-3' : 'flex-1',
+              )}
             >
               <ChevronLeft className="h-4 w-4" />
-              Previous
+              <span className={cn(showNext && showSubmit && 'sr-only sm:not-sr-only')}>Previous</span>
             </Button>
-            {isLast ? (
+            {nextTarget !== null && (
+              <Button
+                /* Demoted to outline while Submit stands beside it: one
+                   primary action on screen, and it is the one that ends the
+                   assessment. */
+                variant={showSubmit ? 'outline' : 'primary'}
+                onClick={() => goTo(nextTarget)}
+                disabled={!answered}
+                className="h-11 flex-1 sm:h-8.5 sm:flex-none"
+              >
+                Next
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            )}
+            {showSubmit && (
               <Button
                 variant="primary"
                 onClick={trySubmit}
                 disabled={!answered || submitting}
                 className="h-11 flex-1 sm:h-8.5 sm:flex-none"
               >
-                {submitting ? 'Submitting...' : 'Submit Assessment'}
+                {submitting ? 'Submitting...' : (
+                  <span>
+                    Submit<span className={cn(showNext && 'hidden sm:inline')}> Assessment</span>
+                  </span>
+                )}
                 <Check className="h-4 w-4" />
-              </Button>
-            ) : (
-              <Button
-                variant="primary"
-                onClick={() => goTo(index + 1)}
-                disabled={!answered}
-                className="h-11 flex-1 sm:h-8.5 sm:flex-none"
-              >
-                Next
-                <ChevronRight className="h-4 w-4" />
               </Button>
             )}
           </div>
