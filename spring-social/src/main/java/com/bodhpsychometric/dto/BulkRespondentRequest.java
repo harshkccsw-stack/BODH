@@ -35,9 +35,14 @@ public record BulkRespondentRequest(
             String email,
             /** dd-MM-yyyy, matching RespondentRequest and the wizard's own form. */
             String dob,
+            /** Required — checked per row, so a blank names its line number. */
             String phone,
             String employeeId,
-            /** MALE / FEMALE / OTHER, case-insensitive; blank means unset. */
+            /**
+             * Required. MALE / FEMALE / OTHER / PREFER_NOT_TO_SAY,
+             * case-insensitive, and spaces or hyphens fold to underscores so
+             * "Prefer not to say" typed into a cell resolves.
+             */
             String gender) {
     }
 }

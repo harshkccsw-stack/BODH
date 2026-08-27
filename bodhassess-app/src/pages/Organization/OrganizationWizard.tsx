@@ -85,7 +85,14 @@ const GENDERS: Array<{ value: Gender; label: string }> = [
   { value: 'MALE', label: 'Male' },
   { value: 'FEMALE', label: 'Female' },
   { value: 'OTHER', label: 'Other' },
+  // What makes the required field fair — declining is an answer, and it is
+  // stored as one rather than left blank.
+  { value: 'PREFER_NOT_TO_SAY', label: 'Prefer not to say' },
 ];
+
+// Mirrors PHONE_PATTERN on the backend exactly. Loose on purpose — digits plus
+// the punctuation people type — because numbers arrive from every country.
+const PHONE_RE = /^\+?[0-9][0-9 ()-]{5,18}[0-9]$/;
 
 // DOB is dd-mm-yyyy everywhere — display, input and wire — so the form keeps
 // the raw string and only auto-inserts the dashes while typing. Same rule as
@@ -158,6 +165,9 @@ export default function OrganizationWizard({
   const [orgEmail, setOrgEmail] = useState(existing?.orgEmail ?? '');
   const [description, setDescription] = useState(existing?.description ?? '');
   const [logoBase64, setLogoBase64] = useState(existing?.logoBase64 ?? '');
+  // The second, independent logo: this one co-brands the respondent's portal
+  // while they take an assessment, where the registration logo never appears.
+  const [coBrandLogoBase64, setCoBrandLogoBase64] = useState(existing?.coBrandLogoBase64 ?? '');
   const [detailsError, setDetailsError] = useState('');
   const [detailsSaving, setDetailsSaving] = useState(false);
 
@@ -200,20 +210,28 @@ export default function OrganizationWizard({
 
   // Read a picked image into a base64 data URL for inline storage. Validates
   // type + size here so an oversized file never reaches the API.
-  const onLogoPick = (file: File | null) => {
+  //
+  // Takes the setter because there are two logos with identical rules — the
+  // registration one and the co-branding one — and the client-side size check
+  // is the real guard on both (the API's @Size cap is the backstop).
+  const onLogoPick = (
+    file: File | null,
+    setter: (value: string) => void,
+    label: string,
+  ) => {
     if (!file) return;
     if (!LOGO_ACCEPT.split(',').includes(file.type)) {
-      setDetailsError('Logo must be a PNG, JPG, SVG or WebP image');
+      setDetailsError(`${label} must be a PNG, JPG, SVG or WebP image`);
       return;
     }
     if (file.size > LOGO_MAX_BYTES) {
-      setDetailsError('Logo image is too large — use one under 2 MB');
+      setDetailsError(`${label} is too large — use an image under 2 MB`);
       return;
     }
     const reader = new FileReader();
     reader.onload = () => {
       setDetailsError('');
-      setLogoBase64(String(reader.result));
+      setter(String(reader.result));
     };
     reader.onerror = () => setDetailsError('Could not read that image — try another file');
     reader.readAsDataURL(file);
@@ -228,7 +246,8 @@ export default function OrganizationWizard({
     || name.trim() !== org.name
     || (orgEmail.trim() || null) !== org.orgEmail
     || (description.trim() || null) !== org.description
-    || (logoBase64 || null) !== org.logoBase64;
+    || (logoBase64 || null) !== org.logoBase64
+    || (coBrandLogoBase64 || null) !== org.coBrandLogoBase64;
 
   /**
    * Step 1's request. Creates when there is no org yet; otherwise updates —
@@ -263,6 +282,7 @@ export default function OrganizationWizard({
       orgEmail: trimmedEmail || null,
       description: description.trim() || null,
       logoBase64: logoBase64 || null,
+      coBrandLogoBase64: coBrandLogoBase64 || null,
       assessmentIds: null,
     };
     setDetailsError('');
@@ -487,6 +507,14 @@ export default function OrganizationWizard({
       emails.add(email);
       if (!row.dob.trim()) return `${at}: date of birth is required`;
       if (!isValidDob(row.dob.trim())) return `${at}: date of birth must be a real date in DD-MM-YYYY`;
+      // Required since 2026-08-24, matching every other way a respondent can
+      // be created. Checked here rather than left to the server because this
+      // batch is created one row at a time — a bad row 3 would otherwise only
+      // surface after rows 1 and 2 had already been committed.
+      const phone = row.phone.trim();
+      if (!phone) return `${at}: phone number is required`;
+      if (!PHONE_RE.test(phone)) return `${at}: "${phone}" is not a valid phone number`;
+      if (!row.gender) return `${at}: gender is required`;
       const employeeId = row.employeeId.trim().toUpperCase();
       if (employeeId) {
         if (!/^[A-Za-z0-9]+$/.test(employeeId)) {
@@ -506,9 +534,11 @@ export default function OrganizationWizard({
     name: row.name.trim(),
     email: row.email.trim(),
     dob: row.dob.trim(),
-    phone: row.phone.trim() || null,
+    phone: row.phone.trim(),
     employeeId: row.employeeId.trim() || null,
-    gender: row.gender || null,
+    // The cast is safe because validateNewRows runs first and rejects '' —
+    // finish() never reaches here with an unpicked gender.
+    gender: row.gender as Gender,
     isConsented: row.isConsented,
     organizationId,
   });
@@ -738,6 +768,9 @@ export default function OrganizationWizard({
               <label className="text-sm font-medium">
                 Logo <span className="text-muted-foreground font-normal">(optional)</span>
               </label>
+              <p className="text-xs text-muted-foreground">
+                Shown on the registration form, above the sign-up fields.
+              </p>
               <div className="flex items-center gap-4">
                 <div className="h-16 w-16 shrink-0 rounded-lg border border-border bg-muted/40 overflow-hidden flex items-center justify-center">
                   {logoBase64 ? (
@@ -754,7 +787,10 @@ export default function OrganizationWizard({
                       type="file"
                       accept={LOGO_ACCEPT}
                       className="hidden"
-                      onChange={(e) => { onLogoPick(e.target.files?.[0] ?? null); e.target.value = ''; }}
+                      onChange={(e) => {
+                        onLogoPick(e.target.files?.[0] ?? null, setLogoBase64, 'Logo');
+                        e.target.value = '';
+                      }}
                     />
                   </label>
                   {logoBase64 && (
@@ -767,6 +803,67 @@ export default function OrganizationWizard({
                     </button>
                   )}
                   <p className="text-[0.6875rem] text-muted-foreground">PNG, JPG, SVG or WebP · up to 2 MB.</p>
+                </div>
+              </div>
+            </div>
+            {/* A SECOND logo, not a reuse of the one above. The registration
+                logo is seen once, square, above a form; this one sits in the
+                portal header for an entire assessment, where a horizontal
+                lockup usually reads better. Optional on purpose — an org that
+                skips it gets the portal's own mark and no co-branding. */}
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">
+                Assessment logo <span className="text-muted-foreground font-normal">(optional)</span>
+              </label>
+              <p className="text-xs text-muted-foreground">
+                Co-branding — shown in the header the whole time a respondent is taking an
+                assessment. Leave empty to show no logo there.
+              </p>
+              <div className="flex items-center gap-4">
+                {/* Wider preview box than the one above: this is where a
+                    horizontal logo goes, and previewing it in a square would
+                    misrepresent how it will actually render. */}
+                <div className="h-16 w-28 shrink-0 rounded-lg border border-border bg-muted/40 overflow-hidden flex items-center justify-center">
+                  {coBrandLogoBase64 ? (
+                    <img
+                      src={coBrandLogoBase64}
+                      alt="Assessment logo preview"
+                      className="h-full w-full object-contain p-1"
+                    />
+                  ) : (
+                    <Building2 className="h-6 w-6 text-muted-foreground/50" />
+                  )}
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label className="inline-flex items-center gap-1.5 cursor-pointer rounded-lg border border-border bg-background px-3 py-1.5 text-sm hover:bg-muted/50 transition-colors w-fit">
+                    <ImagePlus className="h-3.5 w-3.5" />
+                    {coBrandLogoBase64 ? 'Change assessment logo' : 'Upload assessment logo'}
+                    <input
+                      type="file"
+                      accept={LOGO_ACCEPT}
+                      className="hidden"
+                      onChange={(e) => {
+                        onLogoPick(
+                          e.target.files?.[0] ?? null,
+                          setCoBrandLogoBase64,
+                          'Assessment logo',
+                        );
+                        e.target.value = '';
+                      }}
+                    />
+                  </label>
+                  {coBrandLogoBase64 && (
+                    <button
+                      type="button"
+                      onClick={() => setCoBrandLogoBase64('')}
+                      className="text-xs text-red-600 hover:underline w-fit"
+                    >
+                      Remove assessment logo
+                    </button>
+                  )}
+                  <p className="text-[0.6875rem] text-muted-foreground">
+                    PNG, JPG, SVG or WebP · up to 2 MB · wide logos work best.
+                  </p>
                 </div>
               </div>
             </div>
@@ -1208,7 +1305,7 @@ export default function OrganizationWizard({
                             />
                           </div>
                           <div className="space-y-1">
-                            <label className="text-xs font-medium">Phone</label>
+                            <label className="text-xs font-medium">Phone *</label>
                             <input
                               type="tel"
                               value={row.phone}
@@ -1228,13 +1325,13 @@ export default function OrganizationWizard({
                             />
                           </div>
                           <div className="space-y-1">
-                            <label className="text-xs font-medium">Gender</label>
+                            <label className="text-xs font-medium">Gender *</label>
                             <select
                               value={row.gender}
                               onChange={(e) => patchRow(row.key, { gender: e.target.value as Gender | '' })}
                               className={INPUT_CLASS}
                             >
-                              <option value="">Not specified</option>
+                              <option value="">Select…</option>
                               {GENDERS.map((g) => (
                                 <option key={g.value} value={g.value}>{g.label}</option>
                               ))}

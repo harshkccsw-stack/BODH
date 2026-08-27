@@ -28,9 +28,25 @@ public record RegistrationSubmitRequest(
         /** The credential — this is what the respondent will sign in with. */
         @NotNull(message = "Date of birth is required") LocalDate dob,
 
+        /**
+         * Required since 2026-08-24. The pattern is deliberately loose — digits
+         * plus the punctuation people actually type, 7—20 characters — because
+         * this form is filled in from every country and a stricter rule would
+         * reject real numbers. It is a "looks like a phone number" check, not a
+         * validation of reachability, which only sending to it could prove.
+         */
+        @NotBlank(message = "Phone number is required")
+        @Pattern(regexp = "^\\+?[0-9][0-9 ()\\-]{5,18}[0-9]$",
+                message = "Enter a valid phone number")
         String phone,
 
-        /** Optional — the entity allows null, and nobody has to answer it. */
+        /**
+         * Required since 2026-08-24, which is why {@code PREFER_NOT_TO_SAY}
+         * exists — a required question with no way to decline is not a
+         * question. Declining is stored as that value; null on a profile still
+         * means the question was never asked.
+         */
+        @NotNull(message = "Gender is required")
         Gender gender,
 
         /**

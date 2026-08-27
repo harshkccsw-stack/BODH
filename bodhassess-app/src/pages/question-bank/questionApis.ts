@@ -94,6 +94,11 @@ export interface MqtScoreView {
 /** Matches QuestionOptionRequest on the backend; list order = display order. */
 export interface QuestionOptionPayload {
   optionText: string | null;
+  /**
+   * Optional help text shown under this option's label in the portal. Null
+   * when the author left the description box unticked or empty.
+   */
+  description: string | null;
   contentType: QuestionContentType;
   mediaUrl: string | null;
   mqtScores: MqtScorePayload[];
@@ -107,6 +112,12 @@ export interface QuestionPayload {
   contentType: QuestionContentType;
   questionType: QuestionType;
   stem: string;
+  /**
+   * Optional help text shown under the stem in the portal — "answer for the
+   * last two weeks". Null when the author left the description box unticked
+   * or empty.
+   */
+  description: string | null;
   mediaUrl: string | null;
   riskFlag: boolean;
   /** Both null = single choice. The backend rejects one without the other. */
@@ -166,6 +177,8 @@ export interface QuestionRowResponse {
 export interface QuestionOptionResponse {
   optionId: number;
   optionText: string | null;
+  /** Help text under the label; null when the author set none. */
+  description: string | null;
   contentType: QuestionContentType;
   mediaUrl: string | null;
   sortOrder: number;
@@ -196,6 +209,8 @@ export interface QuestionResponse {
   contentType: QuestionContentType;
   questionType: QuestionType;
   stem: string;
+  /** Help text under the stem; null when the author set none. */
+  description: string | null;
   mediaUrl: string | null;
   riskFlag: boolean;
   selectionRule: SelectionRule | null;

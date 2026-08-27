@@ -25,7 +25,14 @@ const GENDERS: Array<{ value: Gender; label: string }> = [
   { value: 'MALE', label: 'Male' },
   { value: 'FEMALE', label: 'Female' },
   { value: 'OTHER', label: 'Other' },
+  // The way out of a required field: the answer is mandatory, declining to
+  // give one is a valid answer, and it is stored rather than left blank.
+  { value: 'PREFER_NOT_TO_SAY', label: 'Prefer not to say' },
 ];
+
+// Mirrors PHONE_PATTERN on the backend exactly. Loose on purpose — digits plus
+// the punctuation people type — because numbers arrive from every country.
+const PHONE_RE = /^\+?[0-9][0-9 ()-]{5,18}[0-9]$/;
 
 const genderLabel = (g: Gender | null) => GENDERS.find((x) => x.value === g)?.label ?? null;
 
@@ -165,15 +172,25 @@ export default function RespondentsPage() {
       setFormError('Employee ID must contain only letters and numbers');
       return;
     }
+    // Phone and gender are required here for the same reason they are on the
+    // portal's registration form: a respondent record should carry the same
+    // minimum however it was created. Note this bites on EDIT too — a
+    // respondent created before the rule has neither, and saving them now
+    // means filling both in.
+    const phone = form.phone.trim();
+    if (!phone) { setFormError('Phone number is required'); return; }
+    if (!PHONE_RE.test(phone)) { setFormError('Enter a valid phone number'); return; }
+    if (!form.gender) { setFormError('Gender is required'); return; }
     // Payload mirrors the backend's RespondentRequest — dob is the login
-    // credential, so it is required even though phone/gender/org are not.
+    // credential, so it is required, as are phone and gender; only the
+    // employee code and the organization are optional.
     const payload: RespondentPayload = {
       name,
       email,
       dob: form.dob,
-      phone: form.phone.trim() || null,
+      phone,
       employeeId: employeeId || null,
-      gender: form.gender || null,
+      gender: form.gender,
       isConsented: form.isConsented,
       organizationId: form.organizationId,
     };
@@ -430,7 +447,7 @@ export default function RespondentsPage() {
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <label className="text-sm font-medium">Phone</label>
+                  <label className="text-sm font-medium">Phone *</label>
                   <input
                     type="tel"
                     value={form.phone}
@@ -440,13 +457,17 @@ export default function RespondentsPage() {
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <label className="text-sm font-medium">Gender</label>
+                  <label className="text-sm font-medium">Gender *</label>
                   <select
                     value={form.gender}
                     onChange={(e) => setForm({ ...form, gender: e.target.value as Gender | '' })}
                     className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
                   >
-                    <option value="">Not specified</option>
+                    {/* Still here, and still '' — it is what an old respondent
+                        with no gender on file lands on when the form opens.
+                        Submitting it is now rejected: "Prefer not to say" is
+                        the answer for someone who does not want to say. */}
+                    <option value="">Select…</option>
                     {GENDERS.map((g) => (
                       <option key={g.value} value={g.value}>{g.label}</option>
                     ))}

@@ -36,6 +36,8 @@ public record QuestionResponse(
         ContentType contentType,
         QuestionType questionType,
         String stem,
+        /** Help text under the stem; null when the author set none. */
+        String description,
         String mediaUrl,
         boolean riskFlag,
         SelectionRule selectionRule,
@@ -65,6 +67,7 @@ public record QuestionResponse(
                 q.getContentType(),
                 q.getQuestionType(),
                 q.getQuestionTexString(),
+                q.getDescription(),
                 q.getMediaUrl(),
                 q.isRiskFlag(),
                 q.getSelectionRule(),

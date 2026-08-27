@@ -67,6 +67,16 @@ public record PortalQuestionnaireContent(
             ContentType contentType,
             QuestionType questionType,
             String stem,
+            /**
+             * Help text under the stem. Safe in a SHARED cache entry: it is
+             * authored on the question, identical for everyone taking the
+             * questionnaire, and an authoring write already evicts this entry
+             * (PortalContentService.evictForQuestion). A cache entry written
+             * before this field existed simply deserialises it as null and
+             * renders as it did before — and the write that adds a description
+             * is itself what evicts that entry.
+             */
+            String description,
             String mediaUrl,
             SelectionRule selectionRule,
             Integer selectionCount,
@@ -126,6 +136,7 @@ public record PortalQuestionnaireContent(
                     question.getContentType(),
                     question.getQuestionType(),
                     question.getQuestionTexString(),
+                    question.getDescription(),
                     question.getMediaUrl(),
                     question.getSelectionRule(),
                     question.getSelectionCount(),
@@ -179,8 +190,8 @@ public record PortalQuestionnaireContent(
         List<PortalOption> out = new ArrayList<>(authored.size());
         for (int i = 0; i < authored.size(); i++) {
             Option o = authored.get(i);
-            out.add(new PortalOption(o.getOptionId(), o.getOptionText(), o.getContentType(),
-                    o.getMediaUrl(), i));
+            out.add(new PortalOption(o.getOptionId(), o.getOptionText(), o.getDescription(),
+                    o.getContentType(), o.getMediaUrl(), i));
         }
         return out;
     }

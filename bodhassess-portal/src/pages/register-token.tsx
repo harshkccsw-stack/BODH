@@ -16,6 +16,20 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+// Mirrors PHONE_PATTERN on the backend exactly. Deliberately loose — digits
+// plus the punctuation people actually type — because this form is filled in
+// from every country and a stricter rule rejects real numbers.
+const PHONE_RE = /^\+?[0-9][0-9 ()-]{5,18}[0-9]$/;
+
+// PREFER_NOT_TO_SAY is what makes "required" fair: the answer is mandatory,
+// declining to give one is a valid answer, and it is stored as such rather
+// than as a blank the reports cannot tell apart from "never asked".
+const GENDERS: Array<{ value: RegistrationGender; label: string }> = [
+  { value: 'MALE', label: 'Male' },
+  { value: 'FEMALE', label: 'Female' },
+  { value: 'OTHER', label: 'Other' },
+  { value: 'PREFER_NOT_TO_SAY', label: 'Prefer not to say' },
+];
 
 // h-11 on a phone: a 44px control is the smallest that is comfortable to tap,
 // and the base stylesheet lifts the font to 16px at the same widths so
@@ -52,8 +66,11 @@ export default function RegisterTokenPage() {
     email: '',
     dob: '',
     phone: '',
-    /** '' means "prefer not to say" — sent as absent, stored as null. */
-    gender: '',
+    /**
+     * '' means "nothing picked yet" and is rejected on submit — it is NOT an
+     * answer. Someone declining picks PREFER_NOT_TO_SAY, which is stored.
+     */
+    gender: '' as RegistrationGender | '',
     employeeId: '',
   });
 
@@ -108,6 +125,21 @@ export default function RegisterTokenPage() {
       setSubmitError('Date of birth must be a real date in DD/MM/YYYY.');
       return;
     }
+    const phone = form.phone.trim();
+    if (!phone) {
+      setSubmitError('Phone number is required.');
+      return;
+    }
+    if (!PHONE_RE.test(phone)) {
+      setSubmitError('Enter a valid phone number.');
+      return;
+    }
+    // '' is the placeholder, not an answer — "Prefer not to say" is how
+    // someone declines, and that is a value the server stores.
+    if (!form.gender) {
+      setSubmitError('Please select a gender.');
+      return;
+    }
     const employeeId = form.employeeId.trim();
     if (employeeId && !/^[A-Za-z0-9]+$/.test(employeeId)) {
       setSubmitError('Employee ID must contain only letters and numbers.');
@@ -120,10 +152,8 @@ export default function RegisterTokenPage() {
         name: form.name.trim(),
         email,
         dob: isoDob,
-        phone: form.phone.trim() || undefined,
-        // Omitted when left blank, so the backend stores null rather than a
-        // guess — and so a returning respondent's existing answer survives.
-        gender: (form.gender as RegistrationGender) || undefined,
+        phone,
+        gender: form.gender,
         employeeId: employeeId || undefined,
       });
       localStorage.setItem(config.authStorageKey, result.token);
@@ -267,20 +297,27 @@ export default function RegisterTokenPage() {
                 {/* Paired with the date of birth rather than given a row of
                     its own: both are personal details, and it keeps the form
                     at four rows so it still fits without scrolling. */}
-                <Field label="Gender">
+                <Field label="Gender *">
                   <select
                     value={form.gender}
-                    onChange={(e) => setForm({ ...form, gender: e.target.value })}
+                    onChange={(e) =>
+                      setForm({ ...form, gender: e.target.value as RegistrationGender | '' })
+                    }
                     className={INPUT}
                   >
-                    
-                    <option value="MALE">Male</option>
-                    <option value="FEMALE">Female</option>
-                    <option value="OTHER">Other</option>
+                    {/* This option is load-bearing. Without it the select's
+                        value ('') matched nothing, so the browser displayed
+                        the first option — "Male" — while the state stayed
+                        empty: anyone who trusted what they saw submitted no
+                        gender at all. */}
+                    <option value="">Select…</option>
+                    {GENDERS.map((g) => (
+                      <option key={g.value} value={g.value}>{g.label}</option>
+                    ))}
                   </select>
                 </Field>
 
-                <Field label="Phone">
+                <Field label="Phone *">
                   <input
                     type="tel"
                     value={form.phone}

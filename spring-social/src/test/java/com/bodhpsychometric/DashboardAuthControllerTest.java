@@ -63,7 +63,7 @@ class DashboardAuthControllerTest {
         mvc.perform(post("/api/respondents/create")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"Resp Only\",\"email\":\"resp.only@test.local\",\"dob\":\"10-01-2000\","
-                                + "\"phone\":null,\"gender\":null,\"isConsented\":false,\"organizationId\":null}"))
+                                + "\"phone\":\"+91 90000 00000\",\"gender\":\"MALE\",\"isConsented\":false,\"organizationId\":null}"))
                 .andExpect(status().isCreated());
 
         mvc.perform(post("/api/auth/login")
@@ -77,7 +77,7 @@ class DashboardAuthControllerTest {
         mvc.perform(post("/api/practitioners/create")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"Pract\",\"email\":\"pract@test.local\",\"dob\":\"05-06-1985\","
-                                + "\"phone\":null,\"practitionerStatus\":null,\"vertical\":null,\"organizationId\":null}"))
+                                + "\"phone\":\"+91 90000 00000\",\"practitionerStatus\":null,\"vertical\":null,\"organizationId\":null}"))
                 .andExpect(status().isCreated());
 
         mvc.perform(post("/api/auth/login")

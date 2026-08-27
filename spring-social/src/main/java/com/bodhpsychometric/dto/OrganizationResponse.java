@@ -13,6 +13,8 @@ public record OrganizationResponse(
         String orgEmail,
         String description,
         String logoBase64,
+        /** The portal's take-flow header logo; null when the org set none. */
+        String coBrandLogoBase64,
         long staffCount,
         long memberCount,
         long assessmentCount) {
@@ -25,6 +27,7 @@ public record OrganizationResponse(
                 organization.getOrgEmail(),
                 organization.getDescription(),
                 organization.getLogoBase64(),
+                organization.getCoBrandLogoBase64(),
                 staffCount,
                 memberCount,
                 assessmentCount);
