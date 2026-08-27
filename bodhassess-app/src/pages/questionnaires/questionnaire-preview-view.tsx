@@ -14,6 +14,8 @@ import { selectionLabel, type QuestionType, type SelectionRule } from '../questi
 export interface PreviewOption {
   optionId: number;
   optionText: string | null;
+  /** Optional help text under the label. Absent on callers written before it. */
+  description?: string | null;
   contentType: string;
   mediaUrl: string | null;
 }
@@ -27,6 +29,8 @@ export interface PreviewQuestion {
   /** Absent = MCQ, so a caller written before question types still works. */
   questionType?: QuestionType;
   stem: string;
+  /** Optional help text under the stem. Absent on callers written before it. */
+  description?: string | null;
   mediaUrl: string | null;
   /** Both null = single choice; otherwise how many options may be picked. */
   selectionRule?: SelectionRule | null;
@@ -118,6 +122,9 @@ export function QuestionView({ q, number }: { q: PreviewQuestion; number: number
         </span>
         <div className="min-w-0 flex-1 space-y-2">
           {q.stem && <p className="text-sm font-medium">{q.stem}</p>}
+          {q.description && (
+            <p className="text-xs text-muted-foreground leading-relaxed">{q.description}</p>
+          )}
           <MediaView contentType={q.contentType} mediaUrl={q.mediaUrl} />
         </div>
       </div>
@@ -182,10 +189,16 @@ export function QuestionView({ q, number }: { q: PreviewQuestion; number: number
       ) : q.options.length > 0 && (
         <div className="space-y-1.5 pl-9">
           {q.options.map((o) => (
-            <div key={o.optionId} className="flex items-center gap-2.5 rounded-md border border-border px-3 py-2">
-              <Marker className={cn('h-3.5 w-3.5 text-muted-foreground/50 shrink-0', rule && 'rounded-[3px]')} />
+            // items-start, not items-center: an option with a description is
+            // two lines tall and the marker belongs beside the label, not
+            // floating in the middle of the pair.
+            <div key={o.optionId} className="flex items-start gap-2.5 rounded-md border border-border px-3 py-2">
+              <Marker className={cn('h-3.5 w-3.5 text-muted-foreground/50 shrink-0 mt-0.5', rule && 'rounded-[3px]')} />
               <div className="min-w-0 flex-1 space-y-1">
                 {o.optionText && <p className="text-sm">{o.optionText}</p>}
+                {o.description && (
+                  <p className="text-xs text-muted-foreground leading-relaxed">{o.description}</p>
+                )}
                 <MediaView contentType={o.contentType} mediaUrl={o.mediaUrl} compact />
               </div>
             </div>

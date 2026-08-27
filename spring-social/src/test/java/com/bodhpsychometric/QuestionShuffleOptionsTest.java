@@ -120,7 +120,7 @@ class QuestionShuffleOptionsTest {
     private Taker newTaker(String tag, String email, int assessmentId) throws Exception {
         String respondentBody = postJson("/api/respondents/create",
                 "{\"name\":\"" + tag + "\",\"email\":\"" + email + "\",\"dob\":\"09-09-2009\","
-                        + "\"phone\":null,\"gender\":null,\"isConsented\":false,\"organizationId\":null}");
+                        + "\"phone\":\"+91 90000 00000\",\"gender\":\"MALE\",\"isConsented\":false,\"organizationId\":null}");
         int respondentUserId = JsonPath.read(respondentBody, "$.respondentUserId");
         postJson("/api/respondent-assessments/assign",
                 "{\"assessmentId\":" + assessmentId + ",\"respondentUserIds\":[" + respondentUserId + "]}");

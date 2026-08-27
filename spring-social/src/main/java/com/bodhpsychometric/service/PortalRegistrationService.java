@@ -233,11 +233,21 @@ public class PortalRegistrationService {
             requireEmployeeIdFree(employeeId, organization, respondent.getId());
             respondent.setEmployeeId(employeeId);
         }
-        // Same rule for gender: fill a blank, never overwrite what is already
-        // on the profile. A returning respondent leaving the select empty must
-        // not wipe the answer they gave the first time.
+        // Same rule for gender and phone: fill a blank, never overwrite what is
+        // already on the profile. The stored value may have come from an admin
+        // who knows better than a public form, and a respondent re-using a link
+        // must not be able to quietly rewrite their own record through it.
+        //
+        // Both are required fields on the form now, so a returning respondent
+        // always sends something — which is exactly why the "never overwrite"
+        // half matters more than it used to. What they type is kept only when
+        // the profile has nothing yet, e.g. someone bulk-uploaded without a
+        // phone number.
         if (request.gender() != null && respondent.getGender() == null) {
             respondent.setGender(request.gender());
+        }
+        if (respondent.getPhone() == null) {
+            respondent.setPhone(blankToNull(request.phone()));
         }
         // Nobody new: this respondent already existed, so the link keeps its
         // use and the request amounts to a sign-in.

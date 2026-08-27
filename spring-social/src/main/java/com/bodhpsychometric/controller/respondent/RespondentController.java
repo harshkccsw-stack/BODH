@@ -73,6 +73,20 @@ public class RespondentController {
 
     private static final Pattern ALPHANUMERIC_PATTERN = Pattern.compile("^[A-Za-z0-9]+$");
 
+    /**
+     * Same rule the bean-validated forms use (RespondentRequest,
+     * RegistrationSubmitRequest) — kept as a copy rather than shared, because
+     * a sheet row must produce a numbered issue rather than a 400 for the whole
+     * upload, so it cannot go through bean validation at all.
+     */
+    private static final Pattern PHONE_PATTERN =
+            Pattern.compile("^\\+?[0-9][0-9 ()\\-]{5,18}[0-9]$");
+
+    /** For the "not one of …" message, so it can never drift from the enum. */
+    private static final String GENDER_VALUES = java.util.Arrays.stream(Gender.values())
+            .map(Enum::name)
+            .collect(java.util.stream.Collectors.joining(", "));
+
     @Autowired
     private RespondentUserRepository respondentUserRepository;
 
@@ -352,9 +366,22 @@ public class RespondentController {
                 }
             }
 
-            if (row.gender() != null && !row.gender().isBlank() && parseGender(row.gender()) == null) {
+            // Phone and gender are required in a sheet for the same reason they
+            // are required on both forms: a respondent record should carry the
+            // same minimum however it was created. Reported per row rather than
+            // rejecting the upload, so one pass names every cell to fix.
+            String phone = row.phone() == null ? "" : row.phone().trim();
+            if (phone.isEmpty()) {
+                issues.add(issue(line, "phone", "Phone number is required"));
+            } else if (!PHONE_PATTERN.matcher(phone).matches()) {
+                issues.add(issue(line, "phone", "\"" + phone + "\" is not a valid phone number"));
+            }
+
+            if (row.gender() == null || row.gender().isBlank()) {
+                issues.add(issue(line, "gender", "Gender is required"));
+            } else if (parseGender(row.gender()) == null) {
                 issues.add(issue(line, "gender",
-                        "\"" + row.gender().trim() + "\" is not one of MALE, FEMALE, OTHER"));
+                        "\"" + row.gender().trim() + "\" is not one of " + GENDER_VALUES));
             }
 
             if (issues.size() == before) {
@@ -380,13 +407,22 @@ public class RespondentController {
         }
     }
 
-    /** Null for blank OR unrecognised — blank is "unset", the rest is an issue. */
+    /**
+     * Null for blank OR unrecognised — both are row-level issues now that
+     * gender is required.
+     *
+     * <p>Spaces and hyphens fold to underscores before the lookup, so the
+     * spelling a person actually types in a spreadsheet cell ("Prefer not to
+     * say") resolves to PREFER_NOT_TO_SAY. Nobody writing a sheet by hand
+     * types the constant.
+     */
     private static Gender parseGender(String gender) {
         if (gender == null || gender.isBlank()) {
             return null;
         }
+        String normalized = gender.trim().toUpperCase(Locale.ROOT).replaceAll("[\\s-]+", "_");
         try {
-            return Gender.valueOf(gender.trim().toUpperCase(Locale.ROOT));
+            return Gender.valueOf(normalized);
         } catch (IllegalArgumentException e) {
             return null;
         }

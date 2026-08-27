@@ -77,7 +77,7 @@ class PortalAssessmentControllerTest {
 
         String respondentBody = postJson("/api/respondents/create",
                 "{\"name\":\"Portal Taker\",\"email\":\"portal.taker@test.local\",\"dob\":\"02-02-2002\","
-                        + "\"phone\":null,\"gender\":null,\"isConsented\":false,\"organizationId\":null}");
+                        + "\"phone\":\"+91 90000 00000\",\"gender\":\"MALE\",\"isConsented\":false,\"organizationId\":null}");
         int respondentUserId = JsonPath.read(respondentBody, "$.respondentUserId");
 
         postJson("/api/respondent-assessments/assign",
@@ -131,7 +131,7 @@ class PortalAssessmentControllerTest {
         // A different respondent must not see this attempt.
         postJson("/api/respondents/create",
                 "{\"name\":\"Portal Other\",\"email\":\"portal.other@test.local\",\"dob\":\"03-03-2003\","
-                        + "\"phone\":null,\"gender\":null,\"isConsented\":false,\"organizationId\":null}");
+                        + "\"phone\":\"+91 90000 00000\",\"gender\":\"MALE\",\"isConsented\":false,\"organizationId\":null}");
         String otherLogin = mvc.perform(post("/api/portal/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"email\":\"portal.other@test.local\",\"dob\":\"2003-03-03\"}"))
@@ -204,7 +204,7 @@ class PortalAssessmentControllerTest {
 
         String respondentBody = postJson("/api/respondents/create",
                 "{\"name\":\"" + tag + " Taker\",\"email\":\"" + email + "\",\"dob\":\"" + dobCreate + "\","
-                        + "\"phone\":null,\"gender\":null,\"isConsented\":false,\"organizationId\":null}");
+                        + "\"phone\":\"+91 90000 00000\",\"gender\":\"MALE\",\"isConsented\":false,\"organizationId\":null}");
         int respondentUserId = JsonPath.read(respondentBody, "$.respondentUserId");
         postJson("/api/respondent-assessments/assign",
                 "{\"assessmentId\":" + assessmentId + ",\"respondentUserIds\":[" + respondentUserId + "]}");

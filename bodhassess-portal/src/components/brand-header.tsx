@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { Brain } from 'lucide-react';
+import { useAuth } from '@/lib/auth';
 import { cn } from '@/lib/utils';
 
 type MaxWidth = '3xl' | '5xl' | '6xl';
@@ -11,6 +12,12 @@ const widthClass: Record<MaxWidth, string> = {
 
 // Consolidates the sticky brand header that was duplicated four times across
 // the original take.tsx (terms / instructions / demographics / question gates).
+//
+// It is also the single place the organization's co-branding logo appears, and
+// that is deliberate: every screen a respondent sees between opening an
+// assessment and finishing it renders through here (StepShell for the terms /
+// demographics / instructions gates, QuestionRunner directly, the assessments
+// list, the completion screen), so one mark here co-brands the whole flow.
 export function BrandHeader({
   title,
   subtitle,
@@ -25,6 +32,12 @@ export function BrandHeader({
   progress?: number;
   maxWidth?: MaxWidth;
 }) {
+  // Read off the session rather than passed in as a prop: it is the same image
+  // on every screen for the whole session, and threading it through five
+  // components would only give each one a chance to disagree.
+  const { user } = useAuth();
+  const logo = user?.organizationCoBrandLogoBase64 ?? null;
+
   return (
     // pt-[env(safe-area-inset-top)]: on a notched phone in landscape the sticky
     // header would otherwise sit under the status bar / camera cutout.
@@ -36,9 +49,24 @@ export function BrandHeader({
         )}
       >
         <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-            <Brain className="h-4 w-4" />
-          </div>
+          {logo ? (
+            // max-w-32, not a fixed w-8: a co-branding logo is usually a
+            // horizontal lockup (mark + wordmark), and squeezing one into an
+            // 8x8 box would make it unreadable. Height is pinned so the header
+            // keeps its height whatever shape the organization uploaded, and
+            // object-contain letterboxes rather than crops — a cropped logo is
+            // worse than a small one. The white plate is what keeps a logo
+            // drawn for white paper legible in dark mode.
+            <img
+              src={logo}
+              alt={user?.organizationName ?? ''}
+              className="h-8 w-auto max-w-32 shrink-0 rounded-md bg-white object-contain p-0.5 sm:max-w-40"
+            />
+          ) : (
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+              <Brain className="h-4 w-4" />
+            </div>
+          )}
           <div className="min-w-0">
             <p className="text-sm font-semibold truncate">{title}</p>
             {/* Hidden on phones: it is the respondent's own name plus the

@@ -12,6 +12,13 @@ import com.bodhpsychometric.model.question.enums.ContentType;
  */
 public record QuestionOptionRequest(
         String optionText,
+        /**
+         * Optional help text under this option's label, shown to the
+         * respondent. Omitted, null and blank are the same thing — no
+         * description — so a caller written before this field existed keeps
+         * meaning exactly what it meant.
+         */
+        String description,
         ContentType contentType,
         String mediaUrl,
         List<MqtScoreRequest> mqtScores) {

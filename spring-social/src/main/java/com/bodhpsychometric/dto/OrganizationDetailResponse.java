@@ -18,6 +18,8 @@ public record OrganizationDetailResponse(
         String orgEmail,
         String description,
         String logoBase64,
+        /** The portal's take-flow header logo; null when the org set none. */
+        String coBrandLogoBase64,
         List<StaffRef> staff,
         List<MemberRef> members) {
 
@@ -63,6 +65,7 @@ public record OrganizationDetailResponse(
                 organization.getOrgEmail(),
                 organization.getDescription(),
                 organization.getLogoBase64(),
+                organization.getCoBrandLogoBase64(),
                 staff.stream().map(StaffRef::from).toList(),
                 members.stream().map(MemberRef::from).toList());
     }

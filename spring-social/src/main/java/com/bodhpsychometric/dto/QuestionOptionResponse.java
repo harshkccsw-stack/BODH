@@ -9,6 +9,8 @@ import com.bodhpsychometric.model.question.enums.ContentType;
 public record QuestionOptionResponse(
         Long optionId,
         String optionText,
+        /** Help text under the label; null when the author set none. */
+        String description,
         ContentType contentType,
         String mediaUrl,
         int sortOrder,
@@ -18,6 +20,7 @@ public record QuestionOptionResponse(
         return new QuestionOptionResponse(
                 o.getOptionId(),
                 o.getOptionText(),
+                o.getDescription(),
                 o.getContentType(),
                 o.getMediaUrl(),
                 o.getSortOrder(),

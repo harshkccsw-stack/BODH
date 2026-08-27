@@ -24,6 +24,21 @@ public record RespondentRequest(
         @NotBlank(message = "Email is required") @Email(message = "Email must be a valid address") String email,
         @NotNull(message = "Date of birth is required")
         @JsonFormat(pattern = "dd-MM-yyyy") LocalDate dob,
+        /**
+         * Required since 2026-08-24, matching the portal's registration form —
+         * a respondent record should carry the same minimum wherever it was
+         * created. Loose pattern on purpose: digits plus the punctuation people
+         * type, 7—20 characters, because numbers arrive from every country.
+         *
+         * <p>Consequence worth knowing: this record feeds UPDATE as well as
+         * create, so editing a respondent who predates the requirement now
+         * means filling their phone number in. That is the intent — the field
+         * gets backfilled by the people who touch the record — but it is not
+         * a bulk migration, and untouched old rows keep their null.
+         */
+        @NotBlank(message = "Phone number is required")
+        @Pattern(regexp = "^\\+?[0-9][0-9 ()\\-]{5,18}[0-9]$",
+                message = "Enter a valid phone number")
         String phone,
         /**
          * Optional employer code, unique per organization. Alphanumeric is
@@ -40,6 +55,12 @@ public record RespondentRequest(
         @Pattern(regexp = "^\\s*[A-Za-z0-9]*\\s*$",
                 message = "Employee ID must contain only letters and numbers")
         String employeeId,
+        /**
+         * Required since 2026-08-24. PREFER_NOT_TO_SAY is the way out for a
+         * respondent who declines; a null gender on an existing profile still
+         * means the question predates the requirement.
+         */
+        @NotNull(message = "Gender is required")
         Gender gender,
         boolean isConsented,
         Long organizationId) {

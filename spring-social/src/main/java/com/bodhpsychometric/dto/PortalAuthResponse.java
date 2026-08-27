@@ -21,6 +21,23 @@ public record PortalAuthResponse(
         boolean isConsented,
         Long organizationId,
         String organizationName,
+        /**
+         * The organization's co-branding logo, for the portal header while an
+         * assessment is being taken. Delivered HERE — once per session, on
+         * login and on session restore — rather than with each assessment's
+         * take payload: it belongs to the respondent's organization, not to
+         * the assessment, so re-sending a base64 image with every attempt load
+         * and every resume would ship the same bytes over and over.
+         *
+         * <p>Read live off the organization row, which also keeps it clear of
+         * PortalQuestionnaireContent — that cache is shared between every
+         * respondent taking a questionnaire, and a per-organization image has
+         * no business in it.
+         *
+         * <p>Null for an unaffiliated respondent or an organization that set
+         * none; the portal falls back to its own mark.
+         */
+        String organizationCoBrandLogoBase64,
         List<RespondentAssessmentResponse> allottedAssessments) {
 
     public static PortalAuthResponse from(RespondentUser respondent,
@@ -37,6 +54,7 @@ public record PortalAuthResponse(
                 respondent.isConsented(),
                 organization == null ? null : organization.getOrganizationId(),
                 organization == null ? null : organization.getName(),
+                organization == null ? null : organization.getCoBrandLogoBase64(),
                 allottedAssessments);
     }
 }

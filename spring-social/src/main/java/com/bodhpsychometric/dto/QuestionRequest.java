@@ -41,6 +41,12 @@ public record QuestionRequest(
         QuestionType questionType,
         @NotBlank(message = "stem is required")
         String stem,
+        /**
+         * Optional help text under the stem, shown to the respondent. Omitted,
+         * null and blank all mean "no description", so a caller written before
+         * this field existed keeps meaning exactly what it meant.
+         */
+        String description,
         String mediaUrl,
         Boolean riskFlag,
         SelectionRule selectionRule,

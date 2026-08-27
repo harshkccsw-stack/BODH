@@ -48,6 +48,18 @@ public class Option implements java.io.Serializable {
     @Column(name = "optionText", columnDefinition = "TEXT")
     private String optionText;
 
+    /**
+     * Optional help text under this option's label — "about once a month" —
+     * shown to the RESPONDENT. Null means none; blank is normalised to null.
+     *
+     * <p>Not part of the option's IDENTITY: QuestionController's optionsChanged
+     * comparison ignores it and syncs it in place instead, so editing a
+     * description never rebuilds the option rows and can therefore be done on
+     * a question that already has answers.
+     */
+    @Column(name = "description", columnDefinition = "TEXT")
+    private String description;
+
     /** Asset location when contentType is not TEXT: uploaded file path for IMAGE/VIDEO, external link for URL. */
     @Column(name = "mediaUrl", columnDefinition = "TEXT")
     private String mediaUrl;
@@ -83,6 +95,14 @@ public class Option implements java.io.Serializable {
 
     public void setOptionText(String optionText) {
         this.optionText = optionText;
+    }
+
+    public String getDescription() {
+        return description;
+    }
+
+    public void setDescription(String description) {
+        this.description = description;
     }
 
     public String getMediaUrl() {

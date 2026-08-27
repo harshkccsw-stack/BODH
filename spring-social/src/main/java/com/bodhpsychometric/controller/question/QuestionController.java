@@ -274,6 +274,13 @@ public class QuestionController {
         questionRowMqtRepository.flush();
         if (optionsChanged) {
             rebuildOptions(question, request);
+        } else {
+            // The option SET is unchanged, but a description may not be —
+            // optionsChanged deliberately ignores descriptions so that editing
+            // one does not read as replacing the options and get refused on a
+            // question that has answers. Sync them onto the existing rows,
+            // which keeps every optionId (and therefore every answer) intact.
+            syncOptionDescriptions(question, request);
         }
         // Rebuilt whenever the rows differ AND whenever they don't: the
         // nominations were just deleted above, and writeScores re-attaches
@@ -443,6 +450,9 @@ public class QuestionController {
         question.setContentType(request.contentType() == null ? ContentType.TEXT : request.contentType());
         question.setQuestionType(typeOf(request));
         question.setQuestionTexString(request.stem().trim());
+        // Blank → null so "no description" has exactly one representation on
+        // file, and nothing downstream has to test for both.
+        question.setDescription(trimmedOrNull(request.description()));
         question.setMediaUrl(request.mediaUrl());
         question.setRiskFlag(Boolean.TRUE.equals(request.riskFlag()));
         question.setSelectionRule(request.selectionRule());
@@ -549,6 +559,27 @@ public class QuestionController {
         return false;
     }
 
+    /**
+     * Copy descriptions onto the option rows already on file, positionally.
+     *
+     * <p>Only ever called when {@link #optionsChanged} said no, which means the
+     * two lists are the same length and line up index for index — the same
+     * pairing that comparison used. Nothing is created, deleted or reordered,
+     * so an answered question keeps every optionId it had.
+     *
+     * <p>A LINEAR_SCALE's options are generated rather than authored, so the
+     * payload has nothing to copy from; desiredOptions returns the generated
+     * points, whose descriptions are always null, and this writes null over
+     * null.
+     */
+    private void syncOptionDescriptions(Question question, QuestionRequest request) {
+        List<QuestionOptionRequest> want = desiredOptions(request);
+        List<Option> have = question.getOptions();
+        for (int i = 0; i < want.size() && i < have.size(); i++) {
+            have.get(i).setDescription(trimmedOrNull(want.get(i).description()));
+        }
+    }
+
     /** Replaces the option set; list order becomes sortOrder. */
     private void rebuildOptions(Question question, QuestionRequest request) {
         question.getOptions().clear();
@@ -557,6 +588,7 @@ public class QuestionController {
             QuestionOptionRequest w = want.get(i);
             Option option = new Option();
             option.setOptionText(w.optionText());
+            option.setDescription(trimmedOrNull(w.description()));
             option.setContentType(contentTypeOf(w));
             option.setMediaUrl(w.mediaUrl());
             option.setSortOrder(i);
@@ -600,6 +632,10 @@ public class QuestionController {
             final int value = point;
             points.add(new QuestionOptionRequest(
                     String.valueOf(point),
+                    // A scale's points are generated, not authored, so there is
+                    // nothing to carry a description for — the captions under
+                    // the ends are scaleLowLabel/scaleHighLabel instead.
+                    null,
                     ContentType.TEXT,
                     null,
                     mqtIds.stream().map(id -> new MqtScoreRequest(id, value)).toList()));
@@ -769,6 +805,10 @@ public class QuestionController {
                         || (o.mediaUrl() != null && !o.mediaUrl().isBlank()))
                 .map(o -> new QuestionOptionRequest(
                         o.optionText() == null || o.optionText().isBlank() ? null : o.optionText().trim(),
+                        // A description alone never keeps an option alive — the
+                        // filter above still drops a row with no text and no
+                        // media, because help text under nothing is nothing.
+                        trimmedOrNull(o.description()),
                         contentTypeOf(o),
                         o.mediaUrl() == null || o.mediaUrl().isBlank() ? null : o.mediaUrl().trim(),
                         o.mqtScores()))

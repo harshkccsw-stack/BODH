@@ -518,6 +518,10 @@ export default function CreateAssessmentPage() {
         contentType: d.form.contentType,
         questionType: d.form.questionType,
         stem: d.form.stem.trim(),
+        // Gated on showDescription exactly as the payload is, so the preview
+        // shows what will actually be saved rather than what is still typed
+        // into a box the author has since unticked.
+        description: d.form.showDescription ? d.form.description.trim() || null : null,
         mediaUrl: d.form.mediaUrl.trim() || null,
         // Straight off the draft form, so Preview shows the selection rule of
         // an unsaved edit too — the whole point of previewing here.
@@ -534,6 +538,7 @@ export default function CreateAssessmentPage() {
         options: effectiveOptions(d.form).map((o, oi) => ({
           optionId: oi,
           optionText: o.optionText || null,
+          description: o.showDescription ? o.description.trim() || null : null,
           contentType: o.contentType,
           mediaUrl: o.mediaUrl || null,
         })),

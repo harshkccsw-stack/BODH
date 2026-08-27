@@ -14,6 +14,13 @@ export interface OrganizationPayload {
   /** Logo as a base64 data URL ("data:image/png;base64,…"), or null to clear it. */
   logoBase64: string | null;
   /**
+   * The co-branding logo the portal shows in its header for the whole of an
+   * assessment — a separate image from logoBase64, set and cleared
+   * independently. Null means no co-branding, and the portal falls back to its
+   * own mark.
+   */
+  coBrandLogoBase64: string | null;
+  /**
    * Initial catalog — only read on CREATE. The 3-step wizard leaves this null
    * and maps assessments in its own step (step 2 → assign-assessments), so
    * every step owns exactly one request; the modal is edit-only and also
@@ -30,6 +37,8 @@ export interface OrganizationResponse {
   description: string | null;
   /** Logo as a base64 data URL, or null if none was uploaded. */
   logoBase64: string | null;
+  /** The portal's take-flow header logo, or null if none was uploaded. */
+  coBrandLogoBase64: string | null;
   /** Practitioners in the org — the authority side. */
   staffCount: number;
   /** Respondents in the org — the assessed side. */
@@ -64,6 +73,8 @@ export interface OrganizationDetailResponse {
   description: string | null;
   /** Logo as a base64 data URL, or null if none was uploaded. */
   logoBase64: string | null;
+  /** The portal's take-flow header logo, or null if none was uploaded. */
+  coBrandLogoBase64: string | null;
   staff: OrgStaffRef[];
   members: OrgMemberRef[];
 }
@@ -274,7 +285,13 @@ export function registrationLinkUrl(token: string): string {
 }
 
 //creating brand-new respondents straight into an org (wizard step 3, "New" tab)
-export type Gender = 'MALE' | 'FEMALE' | 'OTHER';
+/**
+ * Matches the Gender enum on the backend. PREFER_NOT_TO_SAY is a real stored
+ * answer — the field is required on every form now, and this is how someone
+ * declines. A null gender on a RESPONSE means the question predates that and
+ * was never put to them, which is not the same thing.
+ */
+export type Gender = 'MALE' | 'FEMALE' | 'OTHER' | 'PREFER_NOT_TO_SAY';
 
 /**
  * Matches RespondentRequest on the backend. One payload feeds two rows: the
@@ -287,10 +304,12 @@ export interface OrgRespondentCreatePayload {
   email: string;
   /** dd-MM-yyyy — the wire format everywhere, and the login password. */
   dob: string;
-  phone: string | null;
+  /** Required — the backend rejects a blank or malformed one. */
+  phone: string;
   /** Optional employer code, alphanumeric, unique within the organization. */
   employeeId: string | null;
-  gender: Gender | null;
+  /** Required — PREFER_NOT_TO_SAY is how a respondent declines. */
+  gender: Gender;
   isConsented: boolean;
   organizationId: number | null;
 }
