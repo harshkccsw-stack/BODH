@@ -122,7 +122,7 @@ class MqtScoringExportTest {
                 "$.assessmentId");
         int respondentUserId = JsonPath.read(postJson("/api/respondents/create",
                 "{\"name\":\"__smoke__ Scoring Taker\",\"email\":\"scoring.taker@test.local\","
-                        + "\"dob\":\"07-07-2007\",\"phone\":null,\"gender\":null,\"isConsented\":false,"
+                        + "\"dob\":\"07-07-2007\",\"phone\":\"+91 90000 00000\",\"gender\":\"MALE\",\"isConsented\":false,"
                         + "\"organizationId\":null}"), "$.respondentUserId");
         postJson("/api/respondent-assessments/assign",
                 "{\"assessmentId\":" + assessmentId + ",\"respondentUserIds\":[" + respondentUserId + "]}");
@@ -266,7 +266,7 @@ class MqtScoringExportTest {
                 "$.assessmentId");
         int respondentUserId = JsonPath.read(postJson("/api/respondents/create",
                 "{\"name\":\"__smoke__ Unscored Taker\",\"email\":\"unscored.taker@test.local\","
-                        + "\"dob\":\"08-08-2008\",\"phone\":null,\"gender\":null,\"isConsented\":false,"
+                        + "\"dob\":\"08-08-2008\",\"phone\":\"+91 90000 00000\",\"gender\":\"MALE\",\"isConsented\":false,"
                         + "\"organizationId\":null}"), "$.respondentUserId");
         postJson("/api/respondent-assessments/assign",
                 "{\"assessmentId\":" + assessmentId + ",\"respondentUserIds\":[" + respondentUserId + "]}");

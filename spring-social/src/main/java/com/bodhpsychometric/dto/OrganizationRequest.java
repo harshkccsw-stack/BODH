@@ -22,5 +22,10 @@ public record OrganizationRequest(
         // inflates it) so one upload can't bloat the row; the form should
         // also reject oversized files before they reach here.
         @Size(max = 3_000_000, message = "Logo image is too large — use one under 2 MB") String logoBase64,
+        // The co-branding logo shown in the portal header while a respondent
+        // takes an assessment, same encoding and same cap as the logo above,
+        // and equally optional — null means the portal shows its own mark.
+        @Size(max = 3_000_000, message = "Assessment logo is too large — use one under 2 MB")
+        String coBrandLogoBase64,
         List<Long> assessmentIds) {
 }

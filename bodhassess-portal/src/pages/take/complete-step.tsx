@@ -1,6 +1,7 @@
 import { CheckCircle2, ClipboardList } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { useAuth } from '@/lib/auth';
 
 // Terminal state of the take flow (folds in the old /portal/complete route).
 export function CompleteStep({
@@ -16,9 +17,26 @@ export function CompleteStep({
   respondentName?: string;
   onBackToList: () => void;
 }) {
+  const { user } = useAuth();
+  const logo = user?.organizationCoBrandLogoBase64 ?? null;
+
   return (
     <div className="flex-1 min-h-dvh w-full flex items-center justify-center px-4 py-8 pb-[max(2rem,env(safe-area-inset-bottom))] sm:py-10 bg-linear-to-br from-primary/10 via-background to-green-100/40 dark:to-green-950/20">
       <div className="w-full max-w-lg space-y-6">
+        {/* The one screen in the flow with no BrandHeader — it is a centred
+            card, and a sticky bar would break that. The logo is centred above
+            the tick instead, so the assessment still closes co-branded.
+            Rendered only when there is one: no logo, no gap, and the layout is
+            exactly what it was before. */}
+        {logo && (
+          <div className="flex justify-center">
+            <img
+              src={logo}
+              alt={user?.organizationName ?? ''}
+              className="h-10 w-auto max-w-48 rounded-md bg-white object-contain p-1"
+            />
+          </div>
+        )}
         <div className="text-center">
           <div className="relative mx-auto flex h-24 w-24 items-center justify-center">
             <div className="absolute inset-0 rounded-full bg-green-500/15 animate-pulse" />

@@ -1,6 +1,12 @@
 import { api } from '@/lib/apiClient';
 
-export type Gender = 'MALE' | 'FEMALE' | 'OTHER';
+/**
+ * Matches the Gender enum on the backend. PREFER_NOT_TO_SAY is a real stored
+ * answer — the field is required on every form now, and this is how someone
+ * declines. A null gender means the question predates that and was never put
+ * to them, which is NOT the same thing.
+ */
+export type Gender = 'MALE' | 'FEMALE' | 'OTHER' | 'PREFER_NOT_TO_SAY';
 
 // ── Wire shapes — mirror spring-social's DTOs 1:1 ──────────────────────────
 /**
@@ -13,14 +19,16 @@ export interface RespondentPayload {
   email: string;
   /** dd-MM-yyyy (wire format everywhere) — doubles as the login password. */
   dob: string;
-  phone: string | null;
+  /** Required — the backend rejects a blank or malformed one. */
+  phone: string;
   /**
    * Optional employer code, unique per organization. Alphanumeric only —
    * the portal accepts it in place of the email at login, and the backend
    * tells the two apart by looking for '@'.
    */
   employeeId: string | null;
-  gender: Gender | null;
+  /** Required — PREFER_NOT_TO_SAY is how a respondent declines. */
+  gender: Gender;
   isConsented: boolean;
   organizationId: number | null;
 }

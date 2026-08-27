@@ -42,8 +42,12 @@ import {
  */
 
 /** Canonical column keys, in template order. */
-const COLUMNS = ['name', 'email', 'dob', 'phone', 'employeeId', 'gender'] as const;
-const REQUIRED_COLUMNS = ['name', 'email', 'dob'] as const;
+const COLUMNS = ['name', 'email', 'dob', 'phone', 'gender', 'employeeId'] as const;
+// phone and gender joined this list on 2026-08-24, when both became required
+// on every respondent form. A sheet without those columns is rejected here,
+// before upload, with the column named — better than the server answering with
+// one "required" issue per line for a column that simply is not there.
+const REQUIRED_COLUMNS = ['name', 'email', 'dob', 'phone', 'gender'] as const;
 
 /** Headers are matched case- and space-insensitively: "Employee ID" → employeeid. */
 const normalizeHeader = (header: string) => header.toLowerCase().replace(/[\s_-]/g, '');
@@ -133,7 +137,7 @@ async function parseSheet(file: File): Promise<ParseOutcome> {
   if (missing.length > 0) {
     return {
       rows: [],
-      error: `Missing required column(s): ${missing.join(', ')}. The sheet needs name, email and dob — download the template if you are unsure.`,
+      error: `Missing required column(s): ${missing.join(', ')}. The sheet needs ${REQUIRED_COLUMNS.join(', ')} — download the template if you are unsure.`,
     };
   }
 
@@ -170,8 +174,8 @@ async function downloadTemplate() {
         email: 'arjun.patel@example.com',
         dob: '15-08-1994',
         phone: '+91 98765 43210',
-        employeeId: 'EMP1042',
         gender: 'MALE',
+        employeeId: 'EMP1042',
       },
     ],
     { header: [...COLUMNS] },
@@ -316,13 +320,16 @@ export function RespondentBulkUpload({
             <li>
               <span className="font-mono text-foreground">name</span>,{' '}
               <span className="font-mono text-foreground">email</span>,{' '}
-              <span className="font-mono text-foreground">dob</span> are required.
+              <span className="font-mono text-foreground">dob</span>,{' '}
+              <span className="font-mono text-foreground">phone</span>,{' '}
+              <span className="font-mono text-foreground">gender</span> are required.
             </li>
             <li>
-              <span className="font-mono text-foreground">phone</span>,{' '}
-              <span className="font-mono text-foreground">employeeId</span>,{' '}
-              <span className="font-mono text-foreground">gender</span> (MALE / FEMALE / OTHER) are
-              optional.
+              <span className="font-mono text-foreground">gender</span> is one of MALE, FEMALE,
+              OTHER or PREFER NOT TO SAY — spelling and capitalisation do not matter.
+            </li>
+            <li>
+              <span className="font-mono text-foreground">employeeId</span> is optional.
             </li>
             <li>
               Dates read as DD-MM-YYYY. Real date cells from Excel are understood too.

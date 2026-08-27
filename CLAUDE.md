@@ -10,7 +10,12 @@ re-read a file before editing; expect it to have changed):
   not a local instance — so a migration applied by starting the app lands on
   a database other people are using, and DDL in MySQL cannot be rolled back.
   Confirm before writing to it. Smoke data (`__smoke__` prefix) must be
-  deleted afterwards. `DB_PORT` in application.yml is what selects this.
+  deleted afterwards. `DB_PORT` in application.yml is what selects this — and
+  as of 2026-08-24 it is back to the **3306 default**, a local
+  `bodhpsychometric-mysql` container (`docker exec … mysql -ubodh -pbodh`; no
+  mysql client on the host PATH). ASK which one is live before running a
+  migration — the answer decides whether a mistake is yours alone or
+  everyone's.
   Physical tables are snake_case (default naming strategy). Tests run on H2
   (`auto_quote_keyword: true`).
 
@@ -120,11 +125,53 @@ re-read a file before editing; expect it to have changed):
   `V2__add_organization_logo.sql`). Deliberate deviation from the URL-only
   rule for this one small image — set/cleared through the create/edit org
   form. Request field `@Size(max=3_000_000)` (~2 MB image) is the backstop;
-  the real guard is client-side (type + 2 MB) in organizations.tsx. Do NOT
-  generalize this to question/option media — those stay URL-only.
+  the real guard is client-side (type + 2 MB) in organizations.tsx. EXTENDED
+  (2026-08-24): a SECOND base64 logo, `Organization.coBrandLogoBase64`
+  (`co_brand_logo_base64 LONGTEXT`, nullable, `V21`), same encoding, same cap,
+  same client-side guard. Two columns and not one because the two are seen in
+  different places at different sizes — `logoBase64` brands the registration
+  form, `coBrandLogoBase64` co-brands the portal header for the whole take
+  flow — and an org rarely has one image that suits both. Independent: set,
+  cleared and uploaded separately, both optional. Still do NOT generalize any
+  of this to question/option media — those stay URL-only.
+- Portal co-branding (2026-08-24): the take-flow logo is delivered on
+  `PortalAuthResponse` (`/portal/login` + `/portal/me`) as
+  `organizationCoBrandLogoBase64`, NOT with the take payload. It belongs to the
+  RESPONDENT's organization, not to the assessment (one assessment can sit in
+  many orgs' catalogs), so it is fetched once per session instead of re-shipped
+  on every attempt load and resume. Read live off the org row and deliberately
+  kept clear of `PortalQuestionnaireContent`, which is Redis-cached and SHARED
+  between every respondent taking that questionnaire. `BrandHeader` is the
+  single render point — every take-flow screen goes through it (StepShell for
+  the gates, QuestionRunner directly, plus the assessments list). The
+  completion screen is the one exception: centred card, no header, so it draws
+  its own centred logo. Null org or null logo → the portal's own Brain mark,
+  exactly as before. The login page CANNOT show it — pre-auth, the org is
+  unknown until someone signs in.
+- Respondent identity minimum (2026-08-24): name, email, dob, **phone and
+  gender** are required at ALL FOUR creation points — portal
+  `/register/{token}`, the dashboard respondent form, the wizard's inline "New"
+  rows, and the bulk XLSX sheet. `Gender` gained `PREFER_NOT_TO_SAY` (`V22`,
+  APPENDED to the MySQL enum's value list — inserting mid-list renumbers every
+  stored row) because a required question with no way to decline is not a
+  question. NULL ≠ PREFER_NOT_TO_SAY: null means the question predates the rule
+  and was never asked, and there is deliberately NO backfill. Phone uses one
+  loose pattern duplicated verbatim in four places (`RespondentRequest`,
+  `RegistrationSubmitRequest`, `RespondentController.PHONE_PATTERN` for sheet
+  rows which cannot use bean validation, and both frontends):
+  `^\+?[0-9][0-9 ()-]{5,18}[0-9]$` — 7—20 chars, loose because numbers arrive
+  from every country. Two consequences worth knowing: `RespondentRequest` feeds
+  UPDATE as well as create, so editing a respondent who predates the rule means
+  filling both fields in; and a sheet MISSING the phone/gender columns is
+  rejected before upload, by column name, rather than producing one "required"
+  issue per line. `parseGender` folds spaces/hyphens to underscores so "Prefer
+  not to say" typed into a cell resolves. Public forms FILL a blank profile
+  field but NEVER overwrite one already on file
+  (`PortalRegistrationService.claimIdentity`, gender and phone alike) — an
+  admin's value beats a re-used registration link's.
 - Organization: profile-level M:1 (PractitionerUser/RespondentUser each carry
-  a nullable organizationId; one org per member). Carries an optional inline
-  base64 logo (see the ContentType exception above).
+  a nullable organizationId; one org per member). Carries TWO optional inline
+  base64 logos (see the ContentType exception above).
 
 ## Frontend conventions
 
@@ -146,7 +193,9 @@ re-read a file before editing; expect it to have changed):
 
 ## Verification loop (do this EVERY change)
 
-1. Backend: `cd spring-social && ./mvnw -B test` (currently 5 tests green).
+1. Backend: `cd spring-social && ./mvnw -B test` (96 tests green as of
+   2026-08-24). Tightening a DTO's validation breaks the fixtures that post
+   that shape — fix the payloads, do not relax the rule.
 2. Frontend: `cd bodhassess-app && npm run typecheck && npm run build`.
 3. LIVE smoke with curl against localhost:8080 — the user's running server
    hot-reloads via devtools/IDE compile. Use `__smoke__`-prefixed data and

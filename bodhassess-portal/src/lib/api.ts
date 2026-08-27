@@ -92,6 +92,14 @@ export interface PortalRespondent {
   isConsented: boolean;
   organizationId: number | null;
   organizationName: string | null;
+  /**
+   * The organization's co-branding logo — an inline base64 data URL, bindable
+   * straight to an <img src>. Delivered with the session rather than with each
+   * assessment because it belongs to the respondent's organization, not to any
+   * one assessment. Null for an unaffiliated respondent or an organization
+   * that uploaded none, and BrandHeader falls back to the portal's own mark.
+   */
+  organizationCoBrandLogoBase64: string | null;
   allottedAssessments: AllottedAssessment[];
 }
 // Matches PortalLoginResponse on the backend.
@@ -357,8 +365,12 @@ export interface RegistrationTokenDetail {
   assessmentId: number | null;
   assessmentName: string | null;
 }
-/** Matches the Gender enum on the backend. */
-export type RegistrationGender = 'MALE' | 'FEMALE' | 'OTHER';
+/**
+ * Matches the Gender enum on the backend. PREFER_NOT_TO_SAY is a real stored
+ * answer, not an absent one — the field is required, and this is the way to
+ * decline it.
+ */
+export type RegistrationGender = 'MALE' | 'FEMALE' | 'OTHER' | 'PREFER_NOT_TO_SAY';
 
 // Matches RegistrationSubmitRequest on the backend. No organizationId — the
 // token decides that, and a body must not be able to pick one.
@@ -367,8 +379,10 @@ export interface RegistrationSubmitPayload {
   email: string;
   /** ISO yyyy-MM-dd, same as the login endpoint. Also the sign-in password. */
   dob: string;
-  phone?: string;
-  gender?: RegistrationGender;
+  /** Required — the backend rejects a blank or malformed one. */
+  phone: string;
+  /** Required — PREFER_NOT_TO_SAY is how someone declines. */
+  gender: RegistrationGender;
   employeeId?: string;
   // No assessmentId: the link decides. An ASSESSMENT link fixes the
   // assessment, an ORGANIZATION link grants none.

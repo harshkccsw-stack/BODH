@@ -103,7 +103,7 @@ class SectionDisplayOrderTest {
                 "$.assessmentId");
         int respondentUserId = JsonPath.read(postJson("/api/respondents/create",
                 "{\"name\":\"Order Taker\",\"email\":\"order.taker@test.local\",\"dob\":\"03-03-2003\","
-                        + "\"phone\":null,\"gender\":null,\"isConsented\":false,\"organizationId\":null}"),
+                        + "\"phone\":\"+91 90000 00000\",\"gender\":\"MALE\",\"isConsented\":false,\"organizationId\":null}"),
                 "$.respondentUserId");
         postJson("/api/respondent-assessments/assign",
                 "{\"assessmentId\":" + assessmentId + ",\"respondentUserIds\":[" + respondentUserId + "]}");

@@ -444,6 +444,12 @@ public class OrganizationController {
         // base64 has no meaningful surrounding whitespace to strip.
         organization.setLogoBase64(request.logoBase64() == null || request.logoBase64().isBlank()
                 ? null : request.logoBase64());
+        // Same rule for the co-branding logo — the two are set and cleared
+        // independently, so an org may brand the registration form, the take
+        // flow, both, or neither.
+        organization.setCoBrandLogoBase64(
+                request.coBrandLogoBase64() == null || request.coBrandLogoBase64().isBlank()
+                        ? null : request.coBrandLogoBase64());
     }
 
     private ResponseEntity<Map<String, String>> duplicateName() {

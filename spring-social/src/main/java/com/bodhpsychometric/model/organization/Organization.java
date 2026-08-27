@@ -41,6 +41,14 @@ public class Organization implements java.io.Serializable {
     @Column(name = "logo_base64", columnDefinition = "LONGTEXT")
     private String logoBase64;
 
+    // The co-branding logo, shown in the portal's header for the whole of an
+    // assessment. Separate from logoBase64 (which brands the registration
+    // form) because the two are seen at different sizes in different places
+    // and organizations rarely have one image that suits both. Optional: null
+    // means the portal shows its own mark, exactly as before this existed.
+    @Column(name = "co_brand_logo_base64", columnDefinition = "LONGTEXT")
+    private String coBrandLogoBase64;
+
     public Long getOrganizationId() {
         return organizationId;
     }
@@ -79,5 +87,13 @@ public class Organization implements java.io.Serializable {
 
     public void setLogoBase64(String logoBase64) {
         this.logoBase64 = logoBase64;
+    }
+
+    public String getCoBrandLogoBase64() {
+        return coBrandLogoBase64;
+    }
+
+    public void setCoBrandLogoBase64(String coBrandLogoBase64) {
+        this.coBrandLogoBase64 = coBrandLogoBase64;
     }
 }
