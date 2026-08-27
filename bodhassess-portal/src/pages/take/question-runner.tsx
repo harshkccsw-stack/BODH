@@ -874,6 +874,16 @@ export function QuestionRunner({
           <Card>
             <CardContent className="p-4 sm:p-6 space-y-4 sm:space-y-5">
               {q.stem && <p className="text-[0.9375rem] sm:text-base font-medium leading-relaxed">{q.stem}</p>}
+              {/* The author's help text. Deliberately quieter than the stem
+                  and pulled tight under it (-mt-2 against the container's
+                  space-y): it qualifies the question rather than adding a
+                  second one, and reading as a separate paragraph would make a
+                  respondent look for something to answer in it. */}
+              {q.description && (
+                <p className="-mt-2 sm:-mt-3 text-sm text-muted-foreground leading-relaxed">
+                  {q.description}
+                </p>
+              )}
               <Media url={q.mediaUrl ?? undefined} type={mediaTypeFor(q.contentType, q.mediaUrl)} />
 
               {isGrid && (
@@ -1109,6 +1119,15 @@ export function QuestionRunner({
                         </span>
                         <div className="flex-1 space-y-2">
                           <p className="text-sm">{opt.optionText || `Option ${oi + 1}`}</p>
+                          {/* space-y-2 would put this as far from its own
+                              label as the label is from the next option, so
+                              it is pulled back up — help text has to read as
+                              part of the choice it qualifies. */}
+                          {opt.description && (
+                            <p className="-mt-1 text-xs text-muted-foreground leading-relaxed">
+                              {opt.description}
+                            </p>
+                          )}
                           <Media url={opt.mediaUrl ?? undefined} type={mediaTypeFor(opt.contentType, opt.mediaUrl)} />
                         </div>
                       </div>

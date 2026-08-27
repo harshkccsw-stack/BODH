@@ -106,6 +106,8 @@ public record PortalAssessmentDetailResponse(
             ContentType contentType,
             QuestionType questionType,
             String stem,
+            /** Author's help text under the stem; null when there is none. */
+            String description,
             String mediaUrl,
             SelectionRule selectionRule,
             Integer selectionCount,
@@ -144,6 +146,8 @@ public record PortalAssessmentDetailResponse(
     public record PortalOption(
             Long optionId,
             String optionText,
+            /** Author's help text under the label; null when there is none. */
+            String description,
             ContentType contentType,
             String mediaUrl,
             int sortOrder) {
@@ -202,6 +206,7 @@ public record PortalAssessmentDetailResponse(
                 q.contentType(),
                 q.questionType(),
                 q.stem(),
+                q.description(),
                 q.mediaUrl(),
                 q.selectionRule(),
                 q.selectionCount(),
@@ -245,8 +250,8 @@ public record PortalAssessmentDetailResponse(
         List<PortalOption> delivered = new ArrayList<>(shuffled.size());
         for (int i = 0; i < shuffled.size(); i++) {
             PortalOption o = shuffled.get(i);
-            delivered.add(new PortalOption(o.optionId(), o.optionText(), o.contentType(),
-                    o.mediaUrl(), i));
+            delivered.add(new PortalOption(o.optionId(), o.optionText(), o.description(),
+                    o.contentType(), o.mediaUrl(), i));
         }
         return delivered;
     }

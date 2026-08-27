@@ -178,6 +178,9 @@ export async function parseQuestionsXlsx(
       if (!text) continue; // empty option cell — fine, sheet just has spare columns
       options.push({
         optionText: text,
+        // optionNDescription, beside optionNScores. Blank = none, so every
+        // sheet written before the column existed imports unchanged.
+        description: row[`option${n}description`] || null,
         contentType: 'TEXT',
         mediaUrl: null,
         mqtScores: parseScoreCell(row[`option${n}scores`] || '', `Row ${rowNo} option${n}Scores`, choices, errors),
@@ -195,6 +198,9 @@ export async function parseQuestionsXlsx(
       // in the form; every sheet ever written already means MCQ.
       questionType: 'MCQ',
       stem,
+      // Optional help text under the stem. Blank = none, so old sheets are
+      // unaffected; there is nothing to validate — any text is acceptable.
+      description: row.description || null,
       mediaUrl: type === 'TEXT' ? null : mediaUrl,
       riskFlag,
       shuffleOptions,
@@ -222,29 +228,35 @@ export async function downloadTemplate(choices: MqtChoice[]) {
   // "up to n", and "exactly n".
   const ws = XLSX.utils.json_to_sheet([
     {
-      stem: 'I enjoy meeting new people.', type: 'TEXT', mediaUrl: '', risk: 'no', shuffle: 'no',
+      stem: 'I enjoy meeting new people.',
+      description: 'Answer for how things have been over the last two weeks.',
+      type: 'TEXT', mediaUrl: '', risk: 'no', shuffle: 'no',
       selectRule: '', selectCount: '',
       section: 'Part A',
       scores: 'MqtNameOrId:2 | MqtNameOrId:1',
-      option1: 'Agree', option1Scores: 'MqtNameOrId:5', option2: 'Neutral', option2Scores: '',
-      option3: 'Disagree', option3Scores: 'MqtNameOrId:0',
+      option1: 'Agree', option1Description: '', option1Scores: 'MqtNameOrId:5',
+      option2: 'Neutral', option2Description: '', option2Scores: '',
+      option3: 'Disagree', option3Description: '', option3Scores: 'MqtNameOrId:0',
     },
     {
-      stem: 'Which diagram shows the correct flow?', type: 'URL',
+      stem: 'Which diagram shows the correct flow?', description: '', type: 'URL',
       mediaUrl: 'https://example.com/diagram.png', risk: 'yes', shuffle: 'no',
       selectRule: '', selectCount: '',
       section: 'Part B', scores: '',
-      option1: 'The first one', option1Scores: 'MqtNameOrId:3', option2: 'The second one', option2Scores: '',
-      option3: '', option3Scores: '',
+      option1: 'The first one', option1Description: '', option1Scores: 'MqtNameOrId:3',
+      option2: 'The second one', option2Description: '', option2Scores: '',
+      option3: '', option3Description: '', option3Scores: '',
     },
     {
-      stem: 'Which of these apply to you? Pick up to two.', type: 'TEXT', mediaUrl: '', risk: 'no',
+      stem: 'Which of these apply to you? Pick up to two.', description: '',
+      type: 'TEXT', mediaUrl: '', risk: 'no',
       shuffle: 'yes',
       selectRule: 'max', selectCount: 2,
       section: 'Part B', scores: '',
-      option1: 'I plan ahead', option1Scores: 'MqtNameOrId:1',
-      option2: 'I improvise', option2Scores: 'MqtNameOrId:2',
-      option3: 'I do both', option3Scores: 'MqtNameOrId:3',
+      option1: 'I plan ahead', option1Description: 'Lists, calendars, that sort of thing.',
+      option1Scores: 'MqtNameOrId:1',
+      option2: 'I improvise', option2Description: '', option2Scores: 'MqtNameOrId:2',
+      option3: 'I do both', option3Description: '', option3Scores: 'MqtNameOrId:3',
     },
   ]);
   const wb = XLSX.utils.book_new();
@@ -342,6 +354,7 @@ function QuestionPreview({
         )}
       </div>
       <p className="text-sm font-medium">{p.stem}</p>
+      {p.description && <p className="text-xs text-muted-foreground">{p.description}</p>}
       {p.mediaUrl && (
         <p className="text-xs text-muted-foreground break-all">
           <Link2 className="inline h-3 w-3 mr-1" />{p.mediaUrl}
@@ -364,6 +377,9 @@ function QuestionPreview({
                 <span className="text-xs font-medium text-muted-foreground shrink-0 mt-0.5">{i + 1}.</span>
                 <div className="min-w-0 space-y-0.5">
                   <p className="text-xs">{o.optionText || <span className="italic text-muted-foreground">[{o.contentType.toLowerCase()} only]</span>}</p>
+                  {o.description && (
+                    <p className="text-[0.6875rem] text-muted-foreground">{o.description}</p>
+                  )}
                   <ScoreChips scores={o.mqtScores} choices={choices} />
                 </div>
               </li>
@@ -530,6 +546,7 @@ export function BulkUploadModal({
             <>
               <div className="rounded-lg border border-border/70 bg-muted/30 px-3 py-2 text-xs text-muted-foreground space-y-1">
                 <p>One row per question. Columns: <code className="text-foreground">stem</code>* ·{' '}
+                  <code className="text-foreground">description</code> ·{' '}
                   <code className="text-foreground">type</code> (TEXT/URL) ·{' '}
                   <code className="text-foreground">mediaUrl</code> ·{' '}
                   <code className="text-foreground">risk</code> (yes/no) ·{' '}
@@ -538,7 +555,11 @@ export function BulkUploadModal({
                   <code className="text-foreground">section</code> ·{' '}
                   <code className="text-foreground">scores</code> ·{' '}
                   <code className="text-foreground">option1…N</code> ·{' '}
+                  <code className="text-foreground">option1Description…N</code> ·{' '}
                   <code className="text-foreground">option1Scores…N</code></p>
+                <p><code className="text-foreground">description</code> and{' '}
+                  <code className="text-foreground">option1Description…N</code> are optional help text,
+                  shown under the question and under that option while answering. Leave them blank for none.</p>
                 <p>Leave <code className="text-foreground">selectRule</code> blank for a single-choice
                   question. Otherwise <code className="text-foreground">min</code>,{' '}
                   <code className="text-foreground">max</code> or <code className="text-foreground">equals</code>{' '}

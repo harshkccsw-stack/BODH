@@ -126,6 +126,18 @@ public class Question implements Serializable {
     @Column(name = "stem", columnDefinition = "TEXT")
     private String questionTexString;
 
+    /**
+     * Optional help text under the stem — "answer for the last two weeks" —
+     * shown to the RESPONDENT, not an authoring note. Null means none, and
+     * blank is normalised to null on write so there is only one way to say it.
+     *
+     * <p>Deliberately NOT frozen by answers: an AssessmentAnswer points at an
+     * option, never at this, so re-wording it mid-collection strands nothing.
+     * Same reasoning as {@link #shuffleOptions}.
+     */
+    @Column(name = "description", columnDefinition = "TEXT")
+    private String description;
+
     /** Asset location when contentType is not TEXT: uploaded file path for IMAGE/VIDEO, external link for URL. */
     @Column(name = "mediaUrl", columnDefinition = "TEXT")
     private String mediaUrl;
@@ -234,6 +246,14 @@ public class Question implements Serializable {
 
     public void setQuestionTexString(String questionTexString) {
         this.questionTexString = questionTexString;
+    }
+
+    public String getDescription() {
+        return description;
+    }
+
+    public void setDescription(String description) {
+        this.description = description;
     }
 
     public String getMediaUrl() {

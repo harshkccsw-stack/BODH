@@ -129,6 +129,12 @@ export type PortalContentType = 'TEXT' | 'IMAGE' | 'VIDEO' | 'URL';
 export interface PortalOption {
   optionId: number;
   optionText: string | null;
+  /**
+   * The author's help text under this option's label — "about once a month".
+   * Null when they set none, which is every option authored before the field
+   * existed and most options after it.
+   */
+  description: string | null;
   contentType: PortalContentType;
   mediaUrl: string | null;
   sortOrder: number;
@@ -147,6 +153,11 @@ export interface PortalQuestion {
   contentType: PortalContentType;
   questionType: PortalQuestionType;
   stem: string | null;
+  /**
+   * The author's help text under the stem — "answer for the last two weeks".
+   * Null when they set none.
+   */
+  description: string | null;
   mediaUrl: string | null;
   /** Null on single-choice questions — the rule the respondent is shown. */
   selectionRule: PortalSelectionRule | null;

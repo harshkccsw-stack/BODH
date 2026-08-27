@@ -190,12 +190,27 @@ export function ScoreEditor({
 
 export interface OptionForm {
   optionText: string;
+  /**
+   * Optional help text under this option's label in the portal. Kept even
+   * while `showDescription` is off, so unticking the box and reticking it
+   * gives back what was typed — only the PAYLOAD drops it.
+   */
+  description: string;
+  /** Whether the description box is revealed. Not sent; it gates the field. */
+  showDescription: boolean;
   contentType: QuestionContentType;
   mediaUrl: string;
   mqtScores: ScoreRow[];
 }
 
-export const emptyOption = (): OptionForm => ({ optionText: '', contentType: 'TEXT', mediaUrl: '', mqtScores: [] });
+export const emptyOption = (): OptionForm => ({
+  optionText: '',
+  description: '',
+  showDescription: false,
+  contentType: 'TEXT',
+  mediaUrl: '',
+  mqtScores: [],
+});
 
 /**
  * One row of a LIKERT_GRID. `mqts` reuses ScoreRow so the row editor can be
@@ -214,6 +229,14 @@ export interface QuestionForm {
   contentType: QuestionContentType;
   questionType: QuestionType;
   stem: string;
+  /**
+   * Optional help text under the stem in the portal. Kept even while
+   * `showDescription` is off so the text survives a toggle; only the payload
+   * drops it.
+   */
+  description: string;
+  /** Whether the description box is revealed. Not sent; it gates the field. */
+  showDescription: boolean;
   mediaUrl: string;
   riskFlag: boolean;
   /** '' = single choice. The count is a string so the input can be emptied. */
@@ -247,6 +270,8 @@ export const formFrom = (initial: QuestionResponse | null): QuestionForm =>
         contentType: 'TEXT',
         questionType: 'MCQ',
         stem: '',
+        description: '',
+        showDescription: false,
         mediaUrl: '',
         riskFlag: false,
         selectionRule: '',
@@ -269,6 +294,11 @@ export const formFrom = (initial: QuestionResponse | null): QuestionForm =>
         // a response from an older backend meaning the same thing.
         questionType: initial.questionType ?? 'MCQ',
         stem: initial.stem,
+        description: initial.description || '',
+        // Ticked exactly when there is something to show — reopening a
+        // question that has a description must not hide it behind a box the
+        // author has to remember to tick again.
+        showDescription: !!initial.description,
         mediaUrl: initial.mediaUrl || '',
         riskFlag: initial.riskFlag,
         selectionRule: initial.selectionRule ?? '',
@@ -283,6 +313,8 @@ export const formFrom = (initial: QuestionResponse | null): QuestionForm =>
         scaleHighLabel: initial.scaleHighLabel || '',
         options: initial.options.map((o) => ({
           optionText: o.optionText || '',
+          description: o.description || '',
+          showDescription: !!o.description,
           contentType: o.contentType,
           mediaUrl: o.mediaUrl || '',
           mqtScores: viewsToRows(o.mqtScores || []),
@@ -300,6 +332,8 @@ export const formFrom = (initial: QuestionResponse | null): QuestionForm =>
 const liveOptions = (form: QuestionForm): OptionForm[] =>
   form.options
     .map((o) => ({ ...o, optionText: o.optionText.trim(), mediaUrl: o.mediaUrl.trim() }))
+    // A description alone never keeps an option alive — help text under
+    // nothing is nothing. Same rule the backend's sanitized() applies.
     .filter((o) => o.optionText || o.mediaUrl);
 
 /**
@@ -441,6 +475,10 @@ export function questionPayloadFrom(form: QuestionForm): QuestionPayload {
     contentType: form.contentType,
     questionType: form.questionType,
     stem: form.stem.trim(),
+    // Unticking the box clears the field on the wire while LEAVING the typed
+    // text in the form, so a mis-click is one tick away from undone. A ticked
+    // but empty box is null too — there is one representation of "none".
+    description: form.showDescription ? form.description.trim() || null : null,
     mediaUrl: form.contentType === 'TEXT' ? null : form.mediaUrl.trim(),
     riskFlag: form.riskFlag,
     // Never send a count without a rule — the backend 400s on the pair, and
@@ -459,6 +497,7 @@ export function questionPayloadFrom(form: QuestionForm): QuestionPayload {
     scaleHighLabel: scale ? form.scaleHighLabel.trim() || null : null,
     options: rows.map((o) => ({
       optionText: o.optionText || null,
+      description: o.showDescription ? o.description.trim() || null : null,
       contentType: o.contentType,
       mediaUrl: o.contentType === 'TEXT' ? null : o.mediaUrl,
       mqtScores: rowsToPayload(o.mqtScores),
@@ -562,6 +601,35 @@ export function QuestionFormFields({
           placeholder="e.g., I enjoy meeting new people."
           className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
         />
+      </div>
+
+      {/* Optional help text under the stem. Behind a checkbox rather than
+          always on screen: most questions need none, and an empty box on
+          every question is one more thing to read past. Unticking hides the
+          field and clears it on save, but keeps what was typed until the
+          modal closes — so a mis-click costs nothing. */}
+      <div className="space-y-1.5">
+        <label className="flex items-center gap-2 text-sm cursor-pointer select-none w-fit">
+          <input
+            type="checkbox"
+            checked={form.showDescription}
+            onChange={(e) => set({ showDescription: e.target.checked })}
+            className="h-4 w-4 rounded border-border accent-primary"
+          />
+          <span className="font-medium">Add a description</span>
+          <span className="text-muted-foreground text-xs">
+            — shown under the question while answering
+          </span>
+        </label>
+        {form.showDescription && (
+          <textarea
+            rows={2}
+            value={form.description}
+            onChange={(e) => set({ description: e.target.value })}
+            placeholder="e.g., Answer for how things have been over the last two weeks."
+            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+          />
+        )}
       </div>
       {form.contentType !== 'TEXT' && (
         <div className="space-y-1.5">
@@ -936,6 +1004,37 @@ export function QuestionFormFields({
                     placeholder="https://… (link to an image or video)"
                     className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
                   />
+                )}
+                {/* Per-option help text, same checkbox rule as the question's.
+                    Smaller type than the question-level one: with four or five
+                    options on screen, a full-size row each would drown the
+                    option text they belong to.
+
+                    Not offered on a LIKERT_GRID. Its options are the shared
+                    rating columns, which the portal renders as table headers
+                    and — on a phone — as ten-pixel buttons; there is nowhere
+                    to put help text. Offering a box whose contents no
+                    respondent would ever see is worse than not offering it. */}
+                {!isGrid && (
+                  <>
+                    <label className="flex items-center gap-1.5 text-[0.6875rem] text-muted-foreground cursor-pointer select-none w-fit">
+                      <input
+                        type="checkbox"
+                        checked={opt.showDescription}
+                        onChange={(e) => patchOption(i, { showDescription: e.target.checked })}
+                        className="h-3 w-3 rounded border-border accent-primary"
+                      />
+                      Add a description
+                    </label>
+                    {opt.showDescription && (
+                      <input
+                        value={opt.description}
+                        onChange={(e) => patchOption(i, { description: e.target.value })}
+                        placeholder={`Option ${i + 1} description — shown under the option`}
+                        className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                      />
+                    )}
+                  </>
                 )}
                 <ScoreEditor
                   title={`${isGrid ? 'Column' : 'Option'} ${i + 1} → MQT scores`}
