@@ -293,14 +293,23 @@ export function QuestionRunner({
   useEffect(() => clearAdvance, []);
 
   // ── Inactivity "focus" popup ────────────────────────────────────────────
-  // If the respondent doesn't interact for 30s, a popup nudges them to focus;
-  // dismissing it (OKAY) bumps the attempt's popup count (persisted at submit)
-  // and restarts the countdown. Any activity resets the countdown. The timer
+  // If the respondent doesn't interact for 2 minutes, a popup nudges them to
+  // focus; dismissing it (OKAY) bumps the attempt's popup count (persisted at
+  // submit) and restarts the countdown. Any activity resets it. The timer
   // only runs on this questions screen — the gate steps are separate pages —
-  // and pauses while the browser tab is hidden (leaving the tab isn't counted).
-  const INACTIVITY_MS = 30_000;
+  // but it does NOT pause while the browser tab is hidden: switching away is
+  // itself a lapse in attention, so the countdown carries on and the popup is
+  // there (or fires) whether or not anyone is looking. Returning to the tab
+  // does not reset it either; only real interaction does.
+  const INACTIVITY_MS = 2 * 60_000;
   const [showFocusModal, setShowFocusModal] = useState(false);
   const focusTimer = useRef<number | null>(null);
+  // When the armed countdown is due. Browsers throttle timers in a hidden tab,
+  // so the setTimeout alone can run late (or not at all, if the tab is frozen);
+  // this lets the visibility handler see a countdown that already elapsed and
+  // fire the popup on return. Same reason the attention clock below is
+  // deadline-based rather than a decrementing tally.
+  const focusDeadline = useRef<number | null>(null);
   // Ref mirror of the modal state so timer/visibility callbacks read it without
   // being re-created — while the popup is up, activity must NOT reset anything.
   const modalOpenRef = useRef(false);
@@ -339,6 +348,7 @@ export function QuestionRunner({
       window.clearTimeout(focusTimer.current);
       focusTimer.current = null;
     }
+    focusDeadline.current = null;
   };
   const stopAttentionTicker = () => {
     if (attentionTicker.current !== null) {
@@ -385,13 +395,20 @@ export function QuestionRunner({
     setAttentionLeftMs(ATTENTION_BUDGET_MS);
   };
 
+  /** Put the popup up and start its attention countdown. Never twice over. */
+  const openFocusPopup = () => {
+    if (modalOpenRef.current || attentionFired.current) return;
+    clearFocusTimer();
+    modalOpenRef.current = true;
+    setShowFocusModal(true);
+    runAttentionTimer();
+  };
   const armFocusTimer = () => {
     clearFocusTimer();
+    focusDeadline.current = Date.now() + INACTIVITY_MS;
     focusTimer.current = window.setTimeout(() => {
       focusTimer.current = null;
-      modalOpenRef.current = true;
-      setShowFocusModal(true);
-      runAttentionTimer();
+      openFocusPopup();
     }, INACTIVITY_MS);
   };
   // Any respondent activity restarts the countdown — unless the popup is up,
@@ -414,14 +431,15 @@ export function QuestionRunner({
   useEffect(() => {
     armFocusTimer();
     const onVisibility = () => {
-      // The attention budget deliberately keeps running while the tab is
-      // hidden: the popup is up, and walking away from it is exactly what it
-      // is meant to be counting. Only the INACTIVITY countdown pauses — that
-      // one asks "are they still here?", which a hidden tab cannot answer.
-      if (document.hidden) {
-        clearFocusTimer();
-      } else if (!modalOpenRef.current) {
-        armFocusTimer();
+      // Neither countdown pauses for a hidden tab. The attention budget runs
+      // because walking away from the popup is exactly what it is counting;
+      // the inactivity countdown runs because switching tabs mid-assessment
+      // is itself the inattention it is watching for. Nothing to do on the
+      // way out, then — and on the way back, only catch the case where the
+      // deadline passed while a throttled or frozen timer never fired.
+      if (document.hidden || modalOpenRef.current) return;
+      if (focusDeadline.current !== null && Date.now() >= focusDeadline.current) {
+        openFocusPopup();
       }
     };
     document.addEventListener('visibilitychange', onVisibility);

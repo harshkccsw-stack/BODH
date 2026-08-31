@@ -39,6 +39,9 @@ import com.bodhpsychometric.repository.auth.RespondentUserRepository;
 import com.bodhpsychometric.repository.auth.UserRepository;
 import com.bodhpsychometric.repository.organization.OrganizationRepository;
 
+import com.bodhpsychometric.dto.validation.BirthDateValidator;
+import com.bodhpsychometric.dto.validation.PhoneRules;
+
 import jakarta.validation.Valid;
 
 /**
@@ -74,13 +77,17 @@ public class RespondentController {
     private static final Pattern ALPHANUMERIC_PATTERN = Pattern.compile("^[A-Za-z0-9]+$");
 
     /**
-     * Same rule the bean-validated forms use (RespondentRequest,
-     * RegistrationSubmitRequest) — kept as a copy rather than shared, because
-     * a sheet row must produce a numbered issue rather than a 400 for the whole
-     * upload, so it cannot go through bean validation at all.
+     * The same rules the bean-validated forms use, compiled from the SAME
+     * constants rather than re-typed: a sheet row must produce a numbered issue
+     * rather than a 400 for the whole upload, so it cannot go through bean
+     * validation at all, but it must not be allowed to drift from the forms
+     * either. {@link PhoneRules} is where both get the text.
      */
+    private static final Pattern COUNTRY_CODE_PATTERN =
+            Pattern.compile(PhoneRules.COUNTRY_CODE_REGEX);
+
     private static final Pattern PHONE_PATTERN =
-            Pattern.compile("^\\+?[0-9][0-9 ()\\-]{5,18}[0-9]$");
+            Pattern.compile(PhoneRules.NATIONAL_NUMBER_REGEX);
 
     /** For the "not one of …" message, so it can never drift from the enum. */
     private static final String GENDER_VALUES = java.util.Arrays.stream(Gender.values())
@@ -278,6 +285,7 @@ public class RespondentController {
             RespondentUser respondent = new RespondentUser();
             respondent.setUser(user);
             respondent.setName(row.name().trim());
+            respondent.setPhoneCountryCode(blankToNull(row.phoneCountryCode()));
             respondent.setPhone(blankToNull(row.phone()));
             respondent.setEmployeeId(normalizeEmployeeId(row.employeeId()));
             respondent.setGender(parseGender(row.gender()));
@@ -340,9 +348,18 @@ public class RespondentController {
 
             if (row.dob() == null || row.dob().isBlank()) {
                 issues.add(issue(line, "dob", "Date of birth is required"));
-            } else if (parseDob(row.dob()) == null) {
-                issues.add(issue(line, "dob",
-                        "\"" + row.dob().trim() + "\" is not a real date in DD-MM-YYYY"));
+            } else {
+                LocalDate parsedDob = parseDob(row.dob());
+                if (parsedDob == null) {
+                    issues.add(issue(line, "dob",
+                            "\"" + row.dob().trim() + "\" is not a real date in DD-MM-YYYY"));
+                } else if (!BirthDateValidator.isInRange(parsedDob)) {
+                    // The same bound both request DTOs carry, reached through
+                    // the validator's static check so the sheet cannot end up
+                    // accepting a birth date the forms reject.
+                    issues.add(issue(line, "dob",
+                            "\"" + row.dob().trim() + "\" must be between 01-01-1900 and today"));
+                }
             }
 
             String employeeId = normalizeEmployeeId(row.employeeId());
@@ -370,11 +387,25 @@ public class RespondentController {
             // are required on both forms: a respondent record should carry the
             // same minimum however it was created. Reported per row rather than
             // rejecting the upload, so one pass names every cell to fix.
+            String countryCode = row.phoneCountryCode() == null ? "" : row.phoneCountryCode().trim();
+            if (countryCode.isEmpty()) {
+                issues.add(issue(line, "phoneCountryCode", "Country code is required"));
+            } else if (!COUNTRY_CODE_PATTERN.matcher(countryCode).matches()) {
+                issues.add(issue(line, "phoneCountryCode",
+                        "\"" + countryCode + "\" is not a country code — write it as +91"));
+            }
+
             String phone = row.phone() == null ? "" : row.phone().trim();
             if (phone.isEmpty()) {
                 issues.add(issue(line, "phone", "Phone number is required"));
             } else if (!PHONE_PATTERN.matcher(phone).matches()) {
-                issues.add(issue(line, "phone", "\"" + phone + "\" is not a valid phone number"));
+                issues.add(issue(line, "phone",
+                        "\"" + phone + "\" — " + PhoneRules.NATIONAL_NUMBER_MESSAGE));
+            } else if (!PhoneRules.withinE164(countryCode, phone)) {
+                // The one rule neither cell can fail on its own. Reported only
+                // once both halves are individually well-formed, so a single
+                // mistyped number does not produce three issues for one cell.
+                issues.add(issue(line, "phone", PhoneRules.E164_MESSAGE));
             }
 
             if (row.gender() == null || row.gender().isBlank()) {
@@ -435,8 +466,12 @@ public class RespondentController {
     /** Consent transitions own consentedAt: first grant stamps it, revoke clears it. */
     private void apply(RespondentUser respondent, RespondentRequest request, Organization organization) {
         respondent.setName(request.name().trim());
-        respondent.setPhone(request.phone() == null || request.phone().isBlank()
-                ? null : request.phone().trim());
+        // The pair is written together and only together — a code with no
+        // number, or ten digits with no country, is not a phone number anyone
+        // can act on. Validation already required both, so this is only
+        // guarding the shape the entity ends up in.
+        respondent.setPhoneCountryCode(blankToNull(request.phoneCountryCode()));
+        respondent.setPhone(blankToNull(request.phone()));
         respondent.setEmployeeId(normalizeEmployeeId(request.employeeId()));
         respondent.setGender(request.gender());
         respondent.setOrganization(organization);

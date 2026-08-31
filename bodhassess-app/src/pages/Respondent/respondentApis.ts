@@ -17,9 +17,14 @@ export type Gender = 'MALE' | 'FEMALE' | 'OTHER' | 'PREFER_NOT_TO_SAY';
 export interface RespondentPayload {
   name: string;
   email: string;
-  /** dd-MM-yyyy (wire format everywhere) — doubles as the login password. */
+  /**
+   * dd-MM-yyyy (wire format everywhere) — doubles as the login password.
+   * Bounded by the backend to 01-01-1900 .. today.
+   */
   dob: string;
-  /** Required — the backend rejects a blank or malformed one. */
+  /** Dial code with the '+', e.g. "+91". Required since 2026-08-31. */
+  phoneCountryCode: string;
+  /** Exactly ten digits — no punctuation, no country code. Required. */
   phone: string;
   /**
    * Optional employer code, unique per organization. Alphanumeric only —
@@ -42,6 +47,12 @@ export interface RespondentResponse {
   email: string;
   /** dd-MM-yyyy, same format the payload sends. */
   dob: string;
+  /**
+   * Null on any respondent last written before 2026-08-31 — those rows hold
+   * free text in `phone` with no code beside it. splitStoredPhone in
+   * @/lib/phone is what the edit form uses to cope.
+   */
+  phoneCountryCode: string | null;
   phone: string | null;
   employeeId: string | null;
   gender: Gender | null;

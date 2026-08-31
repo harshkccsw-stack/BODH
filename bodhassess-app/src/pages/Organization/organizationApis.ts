@@ -302,9 +302,14 @@ export type Gender = 'MALE' | 'FEMALE' | 'OTHER' | 'PREFER_NOT_TO_SAY';
 export interface OrgRespondentCreatePayload {
   name: string;
   email: string;
-  /** dd-MM-yyyy — the wire format everywhere, and the login password. */
+  /**
+   * dd-MM-yyyy — the wire format everywhere, and the login password. Bounded
+   * by the backend to 01-01-1900 .. today.
+   */
   dob: string;
-  /** Required — the backend rejects a blank or malformed one. */
+  /** Dial code with the '+', e.g. "+91". Required since 2026-08-31. */
+  phoneCountryCode: string;
+  /** Exactly ten digits — no punctuation, no country code. Required. */
   phone: string;
   /** Optional employer code, alphanumeric, unique within the organization. */
   employeeId: string | null;
@@ -341,8 +346,11 @@ export interface BulkRespondentRow {
   row: number;
   name: string;
   email: string;
-  /** dd-MM-yyyy. Also the portal password. */
+  /** dd-MM-yyyy. Also the portal password. Bounded to 01-01-1900 .. today. */
   dob: string;
+  /** Dial code column, '+' included. Required since 2026-08-31. */
+  phoneCountryCode?: string;
+  /** Exactly ten digits. Required. */
   phone?: string;
   employeeId?: string;
   /** MALE / FEMALE / OTHER, case-insensitive. Blank means unset. */
