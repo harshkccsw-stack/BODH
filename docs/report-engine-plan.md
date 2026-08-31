@@ -209,6 +209,58 @@ UI for free (`COUNT(*) GROUP BY status`).
 
 ---
 
+## 2a. Scoping invariant: assessments are independent
+
+**A respondent's report for one assessment is unrelated to their report for any
+other.** Nothing joins them. Four mechanisms enforce it, and it is worth knowing
+which, because each is a place the invariant could later be broken by accident:
+
+| Layer | What scopes it |
+|---|---|
+| Answers | `AssessmentAnswer` keyed `(respondentUserId, assessmentId, questionId, questionRowId, optionId)`; the dataset read filters `where a.assessment.assessmentId = :assessmentId`. |
+| Demographics | `DemographicResponse` keyed `(respondentUserId, assessmentId, demographicFieldId)` — re-collected per assessment, not carried across. |
+| Scores | `MqtScoringService.planFor(questionnaireId)` builds the plan from that questionnaire's placed questions only. |
+| Formula | `report_formula_definition.assessment_id`, validated against `columnKeys(assessmentId, orgId)`. A formula **cannot name** a column outside its own assessment — an unknown identifier is a parse error. |
+
+### What is NOT self-contained
+
+A report is **not** purely a function of that individual's responses. Any
+binding using `ZSCORE`, `PERCENTILE`, `PERCENTRANK` or `RANK` reads the whole
+cohort of that same assessment, so one person's percentile depends on what
+everyone else scored — and **shifts as more respondents complete**. The same
+person, same answers, scored a month apart gives a different number.
+
+This is exactly why `cohort_scope` is frozen on the definition (§4) and why
+`values_json` is snapshotted (§3). A formula using only arithmetic over `mqt:`
+columns *is* self-contained; one using population functions is not, and the
+distinction is visible in `validate().evalTarget` (`CLIENT` vs `SERVER`).
+
+### What IS shared across assessments
+
+- **The person.** One `RespondentUser` spans every assessment they take.
+  `core:name`, `core:email`, `core:organizationId` read from that shared
+  profile. Identity is common; responses are not.
+- **The vocabulary.** `MeasuredQuality`/`MeasuredQualityType` are global, and
+  questions are standalone bank items placed M:N into questionnaires. The same
+  question and the same `mqt:14` can appear in two assessments, meaning the same
+  trait in both — but each score is computed only from that assessment's
+  answers. **Shared ruler, independent measurements.**
+- Because `planFor` only surfaces MQTs the placed questions actually score onto,
+  two assessments expose **different subsets** of the taxonomy. `mqt:14` may
+  exist as a column in Assessment A and not in B, which is why the column
+  whitelist must be fetched per assessment and never cached globally.
+
+### Consequence
+
+**A combined report across a respondent's several assessments is not possible in
+this design**, and cannot be produced by a template change — the grammar has no
+way to reach outside its own dataset. Longitudinal or multi-instrument reporting
+is a genuinely new feature (a cross-assessment dataset view plus a formula scope
+that spans it), deliberately out of scope here. See also §10b(3): fixed external
+norm tables are the related, and more likely, next request.
+
+---
+
 ## 3. Reproducibility
 
 Three facts make this genuinely hard, and two of them contradict `CLAUDE.md`:

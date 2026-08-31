@@ -2,6 +2,10 @@ package com.bodhpsychometric.dto;
 
 import java.time.LocalDate;
 
+import com.bodhpsychometric.dto.validation.BirthDate;
+import com.bodhpsychometric.dto.validation.E164Phone;
+import com.bodhpsychometric.dto.validation.PhoneFields;
+import com.bodhpsychometric.dto.validation.PhoneRules;
 import com.bodhpsychometric.model.auth.enums.Gender;
 import com.fasterxml.jackson.annotation.JsonFormat;
 
@@ -19,26 +23,46 @@ import jakarta.validation.constraints.Size;
  * dob travels as dd-MM-yyyy on the wire (product decision) — the entity
  * still stores a real LocalDate.
  */
+@E164Phone
 public record RespondentRequest(
         @NotBlank(message = "Name is required") String name,
         @NotBlank(message = "Email is required") @Email(message = "Email must be a valid address") String email,
+        /**
+         * Bounded since 2026-08-31: a real date from 1900 up to and including
+         * today. There is no minimum age — the only thing being excluded is a
+         * date nobody can have been born on. It matters more than usual here
+         * because dob is the portal password, so a future date is a permanent
+         * typo'd credential rather than a cosmetic error.
+         */
         @NotNull(message = "Date of birth is required")
+        @BirthDate
         @JsonFormat(pattern = "dd-MM-yyyy") LocalDate dob,
         /**
-         * Required since 2026-08-24, matching the portal's registration form —
-         * a respondent record should carry the same minimum wherever it was
-         * created. Loose pattern on purpose: digits plus the punctuation people
-         * type, 7—20 characters, because numbers arrive from every country.
+         * The dial code, '+' included. Required alongside the number since
+         * 2026-08-31: a bare ten digits cannot be dialled and cannot be
+         * length-checked, because both need to know which country it is.
+         */
+        @NotBlank(message = "Country code is required")
+        @Pattern(regexp = PhoneRules.COUNTRY_CODE_REGEX,
+                message = PhoneRules.COUNTRY_CODE_MESSAGE)
+        String phoneCountryCode,
+        /**
+         * The national number in E.164 form: digits only, no country code and
+         * no trunk prefix. Replaces the loose free-text rule this field carried
+         * between 2026-08-24 and 2026-08-31, which accepted anything roughly
+         * phone-shaped because it had no country to check against. The
+         * class-level {@code @E164Phone} owns the 15-digit total.
          *
-         * <p>Consequence worth knowing: this record feeds UPDATE as well as
-         * create, so editing a respondent who predates the requirement now
-         * means filling their phone number in. That is the intent — the field
-         * gets backfilled by the people who touch the record — but it is not
-         * a bulk migration, and untouched old rows keep their null.
+         * <p>Consequence worth knowing, and unchanged from the earlier rule:
+         * this record feeds UPDATE as well as create, so editing a respondent
+         * whose stored phone predates the split means re-entering it as a code
+         * plus a number. That is the intent — the field gets brought up to
+         * shape by whoever touches the record — but there is no bulk
+         * migration, and untouched old rows keep their free text.
          */
         @NotBlank(message = "Phone number is required")
-        @Pattern(regexp = "^\\+?[0-9][0-9 ()\\-]{5,18}[0-9]$",
-                message = "Enter a valid phone number")
+        @Pattern(regexp = PhoneRules.NATIONAL_NUMBER_REGEX,
+                message = PhoneRules.NATIONAL_NUMBER_MESSAGE)
         String phone,
         /**
          * Optional employer code, unique per organization. Alphanumeric is
@@ -63,5 +87,5 @@ public record RespondentRequest(
         @NotNull(message = "Gender is required")
         Gender gender,
         boolean isConsented,
-        Long organizationId) {
+        Long organizationId) implements PhoneFields {
 }

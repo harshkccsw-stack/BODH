@@ -155,12 +155,10 @@ re-read a file before editing; expect it to have changed):
   APPENDED to the MySQL enum's value list — inserting mid-list renumbers every
   stored row) because a required question with no way to decline is not a
   question. NULL ≠ PREFER_NOT_TO_SAY: null means the question predates the rule
-  and was never asked, and there is deliberately NO backfill. Phone uses one
-  loose pattern duplicated verbatim in four places (`RespondentRequest`,
-  `RegistrationSubmitRequest`, `RespondentController.PHONE_PATTERN` for sheet
-  rows which cannot use bean validation, and both frontends):
-  `^\+?[0-9][0-9 ()-]{5,18}[0-9]$` — 7—20 chars, loose because numbers arrive
-  from every country. Two consequences worth knowing: `RespondentRequest` feeds
+  and was never asked, and there is deliberately NO backfill. Phone was ONE
+  free-text field here checked by a loose pattern duplicated in four places —
+  SUPERSEDED on 2026-08-31, see the next bullet. Two consequences worth
+  knowing, and both still true: `RespondentRequest` feeds
   UPDATE as well as create, so editing a respondent who predates the rule means
   filling both fields in; and a sheet MISSING the phone/gender columns is
   rejected before upload, by column name, rather than producing one "required"
@@ -169,6 +167,56 @@ re-read a file before editing; expect it to have changed):
   field but NEVER overwrite one already on file
   (`PortalRegistrationService.claimIdentity`, gender and phone alike) — an
   admin's value beats a re-used registration link's.
+- Respondent phone + birth date (2026-08-31): both tightened at the SAME FOUR
+  creation points as the 2026-08-24 minimum, and both rules now live in exactly
+  ONE place each (`dto/validation/`) instead of being hand-copied — the sheet
+  path, which cannot use bean validation, compiles or calls the same constants.
+  Change one, change its twin in the OTHER frontend with it — three files are
+  duplicated verbatim between `bodhassess-app/src` and `bodhassess-portal/src`
+  (`lib/phone.ts`, `components/phone-input.tsx`, `components/dob-input.tsx`).
+  Separate packages, no shared module: the duplication is deliberate, and
+  `lib/phone.ts` and `components/dob-input.tsx` are byte-identical in both. The
+  two `phone-input.tsx` differ ONLY in how the box sizes itself — the portal
+  uses `h-11`, the dashboard mirrors its own `INPUT_CLASS` padding — so each
+  control matches the fields around it. Anything else that drifts is a bug.
+  * **Phone is TWO values following E.164**: `RespondentUser.phoneCountryCode`
+    (`phone_country_code VARCHAR(8)` NULL, `V24`) holds the dial code WITH the
+    '+', and `phone` holds the national number, digits only. `PhoneRules` owns
+    `^\+[1-9][0-9]{0,2}$` and `^[0-9]{4,14}$`; the 15-digit TOTAL is the one
+    rule neither field can check alone, so it is a class-level `@E164Phone` on
+    both request records (they `implements PhoneFields`). A class-level
+    constraint raises a GLOBAL error — `ApiExceptionHandler` reads field errors
+    FIRST and falls back to the global one, which is what keeps the message
+    readable; delete that fallback and every cross-field rule silently becomes
+    "Some of the details are invalid".
+  * The loose pattern it replaced was correct for its time: a form filled in
+    from every country cannot check a length. Picking the country is what
+    removed that reasoning — do not "simplify" back to one field.
+  * NO BACKFILL, and none is possible: old rows hold free text with no stated
+    country, and inferring one from the digits invents data. `displayPhone()`
+    on the entity joins the pair for READING (reports/exports) and falls back
+    to the raw column, so old rows print unchanged. `splitStoredPhone` in
+    phone.ts parses a legacy value back for the EDIT form and deliberately
+    returns a BLANK country when it cannot tell — that leaves the select
+    unpicked and blocks submit, which is the point. The column therefore cannot
+    be made NOT NULL without a backfill decision first.
+  * **dob is bounded to 1900-01-01 .. today** by `@BirthDate` — no minimum age
+    (who may sit an assessment is the organization's rule, not a validator's);
+    the bound only excludes dates nobody can have been born on. It matters
+    because dob is the portal PASSWORD: a future date is a credential the
+    person can never reproduce. Deliberately NOT applied to
+    `PortalLoginRequest` — login must keep accepting whatever is already
+    stored, or accounts predating the rule lock themselves out. Same reason
+    `ddmmyyyyToIso` was left alone and `isBirthDateInRange` added beside it.
+  * The dob field is `DobInput` (both frontends, `components/dob-input.tsx`):
+    typed OR picked from the native calendar via `showPicker()`, with
+    `min`/`max` on the hidden date input. That is a convenience — typing
+    bypasses it — so the form and the server still validate.
+  * The XLSX sheet gained a REQUIRED `phoneCountryCode` column, so sheets
+    written before this date no longer upload until the column is added. Same
+    trade as 2026-08-24: rejected by column name before upload, not as one
+    issue per line. The sheet's `dialCode()` is lenient (`+91`, `0091`, `91`)
+    because a spreadsheet eats a leading '+'.
 - Organization: profile-level M:1 (PractitionerUser/RespondentUser each carry
   a nullable organizationId; one org per member). Carries TWO optional inline
   base64 logos (see the ContentType exception above).
@@ -193,8 +241,8 @@ re-read a file before editing; expect it to have changed):
 
 ## Verification loop (do this EVERY change)
 
-1. Backend: `cd spring-social && ./mvnw -B test` (96 tests green as of
-   2026-08-24). Tightening a DTO's validation breaks the fixtures that post
+1. Backend: `cd spring-social && ./mvnw -B test` (105 tests green as of
+   2026-08-31). Tightening a DTO's validation breaks the fixtures that post
    that shape — fix the payloads, do not relax the rule.
 2. Frontend: `cd bodhassess-app && npm run typecheck && npm run build`.
 3. LIVE smoke with curl against localhost:8080 — the user's running server

@@ -12,6 +12,16 @@ import {
   Users,
   X,
 } from 'lucide-react';
+import { DobInput } from '@/components/dob-input';
+import { PhoneInput } from '@/components/phone-input';
+import { BIRTH_DATE_ERROR } from '@/lib/helpers';
+import {
+  DEFAULT_DIAL_CODE,
+  PHONE_HINT,
+  isValidPhone,
+  phoneError,
+  splitStoredPhone,
+} from '@/lib/phone';
 import { useEffect, useMemo, useState } from 'react';
 import {
   respondentApis,
@@ -30,26 +40,27 @@ const GENDERS: Array<{ value: Gender; label: string }> = [
   { value: 'PREFER_NOT_TO_SAY', label: 'Prefer not to say' },
 ];
 
-// Mirrors PHONE_PATTERN on the backend exactly. Loose on purpose — digits plus
-// the punctuation people type — because numbers arrive from every country.
-const PHONE_RE = /^\+?[0-9][0-9 ()-]{5,18}[0-9]$/;
+// The phone rules live in @/lib/phone now that a number is a country code plus
+// exactly ten digits. The loose pattern that used to sit here existed only
+// because the field had no country to check a length against.
 
 const genderLabel = (g: Gender | null) => GENDERS.find((x) => x.value === g)?.label ?? null;
 
-// DOB is dd-mm-yyyy everywhere — display, input and wire — so the form keeps
-// the raw string and only auto-inserts the dashes while typing.
-const autoFormatDobDashes = (raw: string) => {
-  const digits = raw.replace(/\D/g, '').slice(0, 8);
-  const parts = [digits.slice(0, 2), digits.slice(2, 4), digits.slice(4, 8)].filter(Boolean);
-  return parts.join('-');
-};
-
+// A real calendar date AND one someone could have been born on: 01-01-1900 up
+// to and including today. Mirrors the backend's @BirthDate constraint. Note it
+// bites on EDIT too — a respondent stored with a nonsense dob has to be fixed
+// before the record will save.
 const isValidDob = (dob: string) => {
   const m = /^(\d{2})-(\d{2})-(\d{4})$/.exec(dob);
   if (!m) return false;
   const [, dd, mm, yyyy] = m.map(Number);
   const date = new Date(yyyy, mm - 1, dd);
-  return date.getFullYear() === yyyy && date.getMonth() === mm - 1 && date.getDate() === dd;
+  if (date.getFullYear() !== yyyy || date.getMonth() !== mm - 1 || date.getDate() !== dd) {
+    return false;
+  }
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return yyyy >= 1900 && date.getTime() <= today.getTime();
 };
 
 interface RespondentForm {
@@ -57,6 +68,8 @@ interface RespondentForm {
   name: string;
   email: string;
   dob: string;
+  phoneCountryCode: string;
+  /** Digits only, no country code — the input strips as it is typed. */
   phone: string;
   employeeId: string;
   gender: Gender | '';
@@ -69,6 +82,7 @@ const EMPTY_FORM: RespondentForm = {
   name: '',
   email: '',
   dob: '',
+  phoneCountryCode: DEFAULT_DIAL_CODE,
   phone: '',
   employeeId: '',
   gender: '',
@@ -137,7 +151,10 @@ export default function RespondentsPage() {
       name: r.name,
       email: r.email,
       dob: r.dob,
-      phone: r.phone || '',
+      // A row written before the split has free text and no code. splitStoredPhone
+      // recovers what it safely can and hands back a blank country for anything
+      // ambiguous, so the form asks rather than guessing.
+      ...splitStoredPhone(r.phoneCountryCode, r.phone),
       employeeId: r.employeeId || '',
       gender: r.gender || '',
       isConsented: r.isConsented,
@@ -158,7 +175,7 @@ export default function RespondentsPage() {
     }
     if (!form.dob) { setFormError('Date of birth is required'); return; }
     if (!isValidDob(form.dob)) {
-      setFormError('Date of birth must be a real date in DD-MM-YYYY format');
+      setFormError(`${BIRTH_DATE_ERROR} (DD-MM-YYYY)`);
       return;
     }
     // Optional, but when present it must match the backend's @Pattern. The
@@ -179,7 +196,10 @@ export default function RespondentsPage() {
     // means filling both in.
     const phone = form.phone.trim();
     if (!phone) { setFormError('Phone number is required'); return; }
-    if (!PHONE_RE.test(phone)) { setFormError('Enter a valid phone number'); return; }
+    if (!isValidPhone(form.phoneCountryCode, phone)) {
+      setFormError(phoneError(form.phoneCountryCode, phone));
+      return;
+    }
     if (!form.gender) { setFormError('Gender is required'); return; }
     // Payload mirrors the backend's RespondentRequest — dob is the login
     // credential, so it is required, as are phone and gender; only the
@@ -188,6 +208,7 @@ export default function RespondentsPage() {
       name,
       email,
       dob: form.dob,
+      phoneCountryCode: form.phoneCountryCode,
       phone,
       employeeId: employeeId || null,
       gender: form.gender,
@@ -330,7 +351,14 @@ export default function RespondentsPage() {
                   </div>
                   <div className="flex items-center gap-3 mt-0.5 text-xs text-muted-foreground">
                     <span className="truncate">{r.email}</span>
-                    {r.phone && <span className="shrink-0">{r.phone}</span>}
+                    {/* Joined for display: a bare ten digits with no country
+                        is not a number anyone can ring. Old rows have no code
+                        and print exactly as they always did. */}
+                    {r.phone && (
+                      <span className="shrink-0">
+                        {r.phoneCountryCode ? `${r.phoneCountryCode} ${r.phone}` : r.phone}
+                      </span>
+                    )}
                     <span className="shrink-0">DOB {r.dob}</span>
                     {genderLabel(r.gender) && <span className="shrink-0">{genderLabel(r.gender)}</span>}
                   </div>
@@ -414,12 +442,13 @@ export default function RespondentsPage() {
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-sm font-medium">Date of Birth *</label>
-                  <input
-                    inputMode="numeric"
+                  {/* Typed or picked. Typing stays the fast path for a
+                      birthday; the calendar is for anyone who would rather
+                      point at one, and it cannot offer a future date. */}
+                  <DobInput
                     value={form.dob}
-                    onChange={(e) => setForm({ ...form, dob: autoFormatDobDashes(e.target.value) })}
-                    placeholder="DD-MM-YYYY"
-                    maxLength={10}
+                    onChange={(dob) => setForm({ ...form, dob })}
+                    separator="-"
                     className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
                   />
                 </div>
@@ -448,13 +477,16 @@ export default function RespondentsPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
                   <label className="text-sm font-medium">Phone *</label>
-                  <input
-                    type="tel"
-                    value={form.phone}
-                    onChange={(e) => setForm({ ...form, phone: e.target.value })}
-                    placeholder="+91 98765 43210"
-                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                  {/* One bordered control holding both halves — see PhoneInput. */}
+                  <PhoneInput
+                    countryCode={form.phoneCountryCode}
+                    onCountryCodeChange={(phoneCountryCode) =>
+                      setForm({ ...form, phoneCountryCode })
+                    }
+                    phone={form.phone}
+                    onPhoneChange={(phone) => setForm({ ...form, phone })}
                   />
+                  <p className="text-[0.6875rem] text-muted-foreground">{PHONE_HINT}</p>
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-sm font-medium">Gender *</label>

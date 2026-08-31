@@ -1,4 +1,6 @@
+import { DobInput } from '@/components/dob-input';
 import { ErrorCard } from '@/components/error-card';
+import { PhoneInput } from '@/components/phone-input';
 import { ScreenLoader } from '@/components/screen-loader';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -10,16 +12,16 @@ import {
   type RegistrationTokenDetail,
 } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
-import { autoFormatDdmmyyyy, ddmmyyyyToIso } from '@/lib/helpers';
+import { BIRTH_DATE_ERROR, ddmmyyyyToIso, isBirthDateInRange } from '@/lib/helpers';
+import { DEFAULT_DIAL_CODE, PHONE_HINT, isValidPhone, phoneError } from '@/lib/phone';
 import { AlertTriangle, Brain, ClipboardList, Loader2, Lock, UserPlus } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
-// Mirrors PHONE_PATTERN on the backend exactly. Deliberately loose — digits
-// plus the punctuation people actually type — because this form is filled in
-// from every country and a stricter rule rejects real numbers.
-const PHONE_RE = /^\+?[0-9][0-9 ()-]{5,18}[0-9]$/;
+// The phone rules moved to @/lib/phone when the number was split into a
+// country code plus ten digits — the loose pattern that used to live here
+// existed only because this form had no country to check a length against.
 
 // PREFER_NOT_TO_SAY is what makes "required" fair: the answer is mandatory,
 // declining to give one is a valid answer, and it is stored as such rather
@@ -65,6 +67,9 @@ export default function RegisterTokenPage() {
     name: '',
     email: '',
     dob: '',
+    /** Pre-picked rather than blank — see DEFAULT_DIAL_CODE. */
+    phoneCountryCode: DEFAULT_DIAL_CODE,
+    /** Digits only, no country code: the input strips as it goes. */
     phone: '',
     /**
      * '' means "nothing picked yet" and is rejected on submit — it is NOT an
@@ -125,13 +130,21 @@ export default function RegisterTokenPage() {
       setSubmitError('Date of birth must be a real date in DD/MM/YYYY.');
       return;
     }
+    // A birthday cannot be in the future, and this one is also the password —
+    // a date they cannot have been born on is a credential they will never
+    // reproduce. Checked here as well as on the server so the message names
+    // the field before the round trip.
+    if (!isBirthDateInRange(isoDob)) {
+      setSubmitError(`${BIRTH_DATE_ERROR}.`);
+      return;
+    }
     const phone = form.phone.trim();
     if (!phone) {
       setSubmitError('Phone number is required.');
       return;
     }
-    if (!PHONE_RE.test(phone)) {
-      setSubmitError('Enter a valid phone number.');
+    if (!isValidPhone(form.phoneCountryCode, phone)) {
+      setSubmitError(`${phoneError(form.phoneCountryCode, phone)}.`);
       return;
     }
     // '' is the placeholder, not an answer — "Prefer not to say" is how
@@ -152,6 +165,7 @@ export default function RegisterTokenPage() {
         name: form.name.trim(),
         email,
         dob: isoDob,
+        phoneCountryCode: form.phoneCountryCode,
         phone,
         gender: form.gender,
         employeeId: employeeId || undefined,
@@ -284,12 +298,14 @@ export default function RegisterTokenPage() {
 
                 {/* The one hint that has to stay: the dob is the password. */}
                 <Field label="Date of Birth *" hint="Also your sign-in password — keep it safe.">
-                  <input
-                    inputMode="numeric"
+                  {/* Typed or picked — see DobInput. Typing stays the fast
+                      path for a birthday; the calendar is there for anyone who
+                      would rather point at one, and it cannot offer a future
+                      date. */}
+                  <DobInput
                     value={form.dob}
-                    onChange={(e) => setForm({ ...form, dob: autoFormatDdmmyyyy(e.target.value) })}
-                    placeholder="DD/MM/YYYY"
-                    maxLength={10}
+                    onChange={(dob) => setForm({ ...form, dob })}
+                    separator="/"
                     className={INPUT}
                   />
                 </Field>
@@ -317,14 +333,15 @@ export default function RegisterTokenPage() {
                   </select>
                 </Field>
 
-                <Field label="Phone *">
-                  <input
-                    type="tel"
-                    value={form.phone}
-                    onChange={(e) => setForm({ ...form, phone: e.target.value })}
-                    placeholder="+91 98765 43210"
-                    autoComplete="tel"
-                    className={INPUT}
+                {/* One bordered control holding both halves — see PhoneInput. */}
+                <Field label="Phone *" hint={PHONE_HINT}>
+                  <PhoneInput
+                    countryCode={form.phoneCountryCode}
+                    onCountryCodeChange={(phoneCountryCode) =>
+                      setForm({ ...form, phoneCountryCode })
+                    }
+                    phone={form.phone}
+                    onPhoneChange={(phone) => setForm({ ...form, phone })}
                   />
                 </Field>
 

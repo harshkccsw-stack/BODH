@@ -174,3 +174,28 @@ export function formatDDMMYYYYTime(input: Date | string | number | null | undefi
   const mins = String(date.getMinutes()).padStart(2, '0');
   return `${dd}/${mm}/${yyyy} ${hh}:${mins}`;
 }
+
+// ── Birth-date bounds ──────────────────────────────────────────────────────
+// A date that can actually be someone's birthday: 1900-01-01 up to and
+// including today. Mirrors the backend's @BirthDate constraint.
+//
+// Deliberately a SEPARATE check rather than a tightening of ddmmyyyyToIso:
+// that function also parses the dob typed at LOGIN, where dob is the password
+// and whatever is already stored has to keep working. An account created
+// before this rule must still be able to sign in.
+export const EARLIEST_BIRTH_DATE_ISO = '1900-01-01';
+
+export const BIRTH_DATE_ERROR =
+  'Date of birth must be a real date between 01/01/1900 and today';
+
+// Takes the ISO 'YYYY-MM-DD' that ddmmyyyyToIso produces. ISO dates compare
+// lexicographically in calendar order, so plain string comparison is correct
+// here and sidesteps timezone questions entirely.
+export function isBirthDateInRange(iso: string | null | undefined): boolean {
+  if (!iso) return false;
+  const now = new Date();
+  const todayIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(
+    now.getDate(),
+  ).padStart(2, '0')}`;
+  return iso >= EARLIEST_BIRTH_DATE_ISO && iso <= todayIso;
+}

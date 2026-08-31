@@ -172,6 +172,7 @@ public class PortalRegistrationService {
         RespondentUser respondent = new RespondentUser();
         respondent.setUser(user);
         respondent.setName(request.name().trim());
+        respondent.setPhoneCountryCode(blankToNull(request.phoneCountryCode()));
         respondent.setPhone(blankToNull(request.phone()));
         respondent.setEmployeeId(employeeId);
         respondent.setGender(request.gender());
@@ -206,6 +207,7 @@ public class PortalRegistrationService {
             RespondentUser created = new RespondentUser();
             created.setUser(user);
             created.setName(request.name().trim());
+            created.setPhoneCountryCode(blankToNull(request.phoneCountryCode()));
             created.setPhone(blankToNull(request.phone()));
             created.setEmployeeId(employeeId);
             created.setGender(request.gender());
@@ -246,7 +248,14 @@ public class PortalRegistrationService {
         if (request.gender() != null && respondent.getGender() == null) {
             respondent.setGender(request.gender());
         }
+        // Keyed on the NUMBER alone, and both halves written together. A row
+        // that already has a phone but no country code is an old free-text one
+        // (pre-2026-08-31): filling in just the code from this form would
+        // staple a country onto digits nobody said belonged to it, which is a
+        // worse record than the incomplete one it replaced. Such a row is
+        // brought up to shape by an edit, not by a re-used registration link.
         if (respondent.getPhone() == null) {
+            respondent.setPhoneCountryCode(blankToNull(request.phoneCountryCode()));
             respondent.setPhone(blankToNull(request.phone()));
         }
         // Nobody new: this respondent already existed, so the link keeps its
