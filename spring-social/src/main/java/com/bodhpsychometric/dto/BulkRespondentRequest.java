@@ -33,9 +33,24 @@ public record BulkRespondentRequest(
             int row,
             String name,
             String email,
-            /** dd-MM-yyyy, matching RespondentRequest and the wizard's own form. */
+            /**
+             * dd-MM-yyyy, matching RespondentRequest and the wizard's own
+             * form. Bounded to 1900-01-01 .. today per row since 2026-08-31.
+             */
             String dob,
-            /** Required — checked per row, so a blank names its line number. */
+            /**
+             * Dial code with the '+', e.g. "+91". Its own column since
+             * 2026-08-31, which means a sheet written before that date no
+             * longer uploads: the page names the missing column rather than
+             * letting the server answer with one "required" issue per line.
+             */
+            String phoneCountryCode,
+            /**
+             * Required — checked per row, so a blank names its line number.
+             * Exactly ten digits since 2026-08-31; a spreadsheet that ate the
+             * leading zero of a shorter number is the case the "add leading
+             * zeros" wording in the issue is there to explain.
+             */
             String phone,
             String employeeId,
             /**

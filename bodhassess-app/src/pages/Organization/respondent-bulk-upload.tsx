@@ -42,12 +42,23 @@ import {
  */
 
 /** Canonical column keys, in template order. */
-const COLUMNS = ['name', 'email', 'dob', 'phone', 'gender', 'employeeId'] as const;
+const COLUMNS = [
+  'name',
+  'email',
+  'dob',
+  'phoneCountryCode',
+  'phone',
+  'gender',
+  'employeeId',
+] as const;
 // phone and gender joined this list on 2026-08-24, when both became required
-// on every respondent form. A sheet without those columns is rejected here,
-// before upload, with the column named — better than the server answering with
-// one "required" issue per line for a column that simply is not there.
-const REQUIRED_COLUMNS = ['name', 'email', 'dob', 'phone', 'gender'] as const;
+// on every respondent form; phoneCountryCode joined on 2026-08-31, when a
+// number became a country code plus exactly ten digits. A sheet without those
+// columns is rejected here, before upload, with the column named — better than
+// the server answering with one "required" issue per line for a column that
+// simply is not there. It does mean a sheet written before either date has to
+// gain a column before it will upload, which is the intended trade.
+const REQUIRED_COLUMNS = ['name', 'email', 'dob', 'phoneCountryCode', 'phone', 'gender'] as const;
 
 /** Headers are matched case- and space-insensitively: "Employee ID" → employeeid. */
 const normalizeHeader = (header: string) => header.toLowerCase().replace(/[\s_-]/g, '');
@@ -61,6 +72,11 @@ const HEADER_ALIASES: Record<string, (typeof COLUMNS)[number]> = {
   phone: 'phone',
   phonenumber: 'phone',
   mobile: 'phone',
+  phonecountrycode: 'phoneCountryCode',
+  countrycode: 'phoneCountryCode',
+  dialcode: 'phoneCountryCode',
+  isdcode: 'phoneCountryCode',
+  callingcode: 'phoneCountryCode',
   employeeid: 'employeeId',
   empid: 'employeeId',
   gender: 'gender',
@@ -103,6 +119,23 @@ function toDdMmYyyy(raw: unknown): string {
 }
 
 const cell = (value: unknown) => (value == null ? '' : String(value).trim());
+
+/**
+ * Country-code cells → "+91".
+ *
+ * Lenient because a spreadsheet mangles this one predictably: a cell typed as
+ * `+91` may arrive as the number 91 with the '+' gone, and people write the
+ * international prefix as `0091` as often as `+91`. All three mean the same
+ * country, so all three are accepted rather than reported as a bad row.
+ * Anything else is passed through untouched for the server to reject by line.
+ */
+const dialCode = (value: unknown) => {
+  const raw = cell(value).replace(/[\s()-]/g, '');
+  if (!raw) return '';
+  if (raw.startsWith('+')) return raw;
+  if (raw.startsWith('00')) return `+${raw.slice(2)}`;
+  return /^[0-9]+$/.test(raw) ? `+${raw}` : raw;
+};
 
 /** Parsed sheet, or the reason it could not be read at all. */
 interface ParseOutcome {
@@ -151,6 +184,7 @@ async function parseSheet(file: File): Promise<ParseOutcome> {
       name: cell(picked.name),
       email: cell(picked.email),
       dob: toDdMmYyyy(picked.dob),
+      phoneCountryCode: dialCode(picked.phoneCountryCode) || undefined,
       phone: cell(picked.phone) || undefined,
       employeeId: cell(picked.employeeId) || undefined,
       gender: cell(picked.gender) || undefined,
@@ -173,7 +207,9 @@ async function downloadTemplate() {
         name: 'Arjun Patel',
         email: 'arjun.patel@example.com',
         dob: '15-08-1994',
-        phone: '+91 98765 43210',
+        phoneCountryCode: '+91',
+        // Digits only — no country code, no trunk prefix.
+        phone: '9876543210',
         gender: 'MALE',
         employeeId: 'EMP1042',
       },
@@ -321,8 +357,16 @@ export function RespondentBulkUpload({
               <span className="font-mono text-foreground">name</span>,{' '}
               <span className="font-mono text-foreground">email</span>,{' '}
               <span className="font-mono text-foreground">dob</span>,{' '}
+              <span className="font-mono text-foreground">phoneCountryCode</span>,{' '}
               <span className="font-mono text-foreground">phone</span>,{' '}
               <span className="font-mono text-foreground">gender</span> are required.
+            </li>
+            <li>
+              <span className="font-mono text-foreground">phoneCountryCode</span> is the dial code —
+              write it as +91, 0091 or just 91.{' '}
+              <span className="font-mono text-foreground">phone</span> is the rest of the number,
+              digits only: no spaces or brackets, no country code, and no leading 0. The two
+              together cannot exceed 15 digits (the E.164 standard).
             </li>
             <li>
               <span className="font-mono text-foreground">gender</span> is one of MALE, FEMALE,

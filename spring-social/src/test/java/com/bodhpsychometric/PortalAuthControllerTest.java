@@ -31,7 +31,7 @@ class PortalAuthControllerTest {
         mvc.perform(post("/api/respondents/create")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"Portal Resp\",\"email\":\"portal.resp@test.local\",\"dob\":\"15-03-1999\","
-                                + "\"phone\":\"+91 90000 00000\",\"gender\":\"MALE\",\"isConsented\":false,\"organizationId\":null}"))
+                                + "\"phoneCountryCode\":\"+91\",\"phone\":\"9000000000\",\"gender\":\"MALE\",\"isConsented\":false,\"organizationId\":null}"))
                 .andExpect(status().isCreated());
 
         mvc.perform(post("/api/portal/login")
@@ -51,7 +51,7 @@ class PortalAuthControllerTest {
         mvc.perform(post("/api/respondents/create")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"Portal Me\",\"email\":\"portal.me@test.local\",\"dob\":\"20-08-1998\","
-                                + "\"phone\":\"+91 90000 00000\",\"gender\":\"MALE\",\"isConsented\":false,\"organizationId\":null}"))
+                                + "\"phoneCountryCode\":\"+91\",\"phone\":\"9000000000\",\"gender\":\"MALE\",\"isConsented\":false,\"organizationId\":null}"))
                 .andExpect(status().isCreated());
 
         String body = mvc.perform(post("/api/portal/login")
@@ -103,7 +103,7 @@ class PortalAuthControllerTest {
         mvc.perform(post("/api/respondents/create")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"Portal Emp\",\"email\":\"portal.emp@test.local\",\"dob\":\"05-05-1995\","
-                                + "\"phone\":\"+91 90000 00000\",\"employeeId\":\"EMP1042\",\"gender\":\"MALE\","
+                                + "\"phoneCountryCode\":\"+91\",\"phone\":\"9000000000\",\"employeeId\":\"EMP1042\",\"gender\":\"MALE\","
                                 + "\"isConsented\":false,\"organizationId\":null}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.employeeId").value("EMP1042"));
@@ -141,7 +141,7 @@ class PortalAuthControllerTest {
         mvc.perform(post("/api/respondents/create")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"Portal Blank\",\"email\":\"portal.blank@test.local\",\"dob\":\"09-09-1989\","
-                                + "\"phone\":\"+91 90000 00000\",\"employeeId\":\"  \",\"gender\":\"MALE\","
+                                + "\"phoneCountryCode\":\"+91\",\"phone\":\"9000000000\",\"employeeId\":\"  \",\"gender\":\"MALE\","
                                 + "\"isConsented\":false,\"organizationId\":null}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.employeeId").doesNotExist());
@@ -150,7 +150,7 @@ class PortalAuthControllerTest {
         mvc.perform(post("/api/respondents/create")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"Portal Bad\",\"email\":\"portal.bad@test.local\",\"dob\":\"09-09-1989\","
-                                + "\"phone\":\"+91 90000 00000\",\"employeeId\":\"EMP-104@2\",\"gender\":\"MALE\","
+                                + "\"phoneCountryCode\":\"+91\",\"phone\":\"9000000000\",\"employeeId\":\"EMP-104@2\",\"gender\":\"MALE\","
                                 + "\"isConsented\":false,\"organizationId\":null}"))
                 .andExpect(status().isBadRequest());
     }
@@ -161,14 +161,14 @@ class PortalAuthControllerTest {
         mvc.perform(post("/api/respondents/create")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"Portal Dup A\",\"email\":\"portal.dupa@test.local\",\"dob\":\"01-01-1990\","
-                                + "\"phone\":\"+91 90000 00000\",\"employeeId\":\"DUP7\",\"gender\":\"MALE\","
+                                + "\"phoneCountryCode\":\"+91\",\"phone\":\"9000000000\",\"employeeId\":\"DUP7\",\"gender\":\"MALE\","
                                 + "\"isConsented\":false,\"organizationId\":null}"))
                 .andExpect(status().isCreated());
 
         mvc.perform(post("/api/respondents/create")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"Portal Dup B\",\"email\":\"portal.dupb@test.local\",\"dob\":\"02-02-1990\","
-                                + "\"phone\":\"+91 90000 00000\",\"employeeId\":\"dup7\",\"gender\":\"MALE\","
+                                + "\"phoneCountryCode\":\"+91\",\"phone\":\"9000000000\",\"employeeId\":\"dup7\",\"gender\":\"MALE\","
                                 + "\"isConsented\":false,\"organizationId\":null}"))
                 .andExpect(status().isConflict());
     }
@@ -178,7 +178,7 @@ class PortalAuthControllerTest {
         mvc.perform(post("/api/respondents/create")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"Portal Wrong\",\"email\":\"portal.wrong@test.local\",\"dob\":\"11-11-1991\","
-                                + "\"phone\":\"+91 90000 00000\",\"gender\":\"MALE\",\"isConsented\":false,\"organizationId\":null}"))
+                                + "\"phoneCountryCode\":\"+91\",\"phone\":\"9000000000\",\"gender\":\"MALE\",\"isConsented\":false,\"organizationId\":null}"))
                 .andExpect(status().isCreated());
 
         mvc.perform(post("/api/portal/login")

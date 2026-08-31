@@ -51,6 +51,27 @@ public class RespondentUser implements java.io.Serializable {
     @Column(name = "name")
     private String name;
 
+    /**
+     * The dial code the number belongs to, '+' included (e.g. "+91"). Split
+     * from {@link #phone} rather than folded into it so the pair is two
+     * checkable values: the code says which country, which is the only thing
+     * that makes a fixed-length national number checkable at all.
+     *
+     * <p>Nullable, and deliberately NOT backfilled. Every respondent created
+     * before 2026-08-31 has a free-text phone in whatever shape they typed and
+     * no code beside it; guessing one from the digits would invent a country
+     * nobody stated. Those rows keep what they have and are only brought up to
+     * the new shape when someone edits them.
+     */
+    @Column(name = "phoneCountryCode", length = 8)
+    private String phoneCountryCode;
+
+    /**
+     * The national (subscriber) number alone, in E.164 form: digits only, no
+     * punctuation, no country code, no trunk prefix — for anything written
+     * since 2026-08-31. Rows older than that still hold free text such as
+     * "+91 98765 43210"; read this column defensively.
+     */
     @Column(name = "phone")
     private String phone;
 
@@ -107,6 +128,37 @@ public class RespondentUser implements java.io.Serializable {
 
     public void setName(String name) {
         this.name = name;
+    }
+
+    public String getPhoneCountryCode() {
+        return phoneCountryCode;
+    }
+
+    public void setPhoneCountryCode(String phoneCountryCode) {
+        this.phoneCountryCode = phoneCountryCode;
+    }
+
+    /**
+     * The whole number as one E.164 string — "+919876543210" — for anything
+     * that DISPLAYS a phone rather than editing it (reports, exports).
+     *
+     * <p>Falls back to the raw column when there is no country code, which is
+     * every row written before the split: those already hold whatever free
+     * text was typed, often with a "+91 " of their own, so joining nothing
+     * onto them is exactly right.
+     *
+     * <p>Not a mapped property. This entity uses field access — the
+     * annotations sit on the fields — so Hibernate never looks at accessors,
+     * and the name deliberately drops the `get` prefix so it cannot be
+     * mistaken for one.
+     */
+    public String displayPhone() {
+        if (phone == null || phone.isBlank()) {
+            return phone;
+        }
+        return phoneCountryCode == null || phoneCountryCode.isBlank()
+                ? phone
+                : phoneCountryCode + phone;
     }
 
     public String getPhone() {

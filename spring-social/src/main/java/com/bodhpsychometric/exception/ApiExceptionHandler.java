@@ -14,6 +14,7 @@ import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
+import org.springframework.validation.ObjectError;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -114,10 +115,18 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     protected ResponseEntity<Object> handleMethodArgumentNotValid(MethodArgumentNotValidException ex,
             HttpHeaders headers, HttpStatusCode status, WebRequest request) {
         FieldError first = ex.getBindingResult().getFieldError();
-        String message = first == null || first.getDefaultMessage() == null
-                ? "Some of the details are invalid"
-                : first.getDefaultMessage();
-        return withMessage(ex, message, headers, status, request);
+        String message = first == null ? null : first.getDefaultMessage();
+        if (message == null) {
+            // No FIELD error does not mean no error: a class-level constraint
+            // (@E164Phone, which checks the dial code and the number together
+            // because neither field can see the other) raises a GLOBAL one, and
+            // reading only field errors reported its real message as the
+            // useless "Some of the details are invalid".
+            ObjectError global = ex.getBindingResult().getGlobalError();
+            message = global == null ? null : global.getDefaultMessage();
+        }
+        return withMessage(ex, message == null ? "Some of the details are invalid" : message,
+                headers, status, request);
     }
 
     /**

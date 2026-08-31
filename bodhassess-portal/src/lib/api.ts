@@ -388,9 +388,14 @@ export type RegistrationGender = 'MALE' | 'FEMALE' | 'OTHER' | 'PREFER_NOT_TO_SA
 export interface RegistrationSubmitPayload {
   name: string;
   email: string;
-  /** ISO yyyy-MM-dd, same as the login endpoint. Also the sign-in password. */
+  /**
+   * ISO yyyy-MM-dd, same as the login endpoint. Also the sign-in password.
+   * The backend bounds it to 1900-01-01 .. today.
+   */
   dob: string;
-  /** Required — the backend rejects a blank or malformed one. */
+  /** Dial code with the '+', e.g. "+91". Required. */
+  phoneCountryCode: string;
+  /** Exactly ten digits, no punctuation and no country code. Required. */
   phone: string;
   /** Required — PREFER_NOT_TO_SAY is how someone declines. */
   gender: RegistrationGender;
