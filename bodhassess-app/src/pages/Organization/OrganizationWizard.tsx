@@ -1,3 +1,11 @@
+import { DobInput } from '@/components/dob-input';
+import { PhoneInput } from '@/components/phone-input';
+import {
+  DEFAULT_DIAL_CODE,
+  PHONE_HINT,
+  isValidPhone,
+  phoneError,
+} from '@/lib/phone';
 import { useEffect, useRef, useState } from 'react';
 import {
   AlertTriangle,
@@ -90,25 +98,24 @@ const GENDERS: Array<{ value: Gender; label: string }> = [
   { value: 'PREFER_NOT_TO_SAY', label: 'Prefer not to say' },
 ];
 
-// Mirrors PHONE_PATTERN on the backend exactly. Loose on purpose — digits plus
-// the punctuation people type — because numbers arrive from every country.
-const PHONE_RE = /^\+?[0-9][0-9 ()-]{5,18}[0-9]$/;
+// The phone rules live in @/lib/phone now that a number is a country code plus
+// exactly ten digits — see the note there about why the old loose pattern
+// existed and what removed the need for it.
 
-// DOB is dd-mm-yyyy everywhere — display, input and wire — so the form keeps
-// the raw string and only auto-inserts the dashes while typing. Same rule as
-// the Respondents page.
-const autoFormatDobDashes = (raw: string) => {
-  const digits = raw.replace(/\D/g, '').slice(0, 8);
-  const parts = [digits.slice(0, 2), digits.slice(2, 4), digits.slice(4, 8)].filter(Boolean);
-  return parts.join('-');
-};
-
+// A real calendar date AND one someone could have been born on: 01-01-1900 up
+// to and including today. Same rule as the Respondents page and the backend's
+// @BirthDate constraint.
 const isValidDob = (dob: string) => {
   const m = /^(\d{2})-(\d{2})-(\d{4})$/.exec(dob);
   if (!m) return false;
   const [, dd, mm, yyyy] = m.map(Number);
   const date = new Date(yyyy, mm - 1, dd);
-  return date.getFullYear() === yyyy && date.getMonth() === mm - 1 && date.getDate() === dd;
+  if (date.getFullYear() !== yyyy || date.getMonth() !== mm - 1 || date.getDate() !== dd) {
+    return false;
+  }
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return yyyy >= 1900 && date.getTime() <= today.getTime();
 };
 
 const apiError = (e: any, fallback: string) =>
@@ -120,6 +127,8 @@ interface NewRespondentRow {
   name: string;
   email: string;
   dob: string;
+  phoneCountryCode: string;
+  /** Digits only, no country code — the input strips as it is typed. */
   phone: string;
   employeeId: string;
   gender: Gender | '';
@@ -131,6 +140,7 @@ const emptyRow = (key: number): NewRespondentRow => ({
   name: '',
   email: '',
   dob: '',
+  phoneCountryCode: DEFAULT_DIAL_CODE,
   phone: '',
   employeeId: '',
   gender: '',
@@ -506,14 +516,19 @@ export default function OrganizationWizard({
       if (emails.has(email)) return `${at}: the email "${row.email.trim()}" is repeated in this batch`;
       emails.add(email);
       if (!row.dob.trim()) return `${at}: date of birth is required`;
-      if (!isValidDob(row.dob.trim())) return `${at}: date of birth must be a real date in DD-MM-YYYY`;
+      if (!isValidDob(row.dob.trim())) {
+        return `${at}: date of birth must be a real date between 01-01-1900 and today`;
+      }
       // Required since 2026-08-24, matching every other way a respondent can
       // be created. Checked here rather than left to the server because this
       // batch is created one row at a time — a bad row 3 would otherwise only
       // surface after rows 1 and 2 had already been committed.
       const phone = row.phone.trim();
       if (!phone) return `${at}: phone number is required`;
-      if (!PHONE_RE.test(phone)) return `${at}: "${phone}" is not a valid phone number`;
+      if (!isValidPhone(row.phoneCountryCode, phone)) {
+        const why = phoneError(row.phoneCountryCode, phone);
+        return `${at}: ${why.charAt(0).toLowerCase()}${why.slice(1)}`;
+      }
       if (!row.gender) return `${at}: gender is required`;
       const employeeId = row.employeeId.trim().toUpperCase();
       if (employeeId) {
@@ -534,6 +549,7 @@ export default function OrganizationWizard({
     name: row.name.trim(),
     email: row.email.trim(),
     dob: row.dob.trim(),
+    phoneCountryCode: row.phoneCountryCode,
     phone: row.phone.trim(),
     employeeId: row.employeeId.trim() || null,
     // The cast is safe because validateNewRows runs first and rejects '' —
@@ -1295,23 +1311,28 @@ export default function OrganizationWizard({
                           </div>
                           <div className="space-y-1">
                             <label className="text-xs font-medium">Date of Birth *</label>
-                            <input
-                              inputMode="numeric"
+                            {/* Typed or picked — same field as the
+                                Respondents page. */}
+                            <DobInput
                               value={row.dob}
-                              onChange={(e) => patchRow(row.key, { dob: autoFormatDobDashes(e.target.value) })}
-                              placeholder="DD-MM-YYYY"
-                              maxLength={10}
+                              onChange={(dob) => patchRow(row.key, { dob })}
+                              separator="-"
                               className={INPUT_CLASS}
                             />
                           </div>
                           <div className="space-y-1">
                             <label className="text-xs font-medium">Phone *</label>
-                            <input
-                              type="tel"
-                              value={row.phone}
-                              onChange={(e) => patchRow(row.key, { phone: e.target.value })}
-                              placeholder="+91 98765 43210"
-                              className={INPUT_CLASS}
+                            {/* One bordered control — see PhoneInput. The
+                                hint has no room in a row this compact, so it
+                                is a tooltip on the number. */}
+                            <PhoneInput
+                              countryCode={row.phoneCountryCode}
+                              onCountryCodeChange={(phoneCountryCode) =>
+                                patchRow(row.key, { phoneCountryCode })
+                              }
+                              phone={row.phone}
+                              onPhoneChange={(phone) => patchRow(row.key, { phone })}
+                              title={PHONE_HINT}
                             />
                           </div>
                           <div className="space-y-1">

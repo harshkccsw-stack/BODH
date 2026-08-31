@@ -63,7 +63,7 @@ class DashboardAuthControllerTest {
         mvc.perform(post("/api/respondents/create")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"Resp Only\",\"email\":\"resp.only@test.local\",\"dob\":\"10-01-2000\","
-                                + "\"phone\":\"+91 90000 00000\",\"gender\":\"MALE\",\"isConsented\":false,\"organizationId\":null}"))
+                                + "\"phoneCountryCode\":\"+91\",\"phone\":\"9000000000\",\"gender\":\"MALE\",\"isConsented\":false,\"organizationId\":null}"))
                 .andExpect(status().isCreated());
 
         mvc.perform(post("/api/auth/login")

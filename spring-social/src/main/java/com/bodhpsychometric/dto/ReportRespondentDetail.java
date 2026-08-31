@@ -32,7 +32,9 @@ public record ReportRespondentDetail(
                 respondent.getUser().getSerialId(),
                 respondent.getName(),
                 respondent.getUser().getEmail(),
-                respondent.getPhone(),
+                // Joined, so a report still shows a complete number now that
+                // the country code lives in its own column.
+                respondent.displayPhone(),
                 respondent.getGender(),
                 respondent.isConsented(),
                 respondent.getConsentedAt(),

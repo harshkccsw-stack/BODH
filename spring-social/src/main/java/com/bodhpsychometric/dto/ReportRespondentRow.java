@@ -27,7 +27,9 @@ public record ReportRespondentRow(
                 respondent.getUser().getSerialId(),
                 respondent.getName(),
                 respondent.getUser().getEmail(),
-                respondent.getPhone(),
+                // Joined, so a report still shows a complete number now that
+                // the country code lives in its own column.
+                respondent.displayPhone(),
                 respondent.getOrganization() == null ? null
                         : respondent.getOrganization().getOrganizationId(),
                 respondent.getOrganization() == null ? null

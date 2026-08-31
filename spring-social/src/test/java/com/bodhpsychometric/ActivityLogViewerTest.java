@@ -68,7 +68,7 @@ class ActivityLogViewerTest {
         mvc.perform(post("/api/practitioners/create")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"Plain Practitioner\",\"email\":\"plain.pract@test.local\","
-                                + "\"dob\":\"12-06-1991\",\"phone\":\"+91 90000 00000\",\"gender\":\"MALE\","
+                                + "\"dob\":\"12-06-1991\",\"phoneCountryCode\":\"+91\",\"phone\":\"9000000000\",\"gender\":\"MALE\","
                                 + "\"status\":\"ACTIVE\",\"organizationId\":null}"))
                 .andExpect(status().isCreated());
 
