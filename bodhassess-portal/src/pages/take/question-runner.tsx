@@ -194,7 +194,7 @@ export function QuestionRunner({
   onSubmit: () => void;
   submitting: boolean;
   submitError?: string;
-  /** Called once each time the inactivity popup is dismissed (OKAY). */
+  /** Called once each time the inactivity popup is dismissed (Resume). */
   onFocusPopup: () => void;
   /**
    * Called ONCE, when the attention budget runs out — the attempt is over and
@@ -294,7 +294,7 @@ export function QuestionRunner({
 
   // ── Inactivity "focus" popup ────────────────────────────────────────────
   // If the respondent doesn't interact for 2 minutes, a popup nudges them to
-  // focus; dismissing it (OKAY) bumps the attempt's popup count (persisted at
+  // focus; dismissing it (Resume) bumps the attempt's popup count (persisted at
   // submit) and restarts the countdown. Any activity resets it. The timer
   // only runs on this questions screen — the gate steps are separate pages —
   // but it does NOT pause while the browser tab is hidden: switching away is
@@ -412,14 +412,14 @@ export function QuestionRunner({
     }, INACTIVITY_MS);
   };
   // Any respondent activity restarts the countdown — unless the popup is up,
-  // when the only way forward is the OKAY button.
+  // when the only way forward is the Resume button.
   const noteActivity = () => {
     if (modalOpenRef.current) return;
     armFocusTimer();
   };
   const dismissFocusPopup = () => {
     // The budget may have run out between the click and this handler; the
-    // stopped modal has no OKAY, but a queued click must not restart the run.
+    // stopped modal has no Resume, but a queued click must not restart the run.
     if (attentionFired.current) return;
     stopAttentionTimer();
     modalOpenRef.current = false;
@@ -1276,7 +1276,7 @@ export function QuestionRunner({
             {attentionExpired ? (
               /* The budget is gone. Same modal, different state — the
                  respondent is not being nudged any more, the attempt is over
-                 and the only way on is out. No OKAY: the attempt has already
+                 and the only way on is out. No Resume: the attempt has already
                  been handed back unstarted, so continuing here would type
                  answers into an attempt the server no longer considers
                  in flight. */
@@ -1307,9 +1307,10 @@ export function QuestionRunner({
                   <AlertTriangle className="h-6 w-6 text-amber-600 dark:text-amber-400" />
                 </div>
                 <div className="space-y-1">
-                  <h2 className="text-lg font-semibold">Focus on your assessment</h2>
+                  <h2 className="text-lg font-semibold">Still with us?</h2>
                   <p className="text-sm text-muted-foreground">
-                    You've been inactive for a little while. Tap OKAY to continue.
+                    We noticed you've stepped away for a moment. Tap below whenever
+                    you're ready to pick up where you left off.
                   </p>
                 </div>
                 {/* Only with the timer armed: what it costs to sit here. The
@@ -1326,11 +1327,11 @@ export function QuestionRunner({
                         {formatCountdown(attentionLeftMs)}
                       </span>
                     </div>
-                    <p className="mt-1 text-xs font-medium">left before this attempt restarts</p>
+                    <p className="mt-1 text-xs font-medium">remaining before your session resets</p>
                   </div>
                 )}
                 <Button variant="primary" className="w-full" onClick={dismissFocusPopup}>
-                  OKAY
+                  Resume Assessment
                 </Button>
               </CardContent>
             )}
