@@ -358,7 +358,7 @@ public class QuestionController {
                 options, rows, questionScores);
     }
 
-    private MqtScoreResponse toScore(MeasuredQualityType mqt, int score) {
+    private MqtScoreResponse toScore(MeasuredQualityType mqt, double score) {
         return new MqtScoreResponse(mqt.getMeasuredQualityTypeId(), mqt.getName(), score);
     }
 
@@ -386,7 +386,7 @@ public class QuestionController {
 
     private void writeScores(Question question, QuestionRequest request, Map<Long, MeasuredQualityType> mqts) {
         boolean scale = typeOf(request) == QuestionType.LINEAR_SCALE;
-        for (Map.Entry<Long, Integer> e : dedupe(request.mqtScores()).entrySet()) {
+        for (Map.Entry<Long, Double> e : dedupe(request.mqtScores()).entrySet()) {
             QuestionMqtScore row = new QuestionMqtScore();
             row.setQuestion(question);
             row.setMeasuredQualityType(mqts.get(e.getKey()));
@@ -395,7 +395,7 @@ public class QuestionController {
             // picks is the score, and it is carried by the generated option
             // rows (see desiredOptions). Stored as 0 rather than trusting the
             // payload, so the nomination can never read as a flat score.
-            row.setScore(scale ? 0 : e.getValue());
+            row.setScore(scale ? 0d : e.getValue());
             questionMqtScoreRepository.save(row);
         }
         // Options in the entity list line up index-for-index with the
@@ -403,7 +403,7 @@ public class QuestionController {
         List<QuestionOptionRequest> want = desiredOptions(request);
         List<Option> have = question.getOptions();
         for (int i = 0; i < want.size() && i < have.size(); i++) {
-            for (Map.Entry<Long, Integer> e : dedupe(want.get(i).mqtScores()).entrySet()) {
+            for (Map.Entry<Long, Double> e : dedupe(want.get(i).mqtScores()).entrySet()) {
                 OptionMqtScore row = new OptionMqtScore();
                 row.setOption(have.get(i));
                 row.setMeasuredQualityType(mqts.get(e.getKey()));
@@ -426,17 +426,29 @@ public class QuestionController {
         }
     }
 
-    /** Last entry wins when the same MQT appears twice; order preserved. */
-    private Map<Long, Integer> dedupe(List<MqtScoreRequest> scores) {
-        Map<Long, Integer> out = new LinkedHashMap<>();
+    /**
+     * Last entry wins when the same MQT appears twice; order preserved.
+     *
+     * <p>The ONE place a submitted score is rounded to the 2 decimals the
+     * column stores. Every write goes through here — question level, option
+     * level and the generated scale points — so the editor, the bulk sheet and
+     * the freeze comparison cannot disagree about what was saved.
+     */
+    private Map<Long, Double> dedupe(List<MqtScoreRequest> scores) {
+        Map<Long, Double> out = new LinkedHashMap<>();
         if (scores != null) {
             for (MqtScoreRequest s : scores) {
                 if (s != null && s.measuredQualityTypeId() != null) {
-                    out.put(s.measuredQualityTypeId(), s.score());
+                    out.put(s.measuredQualityTypeId(), round(s.score()));
                 }
             }
         }
         return out;
+    }
+
+    /** 2 decimals, the precision the score column holds. */
+    private static double round(double value) {
+        return Math.round(value * 100d) / 100d;
     }
 
     private ResponseEntity<Map<String, String>> unknownMqt() {

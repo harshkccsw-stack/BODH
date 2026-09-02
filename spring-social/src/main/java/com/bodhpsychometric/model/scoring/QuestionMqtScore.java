@@ -49,8 +49,13 @@ public class QuestionMqtScore implements java.io.Serializable {
             foreignKey = @ForeignKey(name = "fkQmsMqt"))
     private MeasuredQualityType measuredQualityType;
 
+    /**
+     * What this edge contributes, to 2 decimals — a DOUBLE column since V25,
+     * so an option can half-count (0.5) or move in quarter steps. Rounded on
+     * the way in by QuestionController#dedupe: nothing else may write it.
+     */
     @Column(name = "score", nullable = false)
-    private int score;
+    private double score;
 
     public Long getQuestionMqtScoreId() {
         return questionMqtScoreId;
@@ -76,11 +81,11 @@ public class QuestionMqtScore implements java.io.Serializable {
         this.measuredQualityType = measuredQualityType;
     }
 
-    public int getScore() {
+    public double getScore() {
         return score;
     }
 
-    public void setScore(int score) {
+    public void setScore(double score) {
         this.score = score;
     }
 }

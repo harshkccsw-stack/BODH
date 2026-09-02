@@ -97,7 +97,13 @@ function parseSelection(
   return { selectionRule: rule, selectionCount: count };
 }
 
-/** "Extraversion:3 | 14:1" → payload entries, appending problems to errors. */
+/**
+ * "Extraversion:3 | 14:0.5" → payload entries, appending problems to errors.
+ *
+ * Scores are decimal: a cell may weight an option at 0.25 as readily as 3.
+ * Rounded to the 2 decimals the backend stores — NOT truncated, which is what
+ * this did while the column was an int and would silently upload 0.75 as 0.
+ */
 function parseScoreCell(raw: string, where: string, choices: MqtChoice[], errors: string[]): MqtScorePayload[] {
   const out: MqtScorePayload[] = [];
   for (const part of raw.split('|').map((p) => p.trim()).filter(Boolean)) {
@@ -116,7 +122,7 @@ function parseScoreCell(raw: string, where: string, choices: MqtChoice[], errors
       else if (matches.length > 1) errors.push(`${where}: "${key}" matches ${matches.length} MQTs — use the id instead`);
       else id = matches[0].id;
     }
-    if (id != null) out.push({ measuredQualityTypeId: id, score: Math.trunc(score) });
+    if (id != null) out.push({ measuredQualityTypeId: id, score: Math.round(score * 100) / 100 });
   }
   return out;
 }
@@ -233,7 +239,7 @@ export async function downloadTemplate(choices: MqtChoice[]) {
       type: 'TEXT', mediaUrl: '', risk: 'no', shuffle: 'no',
       selectRule: '', selectCount: '',
       section: 'Part A',
-      scores: 'MqtNameOrId:2 | MqtNameOrId:1',
+      scores: 'MqtNameOrId:2 | MqtNameOrId:0.5',
       option1: 'Agree', option1Description: '', option1Scores: 'MqtNameOrId:5',
       option2: 'Neutral', option2Description: '', option2Scores: '',
       option3: 'Disagree', option3Description: '', option3Scores: 'MqtNameOrId:0',
@@ -574,7 +580,9 @@ export function BulkUploadModal({
                     applies when uploading inside a sectioned questionnaire.</p>
                 )}
                 <p>Score cells: <code className="text-foreground">MqtName:score | MqtId:score</code> — names must be
-                  unambiguous, otherwise use the id. The template&apos;s <code className="text-foreground">mqts</code> sheet
+                  unambiguous, otherwise use the id. Scores may be decimal
+                  (<code className="text-foreground">0.25</code>, <code className="text-foreground">0.5</code>), kept to two
+                  places. The template&apos;s <code className="text-foreground">mqts</code> sheet
                   lists every MQT with its exact name, id and tree position.</p>
                 <button type="button" onClick={() => downloadTemplate(choices)} className="inline-flex items-center gap-1 text-primary hover:underline font-medium">
                   <Download className="h-3 w-3" /> Download template

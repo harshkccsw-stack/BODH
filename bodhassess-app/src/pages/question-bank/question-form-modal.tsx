@@ -90,6 +90,13 @@ export interface ScoreRow {
   score: string; // input value; parsed on submit
 }
 
+/**
+ * Scores are decimal — an option may half-count (0.5) or move in quarter
+ * steps. Rounded to the 2 decimals the backend stores, so what the sheet and
+ * the report show is what was typed here.
+ */
+const round2 = (n: number): number => Math.round(n * 100) / 100;
+
 export const viewsToRows = (views: MqtScoreView[]): ScoreRow[] =>
   views.map((v) => ({ mqtId: String(v.measuredQualityTypeId), score: String(v.score) }));
 
@@ -97,7 +104,7 @@ export const rowsToPayload = (rows: ScoreRow[]): MqtScorePayload[] => {
   const seen = new Map<number, number>();
   for (const r of rows) {
     if (!r.mqtId) continue;
-    seen.set(Number(r.mqtId), Number(r.score) || 0);
+    seen.set(Number(r.mqtId), round2(Number(r.score) || 0));
   }
   return Array.from(seen.entries()).map(([measuredQualityTypeId, score]) => ({ measuredQualityTypeId, score }));
 };
@@ -159,10 +166,15 @@ export function ScoreEditor({
               {!hideScore && (
                 <input
                   type="number"
+                  // Quarter steps on the arrows — the weights authors reach for
+                  // most. Typing is not restricted to the grid: 0.1 is a
+                  // legitimate weight and is kept, rounded to 2 decimals on
+                  // submit like every other value.
+                  step="0.25"
                   value={row.score}
                   onChange={(e) => onChange(rows.map((r, j) => (j === i ? { ...r, score: e.target.value } : r)))}
-                  title="Score"
-                  className="w-16 h-8 rounded-md border border-border bg-background px-2 text-xs focus:outline-none focus:border-primary"
+                  title="Score — decimals allowed (0.25, 0.5, 0.75); arrows step by 0.25"
+                  className="w-20 h-8 rounded-md border border-border bg-background px-2 text-xs focus:outline-none focus:border-primary"
                 />
               )}
               <button

@@ -223,6 +223,18 @@ export function QuestionRunner({
     setVisited((seen) => (seen.has(index) ? seen : new Set(seen).add(index)));
   }, [index]);
 
+  // Every question starts at the top of the page. Without this the browser
+  // keeps the scroll offset from the question just left, so answering an
+  // option far down a long list lands the next question below the fold and
+  // the stem has to be scrolled back up to. Covers all three ways `index`
+  // moves — Next, the navigator's goTo(), and the auto-advance timer — since
+  // they all funnel through setIndex. 'auto' deliberately overrides the
+  // smooth scroll-behavior on <html> (styles.css): a page that glides back
+  // up between every question reads as lag on an 80-question paper.
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'auto' });
+  }, [index]);
+
   const q = questions[index];
   const progress = Math.round(((index + 1) / total) * 100);
   const isScale = q.questionType === 'LINEAR_SCALE';
