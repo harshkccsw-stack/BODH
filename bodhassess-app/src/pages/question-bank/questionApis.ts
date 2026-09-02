@@ -78,7 +78,13 @@ export function selectionLabel(
 }
 
 // ── Wire shapes — mirror spring-social's DTOs 1:1 ──────────────────────────
-/** Matches MqtScoreRequest on the backend. */
+/**
+ * Matches MqtScoreRequest on the backend.
+ *
+ * `score` is decimal (0.25, 0.5, 2.75 …), stored to two places — the backend
+ * rounds to 2 on write, so send what the author typed and read back what it
+ * kept.
+ */
 export interface MqtScorePayload {
   measuredQualityTypeId: number;
   score: number;

@@ -99,7 +99,7 @@ public record ExportSheetResponse(
             String optionText,
             Long measuredQualityTypeId,
             String mqtPath,
-            int score) {
+            double score) {
     }
 
     /** One respondent's row. demographics keyed by fieldId, answers keyed by questionTag. */
@@ -116,10 +116,10 @@ public record ExportSheetResponse(
             Map<Long, String> demographics,
             Map<String, String> answers,
             /** measuredQualityTypeId → that node's own score. */
-            Map<Long, Integer> mqtScores,
+            Map<Long, Double> mqtScores,
             /** measuredQualityTypeId → own score + every descendant's. */
-            Map<Long, Integer> mqtTotals,
+            Map<Long, Double> mqtTotals,
             /** measuredQualityId → every node of that MQ. */
-            Map<Long, Integer> mqScores) {
+            Map<Long, Double> mqScores) {
     }
 }

@@ -108,9 +108,9 @@ public class MqtScoringService {
             /** Questions the questionnaire currently places — answers outside it do not count. */
             Set<Long> placedQuestionIds,
             /** questionId → mqtId → flat score. */
-            Map<Long, Map<Long, Integer>> questionScores,
+            Map<Long, Map<Long, Double>> questionScores,
             /** optionId → mqtId → score. */
-            Map<Long, Map<Long, Integer>> optionScores,
+            Map<Long, Map<Long, Double>> optionScores,
             /** questionRowId → the MQTs that row measures (the grid filter). */
             Map<Long, Set<Long>> rowNominations,
             /** Involved MQs, by name. */
@@ -129,11 +129,11 @@ public class MqtScoringService {
      */
     public record Scores(
             /** mqtId → the node's own score. */
-            Map<Long, Integer> mqtScores,
+            Map<Long, Double> mqtScores,
             /** mqtId → own + every descendant. */
-            Map<Long, Integer> mqtTotals,
+            Map<Long, Double> mqtTotals,
             /** mqId → every node of that MQ. */
-            Map<Long, Integer> mqScores) {
+            Map<Long, Double> mqScores) {
     }
 
     /**
@@ -143,8 +143,8 @@ public class MqtScoringService {
     @Transactional(readOnly = true)
     public ScoringPlan planFor(Long questionnaireId) {
         Set<Long> placed = new HashSet<>(placements.findPlacedQuestionIds(questionnaireId));
-        Map<Long, Map<Long, Integer>> byQuestion = scoreMap(questionScores.findForQuestionnaire(questionnaireId));
-        Map<Long, Map<Long, Integer>> byOption = scoreMap(optionScores.findForQuestionnaire(questionnaireId));
+        Map<Long, Map<Long, Double>> byQuestion = scoreMap(questionScores.findForQuestionnaire(questionnaireId));
+        Map<Long, Map<Long, Double>> byOption = scoreMap(optionScores.findForQuestionnaire(questionnaireId));
 
         Map<Long, Set<Long>> byRow = new HashMap<>();
         for (Object[] row : rowNominations.findForQuestionnaire(questionnaireId)) {
@@ -171,8 +171,8 @@ public class MqtScoringService {
      * would only add columns that are 0 for every respondent.
      */
     private ScoringPlan buildColumns(Set<Long> placed,
-            Map<Long, Map<Long, Integer>> byQuestion,
-            Map<Long, Map<Long, Integer>> byOption,
+            Map<Long, Map<Long, Double>> byQuestion,
+            Map<Long, Map<Long, Double>> byOption,
             Map<Long, Set<Long>> byRow,
             Set<Long> referenced,
             List<MeasuredQualityType> forest) {
@@ -261,8 +261,8 @@ public class MqtScoringService {
      * answers with question, option and grid row fetched.
      */
     public Scores score(List<AssessmentAnswer> answers, ScoringPlan plan) {
-        Map<Long, Integer> own = new LinkedHashMap<>();
-        plan.mqts().forEach(m -> own.put(m.measuredQualityTypeId(), 0));
+        Map<Long, Double> own = new LinkedHashMap<>();
+        plan.mqts().forEach(m -> own.put(m.measuredQualityTypeId(), 0d));
 
         Set<Long> answeredQuestions = new LinkedHashSet<>();
         for (AssessmentAnswer answer : answers) {
@@ -278,14 +278,14 @@ public class MqtScoringService {
             if (option == null) {
                 continue; // formats with no option (free text) carry no score yet
             }
-            Map<Long, Integer> perMqt = plan.optionScores().get(option.getOptionId());
+            Map<Long, Double> perMqt = plan.optionScores().get(option.getOptionId());
             if (perMqt == null) {
                 continue;
             }
             // Grid: the row decides WHICH of the column's scores apply.
             Set<Long> nominated = answer.getQuestionRow() == null ? null
                     : plan.rowNominations().getOrDefault(answer.getQuestionRow().getQuestionRowId(), Set.of());
-            for (Map.Entry<Long, Integer> entry : perMqt.entrySet()) {
+            for (Map.Entry<Long, Double> entry : perMqt.entrySet()) {
                 if (nominated != null && !nominated.contains(entry.getKey())) {
                     continue;
                 }
@@ -298,33 +298,46 @@ public class MqtScoringService {
                     .forEach((mqtId, score) -> add(own, mqtId, score));
         }
 
-        Map<Long, Integer> totals = new LinkedHashMap<>();
-        Map<Long, Integer> mqTotals = new LinkedHashMap<>();
-        plan.mqs().forEach(mq -> mqTotals.put(mq.measuredQualityId(), 0));
+        Map<Long, Double> totals = new LinkedHashMap<>();
+        Map<Long, Double> mqTotals = new LinkedHashMap<>();
+        plan.mqs().forEach(mq -> mqTotals.put(mq.measuredQualityId(), 0d));
         for (MqtRef mqt : plan.mqts()) {
-            int subtreeTotal = 0;
+            double subtreeTotal = 0;
             for (Long descendant : plan.subtrees().getOrDefault(mqt.measuredQualityTypeId(), List.of())) {
-                subtreeTotal += own.getOrDefault(descendant, 0);
+                subtreeTotal += own.getOrDefault(descendant, 0d);
             }
-            totals.put(mqt.measuredQualityTypeId(), subtreeTotal);
-            mqTotals.merge(mqt.measuredQualityId(), own.getOrDefault(mqt.measuredQualityTypeId(), 0), Integer::sum);
+            totals.put(mqt.measuredQualityTypeId(), round(subtreeTotal));
+            mqTotals.merge(mqt.measuredQualityId(), own.getOrDefault(mqt.measuredQualityTypeId(), 0d), Double::sum);
         }
+        own.replaceAll((id, value) -> round(value));
+        mqTotals.replaceAll((id, value) -> round(value));
         return new Scores(own, totals, mqTotals);
     }
 
+    /**
+     * Every number this service hands out is rounded to 2 decimals, the same
+     * precision the editor stores. Scores are doubles, so a column of quarters
+     * and thirds adds up to 8.999999999999998 in binary — true, unreadable,
+     * and different in the sheet from the same total typed by hand. Rounding
+     * once at the exit keeps the sums themselves exact.
+     */
+    private static double round(double value) {
+        return Math.round(value * 100d) / 100d;
+    }
+
     /** Adds only to a column that exists — a score with no column is unreachable anyway. */
-    private static void add(Map<Long, Integer> target, Long mqtId, int score) {
+    private static void add(Map<Long, Double> target, Long mqtId, double score) {
         if (target.containsKey(mqtId)) {
-            target.merge(mqtId, score, Integer::sum);
+            target.merge(mqtId, score, Double::sum);
         }
     }
 
     /** (ownerId, mqtId, score) rows → ownerId → mqtId → score. */
-    private static Map<Long, Map<Long, Integer>> scoreMap(List<Object[]> projection) {
-        Map<Long, Map<Long, Integer>> result = new HashMap<>();
+    private static Map<Long, Map<Long, Double>> scoreMap(List<Object[]> projection) {
+        Map<Long, Map<Long, Double>> result = new HashMap<>();
         for (Object[] row : projection) {
             result.computeIfAbsent(id(row[0]), k -> new LinkedHashMap<>())
-                    .put(id(row[1]), ((Number) row[2]).intValue());
+                    .put(id(row[1]), ((Number) row[2]).doubleValue());
         }
         return result;
     }
