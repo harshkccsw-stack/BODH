@@ -9,7 +9,8 @@
             "name": "BodhpsychometricApplication",
             "request": "launch",
             "mainClass": "com.bodhpsychometric.BodhpsychometricApplication",
-            "projectName": "bodhpsychometric"
+            "projectName": "bodhpsychometric",
+            "cwd": "${workspaceFolder}/spring-social"
         },
         {
             "type": "java",
