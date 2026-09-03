@@ -202,6 +202,14 @@ export default function TakePage() {
     };
   }, [detail, begun, current]);
 
+  // Same rule as inside the question runner: each gate step, and the
+  // completion screen, starts at the top. A long terms text or demographic
+  // form left scrolled down would otherwise hand the next screen over
+  // mid-page. Instant, not smooth — see the note in question-runner.tsx.
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'auto' });
+  }, [stepIndex, done]);
+
   if (loadError) return <ErrorCard message={loadError} onAction={backToList} />;
   if (!detail || !user || steps.length === 0) return <ScreenLoader />;
 

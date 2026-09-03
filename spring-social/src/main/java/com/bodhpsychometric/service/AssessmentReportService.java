@@ -437,7 +437,7 @@ public class AssessmentReportService {
     private static void addOptionEntries(List<ScoringKeyEntry> entries, String tag, String stem,
             String rowText, Option option, Set<Long> nominated,
             MqtScoringService.ScoringPlan plan, Map<Long, String> pathByMqt) {
-        for (Map.Entry<Long, Integer> score
+        for (Map.Entry<Long, Double> score
                 : plan.optionScores().getOrDefault(option.getOptionId(), Map.of()).entrySet()) {
             Long mqtId = score.getKey();
             if ((nominated != null && !nominated.contains(mqtId)) || !pathByMqt.containsKey(mqtId)) {
