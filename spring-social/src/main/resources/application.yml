@@ -15,7 +15,7 @@ spring:
       on-profile: development
 
   datasource:
-    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3310}/${DB_NAME:bodhpsychometric}?createDatabaseIfNotExist=true&allowPublicKeyRetrieval=true&useSSL=false&serverTimezone=UTC
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3309}/${DB_NAME:bodhpsychometric}?createDatabaseIfNotExist=true&allowPublicKeyRetrieval=true&useSSL=false&serverTimezone=UTC
     username: ${DB_USERNAME:bodh}
     password: ${DB_PASSWORD:bodh}
     driver-class-name: com.mysql.cj.jdbc.Driver
@@ -45,6 +45,12 @@ spring:
     baseline-on-migrate: true
     baseline-version: 1
     baseline-description: "schema matching the entity model at v1"
+    # Flyway substitutes ${...} in migration FILES by default, so a migration
+    # that merely DOCUMENTS the report engine's ${tag} placeholder syntax fails
+    # to parse with "No value provided for placeholder". Nothing here has ever
+    # used a Flyway placeholder, so the feature is turned off rather than every
+    # future report migration having to avoid writing the syntax it implements.
+    placeholder-replacement: false
 
   jpa:
     hibernate:
@@ -175,6 +181,12 @@ spring:
     baseline-on-migrate: true
     baseline-version: 1
     baseline-description: "schema matching the entity model at v1"
+    # Flyway substitutes ${...} in migration FILES by default, so a migration
+    # that merely DOCUMENTS the report engine's ${tag} placeholder syntax fails
+    # to parse with "No value provided for placeholder". Nothing here has ever
+    # used a Flyway placeholder, so the feature is turned off rather than every
+    # future report migration having to avoid writing the syntax it implements.
+    placeholder-replacement: false
 
   jpa:
     hibernate:
@@ -216,7 +228,7 @@ app:
     # See the development profile — OFF restores the pre-Redis behaviour.
     enabled: ${REDIS_ENABLED:true}
   cors:
-    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173,https://admin.bodh.biz,https://*.bodh.biz,https://portal.bodh.biz}
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:3002,http://localhost:5173,https://admin.bodh.biz,https://*.bodh.biz,https://portal.bodh.biz}
   security:
     # OFF: ActorFilter resolves the bearer when there is one and serves the
     # request either way — an anonymous call still works and is simply logged

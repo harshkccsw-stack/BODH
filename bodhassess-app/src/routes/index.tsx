@@ -143,6 +143,10 @@ const Reports             = lazyPage(() => import('@/pages/Reports/all-reports')
 // New-dialect respondent report listing wired to spring-social (/api/reports).
 const ReportsHub          = lazyPage(() => import('@/pages/Reports/ReportsHub'));
 const ReportsResponses    = lazyPage(() => import('@/pages/Reports/response-sheets'));
+// P1 of the report engine: the HTML layout and its ${tag} checklist.
+const ReportTemplates     = lazyPage(() => import('@/pages/Reports/report-templates'));
+const ReportRules         = lazyPage(() => import('@/pages/Reports/report-rules'));
+const ReportComputations  = lazyPage(() => import('@/pages/Reports/report-computations'));
 const ReportsClinical     = lazyPage(() => import('@/pages/Reports/clinical'));
 const ReportsCounselling  = lazyPage(() => import('@/pages/Reports/counselling'));
 const ReportsIndustrial   = lazyPage(() => import('@/pages/Reports/industrial'));
@@ -312,6 +316,9 @@ const routes: RouteObject[] = [
       { path: '/Reports', element: <Reports /> },
       { path: '/Reports/hub', element: <ReportsHub /> },
       { path: '/Reports/responses', element: <ReportsResponses /> },
+      { path: '/Reports/templates', element: <ReportTemplates /> },
+      { path: '/Reports/rules', element: <ReportRules /> },
+      { path: '/Reports/computations', element: <ReportComputations /> },
       { path: '/Reports/clinical', element: <ReportsClinical /> },
       { path: '/Reports/counselling', element: <ReportsCounselling /> },
       { path: '/Reports/industrial', element: <ReportsIndustrial /> },
