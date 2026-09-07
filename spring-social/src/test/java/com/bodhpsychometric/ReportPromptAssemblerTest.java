@@ -26,13 +26,33 @@ class ReportPromptAssemblerTest {
 
     /** Stub catalog — the real one needs a live assessment. */
     private static ReportPromptAssembler assemblerWith(List<ReportColumnCatalog.ReportColumn> cols) {
+        return assemblerWith(cols, List.of());
+    }
+
+    /** As above, plus the rule slugs the library is pretending to hold. */
+    private static ReportPromptAssembler assemblerWith(
+            List<ReportColumnCatalog.ReportColumn> cols, List<String> librarySlugs) {
         ReportColumnCatalog catalog = new ReportColumnCatalog(null) {
             @Override
             public List<ReportColumnCatalog.ReportColumn> columnsFor(Long a, Long o) {
                 return cols;
             }
         };
-        return new ReportPromptAssembler(catalog);
+        com.bodhpsychometric.service.report.ReportRuleCatalog ruleCatalog =
+                new com.bodhpsychometric.service.report.ReportRuleCatalog(null) {
+                    @Override
+                    public List<String> allSlugs() {
+                        return librarySlugs;
+                    }
+                };
+        return new ReportPromptAssembler(catalog, ruleCatalog);
+    }
+
+    /** A computation whose guidance names exactly the rules it selected. */
+    private static ReportComputation computationSaying(String guidance, ReportRuleVersion... vs) {
+        ReportComputation c = computationWith(vs);
+        c.setSourcePrompt(guidance);
+        return c;
     }
 
     private static List<ReportColumnCatalog.ReportColumn> sampleColumns() {
@@ -77,6 +97,10 @@ class ReportPromptAssemblerTest {
         template.setVersion(1);
         ReportTagBinding tag = new ReportTagBinding();
         tag.setTag("overall_summary");
+        // COMPUTED, not the default UNBOUND: only a tag whose template says a
+        // computation fills it is asked for. An unanswered tag is unfinished
+        // template work, not a request.
+        tag.setBinderType(ReportTagBinding.TYPE_COMPUTED);
         template.addBinding(tag);
         c.setTemplate(template);
 
@@ -247,5 +271,216 @@ class ReportPromptAssemblerTest {
         var prompt = assemblerWith(sampleColumns()).assemble(c, List.of());
         assertThat(prompt.prompt())
                 .contains("Use rule X for ${a}; if MQ/MQT > 1.2 use the 'high' variant.");
+    }
+
+    // ── the requirement: only computed tags are asked for ─────────────────
+
+    @Test
+    void tagsTheTemplateAnswersItselfAreNeverAskedFor() {
+        // The bug this closes: the prompt asked for ${respondent_name} while
+        // section 5 said identity is excluded and must never be referenced —
+        // one prompt, two contradictory instructions, and an invitation to
+        // invent a name.
+        ReportComputation c = computationWith(
+                expressionRule("e", "E", "[mqt:14]", "[\"mqt:14\"]", false));
+
+        ReportTagBinding core = new ReportTagBinding();
+        core.setTag("respondent_name");
+        core.setBinderType(ReportTagBinding.TYPE_CORE);
+        core.setCoreField("core:name");
+        c.getTemplate().addBinding(core);
+
+        ReportTagBinding literal = new ReportTagBinding();
+        literal.setTag("disclaimer");
+        literal.setBinderType(ReportTagBinding.TYPE_LITERAL);
+        literal.setLiteralText("Not a clinical diagnosis.");
+        c.getTemplate().addBinding(literal);
+
+        var prompt = assemblerWith(sampleColumns()).assemble(c, List.of());
+
+        assertThat(prompt.expectedTags()).containsExactly("overall_summary");
+        assertThat(prompt.prompt())
+                .doesNotContain("respondent_name")
+                .doesNotContain("disclaimer");
+        assertThat(prompt.prompt())
+                .as("the model is told they exist and are handled, so it does not return them")
+                .contains("2 further placeholders the report engine fills itself");
+        assertThat(prompt.blockers()).isEmpty();
+    }
+
+    @Test
+    void aTemplateWithNothingMarkedComputedCannotProduceAPrompt() {
+        // "Return a value for EVERY key below" under an empty list is an
+        // instruction a model satisfies by inventing keys, so this blocks.
+        ReportComputation c = computationWith(
+                expressionRule("e", "E", "[mqt:14]", "[\"mqt:14\"]", false));
+        c.getTemplate().getBindings().get(0).setBinderType(ReportTagBinding.TYPE_LITERAL);
+        c.getTemplate().getBindings().get(0).setLiteralText("Fixed.");
+
+        var prompt = assemblerWith(sampleColumns()).assemble(c, List.of());
+
+        assertThat(prompt.isReady()).isFalse();
+        assertThat(String.join(" ", prompt.blockers()))
+                .contains("No placeholder on this template is marked as filled by a computation");
+    }
+
+    @Test
+    void anUnansweredTagIsNotRequestedButIsPointedOut() {
+        ReportComputation c = computationWith(
+                expressionRule("e", "E", "[mqt:14]", "[\"mqt:14\"]", false));
+        ReportTagBinding open = new ReportTagBinding();
+        open.setTag("forgotten");
+        c.getTemplate().addBinding(open);
+
+        var prompt = assemblerWith(sampleColumns()).assemble(c, List.of());
+
+        assertThat(prompt.expectedTags()).containsExactly("overall_summary");
+        assertThat(prompt.prompt()).doesNotContain("forgotten");
+        assertThat(String.join(" ", prompt.warnings()))
+                .contains("1 placeholder")
+                .contains("not been answered at all");
+        assertThat(prompt.blockers())
+                .as("one unanswered tag does not block a computation that has real work")
+                .isEmpty();
+    }
+
+    @Test
+    void guidanceForATagThatIsNotComputedIsReportedAsUnsent() {
+        var stray = new com.bodhpsychometric.model.report.ReportComputationTagGuidance();
+        stray.setTag("disclaimer");
+        stray.setGuidance("Should read gently.");
+
+        ReportComputation c = computationWith(
+                expressionRule("e", "E", "[mqt:14]", "[\"mqt:14\"]", false));
+        ReportTagBinding literal = new ReportTagBinding();
+        literal.setTag("disclaimer");
+        literal.setBinderType(ReportTagBinding.TYPE_LITERAL);
+        literal.setLiteralText("Not a clinical diagnosis.");
+        c.getTemplate().addBinding(literal);
+
+        var prompt = assemblerWith(sampleColumns()).assemble(c, List.of(stray));
+
+        assertThat(String.join(" ", prompt.warnings()))
+                .contains("disclaimer")
+                .contains("is not sent");
+        assertThat(prompt.prompt()).doesNotContain("Should read gently");
+    }
+
+    // ── the requirement: the prompt's rule references must resolve ─────────
+
+    @Test
+    void aRuleNamedInTheGuidanceButNotSelectedIsReported() {
+        // The failure this catches: the sentence reads perfectly, and the rule
+        // it names is simply absent from section 3 — the model is asked to
+        // apply logic it was never given.
+        var prompt = assemblerWith(sampleColumns(), List.of("extraversion", "anxiety-composite"))
+                .assemble(computationSaying(
+                        "Use `extraversion`, then band with `anxiety-composite`.",
+                        expressionRule("extraversion", "Extraversion composite",
+                                "[mqt:14]", "[\"mqt:14\"]", false)),
+                        List.of());
+
+        assertThat(String.join(" ", prompt.warnings()))
+                .contains("anxiety-composite")
+                .contains("not selected here");
+        assertThat(prompt.blockers())
+                .as("a dangling reference is worth saying out loud, not worth blocking on")
+                .isEmpty();
+    }
+
+    @Test
+    void awordThatIsNotARuleSlugIsNeverReported() {
+        // The reason the lint reads the whole library instead of guessing: a
+        // warning that fires on ordinary prose is one people learn to ignore.
+        var prompt = assemblerWith(sampleColumns(), List.of("extraversion"))
+                .assemble(computationSaying(
+                        "Print `low`, `average` or `high` from `extraversion`, in plain English.",
+                        expressionRule("extraversion", "Extraversion composite",
+                                "[mqt:14]", "[\"mqt:14\"]", false)),
+                        List.of());
+
+        assertThat(String.join(" ", prompt.warnings()))
+                .doesNotContain("low")
+                .doesNotContain("average")
+                .doesNotContain("high");
+    }
+
+    @Test
+    void aLongerSlugContainingAShorterOneIsNotAReferenceToTheShorterOne() {
+        // '-' is a word boundary to \b, so a naive match finds the rule
+        // `extraversion` inside a mention of `extraversion-composite` and warns
+        // about a rule nobody named.
+        var prompt = assemblerWith(sampleColumns(), List.of("extraversion", "extraversion-composite"))
+                .assemble(computationSaying(
+                        "Use `extraversion-composite` throughout.",
+                        expressionRule("extraversion-composite", "Extraversion composite",
+                                "[mqt:14]", "[\"mqt:14\"]", false)),
+                        List.of());
+
+        assertThat(prompt.warnings()).isEmpty();
+    }
+
+    @Test
+    void aRuleWhoseSlugIsAWordInsideAnotherRulesNameIsNotAReference() {
+        // The false positive that made backticks load-bearing: `extraversion`
+        // is a real library rule, and it is also the first word of the SELECTED
+        // rule's name. Matching bare words would accuse the author of naming a
+        // rule they never mentioned — in the very sentence where they named the
+        // right one correctly.
+        var prompt = assemblerWith(sampleColumns(),
+                List.of("extraversion", "extraversion-composite"))
+                .assemble(computationSaying(
+                        "Fill the summary from the Extraversion composite.",
+                        expressionRule("extraversion-composite", "Extraversion composite",
+                                "[mqt:14]", "[\"mqt:14\"]", false)),
+                        List.of());
+
+        assertThat(prompt.warnings()).isEmpty();
+    }
+
+    @Test
+    void aBareSlugInProseIsDeliberatelyNotTreatedAsAReference() {
+        // The miss that precision costs, and it is the cheap side of the trade:
+        // no warning rather than a wrong one. The insert rail writes backticks,
+        // so the common path is covered.
+        var prompt = assemblerWith(sampleColumns(), List.of("anxiety-composite"))
+                .assemble(computationSaying(
+                        "Summarise using `extraversion`; unlike anxiety-composite this is "
+                                + "not a clinical scale.",
+                        expressionRule("extraversion", "Extraversion composite",
+                                "[mqt:14]", "[\"mqt:14\"]", false)),
+                        List.of());
+
+        assertThat(prompt.warnings()).isEmpty();
+    }
+
+    @Test
+    void aSelectedRuleTheGuidanceNeverMentionsIsPointedOut() {
+        var prompt = assemblerWith(sampleColumns(), List.of("extraversion", "facet-ranking"))
+                .assemble(computationSaying(
+                        "Summarise from `extraversion`.",
+                        expressionRule("extraversion", "Extraversion composite",
+                                "[mqt:14]", "[\"mqt:14\"]", false),
+                        expressionRule("facet-ranking", "Facet ranking",
+                                "[mqt:15]", "[\"mqt:15\"]", false)),
+                        List.of());
+
+        assertThat(String.join(" ", prompt.warnings()))
+                .contains("Facet ranking")
+                .contains("never refers to it");
+    }
+
+    @Test
+    void referringToARuleByItsNameCountsAsReferringToIt() {
+        // An author who writes "the Extraversion composite" has named the rule
+        // as plainly as its slug does; being told otherwise is simply wrong.
+        var prompt = assemblerWith(sampleColumns(), List.of("extraversion"))
+                .assemble(computationSaying(
+                        "Fill the summary from the Extraversion composite.",
+                        expressionRule("extraversion", "Extraversion composite",
+                                "[mqt:14]", "[\"mqt:14\"]", false)),
+                        List.of());
+
+        assertThat(prompt.warnings()).isEmpty();
     }
 }

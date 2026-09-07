@@ -46,6 +46,16 @@ public record ReportRuleRequest(
 
         Long organizationId,
 
+        /**
+         * Which authoring step the rule is filed under — VALIDITY, SCORE, BAND,
+         * PROFILE or EDGE. Blank means SCORE, which is what the library page
+         * sends: it edits rules without knowing about steps at all.
+         */
+        @Size(max = 24)
+        String stage,
+
+        Integer stepOrder,
+
         @Size(max = 4000, message = "Notes must be 4000 characters or fewer")
         String notes) {
 }

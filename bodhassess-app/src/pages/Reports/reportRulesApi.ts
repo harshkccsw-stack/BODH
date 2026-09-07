@@ -37,6 +37,33 @@ export interface ExprCheck {
   functions: string[];
 }
 
+/**
+ * Which authoring step a rule is filed under. Matches ReportRule's stage
+ * constants, in pipeline order.
+ *
+ * The psychometrician's workbook has seven steps; only five hold rules. Step 0
+ * (data capture) is the platform — answers already exist per attempt. Step 2
+ * (reverse scoring) is authored upstream as reversed option scores, because
+ * MqtScoringService sums OptionMqtScore and reversing at report time would make
+ * mqt: mean one thing in a sheet and another in a report.
+ */
+export type RuleStage = 'VALIDITY' | 'SCORE' | 'BAND' | 'PROFILE' | 'EDGE';
+
+export const RULE_STAGES: Array<{
+  key: RuleStage; step: string; label: string; hint: string;
+}> = [
+  { key: 'VALIDITY', step: 'Step 1', label: 'Validity checks',
+    hint: 'Run before any scoring. Flags and hard fails.' },
+  { key: 'SCORE', step: 'Step 3', label: 'Score computation',
+    hint: 'Factor and composite scores from the MQ/MQT columns.' },
+  { key: 'BAND', step: 'Step 4', label: 'Interpretation bands',
+    hint: 'Cut points that turn a score into a named band.' },
+  { key: 'PROFILE', step: 'Step 5', label: 'Profile interpretation',
+    hint: 'Cross-factor rules that produce report text.' },
+  { key: 'EDGE', step: 'Edge cases', label: 'Edge cases',
+    hint: 'Retakes, ties at a boundary, norm updates.' },
+];
+
 /** Matches ReportRuleResponse.RuleVersion on the backend. */
 export interface RuleVersion {
   reportRuleVersionId: number;
@@ -46,6 +73,8 @@ export interface RuleVersion {
   statementText: string | null;
   resultType: RuleResultType | null;
   referencedKeys: string[];
+  /** Slugs of the other rules this one consumes — the DAG's direct edges. */
+  referencedRuleSlugs: string[];
   population: boolean;
   validatedAssessmentId: number | null;
   notes: string | null;
@@ -59,6 +88,8 @@ export interface ReportRuleResponse {
   slug: string;
   description: string | null;
   assessmentId: number | null;
+  stage: RuleStage;
+  stepOrder: number;
   status: 'ACTIVE' | 'ARCHIVED';
   latestVersion: number;
   latest: RuleVersion | null;
@@ -78,7 +109,70 @@ export interface ReportRulePayload {
   resultType?: RuleResultType | null;
   assessmentId?: number | null;
   organizationId?: number | null;
+  stage?: RuleStage | null;
+  stepOrder?: number | null;
   notes?: string | null;
+}
+
+/**
+ * Matches ReportRulePortabilityResponse. Three verdicts, not two.
+ *
+ * SHAPE_MISMATCH is the one worth reading: every column resolves, but a
+ * referenced trait is scored by a different number of questions here, so its
+ * range moved and any cut point in the rule now means something else. Nothing
+ * else in the system notices that.
+ */
+export type PortabilityVerdict = 'PORTABLE' | 'BLOCKED' | 'SHAPE_MISMATCH';
+
+export interface RulePortability {
+  reportRuleId: number;
+  name: string;
+  slug: string;
+  stage: RuleStage;
+  stepOrder: number;
+  definitionKind: DefinitionKind | null;
+  homeAssessmentId: number | null;
+  validatedAssessmentId: number | null;
+  population: boolean;
+  verdict: PortabilityVerdict;
+  missingKeys: string[];
+  warnings: string[];
+  dependencySlugs: string[];
+}
+
+/** Matches ReportDryRunResponse.Summary. */
+export interface DryRunSummary {
+  count: number;
+  /** Never fold this into zero — "no value" and "a score of zero" differ. */
+  nulls: number;
+  min: number | null;
+  max: number | null;
+  mean: number | null;
+  bands: Record<string, number>;
+}
+
+/** Matches ReportDryRunResponse.RuleOutcome. */
+export interface DryRunOutcome {
+  reportRuleId: number;
+  slug: string;
+  name: string;
+  stage: RuleStage;
+  definitionKind: DefinitionKind;
+  resultType: RuleResultType | null;
+  population: boolean;
+  status: 'EVALUATED' | 'NEEDS_GENERATION' | 'ERROR';
+  error: string | null;
+  summary: DryRunSummary | null;
+}
+
+/** Matches ReportDryRunResponse. */
+export interface DryRunResult {
+  assessmentId: number;
+  respondentCount: number;
+  rowsReturned: number;
+  rules: DryRunOutcome[];
+  rows: Array<{ rowId: unknown; label: string; values: Record<string, unknown> }>;
+  notes: string[];
 }
 
 const ROOT = '/report-rules';
@@ -117,6 +211,37 @@ export const reportRulesApi = {
 
   canRunOn: async (id: number, assessmentId: number): Promise<{ canRun: boolean }> =>
     (await api.get(`${ROOT}/canRunOn/${id}`, { params: { assessmentId } })).data,
+
+  /**
+   * Every library rule judged against one assessment.
+   *
+   * Recomputed on every call by design — an assessment's columns change when
+   * questions are unplaced, so a verdict cached in the browser says "portable"
+   * about a rule that stopped being portable an hour ago.
+   */
+  portability: async (
+    assessmentId: number,
+    organizationId?: number | null,
+  ): Promise<RulePortability[]> =>
+    (await api.get(`${ROOT}/portability/getByAssessment/${assessmentId}`, {
+      params: organizationId ? { organizationId } : undefined,
+    })).data,
+
+  /**
+   * Run the rules over real respondents — no AI, no sandbox.
+   *
+   * NOT the delivery path. Reports come from generated Python executed in the
+   * sandbox; this evaluates the expression grammar in Java. Two implementations
+   * on purpose, which is what makes this an oracle for the generated code
+   * later — and why nothing here can approve anything.
+   */
+  dryRun: async (payload: {
+    assessmentId: number;
+    organizationId?: number | null;
+    ruleIds?: number[];
+    rowLimit?: number;
+  }): Promise<DryRunResult> =>
+    (await api.post(`${ROOT}/dry-run`, payload)).data,
 
   create: async (payload: ReportRulePayload): Promise<ReportRuleResponse> =>
     (await api.post(`${ROOT}/create`, payload)).data,

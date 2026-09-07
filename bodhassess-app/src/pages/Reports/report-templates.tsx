@@ -46,6 +46,7 @@ const BINDER_LABEL: Record<BinderType, string> = {
   UNBOUND: 'Not answered yet',
   CORE: 'A respondent detail',
   LITERAL: 'Fixed text',
+  COMPUTED: 'A computation fills this',
   VALUE: 'A score (needs the scoring engine)',
   NARRATIVE: 'Written interpretation (needs the scoring engine)',
   TABLE: 'A table of scores (needs the scoring engine)',
@@ -608,9 +609,16 @@ function TagRow({
     coreField !== (binding.coreField ?? '') ||
     literalText !== (binding.literalText ?? '');
 
+  // COMPUTED carries no second field: saying "a computation fills this" is the
+  // whole answer, and which computation is a per-assessment question the
+  // template must not answer.
   const canSave =
     dirty &&
-    (type === 'CORE' ? coreField !== '' : type === 'LITERAL' ? literalText.trim() !== '' : false);
+    (type === 'CORE'
+      ? coreField !== ''
+      : type === 'LITERAL'
+        ? literalText.trim() !== ''
+        : type === 'COMPUTED');
 
   return (
     <div className="p-3">
@@ -655,6 +663,14 @@ function TagRow({
                 <option key={key} value={key}>{label}</option>
               ))}
             </select>
+          )}
+
+          {type === 'COMPUTED' && (
+            <p className="text-xs text-muted-foreground">
+              A computation over this template will be asked to produce this placeholder.
+              Until one does it renders empty — so a template with computed
+              placeholders can be published, but not yet delivered.
+            </p>
           )}
 
           {type === 'LITERAL' && (

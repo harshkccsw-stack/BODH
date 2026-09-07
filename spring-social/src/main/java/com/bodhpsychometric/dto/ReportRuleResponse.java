@@ -16,6 +16,8 @@ public record ReportRuleResponse(
         String slug,
         String description,
         Long assessmentId,
+        String stage,
+        int stepOrder,
         String status,
         int latestVersion,
         RuleVersion latest,
@@ -31,12 +33,14 @@ public record ReportRuleResponse(
             String statementText,
             String resultType,
             List<String> referencedKeys,
+            List<String> referencedRuleSlugs,
             boolean population,
             Long validatedAssessmentId,
             String notes,
             OffsetDateTime createdAt) {
 
-        public static RuleVersion from(ReportRuleVersion v, List<String> referencedKeys) {
+        public static RuleVersion from(ReportRuleVersion v, List<String> referencedKeys,
+                List<String> referencedRuleSlugs) {
             return new RuleVersion(
                     v.getReportRuleVersionId(),
                     v.getVersion(),
@@ -45,6 +49,7 @@ public record ReportRuleResponse(
                     v.getStatementText(),
                     v.getResultType(),
                     referencedKeys,
+                    referencedRuleSlugs,
                     v.isPopulation(),
                     v.getValidatedAssessmentId(),
                     v.getNotes(),
@@ -60,6 +65,8 @@ public record ReportRuleResponse(
                 rule.getSlug(),
                 rule.getDescription(),
                 rule.getAssessmentId(),
+                rule.getStage(),
+                rule.getStepOrder(),
                 rule.getStatus(),
                 latest == null ? 0 : latest.version(),
                 latest,

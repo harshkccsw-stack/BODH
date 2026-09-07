@@ -31,8 +31,15 @@ import com.bodhpsychometric.model.report.ReportTemplate;
  * <ol>
  *   <li>The full text of every selected rule, <b>unparaphrased</b>.</li>
  *   <li>The psychometrician's guidance prompt, verbatim.</li>
- *   <li>The exact {@code ${tag}} list parsed from the template, with each tag's
- *       expected type and its per-tag guidance.</li>
+ *   <li>The {@code ${tag}} list the computation is responsible for — the
+ *       template's placeholders <b>filtered to the computed ones</b> — each
+ *       with its per-tag guidance. Tags the template answers itself (CORE
+ *       facts, LITERAL boilerplate) are excluded: the renderer fills those
+ *       from the binding, and listing them would both waste the guidance grid
+ *       and invite an invented respondent name in defiance of §5. No expected
+ *       TYPE is sent, because a binding does not carry one — until it does,
+ *       the per-tag guidance is the only place a value's shape is stated,
+ *       which is worth knowing when writing it.</li>
  *   <li>The respondent data <b>schema</b> — key, label, type — for the live
  *       per-assessment column list.</li>
  *   <li>The fixed function signature and output contract, as a hard
@@ -58,9 +65,11 @@ import com.bodhpsychometric.model.report.ReportTemplate;
 public class ReportPromptAssembler {
 
     private final ReportColumnCatalog columns;
+    private final ReportRuleCatalog ruleCatalog;
 
-    public ReportPromptAssembler(ReportColumnCatalog columns) {
+    public ReportPromptAssembler(ReportColumnCatalog columns, ReportRuleCatalog ruleCatalog) {
         this.columns = columns;
+        this.ruleCatalog = ruleCatalog;
     }
 
     /**
@@ -134,13 +143,43 @@ public class ReportPromptAssembler {
                     + ". The rule was written against a different assessment.");
         }
 
+        // Only the tags a computation actually has to produce. A tag already
+        // answered on the template — a heading, a disclaimer, the respondent's
+        // name — is filled by the renderer from the binding, so asking the
+        // model for it invites an invented value and contradicts §5, which
+        // says identity is excluded and must never be referenced.
         List<String> tags = template == null ? List.of()
                 : template.getBindings().stream()
+                        .filter(ReportTagBinding::isComputed)
                         .map(ReportTagBinding::getTag)
                         .toList();
+        // Answered on the template, so the renderer fills them. Counted as
+        // "bound and not computed" rather than "everything left over", so an
+        // unanswered tag is never miscounted as one somebody handled.
+        int templateFilled = template == null ? 0
+                : (int) template.getBindings().stream()
+                        .filter(b -> b.isBound() && !b.isComputed())
+                        .count();
+        long unanswered = template == null ? 0
+                : template.getBindings().stream().filter(b -> !b.isBound()).count();
+
         if (template != null && tags.isEmpty()) {
-            warnings.add("The chosen template has no placeholders, so the generated code would "
-                    + "have nothing to return.");
+            // A blocker, not a warning. §4 says "return a value for EVERY key
+            // below"; under an empty list that is an instruction a model will
+            // satisfy by inventing keys.
+            blockers.add(template.getBindings().isEmpty()
+                    ? "The chosen template has no placeholders, so there is nothing for a "
+                            + "computation to produce."
+                    : "No placeholder on this template is marked as filled by a computation, "
+                            + "so this computation has nothing to produce. Mark the ones it "
+                            + "should fill on the template first.");
+        }
+        if (unanswered > 0) {
+            warnings.add(unanswered + " placeholder" + (unanswered == 1 ? "" : "s")
+                    + " on this template " + (unanswered == 1 ? "has" : "have")
+                    + " not been answered at all, so " + (unanswered == 1 ? "it is" : "they are")
+                    + " not requested below. Answer them on the template first if this "
+                    + "computation is meant to fill them.");
         }
 
         boolean anyPopulation = ruleVersions.stream().anyMatch(ReportRuleVersion::isPopulation);
@@ -154,8 +193,48 @@ public class ReportPromptAssembler {
             guidanceByTag.put(g.getTag(), g.getGuidance());
         }
 
+        // The guidance prompt refers to rules by slug; §3 states them in full.
+        // Nothing else checks that join, and both ways of breaking it read
+        // perfectly to a human. See RuleReferenceLint.
+        RuleReferenceLint.Findings refs = RuleReferenceLint.check(
+                computation.getSourcePrompt(),
+                ruleVersions.stream()
+                        .map(v -> new RuleReferenceLint.Ref(
+                                v.getRule().getSlug(), v.getRule().getName()))
+                        .toList(),
+                ruleCatalog.allSlugs());
+
+        if (!refs.namedButNotSelected().isEmpty()) {
+            warnings.add("The guidance refers to "
+                    + String.join(", ", refs.namedButNotSelected())
+                    + ", which " + (refs.namedButNotSelected().size() == 1 ? "is" : "are")
+                    + " in the rules library but not selected here, so "
+                    + (refs.namedButNotSelected().size() == 1 ? "its" : "their")
+                    + " definition is not in the prompt. Select "
+                    + (refs.namedButNotSelected().size() == 1 ? "it" : "them")
+                    + " or drop the reference.");
+        }
+        if (!refs.selectedButNotNamed().isEmpty()) {
+            warnings.add(String.join(", ", refs.selectedButNotNamed())
+                    + (refs.selectedButNotNamed().size() == 1 ? " is" : " are")
+                    + " selected but the guidance never refers to "
+                    + (refs.selectedButNotNamed().size() == 1 ? "it" : "them")
+                    + ". Harmless if deliberate; often a leftover selection.");
+        }
+
+        // Guidance written for a tag this computation is not asked to produce
+        // is never printed. Saying so beats letting somebody wonder why their
+        // instruction had no effect.
+        List<String> stray = guidanceByTag.keySet().stream()
+                .filter(t -> !tags.contains(t))
+                .toList();
+        if (!stray.isEmpty()) {
+            warnings.add("Guidance was written for " + String.join(", ", stray)
+                    + ", which the template does not mark as computed. It is not sent.");
+        }
+
         String prompt = render(computation, template, ruleVersions, safeColumns, tags,
-                guidanceByTag, declared);
+                guidanceByTag, declared, templateFilled);
 
         return new AssembledPrompt(prompt, List.copyOf(declared), tags, blockers, warnings);
     }
@@ -166,7 +245,8 @@ public class ReportPromptAssembler {
             List<ReportColumnCatalog.ReportColumn> safeColumns,
             List<String> tags,
             Map<String, String> guidanceByTag,
-            Set<String> declared) {
+            Set<String> declared,
+            int templateFilled) {
 
         StringBuilder p = new StringBuilder(8192);
 
@@ -231,9 +311,18 @@ public class ReportPromptAssembler {
 
         // ── 4. what must come back ────────────────────────────────────────
         p.append("## 4. Values the report needs\n\n");
-        p.append("Return a value for EVERY key below. Missing keys are rejected.\n\n");
+        p.append("Return a value for EVERY key below, and for no others. Missing keys are "
+                + "rejected; unrecognised keys are discarded.\n\n");
+        if (templateFilled > 0) {
+            p.append("The template has ").append(templateFilled).append(" further placeholder")
+                    .append(templateFilled == 1 ? "" : "s")
+                    .append(" the report engine fills itself — respondent details and fixed "
+                            + "text. ")
+                    .append(templateFilled == 1 ? "It is" : "They are")
+                    .append(" deliberately not listed and must not be returned.\n\n");
+        }
         if (tags.isEmpty()) {
-            p.append("(the template has no placeholders)\n");
+            p.append("(no placeholder on this template is marked as computed)\n");
         }
         for (String tag : tags) {
             p.append("- `").append(tag).append('`');

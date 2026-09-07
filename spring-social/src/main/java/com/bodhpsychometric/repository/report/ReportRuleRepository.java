@@ -30,6 +30,18 @@ public interface ReportRuleRepository extends JpaRepository<ReportRule, Long> {
             """)
     Optional<ReportRule> findByIdWithVersions(@Param("id") Long id);
 
+    /**
+     * Every slug in the library, for the reference lint.
+     *
+     * <p>The whole library, not a lookup of candidate tokens, because the lint
+     * needs to tell "this word is not a rule at all" from "this IS a rule and
+     * you did not select it" — and only the second is worth warning about.
+     * Slugs are short and there are hundreds at most, so one projection query
+     * beats an IN clause built from every word somebody typed.
+     */
+    @Query("select r.slug from ReportRule r")
+    List<String> findAllSlugs();
+
     boolean existsBySlugIgnoreCase(String slug);
 
     boolean existsBySlugIgnoreCaseAndReportRuleIdNot(String slug, Long reportRuleId);

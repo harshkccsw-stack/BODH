@@ -84,9 +84,25 @@ public class ReportRuleVersion implements java.io.Serializable {
     @Column(name = "resultType", length = 16)
     private String resultType;
 
-    /** JSON array of column keys the expression referenced. */
+    /** JSON array of column keys the expression referenced. Columns ONLY. */
     @Column(name = "referencedKeysJson", columnDefinition = "TEXT")
     private String referencedKeysJson;
+
+    /**
+     * JSON array of the slugs of other rules this one consumes — the DAG's
+     * direct edges, written {@code [rule:some-slug]} in the expression.
+     *
+     * <p>Held apart from {@link #referencedKeysJson} because a rule reference
+     * is not a column: portability asks whether the referenced COLUMNS exist on
+     * a given assessment, and a {@code rule:} key would never be in that set.
+     *
+     * <p>Direct edges only. The transitive closure is walked where it is needed
+     * rather than stored — a stored closure goes stale the moment anything in
+     * the chain is edited, and stale-and-silent is the failure mode this design
+     * exists to prevent.
+     */
+    @Column(name = "referencedRuleSlugsJson", columnDefinition = "TEXT")
+    private String referencedRuleSlugsJson;
 
     /**
      * True when the expression uses a population function, i.e. its answer
@@ -187,6 +203,14 @@ public class ReportRuleVersion implements java.io.Serializable {
 
     public void setReferencedKeysJson(String referencedKeysJson) {
         this.referencedKeysJson = referencedKeysJson;
+    }
+
+    public String getReferencedRuleSlugsJson() {
+        return referencedRuleSlugsJson;
+    }
+
+    public void setReferencedRuleSlugsJson(String referencedRuleSlugsJson) {
+        this.referencedRuleSlugsJson = referencedRuleSlugsJson;
     }
 
     public boolean isPopulation() {

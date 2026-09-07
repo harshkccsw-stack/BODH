@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   Check,
@@ -18,12 +18,17 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { reportApis, type AssessmentOption } from './reportApis';
 import { reportRulesApi, type ReportRuleResponse } from './reportRulesApi';
+import { checkReferences } from './ruleReferenceLint';
 import {
   reportComputationsApi,
   type ReportComputationResponse,
   type RespondentScope,
 } from './reportComputationsApi';
-import { reportTemplatesApi, type ReportTemplateResponse } from './reportTemplatesApi';
+import {
+  reportTemplatesApi,
+  isComputedBinder,
+  type ReportTemplateResponse,
+} from './reportTemplatesApi';
 
 const errorText = (e: any, fallback: string) =>
   e?.response?.data?.message || e?.message || fallback;
@@ -160,9 +165,30 @@ export default function ReportComputationsPage() {
     [templates, templateId],
   );
 
-  /** The tags the guidance grid offers — straight from the chosen template. */
+  /**
+   * The tags the guidance grid offers: the placeholders this computation is
+   * responsible for, which is NOT every placeholder on the template. Headings,
+   * disclaimers and respondent details are answered on the template itself and
+   * filled by the renderer — the backend excludes them from the prompt, so
+   * offering a guidance box for them would collect text nothing ever sends.
+   */
   const templateTags = useMemo(
-    () => (chosenTemplate?.bindings ?? []).map((b) => b.tag),
+    () => (chosenTemplate?.bindings ?? [])
+      .filter((b) => isComputedBinder(b.binderType))
+      .map((b) => b.tag),
+    [chosenTemplate],
+  );
+
+  /** Answered on the template, so not this computation's job. */
+  const templateFilledCount = useMemo(
+    () => (chosenTemplate?.bindings ?? []).filter((b) => b.bound && !isComputedBinder(b.binderType))
+      .length,
+    [chosenTemplate],
+  );
+
+  /** Nobody has said what fills these, so nothing will. */
+  const unansweredCount = useMemo(
+    () => (chosenTemplate?.bindings ?? []).filter((b) => !b.bound).length,
     [chosenTemplate],
   );
 
@@ -181,8 +207,13 @@ export default function ReportComputationsPage() {
             .filter((n) => Number.isFinite(n) && n > 0)
         : [],
     ruleVersionIds: selectedRuleVersions,
+    // Only guidance for tags this computation is actually asked to produce.
+    // A tag that stopped being computed would otherwise keep a row nothing
+    // ever prints. Guarded on the template being loaded: with none chosen,
+    // templateTags is empty and filtering would silently drop everything.
     tagGuidance: Object.entries(tagGuidance)
       .filter(([, v]) => v.trim() !== '')
+      .filter(([tag]) => !chosenTemplate || templateTags.includes(tag))
       .map(([tag, guidance]) => ({ tag, guidance: guidance.trim() })),
   });
 
@@ -256,6 +287,58 @@ export default function ReportComputationsPage() {
     setSelectedRuleVersions((prev) =>
       prev.includes(versionId) ? prev.filter((v) => v !== versionId) : [...prev, versionId],
     );
+
+  /** The rules actually selected, in the shape the reference lint wants. */
+  const selectedRules = useMemo(
+    () => rules.filter((r) => r.latest && selectedRuleVersions.includes(r.latest.reportRuleVersionId)),
+    [rules, selectedRuleVersions],
+  );
+
+  /**
+   * Live version of the backend's RuleReferenceLint. The assembled prompt
+   * carries the same two warnings after a save; this only says it sooner.
+   */
+  const references = useMemo(
+    () => checkReferences(
+      prompt,
+      selectedRules.map((r) => ({ slug: r.slug, name: r.name })),
+      rules.map((r) => r.slug),
+    ),
+    [prompt, selectedRules, rules],
+  );
+
+  /** Selecting a rule the guidance already names, from the warning itself. */
+  const selectBySlug = (slug: string) => {
+    const rule = rules.find((r) => r.slug === slug);
+    if (rule?.latest) toggleRule(rule.latest.reportRuleVersionId);
+  };
+
+  const promptRef = useRef<HTMLTextAreaElement | null>(null);
+
+  /**
+   * Insert a reference where the caret is. The slug is the one thing an author
+   * must spell exactly — it is what joins this prompt to the rule definitions
+   * the backend sends — so it should never have to be typed from memory.
+   */
+  const insertAtCursor = (snippet: string) => {
+    const el = promptRef.current;
+    if (!el) {
+      setPrompt((p) => (p.endsWith(' ') || p === '' ? p : p + ' ') + snippet);
+      return;
+    }
+    const start = el.selectionStart ?? prompt.length;
+    const end = el.selectionEnd ?? start;
+    const before = prompt.slice(0, start);
+    // A reference dropped straight against the previous word reads as one
+    // token and would then match nothing.
+    const pad = before === '' || /[\s([]$/.test(before) ? '' : ' ';
+    setPrompt(before + pad + snippet + prompt.slice(end));
+    const caret = start + pad.length + snippet.length;
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(caret, caret);
+    });
+  };
 
   const ready = items.filter((c) => c.status === 'READY_FOR_GENERATION').length;
 
@@ -526,19 +609,126 @@ export default function ReportComputationsPage() {
               {/* guidance */}
               <div>
                 <label className="text-sm font-medium mb-1.5 block">Guidance prompt</label>
-                <textarea
-                  className="w-full h-32 rounded-md border border-input bg-background p-3 text-sm focus:outline-none focus:border-ring focus:ring-[3px] focus:ring-ring/30"
-                  placeholder="Describe what the report should say and how the rules feed it. This is passed on word for word."
-                  value={prompt}
-                  onChange={(e) => setPrompt(e.target.value)}
-                />
+                <div className="grid gap-2 sm:grid-cols-[1fr_11rem]">
+                  <textarea
+                    ref={promptRef}
+                    className="w-full h-32 rounded-md border border-input bg-background p-3 text-sm focus:outline-none focus:border-ring focus:ring-[3px] focus:ring-ring/30"
+                    placeholder="Describe what the report should say and how the rules feed it. Refer to a rule by its slug in backticks — `extraversion-composite` — and to a placeholder as ${tag}. Passed on word for word."
+                    value={prompt}
+                    onChange={(e) => setPrompt(e.target.value)}
+                  />
+
+                  {/* Click-to-insert rail. Everything it inserts is plain text:
+                      the prompt is sent word for word, so there is nothing here
+                      the model does not see exactly as written. */}
+                  <div className="rounded-md border bg-muted/30 p-2 h-32 overflow-y-auto text-xs">
+                    {selectedRules.length === 0 && templateTags.length === 0 ? (
+                      <p className="text-muted-foreground">
+                        Select rules and a template to insert references here.
+                      </p>
+                    ) : (
+                      <>
+                        {selectedRules.length > 0 && (
+                          <>
+                            <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">
+                              Rules
+                            </p>
+                            <div className="space-y-1 mb-2">
+                              {selectedRules.map((r) => (
+                                <button
+                                  key={r.reportRuleId}
+                                  type="button"
+                                  title={'Insert `' + r.slug + '` — ' + r.name}
+                                  onClick={() => insertAtCursor('`' + r.slug + '`')}
+                                  className="w-full text-left font-mono truncate rounded px-1.5 py-1 hover:bg-background hover:shadow-sm"
+                                >
+                                  + {r.slug}
+                                </button>
+                              ))}
+                            </div>
+                          </>
+                        )}
+                        {templateTags.length > 0 && (
+                          <>
+                            <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">
+                              Placeholders
+                            </p>
+                            <div className="space-y-1">
+                              {templateTags.map((tag) => (
+                                <button
+                                  key={tag}
+                                  type="button"
+                                  title={'Insert ${' + tag + '}'}
+                                  onClick={() => insertAtCursor('${' + tag + '}')}
+                                  className="w-full text-left font-mono truncate rounded px-1.5 py-1 hover:bg-background hover:shadow-sm"
+                                >
+                                  + {tag}
+                                </button>
+                              ))}
+                            </div>
+                          </>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {references.namedButNotSelected.length > 0 && (
+                  <div className="mt-2 rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/20 p-2.5 text-xs text-amber-800 dark:text-amber-300">
+                    {references.namedButNotSelected.map((slug) => (
+                      <div key={slug} className="flex items-center gap-2 py-0.5">
+                        <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                        <span className="min-w-0 flex-1">
+                          The guidance refers to <code className="font-mono">{slug}</code>, which is
+                          not selected — its definition will not be in the prompt.
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => selectBySlug(slug)}
+                          className="shrink-0 underline hover:no-underline"
+                        >
+                          Select it
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {references.selectedButNotNamed.length > 0 && (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    {references.selectedButNotNamed.join(', ')}
+                    {references.selectedButNotNamed.length === 1 ? ' is' : ' are'} selected but the
+                    guidance never refers to {references.selectedButNotNamed.length === 1 ? 'it' : 'them'}.
+                  </p>
+                )}
               </div>
+
+              {chosenTemplate && templateTags.length === 0 && (
+                <div className="rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/20 p-3 text-xs text-amber-800 dark:text-amber-300">
+                  No placeholder on this template is marked <em>A computation fills this</em>, so
+                  there is nothing for this computation to produce. Mark them on the template
+                  first.
+                </div>
+              )}
 
               {templateTags.length > 0 && (
                 <div>
                   <label className="text-sm font-medium mb-1.5 block">
                     Per-placeholder guidance (optional)
                   </label>
+                  <p className="text-xs text-muted-foreground mb-1.5">
+                    The {templateTags.length} placeholder{templateTags.length === 1 ? '' : 's'} this
+                    computation must produce. Say what each should contain, which rules feed it, and
+                    what to do when a value is missing — not the value itself.
+                    {templateFilledCount > 0 && (
+                      <> {templateFilledCount} other{templateFilledCount === 1 ? '' : 's'} come from
+                      the template itself and {templateFilledCount === 1 ? 'is' : 'are'} not listed.</>
+                    )}
+                    {unansweredCount > 0 && (
+                      <> {unansweredCount} {unansweredCount === 1 ? 'is' : 'are'} still unanswered on
+                      the template.</>
+                    )}
+                  </p>
                   <div className="border rounded-md divide-y max-h-64 overflow-y-auto">
                     {templateTags.map((tag) => (
                       <div key={tag} className="p-3">

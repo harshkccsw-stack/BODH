@@ -89,6 +89,10 @@ const AdminDataGrid      = lazyPage(() => import('@/pages/admin/data-grid'));
 const Assessments              = lazyPage(() => import('@/pages/assessments/all-assessments'));
 // New-dialect catalog page wired to spring-social (Assessment Library group).
 const AssessmentLibrary        = lazyPage(() => import('@/pages/assessments/assessment-library'));
+// Per-assessment scoring pipeline. A resumable PAGE, not a wizard: a scoring
+// spec is revisited for months (the provisional bands get replaced with
+// percentile norms after the pilot), so landing straight on one step matters.
+const ReportSetup              = lazyPage(() => import('@/pages/assessments/report-setup'));
 // Direct assessment→respondent assignment for unaffiliated respondents.
 const RespondentMapping        = lazyPage(() => import('@/pages/RespondentMapping/respondent-mapping'));
 // Org catalog + registration links + per-member allotments, one org at a time.
@@ -255,6 +259,7 @@ const routes: RouteObject[] = [
       // Same page create and edit — no id in the path, edit is ?edit=<id>,
       // so one menu entry and one permission path cover both.
       { path: '/assessment-library/assessments/create', element: <AssessmentsCreate /> },
+      { path: '/assessment-library/assessments/:id/report-setup', element: <ReportSetup /> },
       // Renamed from /assessment-library/mapping. Role permissions are stored
       // as paths, so V12 rewrites the granted rows to match — a leaf grant
       // left on the old path would silently deny the page.

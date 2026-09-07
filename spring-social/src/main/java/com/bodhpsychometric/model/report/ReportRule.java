@@ -49,6 +49,31 @@ public class ReportRule implements java.io.Serializable {
     public static final String STATUS_ACTIVE = "ACTIVE";
     public static final String STATUS_ARCHIVED = "ARCHIVED";
 
+    /**
+     * Which step of the authoring pipeline a rule is filed under.
+     *
+     * <p>The workbook's steps 0 (data capture) and 2 (reverse scoring) are
+     * absent on purpose — neither is a report rule. Step 0 is the platform:
+     * answers already exist per attempt, and "every item answered" is the
+     * COMPLETED filter the dataset applies. Step 2 belongs upstream in the
+     * question bank, because {@code MqtScoringService} sums
+     * {@code OptionMqtScore} — reversing at report time would make
+     * {@code mqt:} mean one thing in a sheet and another in a report.
+     */
+    public static final String STAGE_VALIDITY = "VALIDITY";
+    public static final String STAGE_SCORE = "SCORE";
+    public static final String STAGE_BAND = "BAND";
+    public static final String STAGE_PROFILE = "PROFILE";
+    public static final String STAGE_EDGE = "EDGE";
+
+    /** In pipeline order — the rail renders straight from this. */
+    public static final List<String> STAGES = List.of(
+            STAGE_VALIDITY, STAGE_SCORE, STAGE_BAND, STAGE_PROFILE, STAGE_EDGE);
+
+    public static boolean isKnownStage(String stage) {
+        return stage != null && STAGES.contains(stage);
+    }
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long reportRuleId;
@@ -66,6 +91,21 @@ public class ReportRule implements java.io.Serializable {
     /** NULL = global and portable. Not an FK — see the migration. */
     @Column(name = "assessmentId")
     private Long assessmentId;
+
+    /**
+     * Which authoring step this rule is filed under.
+     *
+     * <p>On the rule and not on the version deliberately: moving a rule between
+     * steps is a change of filing, not of logic, and must not mint a version —
+     * a version is what a computation pins and what explains an approved
+     * report.
+     */
+    @Column(name = "stage", nullable = false, length = 24)
+    private String stage = STAGE_SCORE;
+
+    /** Author order within the stage. */
+    @Column(name = "stepOrder", nullable = false)
+    private int stepOrder;
 
     @Column(name = "status", nullable = false, length = 12)
     private String status = STATUS_ACTIVE;
@@ -150,6 +190,22 @@ public class ReportRule implements java.io.Serializable {
 
     public void setAssessmentId(Long assessmentId) {
         this.assessmentId = assessmentId;
+    }
+
+    public String getStage() {
+        return stage;
+    }
+
+    public void setStage(String stage) {
+        this.stage = stage;
+    }
+
+    public int getStepOrder() {
+        return stepOrder;
+    }
+
+    public void setStepOrder(int stepOrder) {
+        this.stepOrder = stepOrder;
     }
 
     public String getStatus() {

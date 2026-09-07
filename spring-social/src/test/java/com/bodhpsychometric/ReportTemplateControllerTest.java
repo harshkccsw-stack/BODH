@@ -153,6 +153,38 @@ class ReportTemplateControllerTest {
     }
 
     @Test
+    void markingATagAsComputedIsAnAnswerInItsOwnRight() throws Exception {
+        // "A computation fills this" is a decision, not unfinished work. Before
+        // COMPUTED existed it shared UNBOUND with "nobody has answered this",
+        // so the checklist understated itself and publish refused a template
+        // that was in fact complete.
+        Long id = idOf(createTemplate("__smoke__ computed", "<p>${summary}</p>"));
+        String auth = "Bearer " + token();
+
+        mvc.perform(put("/api/report-templates/bindTag/" + id + "/summary")
+                        .header(HttpHeaders.AUTHORIZATION, auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"binderType\":\"COMPUTED\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.boundCount").value(1))
+                .andExpect(jsonPath("$.publishable").value(true))
+                .andExpect(jsonPath("$.bindings[0].binderType").value("COMPUTED"))
+                // No second field: which computation is a per-assessment
+                // question a portable template must not answer.
+                .andExpect(jsonPath("$.bindings[0].coreField").doesNotExist())
+                .andExpect(jsonPath("$.bindings[0].literalText").doesNotExist());
+
+        mvc.perform(post("/api/report-templates/publish/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PUBLISHED"));
+
+        mvc.perform(delete("/api/report-templates/delete/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, auth))
+                .andExpect(status().isNoContent());
+    }
+
+    @Test
     void aDuplicateNameIs409() throws Exception {
         createTemplate("__smoke__ dup", "<p>a</p>");
         String html = (CLEAN_HEAD + "<p>b</p></body></html>").replace("\"", "\\\"");

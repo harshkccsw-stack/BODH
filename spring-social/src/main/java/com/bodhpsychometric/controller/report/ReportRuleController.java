@@ -16,9 +16,14 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.bodhpsychometric.dto.DsExprResponse;
+import com.bodhpsychometric.dto.ReportDryRunRequest;
+import com.bodhpsychometric.dto.ReportDryRunResponse;
+import com.bodhpsychometric.dto.ReportRulePortabilityResponse;
 import com.bodhpsychometric.dto.ReportRuleRequest;
 import com.bodhpsychometric.dto.ReportRuleResponse;
+import com.bodhpsychometric.model.report.ReportRule;
 import com.bodhpsychometric.service.report.ReportColumnCatalog;
+import com.bodhpsychometric.service.report.ReportDryRunService;
 import com.bodhpsychometric.service.report.ReportRuleService;
 
 import jakarta.validation.Valid;
@@ -36,6 +41,9 @@ public class ReportRuleController {
 
     @Autowired
     private ReportRuleService ruleService;
+
+    @Autowired
+    private ReportDryRunService dryRunService;
 
     @GetMapping("/getAll")
     public List<ReportRuleResponse> getAll() {
@@ -87,6 +95,41 @@ public class ReportRuleController {
             @RequestParam Long assessmentId,
             @RequestParam(required = false) Long organizationId) {
         return Map.of("canRun", ruleService.canRunOn(id, assessmentId, organizationId));
+    }
+
+    /**
+     * Every library rule judged against one assessment — the setup page's
+     * picker.
+     *
+     * <p>Answers three ways, not two. "Every column resolves" misses the case
+     * that costs the most: a rule whose keys all exist here but whose numbers
+     * run over a different range than where it was written, so its band cuts
+     * quietly mean something else. That comes back as SHAPE_MISMATCH with a
+     * sentence saying which trait and by how much.
+     */
+    @GetMapping("/portability/getByAssessment/{assessmentId}")
+    public List<ReportRulePortabilityResponse> portability(@PathVariable Long assessmentId,
+            @RequestParam(required = false) Long organizationId) {
+        return ruleService.portabilityFor(assessmentId, organizationId);
+    }
+
+    /** The authoring steps, in pipeline order. */
+    @GetMapping("/stages")
+    public List<String> stages() {
+        return ReportRule.STAGES;
+    }
+
+    /**
+     * Evaluate the rules over real respondents — no AI, no sandbox.
+     *
+     * <p><b>Not the delivery path.</b> Reports come from generated Python run
+     * in the sandbox; this runs the expression grammar in Java. Two separate
+     * implementations is the point — it is what makes this an oracle for the
+     * generated code later — and it is why nothing here can approve anything.
+     */
+    @PostMapping("/dry-run")
+    public ReportDryRunResponse dryRun(@Valid @RequestBody ReportDryRunRequest request) {
+        return dryRunService.run(request);
     }
 
     @PostMapping("/create")

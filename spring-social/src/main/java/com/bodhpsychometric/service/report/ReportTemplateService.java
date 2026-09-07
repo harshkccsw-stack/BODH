@@ -345,8 +345,9 @@ public class ReportTemplateService {
             throw new IllegalArgumentException("Unknown binding type \"" + type + "\"");
         }
         if (!ReportTagBinding.isImplemented(type)) {
-            throw new IllegalArgumentException(type + " bindings need the scoring engine, "
-                    + "which is not built yet. Use CORE or LITERAL for now.");
+            throw new IllegalArgumentException(type + " names the shape of a computed value, "
+                    + "which needs the scoring engine. Use COMPUTED to say a computation "
+                    + "fills this tag without saying what shape it comes back in.");
         }
         if (ReportTagBinding.TYPE_CORE.equals(type)) {
             String field = request.coreField() == null ? null : request.coreField().trim();

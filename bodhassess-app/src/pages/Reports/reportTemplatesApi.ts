@@ -20,12 +20,28 @@ export type BinderType =
   | 'UNBOUND'
   | 'CORE'
   | 'LITERAL'
+  | 'COMPUTED'
   | 'VALUE'
   | 'NARRATIVE'
   | 'TABLE'
   | 'CHART';
 
-export const IMPLEMENTED_BINDERS: BinderType[] = ['CORE', 'LITERAL'];
+export const IMPLEMENTED_BINDERS: BinderType[] = ['CORE', 'LITERAL', 'COMPUTED'];
+
+/**
+ * The binder types a computation is responsible for producing. Mirrors
+ * ReportTagBinding.isComputedType on the backend — the prompt asks for exactly
+ * these tags, so the guidance grid must offer exactly these and no others.
+ */
+export const COMPUTED_BINDERS: BinderType[] = [
+  'COMPUTED',
+  'VALUE',
+  'NARRATIVE',
+  'TABLE',
+  'CHART',
+];
+
+export const isComputedBinder = (b: BinderType) => COMPUTED_BINDERS.includes(b);
 
 /** Matches ReportTemplateResponse.TagBinding on the backend. */
 export interface TagBinding {
