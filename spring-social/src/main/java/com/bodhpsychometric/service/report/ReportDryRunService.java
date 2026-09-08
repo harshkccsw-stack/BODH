@@ -2,6 +2,7 @@ package com.bodhpsychometric.service.report;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Deque;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -85,13 +86,28 @@ public class ReportDryRunService {
     }
 
     @Transactional(readOnly = true)
-    public ReportDryRunResponse run(ReportDryRunRequest request) {
-        access.requireActor();
+    /**
+     * The whole cohort, every rule evaluated, nothing summarised or sampled.
+     *
+     * <p><b>This is the one evaluator.</b> The dry run summarises it; direct
+     * report delivery resolves template tags from it. Two implementations of
+     * one grammar is how the screen and the PDF come to disagree about a
+     * respondent's score, and it would also destroy the reason this exists —
+     * being the reference the generated Python is later diffed against.
+     *
+     * @param versions the EXACT version of each rule to run, by slug. Delivery
+     *        passes the versions pinned into a computation, never the latest:
+     *        what a human approved must not change because somebody edited a
+     *        rule elsewhere in the library. A dependency absent from this map
+     *        is treated as unavailable rather than silently resolved to latest.
+     */
+    public EvaluatedCohort evaluate(Long assessmentId, Long organizationId,
+            List<ReportRule> ordered, Map<String, ReportRuleVersion> versions) {
 
         DsDatasetResponse dataset = datasets
-                .dataset(request.assessmentId(), request.organizationId())
+                .dataset(assessmentId, organizationId)
                 .orElseThrow(() -> new NotFoundException(
-                        "Assessment " + request.assessmentId() + " not found"));
+                        "Assessment " + assessmentId + " not found"));
 
         List<Map<String, Object>> population = dataset.rows();
         List<String> notes = new ArrayList<>();
@@ -99,13 +115,6 @@ public class ReportDryRunService {
             notes.add("No respondent has completed this assessment yet, so every rule ran "
                     + "against an empty cohort. Formulas are still checked; the numbers are not.");
         }
-
-        Map<String, ReportRule> graph = activeBySlug();
-        List<ReportRule> selected = select(request, graph);
-        List<ReportRule> ordered = inDependencyOrder(selected, graph);
-
-        Map<String, ReportRuleVersion> versions = new LinkedHashMap<>();
-        ordered.forEach(r -> r.latestVersion().ifPresent(v -> versions.put(r.getSlug(), v)));
 
         List<ReportDryRunResponse.RuleOutcome> outcomes = new ArrayList<>();
         Set<String> failed = new LinkedHashSet<>();
@@ -153,12 +162,77 @@ public class ReportDryRunService {
             }
         }
 
+        return new EvaluatedCohort(population, ordered, outcomes, failed, unavailable, notes);
+    }
+
+    /** The rules pinned into a computation, in dependency order, at their pinned versions. */
+    public EvaluatedCohort evaluatePinned(Long assessmentId, Long organizationId,
+            Collection<ReportRuleVersion> pinned) {
+        Map<String, ReportRuleVersion> versions = new LinkedHashMap<>();
+        Map<String, ReportRule> graph = new LinkedHashMap<>();
+        for (ReportRuleVersion version : pinned) {
+            ReportRule rule = version.getRule();
+            versions.put(rule.getSlug(), version);
+            graph.put(rule.getSlug(), rule);
+        }
+        // Ordered by the PINNED versions' edges, not the latest versions' — the
+        // dependency list is part of what was pinned.
+        List<ReportRule> ordered = inDependencyOrder(List.copyOf(graph.values()), graph, versions);
+        return evaluate(assessmentId, organizationId, ordered, versions);
+    }
+
+    public ReportDryRunResponse run(ReportDryRunRequest request) {
+        access.requireActor();
+
+        Map<String, ReportRule> graph = activeBySlug();
+        List<ReportRule> selected = select(request, graph);
+        // Map.of() = "use each rule's latest", which is the dry run's whole
+        // point: it answers what the rules say NOW, not what some computation
+        // froze. Ordering can pull in dependencies beyond `selected`, so the
+        // version map is built from `ordered`.
+        List<ReportRule> ordered = inDependencyOrder(selected, graph, Map.of());
+        Map<String, ReportRuleVersion> versions = new LinkedHashMap<>();
+        ordered.forEach(r -> r.latestVersion().ifPresent(v -> versions.put(r.getSlug(), v)));
+
+        EvaluatedCohort cohort = evaluate(request.assessmentId(), request.organizationId(),
+                ordered, versions);
+
         int limit = Math.min(request.rowLimit() == null ? DEFAULT_ROW_LIMIT
                 : Math.max(0, request.rowLimit()), MAX_ROW_LIMIT);
-        List<ReportDryRunResponse.Row> rows = sample(population, ordered, limit);
+        List<ReportDryRunResponse.Row> rows = sample(cohort.population(), ordered, limit);
 
-        return new ReportDryRunResponse(request.assessmentId(), population.size(), rows.size(),
-                outcomes, rows, notes);
+        return new ReportDryRunResponse(request.assessmentId(), cohort.population().size(),
+                rows.size(), cohort.outcomes(), rows, cohort.notes());
+    }
+
+    /**
+     * One evaluated cohort: every respondent, every rule's value on the row.
+     *
+     * <p>Values live in the row maps under {@code rule:<slug>} — the same key
+     * a formula reads a rule by, so a value is addressable identically whether
+     * it is being consumed by the next rule or by a template tag.
+     */
+    public record EvaluatedCohort(
+            List<Map<String, Object>> population,
+            List<ReportRule> ordered,
+            List<ReportDryRunResponse.RuleOutcome> outcomes,
+            Set<String> failedSlugs,
+            Set<String> unavailableSlugs,
+            List<String> notes) {
+
+        /** No rule errored and none needs generation — the delivery precondition. */
+        public boolean isClean() {
+            return failedSlugs.isEmpty() && unavailableSlugs.isEmpty();
+        }
+
+        /** Every rule value for one respondent row, keyed by slug. */
+        public Map<String, Object> valuesFor(Map<String, Object> row) {
+            Map<String, Object> out = new LinkedHashMap<>();
+            for (ReportRule rule : ordered) {
+                out.put(rule.getSlug(), row.get(ReportRuleService.RULE_PREFIX + rule.getSlug()));
+            }
+            return out;
+        }
     }
 
     // ── selection and ordering ────────────────────────────────────────────
@@ -200,7 +274,7 @@ public class ReportDryRunService {
             if (closure.putIfAbsent(rule.getSlug(), rule) != null) {
                 continue;
             }
-            for (String slug : edgesOf(rule)) {
+            for (String slug : edgesOf(rule, Map.of())) {
                 ReportRule dep = graph.get(slug);
                 if (dep != null) {
                     queue.add(dep);
@@ -219,7 +293,7 @@ public class ReportDryRunService {
      * row edited outside the service.
      */
     private List<ReportRule> inDependencyOrder(List<ReportRule> selected,
-            Map<String, ReportRule> graph) {
+            Map<String, ReportRule> graph, Map<String, ReportRuleVersion> versions) {
         Map<String, ReportRule> wanted = new LinkedHashMap<>();
         selected.forEach(r -> wanted.put(r.getSlug(), r));
 
@@ -227,21 +301,21 @@ public class ReportDryRunService {
         Set<String> done = new LinkedHashSet<>();
         Set<String> visiting = new LinkedHashSet<>();
         for (ReportRule rule : selected) {
-            visit(rule, wanted, graph, done, visiting, ordered);
+            visit(rule, wanted, graph, versions, done, visiting, ordered);
         }
         return ordered;
     }
 
     private void visit(ReportRule rule, Map<String, ReportRule> wanted,
-            Map<String, ReportRule> graph, Set<String> done, Set<String> visiting,
-            List<ReportRule> ordered) {
+            Map<String, ReportRule> graph, Map<String, ReportRuleVersion> versions,
+            Set<String> done, Set<String> visiting, List<ReportRule> ordered) {
         if (done.contains(rule.getSlug()) || !visiting.add(rule.getSlug())) {
             return;
         }
-        for (String slug : edgesOf(rule)) {
+        for (String slug : edgesOf(rule, versions)) {
             ReportRule dep = wanted.getOrDefault(slug, graph.get(slug));
             if (dep != null) {
-                visit(dep, wanted, graph, done, visiting, ordered);
+                visit(dep, wanted, graph, versions, done, visiting, ordered);
             }
         }
         visiting.remove(rule.getSlug());
@@ -250,7 +324,18 @@ public class ReportDryRunService {
         }
     }
 
-    private static List<String> edgesOf(ReportRule rule) {
+    /**
+     * The rules this one consumes, according to the version being RUN.
+     *
+     * <p>Reads the pinned version's edge list when there is one and only falls
+     * back to latest otherwise. A pinned v3 that dropped a dependency its v4
+     * reintroduced must order as v3 does.
+     */
+    private static List<String> edgesOf(ReportRule rule, Map<String, ReportRuleVersion> versions) {
+        ReportRuleVersion pinned = versions.get(rule.getSlug());
+        if (pinned != null) {
+            return ReportRuleService.parseKeys(pinned.getReferencedRuleSlugsJson());
+        }
         return rule.latestVersion()
                 .map(v -> ReportRuleService.parseKeys(v.getReferencedRuleSlugsJson()))
                 .orElseGet(List::of);

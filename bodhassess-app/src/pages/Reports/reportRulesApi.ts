@@ -197,16 +197,24 @@ export const reportRulesApi = {
       params: organizationId ? { organizationId } : undefined,
     })).data,
 
-  /** Live formula check. Answers 200 with errors[] even when broken. */
+  /**
+   * Live formula check. Answers 200 with errors[] even when broken.
+   *
+   * `reportRuleId` is the rule being EDITED, when there is one. Without it the
+   * checker cannot tell `[rule:self]` from a legitimate dependency, and the
+   * live answer would disagree with what saving does.
+   */
   validateExpression: async (
     expression: string,
     assessmentId: number | null,
     organizationId?: number | null,
+    reportRuleId?: number | null,
   ): Promise<ExprCheck> =>
     (await api.post(`${ROOT}/validate-expression`, {
       expression,
       assessmentId,
       organizationId,
+      reportRuleId,
     })).data,
 
   canRunOn: async (id: number, assessmentId: number): Promise<{ canRun: boolean }> =>

@@ -106,12 +106,70 @@ public class ReportRuleService {
      */
     @Transactional(readOnly = true)
     public DsExprResponse validateExpression(String expression, Long assessmentId,
-            Long organizationId) {
+            Long organizationId, Long editingRuleId) {
         access.requireActor();
-        Set<String> available = assessmentId == null
+        Set<String> columnKeys = assessmentId == null
                 ? Set.of()
                 : columns.columnKeys(assessmentId, organizationId);
-        return strictValidate(expression == null ? "" : expression, available);
+
+        // The live check MUST offer the same names the save accepts.
+        //
+        // It used to pass columns only, so `[rule:some-slug]` — which save
+        // accepts, and which the sidebar inserts for you — came back as
+        // "Unknown column" while Create rule would have succeeded. An author
+        // reading a red box under a correct formula has no way to know the
+        // checker is the thing that is wrong, so they rewrite a working rule.
+        Map<String, ReportRule> graph = columnKeys.isEmpty() ? Map.of() : activeRulesBySlug();
+        String ownSlug = ownSlugOf(editingRuleId, graph);
+        Set<String> available = new LinkedHashSet<>(columnKeys);
+        for (String slug : graph.keySet()) {
+            if (!slug.equalsIgnoreCase(ownSlug)) {
+                available.add(RULE_PREFIX + slug);
+            }
+        }
+
+        DsExprResponse checked = strictValidate(expression == null ? "" : expression, available);
+        if (!checked.ok()) {
+            return checked;
+        }
+
+        // Same two refusals the save applies, so a formula that checks out here
+        // really does save. A self-reference and a plain-language dependency are
+        // both accepted by the grammar and rejected by the rule layer.
+        List<String> errors = new ArrayList<>();
+        for (String key : checked.referencedColumns()) {
+            if (!key.startsWith(RULE_PREFIX)) {
+                continue;
+            }
+            String dep = key.substring(RULE_PREFIX.length());
+            if (dep.equalsIgnoreCase(ownSlug)) {
+                errors.add("A rule cannot read itself.");
+                continue;
+            }
+            ReportRule target = graph.get(dep);
+            ReportRuleVersion latest = target == null ? null : target.latestVersion().orElse(null);
+            if (latest != null && !latest.isExpression()) {
+                errors.add("\"" + dep + "\" is a plain-language rule, so it has no value a "
+                        + "formula can read. Reference it from the guidance prompt instead.");
+            }
+        }
+        if (errors.isEmpty()) {
+            return checked;
+        }
+        return new DsExprResponse(false, checked.evalTarget(), checked.resultType(),
+                List.copyOf(errors), checked.referencedColumns(), checked.functions());
+    }
+
+    /** The slug of the rule being edited, so the checker can exclude it. */
+    private String ownSlugOf(Long editingRuleId, Map<String, ReportRule> graph) {
+        if (editingRuleId == null) {
+            return null;
+        }
+        return graph.values().stream()
+                .filter(r -> editingRuleId.equals(r.getReportRuleId()))
+                .map(ReportRule::getSlug)
+                .findFirst()
+                .orElse(null);
     }
 
     /**

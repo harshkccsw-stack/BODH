@@ -74,6 +74,38 @@ class ReportTemplateControllerTest {
                 .andExpect(jsonPath("$.message").isNotEmpty());
     }
 
+    // ── naming ────────────────────────────────────────────────────────────
+
+    /**
+     * A draft can be renamed, and the rename is what the next read returns.
+     *
+     * <p>Written because the authoring screen appeared unable to rename a
+     * template. It could not — but the cause was entirely in the UI, and this
+     * pins the server side so a future change to it is not mistaken for the
+     * same bug returning.
+     */
+    @Test
+    void aDraftCanBeRenamed() throws Exception {
+        Long id = idOf(createTemplate("__smoke__ named badly", "<p>${heading}</p>"));
+
+        String html = (CLEAN_HEAD + "<p>${heading}</p></body></html>")
+                .replace("\\", "\\\\").replace("\"", "\\\"");
+        mvc.perform(put("/api/report-templates/update/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"__smoke__ named well\",\"html\":\"" + html + "\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value("__smoke__ named well"));
+
+        mvc.perform(get("/api/report-templates/getById/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value("__smoke__ named well"))
+                // Renaming is not a version event: it changes what the thing is
+                // called, not what it says.
+                .andExpect(jsonPath("$.version").value(1));
+    }
+
     // ── the tag checklist ─────────────────────────────────────────────────
 
     @Test

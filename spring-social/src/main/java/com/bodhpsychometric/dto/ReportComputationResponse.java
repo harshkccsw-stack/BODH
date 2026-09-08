@@ -23,6 +23,10 @@ public record ReportComputationResponse(
         Long reportTemplateId,
         String templateName,
         String status,
+        /** DIRECT or GENERATED — derived from the pinned rules, never asked. */
+        String mode,
+        /** What DIRECT delivery still needs, in the author's language. Empty = ready. */
+        List<String> directBlockers,
         String sourcePrompt,
         String respondentScope,
         List<Long> respondentIds,

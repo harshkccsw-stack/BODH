@@ -207,6 +207,19 @@ regardless:
   because it costs nothing and it is the escape hatch if a hand-authored
   computation is ever wanted. **Do not build UI or an evaluator for it.**
 
+  > **AMENDED 2026-09-08 — this instruction is overtaken by what shipped.** It
+  > assumed practitioners would hand-author ad-hoc computations, competing with
+  > codegen for the same authoring surface. What was actually built instead is a
+  > **rule library that is expressions** (`report_rule`, filed by pipeline step,
+  > with a DAG between rules) plus an evaluator for it — `ReportDryRunService`,
+  > because authoring with no feedback was unworkable. The evaluator therefore
+  > exists, runs over the real cohort, and computes every value a report needs;
+  > only the last mile to a PDF is missing. See
+  > [direct-computation-mode.md](direct-computation-mode.md), which proposes
+  > letting an all-`EXPRESSION` computation deliver without the LLM or the
+  > sandbox. Codegen is unaffected: `STATEMENT` rules — the prose ones — still
+  > require every part of P3/P4.
+
 The tag binding points at **(computation version, output key)** either way.
 
 **Three consequences of PYTHON mode for how these columns behave** — worth

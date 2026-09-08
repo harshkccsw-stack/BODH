@@ -12,8 +12,9 @@ import jakarta.validation.constraints.Size;
  *
  * <p>Which fields are required depends on {@link #binderType()}, so the
  * checking is in the service rather than in annotations: {@code CORE} needs a
- * known {@code coreField}, {@code LITERAL} needs {@code literalText}, and
- * {@code UNBOUND} needs neither. Bean validation cannot express that without
+ * known {@code coreField}, {@code LITERAL} needs {@code literalText},
+ * {@code VALUE} needs a computation and one of its output keys, and
+ * {@code UNBOUND} needs none of them. Bean validation cannot express that without
  * a class-level constraint whose message would be less useful than the four
  * specific ones the service produces.
  */
@@ -28,6 +29,16 @@ public record ReportTagBindingRequest(
 
         @Size(max = 20_000, message = "Literal text must be 20000 characters or fewer")
         String literalText,
+
+        /** VALUE only: which computation produces this tag. */
+        Long reportComputationId,
+
+        /**
+         * VALUE only: which of that computation's outputs fills the tag. In a
+         * DIRECT computation this is the slug of one of its pinned rules.
+         */
+        @Size(max = 80, message = "Output key must be 80 characters or fewer")
+        String outputKey,
 
         @Size(max = 40, message = "Format must be 40 characters or fewer")
         String format,

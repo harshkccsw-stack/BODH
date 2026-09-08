@@ -4,6 +4,8 @@ import java.util.Map;
 
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -32,6 +34,8 @@ import com.bodhpsychometric.service.report.ReportRenderer;
 @RestControllerAdvice(basePackages = "com.bodhpsychometric.controller.report")
 public class ReportExceptionHandler {
 
+    private static final Logger log = LoggerFactory.getLogger(ReportExceptionHandler.class);
+
     @ExceptionHandler(ReportAccess.NotSignedInException.class)
     public ResponseEntity<Map<String, String>> handleNotSignedIn(
             ReportAccess.NotSignedInException ex) {
@@ -56,6 +60,13 @@ public class ReportExceptionHandler {
     @ExceptionHandler(ReportRenderer.RenderFailedException.class)
     public ResponseEntity<Map<String, String>> handleRenderFailed(
             ReportRenderer.RenderFailedException ex) {
+        // Logged WITH the cause, unlike every other handler here. The others
+        // describe a state the caller can see; this one wraps a parser error
+        // whose useful detail — a line and column in the authored HTML — is in
+        // the cause's stack trace and nowhere else. Without this a 422 leaves
+        // no server-side trace at all, so a render that fails for one
+        // respondent's data cannot be investigated after the fact.
+        log.warn("Report render failed: {}", ex.getMessage(), ex);
         return body(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage());
     }
 

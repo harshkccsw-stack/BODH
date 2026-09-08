@@ -1,0 +1,184 @@
+<html>
+<head>
+<meta charset="utf-8"/>
+<style>
+  /* CSS 2.1 only — OpenHTMLtoPDF has no flexbox, no grid and no JavaScript.
+     Layout is tables and floats, deliberately. */
+
+  @page {
+    size: A4;
+    margin: 18mm 15mm 20mm 15mm;
+    /* A margin box does NOT inherit body's font. Without this the page number
+       renders in an unembedded fallback and any non-Latin glyph becomes a box. */
+    @bottom-center {
+      content: "Page " counter(page) " of " counter(pages);
+      font-family: "Noto Sans Devanagari", sans-serif;
+      font-size: 8pt;
+      color: #6b7280;
+    }
+    @bottom-right {
+      content: "${serial_id}";
+      font-family: "Noto Sans Devanagari", sans-serif;
+      font-size: 7pt;
+      color: #9ca3af;
+    }
+  }
+
+  body {
+    font-family: "Noto Sans Devanagari", sans-serif;
+    font-size: 10pt;
+    line-height: 1.5;
+    color: #111827;
+    margin: 0;
+  }
+
+  h1 { font-size: 17pt; margin: 0 0 2pt 0; }
+  h2 {
+    font-size: 11pt;
+    margin: 16pt 0 6pt 0;
+    padding-bottom: 3pt;
+    border-bottom: 1px solid #d1d5db;
+    color: #374151;
+  }
+  p { margin: 0 0 6pt 0; }
+
+  .subtitle { color: #6b7280; font-size: 9pt; margin: 0 0 12pt 0; }
+
+  table { width: 100%; border-collapse: collapse; }
+  td, th { vertical-align: top; }
+
+  .identity td { padding: 2pt 0; font-size: 9pt; }
+  .identity .label { color: #6b7280; width: 28%; }
+
+  /* Validity banner. Printed for everyone; the message is empty for a valid
+     protocol, so the row collapses to the status line alone. */
+  .validity {
+    border: 1px solid #d1d5db;
+    background: #f9fafb;
+    padding: 8pt 10pt;
+    margin: 10pt 0;
+  }
+  .validity .status { font-weight: bold; }
+  .validity .message { color: #991b1b; margin-top: 4pt; }
+
+  .scores th {
+    text-align: left;
+    font-size: 8pt;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #6b7280;
+    border-bottom: 1px solid #e5e7eb;
+    padding-bottom: 4pt;
+  }
+  .scores td { padding: 7pt 0; border-bottom: 1px solid #f3f4f6; }
+  .scores .factor { width: 34%; font-weight: bold; }
+  .scores .value { width: 10%; font-size: 13pt; font-weight: bold; text-align: right; }
+  .scores .bar-cell { width: 56%; padding-left: 12pt; }
+
+  /* The fill's width comes from a bound tag, so the bar IS the score rather
+     than a picture of one. A suppressed score yields 0 and draws nothing. */
+  .bar-track { background: #e5e7eb; height: 9pt; width: 100%; }
+  .bar-fill { background: #4f46e5; height: 9pt; }
+
+  .band {
+    border: 1px solid #c7d2fe;
+    background: #eef2ff;
+    padding: 10pt 12pt;
+    margin: 10pt 0;
+  }
+  .band .name { font-size: 14pt; font-weight: bold; color: #3730a3; }
+  .band .routing { margin-top: 4pt; color: #3730a3; }
+
+  .note { margin: 0 0 6pt 0; padding-left: 8pt; border-left: 2px solid #4f46e5; }
+  .priority { margin: 0 0 5pt 0; padding-left: 8pt; border-left: 2px solid #d97706; }
+
+  .footnote {
+    margin-top: 18pt;
+    padding-top: 6pt;
+    border-top: 1px solid #e5e7eb;
+    font-size: 7.5pt;
+    color: #9ca3af;
+  }
+</style>
+</head>
+<body>
+
+  <h1>Academic Drive — Individual Report</h1>
+  <p class="subtitle">${assessment_name} &#183; prepared ${report_date}</p>
+
+  <table class="identity">
+    <tr><td class="label">Name</td><td>${respondent_name}</td></tr>
+    <tr><td class="label">Reference</td><td>${serial_id}</td></tr>
+    <tr><td class="label">Organization</td><td>${organization}</td></tr>
+    <tr><td class="label">Date of birth</td><td>${dob}</td></tr>
+  </table>
+
+  <!-- Step 1. The message is empty when the protocol is valid, so nothing
+       alarming appears on a normal report. -->
+  <div class="validity">
+    <div class="status">Protocol status: ${protocol_status}</div>
+    <div class="message">${protocol_message}</div>
+  </div>
+
+  <h2>Factor scores</h2>
+  <table class="scores">
+    <tr>
+      <th>Factor</th>
+      <th style="text-align: right;">Score</th>
+      <th style="padding-left: 12pt;">Range 4 &#8211; 20</th>
+    </tr>
+    <tr>
+      <td class="factor">Internal Drive</td>
+      <td class="value">${internal_drive}</td>
+      <td class="bar-cell">
+        <div class="bar-track"><div class="bar-fill" style="width: ${internal_drive_pct}%;"></div></div>
+      </td>
+    </tr>
+    <tr>
+      <td class="factor">Adaptive Execution</td>
+      <td class="value">${adaptive_execution}</td>
+      <td class="bar-cell">
+        <div class="bar-track"><div class="bar-fill" style="width: ${adaptive_execution_pct}%;"></div></div>
+      </td>
+    </tr>
+    <tr>
+      <td class="factor">Sustained Tenacity</td>
+      <td class="value">${sustained_tenacity}</td>
+      <td class="bar-cell">
+        <div class="bar-track"><div class="bar-fill" style="width: ${sustained_tenacity_pct}%;"></div></div>
+      </td>
+    </tr>
+  </table>
+
+  <h2>Overall</h2>
+  <div class="band">
+    <div class="name">${drive_band}</div>
+    <div>Composite score: <strong>${composite_score}</strong> (range 12 &#8211; 60)</div>
+    <div class="routing">${band_routing}</div>
+  </div>
+
+  <h2>Development priorities</h2>
+  <!-- Step 4.4. Each is empty unless that factor is in the bottom third, so a
+       respondent with no low factor sees an empty section rather than a
+       paragraph explaining that nothing applies. -->
+  <p class="priority">${callout_internal_drive}</p>
+  <p class="priority">${callout_adaptive_execution}</p>
+  <p class="priority">${callout_sustained_tenacity}</p>
+
+  <h2>Profile notes</h2>
+  <!-- Step 5. More than one of these can apply to the same person — 5.1 and
+       5.3 both fire for high drive with weak execution AND weak follow-through
+       — which is why they are three tags and not one. -->
+  <p class="note">${profile_believes_not_acts}</p>
+  <p class="note">${profile_acts_doubts}</p>
+  <p class="note">${profile_starts_not_finishes}</p>
+
+  <p class="footnote">
+    Interpretation bands are provisional and will be replaced with percentile
+    norms once 150&#8211;200 valid pilot responses are collected. Scores are
+    computed from the responses given on ${report_date} and describe this
+    assessment only.
+  </p>
+
+</body>
+</html>

@@ -12,9 +12,11 @@ import { api } from '@/lib/apiClient';
 export type TemplateStatus = 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';
 
 /**
- * Matches ReportTagBinding's type constants. UNBOUND / CORE / LITERAL work
- * today; the rest need the scoring engine and the backend refuses them with
- * an explanation, so the UI shows them disabled rather than hiding them.
+ * Matches ReportTagBinding's type constants. UNBOUND / CORE / LITERAL / VALUE
+ * work today — VALUE fills a tag from a computation's output, which for a
+ * DIRECT computation is one of its pinned rules. NARRATIVE / TABLE / CHART
+ * still need the generation engine and the backend refuses them with an
+ * explanation, so the UI shows them disabled rather than hiding them.
  */
 export type BinderType =
   | 'UNBOUND'
@@ -26,7 +28,7 @@ export type BinderType =
   | 'TABLE'
   | 'CHART';
 
-export const IMPLEMENTED_BINDERS: BinderType[] = ['CORE', 'LITERAL', 'COMPUTED'];
+export const IMPLEMENTED_BINDERS: BinderType[] = ['CORE', 'LITERAL', 'COMPUTED', 'VALUE'];
 
 /**
  * The binder types a computation is responsible for producing. Mirrors
@@ -50,6 +52,9 @@ export interface TagBinding {
   binderType: BinderType;
   coreField: string | null;
   literalText: string | null;
+  /** VALUE only: which computation produces this tag, and which of its outputs. */
+  reportComputationId: number | null;
+  outputKey: string | null;
   format: string | null;
   fallbackText: string | null;
   authorNote: string | null;
@@ -99,6 +104,8 @@ export interface TagBindingPayload {
   binderType: BinderType;
   coreField?: string | null;
   literalText?: string | null;
+  reportComputationId?: number | null;
+  outputKey?: string | null;
   format?: string | null;
   fallbackText?: string | null;
   authorNote?: string | null;

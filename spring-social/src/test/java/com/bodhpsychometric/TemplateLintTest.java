@@ -109,6 +109,80 @@ class TemplateLintTest {
         assertThat(lint.isPublishable(lint.check(html))).isTrue();
     }
 
+    /**
+     * A margin box whose content includes a {@code ${tag}} is still checked for
+     * its font-family.
+     *
+     * <p>The body pattern used to stop at the first {@code \}}, which for
+     * {@code content: "${serial_id}"} is the tag's own — so the rule was
+     * truncated before its font-family and a correct footer was reported as
+     * missing one. A reference number in a running footer is an ordinary thing
+     * to want, and it was unpublishable.
+     */
+    @Test
+    void aMarginBoxContainingATagIsNotFalselyFlagged() {
+        String html = """
+                <style>@page{@bottom-right{content:"${serial_id}";
+                  font-family:"Noto Sans Devanagari";}}
+                  body{font-family:"Noto Sans Devanagari";}</style>
+                <p>${name}</p>
+                """;
+        assertThat(rules(html)).doesNotContain("page-margin-font-family");
+    }
+
+    /** And one that genuinely lacks the font is still caught, tag or no tag. */
+    @Test
+    void aMarginBoxContainingATagButNoFontIsStillFlagged() {
+        String html = """
+                <style>@page{@bottom-right{content:"${serial_id}";}}
+                  body{font-family:"Noto Sans Devanagari";}</style>
+                """;
+        assertThat(rules(html)).contains("page-margin-font-family");
+    }
+
+    /**
+     * Named HTML entities abort the render, so they must block the publish.
+     *
+     * <p>Caught here rather than at render because a template that publishes
+     * and then cannot render fails for the first real respondent instead of for
+     * the author who typed it.
+     */
+    @Test
+    void namedHtmlEntitiesAreRefused() {
+        assertThat(rules("<p>Drive &middot; Execution</p>")).contains("named-entity");
+        assertThat(rules("<p>range 4 &ndash; 20</p>")).contains("named-entity");
+    }
+
+    /** The five XML declares, and numeric references, are fine. */
+    @Test
+    void xmlEntitiesAndNumericReferencesArePermitted() {
+        String html = "<p>a &amp; b &lt; c &gt; d &quot;e&quot; &apos;f&apos; "
+                + "&#183; &#8211; &#x2014;</p>";
+        assertThat(rules(html)).doesNotContain("named-entity");
+    }
+
+    /**
+     * The failure this prevents is the most confusing one the renderer has: an
+     * unclosed void element is reported against the element AROUND it, so a
+     * stray {@code <br>} in a table cell surfaces as "element type td must be
+     * terminated" pointing at a line where nothing looks wrong.
+     */
+    @Test
+    void unclosedVoidElementsAreRefused() {
+        assertThat(rules("<td>Drive<br>Execution</td>")).contains("unclosed-void-element");
+        assertThat(rules("<p><img src=\"data:image/png;base64,iVBOR\"></p>"))
+                .contains("unclosed-void-element");
+        assertThat(rules("<hr>")).contains("unclosed-void-element");
+    }
+
+    @Test
+    void selfClosedVoidElementsArePermitted() {
+        String html = "<td>Drive<br/>Execution</td><hr />"
+                + "<img src=\"data:image/png;base64,iVBOR\"/>"
+                + "<meta charset=\"utf-8\"/>";
+        assertThat(rules(html)).doesNotContain("unclosed-void-element");
+    }
+
     @Test
     void nullAndBlankAreNotErrors() {
         assertThat(lint.check(null)).isEmpty();

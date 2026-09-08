@@ -7,9 +7,12 @@ import {
   Cpu,
   Info,
   Loader2,
+  Download,
   Pencil,
   Plus,
   ShieldCheck,
+  Sigma,
+  Sparkles,
   Trash2,
   X,
 } from 'lucide-react';
@@ -54,6 +57,11 @@ const STATUS_LABEL: Record<string, string> = {
 
 export default function ReportComputationsPage() {
   const [items, setItems] = useState<ReportComputationResponse[]>([]);
+  const [generating, setGenerating] = useState(false);
+  const [generatedNote, setGeneratedNote] = useState<string | null>(null);
+  const [generatingId, setGeneratingId] = useState<number | null>(null);
+  const [listNote, setListNote] = useState<string | null>(null);
+  const [listError, setListError] = useState<string | null>(null);
   const [assessments, setAssessments] = useState<AssessmentOption[]>([]);
   const [rules, setRules] = useState<ReportRuleResponse[]>([]);
   const [templates, setTemplates] = useState<ReportTemplateResponse[]>([]);
@@ -131,6 +139,10 @@ export default function ReportComputationsPage() {
       reportTemplateId: null,
       templateName: null,
       status: 'DRAFT',
+      // A new computation pins no rules, and a computation with no rules needs
+      // no model — the server derives the same thing the moment it is saved.
+      mode: 'DIRECT',
+      directBlockers: [],
       sourcePrompt: null,
       respondentScope: 'ALL_COMPLETED',
       respondentIds: [],
@@ -254,6 +266,87 @@ export default function ReportComputationsPage() {
       setActionError(errorText(e, 'Could not mark this ready'));
     } finally {
       setSaving(false);
+    }
+  };
+
+  const approve = async () => {
+    if (!open?.reportComputationId) return;
+    setActionError(null);
+    setSaving(true);
+    try {
+      const saved = await reportComputationsApi.approve(open.reportComputationId);
+      applyToForm(saved);
+      setItems((prev) =>
+        prev.map((c) => (c.reportComputationId === saved.reportComputationId ? saved : c)),
+      );
+    } catch (e: any) {
+      setActionError(errorText(e, 'Could not approve this computation'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  /**
+   * Generate from the LIST, where there is no modal to show a note in.
+   *
+   * Errors surface as a banner on the page rather than silently: a 422 here
+   * means the template could not be rendered, and that message is the only
+   * thing that says which part of it.
+   */
+  const generateFor = async (c: ReportComputationResponse) => {
+    setGeneratingId(c.reportComputationId);
+    setListError(null);
+    setListNote(null);
+    try {
+      const { blob, fileName, count, skipped } =
+        await reportComputationsApi.generate(c.reportComputationId);
+      download(blob, fileName);
+      setListNote(`${c.name}: ${count} report${count === 1 ? '' : 's'} downloaded`
+        + (skipped > 0 ? ` — ${skipped} not finished, skipped.` : '.'));
+    } catch (e: any) {
+      setListError(errorText(e, 'Could not generate the reports'));
+    } finally {
+      setGeneratingId(null);
+    }
+  };
+
+  /**
+   * Hand a blob to the browser as a download.
+   *
+   * The object URL is revoked immediately: the blob is a whole batch of PDFs,
+   * and leaving it referenced keeps every one of them in memory for as long as
+   * the tab lives.
+   */
+  const download = (blob: Blob, fileName: string) => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  /** Generate from inside the open computation. */
+  const generate = async () => {
+    if (!open?.reportComputationId) return;
+    setActionError(null);
+    setGenerating(true);
+    setGeneratedNote(null);
+    try {
+      const { blob, fileName, count, skipped } =
+        await reportComputationsApi.generate(open.reportComputationId);
+      download(blob, fileName);
+      setGeneratedNote(
+        `${count} report${count === 1 ? '' : 's'} downloaded`
+        + (skipped > 0
+          ? ` — ${skipped} respondent${skipped === 1 ? ' has' : 's have'} not finished yet, `
+            + 'so they were skipped.'
+          : '.'),
+      );
+    } catch (e: any) {
+      setActionError(errorText(e, 'Could not generate the reports'));
+    } finally {
+      setGenerating(false);
     }
   };
 
@@ -384,6 +477,24 @@ export default function ReportComputationsPage() {
         </div>
       )}
 
+      {/*
+        * A generate started from a row has no modal to report into. The error
+        * is shown in full rather than summarised: a 422 carries the renderer's
+        * own account of what in the template it could not parse, and that
+        * sentence is the only thing that identifies it.
+        */}
+      {listError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-4 py-3 text-sm text-red-700 dark:text-red-400">
+          <p className="font-medium">Could not generate the reports</p>
+          <p className="mt-1">{listError}</p>
+        </div>
+      )}
+      {listNote && (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950/30 px-4 py-3 text-sm text-emerald-800 dark:text-emerald-400 flex items-center gap-1.5">
+          <CheckCircle2 className="h-4 w-4 shrink-0" /> {listNote}
+        </div>
+      )}
+
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
         <Card><CardContent className="p-5"><p className="text-sm text-muted-foreground">Computations</p><p className="text-2xl font-semibold mt-1">{items.length}</p></CardContent></Card>
         <Card><CardContent className="p-5"><p className="text-sm text-muted-foreground">Ready to send</p><p className="text-2xl font-semibold mt-1">{ready}</p></CardContent></Card>
@@ -434,6 +545,27 @@ export default function ReportComputationsPage() {
                   </p>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
+                  {/*
+                    * Always visible once approved, unlike the hover-revealed
+                    * edit and delete. Generating is the thing an approved
+                    * computation EXISTS to do, and a report run somebody has to
+                    * discover by hovering is a report run they will not make.
+                    */}
+                  {c.status === 'APPROVED' && (
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1.5 rounded-md border border-input px-2.5 py-1.5 text-xs font-medium hover:bg-muted disabled:opacity-60"
+                      onClick={(e) => { e.stopPropagation(); void generateFor(c); }}
+                      disabled={generatingId === c.reportComputationId}
+                      aria-label={`Generate reports for ${c.name}`}
+                      title="Generate one PDF per completed respondent"
+                    >
+                      {generatingId === c.reportComputationId
+                        ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        : <Download className="h-3.5 w-3.5" />}
+                      Generate
+                    </button>
+                  )}
                   <button
                     type="button"
                     className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity p-2 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground"
@@ -748,7 +880,48 @@ export default function ReportComputationsPage() {
               )}
 
               {/* assembled prompt */}
-              {open.prompt && (
+              {/*
+                * How this computation produces its values — DERIVED, so it is
+                * stated rather than offered as a choice. An author who could
+                * tick "no AI" on a computation pinning a statement rule would
+                * get a report with a blank paragraph and no explanation.
+                */}
+              {!!open.reportComputationId && (
+                <div className={cn(
+                  'rounded-lg border px-4 py-3 text-sm',
+                  open.mode === 'DIRECT'
+                    ? 'border-emerald-200 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950/30'
+                    : 'border-violet-200 bg-violet-50 dark:border-violet-900 dark:bg-violet-950/30',
+                )}>
+                  <p className="font-medium flex items-center gap-1.5">
+                    {open.mode === 'DIRECT' ? (
+                      <><Sigma className="h-4 w-4" /> Runs without AI</>
+                    ) : (
+                      <><Sparkles className="h-4 w-4" /> Needs a model</>
+                    )}
+                  </p>
+                  <p className="text-xs mt-1">
+                    {open.mode === 'DIRECT'
+                      ? `All ${open.rules.length} rule${open.rules.length === 1 ? '' : 's'} `
+                        + 'here are formulae, so the scores are computed directly and the '
+                        + 'reports are produced from the template. No model, no sandbox.'
+                      : 'At least one rule is written as a statement, which only a model can '
+                        + 'turn into a value. Delivery waits on the generation engine.'}
+                  </p>
+                  {(open.directBlockers?.length ?? 0) > 0 && (
+                    <ul className="mt-2 space-y-1 text-xs list-disc pl-4">
+                      {open.directBlockers.map((b) => <li key={b}>{b}</li>)}
+                    </ul>
+                  )}
+                  {generatedNote && (
+                    <p className="mt-2 text-xs font-medium flex items-center gap-1.5">
+                      <CheckCircle2 className="h-4 w-4" /> {generatedNote}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {open.prompt && open.mode !== 'DIRECT' && (
                 <div>
                   <div className="flex items-center justify-between mb-2">
                     <label className="text-sm font-medium">
@@ -806,7 +979,17 @@ export default function ReportComputationsPage() {
 
             <div className="flex items-center justify-between gap-2 border-t px-6 py-4">
               <p className="text-xs text-muted-foreground flex items-center gap-1.5">
-                {open.status === 'READY_FOR_GENERATION' ? (
+                {open.status === 'APPROVED' ? (
+                  <>
+                    <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                    Approved. Generate produces one PDF per completed respondent.
+                  </>
+                ) : open.mode === 'DIRECT' && (open.directBlockers?.length ?? 0) === 0 ? (
+                  <>
+                    <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                    Every rule here is a formula — this runs with no AI at all.
+                  </>
+                ) : open.status === 'READY_FOR_GENERATION' ? (
                   <>
                     <CheckCircle2 className="h-4 w-4 text-emerald-600" />
                     Ready to send. Nothing has been sent — no provider is configured.
@@ -825,13 +1008,33 @@ export default function ReportComputationsPage() {
                   {saving && <Loader2 className="h-4 w-4 animate-spin" />}
                   Save draft
                 </Button>
-                {!!open.reportComputationId && open.status === 'DRAFT' && (
+                {!!open.reportComputationId && open.mode === 'GENERATED'
+                  && open.status === 'DRAFT' && (
                   <Button
                     variant="primary"
                     onClick={markReady}
                     disabled={saving || !open.prompt?.ready}
                   >
                     Mark ready
+                  </Button>
+                )}
+                {!!open.reportComputationId && open.mode === 'DIRECT'
+                  && open.status !== 'APPROVED' && (
+                  <Button
+                    variant="primary"
+                    onClick={approve}
+                    disabled={saving || (open.directBlockers?.length ?? 0) > 0}
+                    title={(open.directBlockers?.length ?? 0) > 0
+                      ? open.directBlockers.join(' ')
+                      : 'Freeze these rule versions and allow delivery'}
+                  >
+                    Approve for delivery
+                  </Button>
+                )}
+                {!!open.reportComputationId && open.status === 'APPROVED' && (
+                  <Button variant="primary" onClick={generate} disabled={generating}>
+                    {generating && <Loader2 className="h-4 w-4 animate-spin" />}
+                    Generate reports
                   </Button>
                 )}
               </div>

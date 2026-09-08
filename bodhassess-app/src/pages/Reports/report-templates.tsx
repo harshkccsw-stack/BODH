@@ -20,6 +20,10 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import {
+  reportComputationsApi,
+  type ReportComputationResponse,
+} from './reportComputationsApi';
+import {
   IMPLEMENTED_BINDERS,
   reportTemplatesApi,
   STARTER_HTML,
@@ -47,7 +51,7 @@ const BINDER_LABEL: Record<BinderType, string> = {
   CORE: 'A respondent detail',
   LITERAL: 'Fixed text',
   COMPUTED: 'A computation fills this',
-  VALUE: 'A score (needs the scoring engine)',
+  VALUE: 'A value from a computation',
   NARRATIVE: 'Written interpretation (needs the scoring engine)',
   TABLE: 'A table of scores (needs the scoring engine)',
   CHART: 'A chart (needs the scoring engine)',
@@ -56,6 +60,7 @@ const BINDER_LABEL: Record<BinderType, string> = {
 export default function ReportTemplatesPage() {
   const [templates, setTemplates] = useState<ReportTemplateResponse[]>([]);
   const [coreFields, setCoreFields] = useState<Record<string, string>>({});
+  const [computations, setComputations] = useState<ReportComputationResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
@@ -73,17 +78,32 @@ export default function ReportTemplatesPage() {
   const previewUrlRef = useRef<string | null>(null);
 
   const [confirmDelete, setConfirmDelete] = useState<ReportTemplateResponse | null>(null);
+
+  // Naming happens BEFORE the row exists. Creating first and letting people
+  // rename afterwards is what produced a library of "Untitled report 3" — the
+  // name is the only thing anyone identifies a template by, so it is asked for
+  // once, at the moment the thing is brought into being.
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newDescription, setNewDescription] = useState('');
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [confirmClose, setConfirmClose] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [list, fields] = await Promise.all([
+      const [list, fields, comps] = await Promise.all([
         reportTemplatesApi.getAll(),
         reportTemplatesApi.coreFields(),
+        // Needed to bind a VALUE tag: the picker offers a computation and then
+        // one of the outputs it actually produces. Failing to load them must
+        // not take the page down, so an empty list just disables that binder.
+        reportComputationsApi.getAll().catch(() => [] as ReportComputationResponse[]),
       ]);
       setTemplates(list);
       setCoreFields(fields);
+      setComputations(comps);
       setLoadError(null);
     } catch (e: any) {
       setLoadError(errorText(e, 'Could not load report templates'));
@@ -131,26 +151,49 @@ export default function ReportTemplatesPage() {
     setEditorDescription(full.description ?? '');
   };
 
+  const openCreate = () => {
+    setCreateError(null);
+    setNewName('');
+    setNewDescription('');
+    setCreating(true);
+  };
+
   const createTemplate = async () => {
-    setActionError(null);
+    const name = newName.trim();
+    if (!name) {
+      setCreateError('Give the template a name');
+      return;
+    }
+    setCreateError(null);
     setSaving(true);
     try {
       const created = await reportTemplatesApi.create({
-        name: `Untitled report ${templates.length + 1}`,
+        name,
+        description: newDescription.trim() || null,
         html: STARTER_HTML,
       });
       setTemplates((prev) => [created, ...prev]);
+      setCreating(false);
       applyOpen(created);
     } catch (e: any) {
-      setLoadError(errorText(e, 'Could not create the template'));
+      // A duplicate name comes back 409 with a usable message. Shown HERE, on
+      // the field that caused it, rather than behind the editor that would
+      // otherwise have opened.
+      setCreateError(errorText(e, 'Could not create the template'));
     } finally {
       setSaving(false);
     }
   };
 
-  /** Saving re-parses the HTML server-side; the tag checklist comes back changed. */
-  const saveTemplate = async () => {
-    if (!open) return;
+  /**
+   * Saving re-parses the HTML server-side; the tag checklist comes back changed.
+   *
+   * <p>Reports whether it worked, because "save and close" must not close over
+   * a failed save — a duplicate name is refused with a 409, and swallowing that
+   * would discard the very edit the person was trying to keep.
+   */
+  const saveTemplate = async (): Promise<boolean> => {
+    if (!open) return false;
     setActionError(null);
     setSaving(true);
     try {
@@ -163,8 +206,10 @@ export default function ReportTemplatesPage() {
       setTemplates((prev) =>
         prev.map((t) => (t.reportTemplateId === saved.reportTemplateId ? saved : t)),
       );
+      return true;
     } catch (e: any) {
       setActionError(errorText(e, 'Could not save the template'));
+      return false;
     } finally {
       setSaving(false);
     }
@@ -254,6 +299,24 @@ export default function ReportTemplatesPage() {
   const openTags = templates.reduce((n, t) => n + (t.tagCount - t.boundCount), 0);
   const readOnly = open?.status !== 'DRAFT';
 
+  /**
+   * Whether the editor holds anything the server has not been told about.
+   *
+   * <p>The name and description live in the modal HEADER while the only save
+   * button used to sit above the HTML box, so typing a name and closing threw
+   * it away without a word. This is what makes that impossible.
+   */
+  const dirty = !!open && !readOnly && (
+    editorName.trim() !== open.name
+    || editorDescription.trim() !== (open.description ?? '')
+    || editorHtml !== (open.html ?? '')
+  );
+
+  const requestClose = () => {
+    if (dirty) setConfirmClose(true);
+    else setOpen(null);
+  };
+
   return (
     <div className="p-5 lg:p-7.5 space-y-7">
       <div>
@@ -274,7 +337,7 @@ export default function ReportTemplatesPage() {
               scores and written interpretation arrive with the scoring engine.
             </p>
           </div>
-          <Button variant="primary" onClick={createTemplate} disabled={saving}>
+          <Button variant="primary" onClick={openCreate} disabled={saving}>
             <Plus className="h-4 w-4" />
             New Template
           </Button>
@@ -407,6 +470,7 @@ export default function ReportTemplatesPage() {
                   className={cn(INPUT_CLASS, 'font-medium text-base h-10')}
                   value={editorName}
                   disabled={readOnly}
+                  placeholder="Template name"
                   onChange={(e) => setEditorName(e.target.value)}
                   aria-label="Template name"
                 />
@@ -419,14 +483,31 @@ export default function ReportTemplatesPage() {
                   aria-label="Template description"
                 />
               </div>
-              <button
-                type="button"
-                className="p-2 rounded-md hover:bg-muted text-muted-foreground"
-                onClick={() => setOpen(null)}
-                aria-label="Close"
-              >
-                <X className="h-5 w-5" />
-              </button>
+              {/* Save belongs beside the name. It used to live only above the
+                  HTML box, labelled as an HTML action, so renaming looked
+                  impossible: people typed a name, saw nothing that would keep
+                  it, and closed. */}
+              <div className="flex items-center gap-2 shrink-0">
+                {!readOnly && (
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={saveTemplate}
+                    disabled={saving || !dirty || !editorName.trim()}
+                  >
+                    {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                    {dirty ? 'Save changes' : 'Saved'}
+                  </Button>
+                )}
+                <button
+                  type="button"
+                  className="p-2 rounded-md hover:bg-muted text-muted-foreground"
+                  onClick={requestClose}
+                  aria-label="Close"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
             </div>
 
             {readOnly && (
@@ -478,7 +559,12 @@ export default function ReportTemplatesPage() {
                 <div className="flex items-center justify-between mb-2">
                   <p className="text-sm font-medium">Template HTML</p>
                   {!readOnly && (
-                    <Button variant="outline" size="sm" onClick={saveTemplate} disabled={saving}>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={saveTemplate}
+                      disabled={saving || !editorName.trim()}
+                    >
                       {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                       Save &amp; re-read placeholders
                     </Button>
@@ -528,6 +614,7 @@ export default function ReportTemplatesPage() {
                         key={b.tag}
                         binding={b}
                         coreFields={coreFields}
+                        computations={computations}
                         readOnly={readOnly}
                         onSave={(payload) => void bindTag(b.tag, payload)}
                       />
@@ -552,6 +639,106 @@ export default function ReportTemplatesPage() {
       )}
 
       {/* ── delete confirm ─────────────────────────────────────────────── */}
+      {/* ── name it first ────────────────────────────────────────────────── */}
+      {creating && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-background rounded-xl shadow-xl w-full max-w-md p-6">
+            <h2 className="text-lg font-semibold">New template</h2>
+            <p className="text-sm text-muted-foreground mt-1">
+              The name is how everyone finds this template afterwards. You can change it
+              later while it is still a draft.
+            </p>
+
+            <label className="block mt-4">
+              <span className="text-sm font-medium">Name</span>
+              <input
+                className={cn(INPUT_CLASS, 'mt-1')}
+                value={newName}
+                autoFocus
+                placeholder="Counselling summary"
+                onChange={(e) => setNewName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') void createTemplate(); }}
+                aria-label="New template name"
+              />
+            </label>
+
+            <label className="block mt-3">
+              <span className="text-sm font-medium">
+                Description <span className="font-normal text-muted-foreground">(optional)</span>
+              </span>
+              <input
+                className={cn(INPUT_CLASS, 'mt-1')}
+                value={newDescription}
+                placeholder="What this report is for"
+                onChange={(e) => setNewDescription(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') void createTemplate(); }}
+                aria-label="New template description"
+              />
+            </label>
+
+            {createError && (
+              <div className="mt-4 rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-4 py-3 text-sm text-red-700 dark:text-red-400">
+                {createError}
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 mt-6">
+              <Button variant="outline" onClick={() => setCreating(false)} disabled={saving}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                onClick={createTemplate}
+                disabled={saving || !newName.trim()}
+              >
+                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                Create
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── closing with unsaved work ────────────────────────────────────── */}
+      {confirmClose && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-background rounded-xl shadow-xl w-full max-w-md p-6">
+            <h2 className="text-lg font-semibold">Close without saving?</h2>
+            <p className="text-sm text-muted-foreground mt-2">
+              The name, description and HTML you changed have not been saved. Closing
+              now discards them.
+            </p>
+            <div className="flex justify-end gap-2 mt-6">
+              <Button variant="outline" onClick={() => setConfirmClose(false)}>
+                Keep editing
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={() => { setConfirmClose(false); setOpen(null); }}
+              >
+                Discard changes
+              </Button>
+              <Button
+                variant="primary"
+                disabled={saving || !editorName.trim()}
+                onClick={async () => {
+                  // Only close if it actually saved — a refused name must keep
+                  // the editor open, with the error visible behind this dialog.
+                  if (await saveTemplate()) {
+                    setConfirmClose(false);
+                    setOpen(null);
+                  } else {
+                    setConfirmClose(false);
+                  }
+                }}
+              >
+                Save and close
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {confirmDelete && (
         <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
           <div className="bg-background rounded-xl shadow-xl w-full max-w-md p-6">
@@ -580,34 +767,58 @@ export default function ReportTemplatesPage() {
 function TagRow({
   binding,
   coreFields,
+  computations,
   readOnly,
   onSave,
 }: {
   binding: TagBinding;
   coreFields: Record<string, string>;
+  computations: ReportComputationResponse[];
   readOnly: boolean;
   onSave: (payload: {
     binderType: BinderType;
     coreField?: string | null;
     literalText?: string | null;
+    reportComputationId?: number | null;
+    outputKey?: string | null;
     fallbackText?: string | null;
   }) => void;
 }) {
   const [type, setType] = useState<BinderType>(binding.binderType);
   const [coreField, setCoreField] = useState(binding.coreField ?? '');
   const [literalText, setLiteralText] = useState(binding.literalText ?? '');
+  const [computationId, setComputationId] = useState<string>(
+    binding.reportComputationId == null ? '' : String(binding.reportComputationId));
+  const [outputKey, setOutputKey] = useState(binding.outputKey ?? '');
 
   // The server is the source of truth — a save returns the whole template.
   useEffect(() => {
     setType(binding.binderType);
     setCoreField(binding.coreField ?? '');
     setLiteralText(binding.literalText ?? '');
+    setComputationId(binding.reportComputationId == null
+      ? '' : String(binding.reportComputationId));
+    setOutputKey(binding.outputKey ?? '');
   }, [binding]);
+
+  /**
+   * What the chosen computation can actually produce.
+   *
+   * A DIRECT computation's outputs are exactly its pinned rules, so the picker
+   * lists them by name and binds by slug. A GENERATED one has no artifact yet,
+   * so there is nothing to list — which is why it is excluded from the
+   * computation picker above rather than offered with an empty second select.
+   */
+  const chosen = computations.find((c) => String(c.reportComputationId) === computationId);
+  const outputs = chosen?.rules ?? [];
 
   const dirty =
     type !== binding.binderType ||
     coreField !== (binding.coreField ?? '') ||
-    literalText !== (binding.literalText ?? '');
+    literalText !== (binding.literalText ?? '') ||
+    computationId !== (binding.reportComputationId == null
+      ? '' : String(binding.reportComputationId)) ||
+    outputKey !== (binding.outputKey ?? '');
 
   // COMPUTED carries no second field: saying "a computation fills this" is the
   // whole answer, and which computation is a per-assessment question the
@@ -618,7 +829,9 @@ function TagRow({
       ? coreField !== ''
       : type === 'LITERAL'
         ? literalText.trim() !== ''
-        : type === 'COMPUTED');
+        : type === 'VALUE'
+          ? computationId !== '' && outputKey !== ''
+          : type === 'COMPUTED');
 
   return (
     <div className="p-3">
@@ -646,7 +859,7 @@ function TagRow({
             {IMPLEMENTED_BINDERS.map((b) => (
               <option key={b} value={b}>{BINDER_LABEL[b]}</option>
             ))}
-            {(['VALUE', 'NARRATIVE', 'TABLE', 'CHART'] as BinderType[]).map((b) => (
+            {(['NARRATIVE', 'TABLE', 'CHART'] as BinderType[]).map((b) => (
               <option key={b} value={b} disabled>{BINDER_LABEL[b]}</option>
             ))}
           </select>
@@ -673,6 +886,45 @@ function TagRow({
             </p>
           )}
 
+          {type === 'VALUE' && (
+            <>
+              <select
+                className={INPUT_CLASS}
+                value={computationId}
+                onChange={(e) => { setComputationId(e.target.value); setOutputKey(''); }}
+                aria-label="Which computation"
+              >
+                <option value="">Choose a computation…</option>
+                {computations.filter((c) => c.mode === 'DIRECT').map((c) => (
+                  <option key={c.reportComputationId} value={c.reportComputationId}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+              {computationId !== '' && (
+                <select
+                  className={INPUT_CLASS}
+                  value={outputKey}
+                  onChange={(e) => setOutputKey(e.target.value)}
+                  aria-label="Which value"
+                >
+                  <option value="">Choose a value…</option>
+                  {outputs.map((r) => (
+                    <option key={r.slug} value={r.slug}>
+                      {r.name} ({r.resultType === 'NUMBER' ? 'a number' : 'text'})
+                    </option>
+                  ))}
+                </select>
+              )}
+              {computations.filter((c) => c.mode === 'DIRECT').length === 0 && (
+                <p className="text-xs text-muted-foreground">
+                  No computation can produce a value yet. A computation runs without a model
+                  only when every rule pinned to it is a formula.
+                </p>
+              )}
+            </>
+          )}
+
           {type === 'LITERAL' && (
             <textarea
               className="w-full rounded-md border border-input bg-background p-2 text-sm focus:outline-none focus:border-ring focus:ring-[3px] focus:ring-ring/30"
@@ -694,6 +946,8 @@ function TagRow({
                   binderType: type,
                   coreField: type === 'CORE' ? coreField : null,
                   literalText: type === 'LITERAL' ? literalText : null,
+                  reportComputationId: type === 'VALUE' ? Number(computationId) : null,
+                  outputKey: type === 'VALUE' ? outputKey : null,
                 })
               }
             >

@@ -56,6 +56,20 @@ public class ReportComputation implements java.io.Serializable {
 
     public static final String STATUS_ARCHIVED = "ARCHIVED";
 
+    /**
+     * Evaluated here, in Java, from the pinned rule versions themselves — no
+     * model, no generated code, no sandbox. Available exactly when every pinned
+     * rule is an {@code EXPRESSION}: a {@code STATEMENT} has no runnable form.
+     */
+    public static final String MODE_DIRECT = "DIRECT";
+
+    /** A model writes the artifact and the sandbox runs it. P4. */
+    public static final String MODE_GENERATED = "GENERATED";
+
+    public static boolean isKnownMode(String mode) {
+        return MODE_DIRECT.equals(mode) || MODE_GENERATED.equals(mode);
+    }
+
     /** Every completed attempt on the assessment. */
     public static final String SCOPE_ALL_COMPLETED = "ALL_COMPLETED";
 
@@ -97,6 +111,15 @@ public class ReportComputation implements java.io.Serializable {
 
     @Column(name = "status", nullable = false, length = 24)
     private String status = STATUS_DRAFT;
+
+    /**
+     * DIRECT or GENERATED. Defaulted to DIRECT because a computation starts with
+     * no rules, and a computation with no rules genuinely needs no generation —
+     * the service raises it to GENERATED the moment a STATEMENT rule is pinned,
+     * so the field follows the rules rather than the author's intent.
+     */
+    @Column(name = "mode", nullable = false, length = 16)
+    private String mode = MODE_DIRECT;
 
     /** The guidance prompt, verbatim. Spec §5 forbids paraphrasing it. */
     @Column(name = "sourcePrompt", columnDefinition = "TEXT")
@@ -214,6 +237,19 @@ public class ReportComputation implements java.io.Serializable {
 
     public void setStatus(String status) {
         this.status = status;
+    }
+
+    public String getMode() {
+        return mode;
+    }
+
+    public void setMode(String mode) {
+        this.mode = mode;
+    }
+
+    /** True when this computation delivers without a model. */
+    public boolean isDirect() {
+        return MODE_DIRECT.equals(mode);
     }
 
     public String getSourcePrompt() {

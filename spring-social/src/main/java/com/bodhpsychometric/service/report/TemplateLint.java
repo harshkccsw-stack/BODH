@@ -58,10 +58,48 @@ public class TemplateLint {
     private static final Pattern HAS_FONT_FAMILY =
             Pattern.compile("font-family\\s*[=:]", Pattern.CASE_INSENSITIVE);
 
-    /** {@code @top-left}, {@code @bottom-center}, and the rest. */
+    /**
+     * {@code @top-left}, {@code @bottom-center}, and the rest.
+     *
+     * <p>The body alternation admits {@code ${tag}} explicitly. A naive
+     * {@code [^}]*} stops at the FIRST closing brace, which for a footer like
+     * {@code content: "${serial_id}"} is the tag's own — so the rule body was
+     * truncated before its {@code font-family} and a correctly written margin
+     * box was reported as missing one. Putting a reference number in a running
+     * footer is an ordinary thing to want, and it was unpublishable.
+     */
     private static final Pattern MARGIN_BOX =
-            Pattern.compile("@(top|bottom)-(left|center|centre|right)\\b[^{]*\\{([^}]*)\\}",
+            Pattern.compile("@(top|bottom)-(left|center|centre|right)\\b[^{]*"
+                            + "\\{((?:\\$\\{[^}]*\\}|[^{}])*)\\}",
                     Pattern.CASE_INSENSITIVE);
+
+    /**
+     * A named HTML entity other than the five XML declares.
+     *
+     * <p>The renderer parses the document as strict XML, where {@code &middot;}
+     * is an undeclared entity and aborts the whole parse. Only
+     * {@code &amp; &lt; &gt; &quot; &apos;} and numeric references survive.
+     * Without this check a template PUBLISHES cleanly and then fails at render
+     * with a SAX error naming a line number — which is to say it fails for the
+     * first real respondent, not for the author who introduced it.
+     */
+    private static final Pattern NAMED_ENTITY =
+            Pattern.compile("&(?!(?:amp|lt|gt|quot|apos);|#\\d+;|#x[0-9a-fA-F]+;)([a-zA-Z][a-zA-Z0-9]{1,30});");
+
+    /**
+     * An HTML void element left unclosed: {@code <br>} rather than {@code <br/>}.
+     *
+     * <p>The renderer parses strict XML, where nothing is implicitly void. An
+     * unclosed {@code <br>} therefore swallows everything after it until the
+     * parser gives up — and it reports the ENCLOSING element, so a stray
+     * {@code <br>} inside a table cell surfaces as
+     * <i>"element type td must be terminated"</i> pointing at a line where
+     * nothing looks wrong. It is the single most confusing render failure
+     * available, and it is entirely preventable here.
+     */
+    private static final Pattern UNCLOSED_VOID = Pattern.compile(
+            "<(br|hr|img|input|meta|link|col|area|base|embed|source|track|wbr)\\b[^>]*(?<!/)>",
+            Pattern.CASE_INSENSITIVE);
 
     /** src/href pointing anywhere but a data: URI. */
     private static final Pattern EXTERNAL_RESOURCE =
@@ -123,6 +161,41 @@ public class TemplateLint {
                             + (urls.size() == 1 ? "" : "s") + " (" + String.join(", ", urls)
                             + "). Rendering blocks all network access, so these arrive blank. "
                             + "Embed images as data: URIs and put CSS in a <style> block."));
+        }
+
+        Matcher voids = UNCLOSED_VOID.matcher(html);
+        List<String> unclosed = new ArrayList<>();
+        while (voids.find() && unclosed.size() < 5) {
+            String tag = voids.group(1).toLowerCase();
+            if (!unclosed.contains(tag)) {
+                unclosed.add("<" + tag + ">");
+            }
+        }
+        if (!unclosed.isEmpty()) {
+            findings.add(new Finding(Severity.ERROR, "unclosed-void-element",
+                    "These elements are not closed (" + String.join(", ", unclosed)
+                            + "). The renderer parses strict XML, where every element must "
+                            + "close, so an unclosed tag aborts the render with an error naming "
+                            + "the element AROUND it rather than this one. Write them "
+                            + "self-closed: <br/>, <hr/>, <img ... />."));
+        }
+
+        Matcher entities = NAMED_ENTITY.matcher(html);
+        List<String> named = new ArrayList<>();
+        while (entities.find() && named.size() < 5) {
+            String entity = "&" + entities.group(1) + ";";
+            if (!named.contains(entity)) {
+                named.add(entity);
+            }
+        }
+        if (!named.isEmpty()) {
+            findings.add(new Finding(Severity.ERROR, "named-entity",
+                    "The template uses HTML entities the renderer cannot parse ("
+                            + String.join(", ", named) + "). It reads the document as strict "
+                            + "XML, where only &amp;amp; &amp;lt; &amp;gt; &amp;quot; and "
+                            + "&amp;apos; are declared, so these abort rendering entirely. "
+                            + "Use a numeric reference instead — &amp;#183; for &amp;middot;, "
+                            + "&amp;#8211; for &amp;ndash; — or the character itself."));
         }
 
         if (STYLESHEET_LINK.matcher(html).find()) {

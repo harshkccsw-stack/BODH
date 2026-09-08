@@ -13,6 +13,7 @@ import com.bodhpsychometric.dto.ReportTagBindingRequest;
 import com.bodhpsychometric.dto.ReportTemplateRequest;
 import com.bodhpsychometric.dto.ReportTemplateResponse;
 import com.bodhpsychometric.exception.NotFoundException;
+import com.bodhpsychometric.model.report.ReportComputation;
 import com.bodhpsychometric.model.report.ReportCoreFields;
 import com.bodhpsychometric.model.report.ReportTagBinding;
 import com.bodhpsychometric.model.report.ReportTemplate;
@@ -149,6 +150,9 @@ public class ReportTemplateService {
                 ? request.coreField().trim() : null);
         binding.setLiteralText(ReportTagBinding.TYPE_LITERAL.equals(type)
                 ? request.literalText() : null);
+        boolean value = ReportTagBinding.TYPE_VALUE.equals(type);
+        binding.setReportComputationId(value ? request.reportComputationId() : null);
+        binding.setOutputKey(value ? trimToNull(request.outputKey()) : null);
         binding.setFormat(trimToNull(request.format()));
         binding.setFallbackText(trimToNull(request.fallbackText()));
         binding.setAuthorNote(trimToNull(request.authorNote()));
@@ -243,6 +247,13 @@ public class ReportTemplateService {
             fresh.setBinderType(previous.getBinderType());
             fresh.setCoreField(previous.getCoreField());
             fresh.setLiteralText(previous.getLiteralText());
+            // The VALUE pair travels with the binder type or it does not travel
+            // at all. Carrying binderType=VALUE while leaving the computation
+            // and output key null produces a binding that still reports itself
+            // as answered and resolves to nothing — a new version that renders
+            // blank in every computed tag, with no error anywhere to say why.
+            fresh.setReportComputationId(previous.getReportComputationId());
+            fresh.setOutputKey(previous.getOutputKey());
             fresh.setFormat(previous.getFormat());
             fresh.setFallbackText(previous.getFallbackText());
             fresh.setAuthorNote(previous.getAuthorNote());
@@ -349,6 +360,9 @@ public class ReportTemplateService {
                     + "which needs the scoring engine. Use COMPUTED to say a computation "
                     + "fills this tag without saying what shape it comes back in.");
         }
+        if (ReportTagBinding.TYPE_VALUE.equals(type)) {
+            validateValueBinding(request);
+        }
         if (ReportTagBinding.TYPE_CORE.equals(type)) {
             String field = request.coreField() == null ? null : request.coreField().trim();
             if (field == null || field.isBlank()) {
@@ -362,6 +376,47 @@ public class ReportTemplateService {
         if (ReportTagBinding.TYPE_LITERAL.equals(type)
                 && (request.literalText() == null || request.literalText().isBlank())) {
             throw new IllegalArgumentException("Type the text this tag should print");
+        }
+    }
+
+    /**
+     * A VALUE binding must name a computation AND an output that computation
+     * actually produces.
+     *
+     * <p>Checked here, at bind time, and not only at render: a tag pointing at
+     * a rule the computation does not pin renders as its fallback, which is a
+     * blank space on a delivered report rather than an error anybody sees. The
+     * cheapest moment to refuse it is while the author is looking at it.
+     *
+     * <p>For a DIRECT computation the valid output keys are exactly the slugs of
+     * its pinned rules. A GENERATED one has no artifact yet, so its key list is
+     * unknown and only the computation reference itself can be checked.
+     */
+    private void validateValueBinding(ReportTagBindingRequest request) {
+        if (request.reportComputationId() == null) {
+            throw new IllegalArgumentException("Choose which computation fills this tag");
+        }
+        String key = trimToNull(request.outputKey());
+        if (key == null) {
+            throw new IllegalArgumentException("Choose which of the computation's outputs "
+                    + "fills this tag");
+        }
+        ReportComputation computation = computations
+                .findByIdWithRules(request.reportComputationId())
+                .orElseThrow(() -> new NotFoundException(
+                        "Report computation " + request.reportComputationId() + " not found"));
+
+        if (!computation.isDirect()) {
+            return;
+        }
+        List<String> available = computation.getRules().stream()
+                .map(r -> r.getRuleVersion().getRule().getSlug())
+                .toList();
+        if (!available.contains(key)) {
+            throw new IllegalArgumentException("\"" + computation.getName() + "\" does not "
+                    + "compute \"" + key + "\". It produces: "
+                    + (available.isEmpty() ? "nothing yet — pin some rules to it first"
+                            : String.join(", ", available)));
         }
     }
 

@@ -83,10 +83,14 @@ public class ReportRuleController {
         Object expr = body.get("expression");
         Object assessmentId = body.get("assessmentId");
         Object organizationId = body.get("organizationId");
+        // The rule being edited, when there is one: without it the checker
+        // cannot tell a self-reference from a legitimate dependency.
+        Object ruleId = body.get("reportRuleId");
         return ruleService.validateExpression(
                 expr == null ? null : String.valueOf(expr),
                 assessmentId == null ? null : Long.valueOf(String.valueOf(assessmentId)),
-                organizationId == null ? null : Long.valueOf(String.valueOf(organizationId)));
+                organizationId == null ? null : Long.valueOf(String.valueOf(organizationId)),
+                ruleId == null ? null : Long.valueOf(String.valueOf(ruleId)));
     }
 
     /** Whether this rule's columns all exist on a given assessment. */

@@ -39,28 +39,92 @@ public class ReportValueResolver {
      *        {@link ReportCoreResolver#sampleValues()} for a preview
      */
     public Map<String, String> resolve(ReportTemplate template, Map<String, String> coreValues) {
+        return resolve(template, coreValues, Map.of());
+    }
+
+    /**
+     * @param ruleValues one respondent's computed values, keyed by rule slug —
+     *        {@code EvaluatedCohort.valuesFor(row)}. Empty for a preview with no
+     *        cohort behind it, which is why every VALUE tag then shows its
+     *        fallback rather than a zero.
+     */
+    public Map<String, String> resolve(ReportTemplate template, Map<String, String> coreValues,
+            Map<String, Object> ruleValues) {
         Map<String, String> out = new LinkedHashMap<>();
         for (ReportTagBinding binding : template.getBindings()) {
-            out.put(binding.getTag(), escape(valueFor(binding, coreValues)));
+            out.put(binding.getTag(), escape(valueFor(binding, coreValues, ruleValues)));
         }
         return out;
     }
 
     /** Raw value for one binding, before escaping. Null means "use fallback". */
-    private String valueFor(ReportTagBinding binding, Map<String, String> coreValues) {
+    private String valueFor(ReportTagBinding binding, Map<String, String> coreValues,
+            Map<String, Object> ruleValues) {
         String raw = switch (binding.getBinderType()) {
             case ReportTagBinding.TYPE_CORE -> coreValues.get(binding.getCoreField());
             case ReportTagBinding.TYPE_LITERAL -> binding.getLiteralText();
-            // UNBOUND, and the P2 types, resolve to nothing. Rendering is
-            // gated on a published template where every tag is bound, so this
-            // is only reachable from a draft preview — where showing the
-            // fallback is exactly the right signal that work remains.
+            case ReportTagBinding.TYPE_VALUE -> computed(binding, ruleValues);
+            // UNBOUND and COMPUTED resolve to nothing. COMPUTED is deliberately
+            // vague — "a computation fills this, we have not said which" — so
+            // it is an authoring placeholder, not something renderable.
             default -> null;
         };
         if (raw == null || raw.isBlank()) {
             return binding.getFallbackText();
         }
         return raw;
+    }
+
+    /**
+     * One computed value, formatted.
+     *
+     * <p>A key that is absent and a key whose value is null are the same thing
+     * here — both yield the fallback — but they are NOT the same upstream, and
+     * the difference is caught before this point: delivery refuses a cohort with
+     * any failed rule, so a null arriving here means the formula genuinely had
+     * nothing to say about this respondent (an unanswered optional section),
+     * not that it broke.
+     */
+    private String computed(ReportTagBinding binding, Map<String, Object> ruleValues) {
+        if (binding.getOutputKey() == null) {
+            return null;
+        }
+        Object value = ruleValues.get(binding.getOutputKey());
+        return format(value, binding.getFormat());
+    }
+
+    /**
+     * Numbers print without a trailing {@code .0} unless a format asks otherwise.
+     *
+     * <p>The evaluator works in doubles throughout, so a sum of integer option
+     * scores arrives as {@code 44.0}. Printing that on a report is wrong in a way
+     * everybody notices and nobody can explain, and "44.0" is not what the
+     * psychometrician's workbook says. A format of {@code 0.0} / {@code 0.00}
+     * asks for decimals back where a mean or a z-score wants them.
+     */
+    static String format(Object value, String format) {
+        if (value == null) {
+            return null;
+        }
+        if (!(value instanceof Number number)) {
+            return String.valueOf(value);
+        }
+        double d = number.doubleValue();
+        if (format != null && !format.isBlank()) {
+            try {
+                return new java.text.DecimalFormat(format.trim()).format(d);
+            } catch (IllegalArgumentException ignored) {
+                // A format nobody can parse must not lose the number. Fall
+                // through to the default rendering.
+            }
+        }
+        if (d == Math.rint(d) && !Double.isInfinite(d)) {
+            return String.valueOf((long) d);
+        }
+        return java.math.BigDecimal.valueOf(d)
+                .setScale(2, java.math.RoundingMode.HALF_UP)
+                .stripTrailingZeros()
+                .toPlainString();
     }
 
     /**

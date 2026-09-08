@@ -37,6 +37,9 @@ public record ReportTemplateResponse(
             String binderType,
             String coreField,
             String literalText,
+            /** VALUE only: which computation and which of its outputs. */
+            Long reportComputationId,
+            String outputKey,
             String format,
             String fallbackText,
             String authorNote,
@@ -50,6 +53,8 @@ public record ReportTemplateResponse(
                     b.getBinderType(),
                     b.getCoreField(),
                     b.getLiteralText(),
+                    b.getReportComputationId(),
+                    b.getOutputKey(),
                     b.getFormat(),
                     b.getFallbackText(),
                     b.getAuthorNote(),

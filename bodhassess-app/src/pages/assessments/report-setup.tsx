@@ -201,12 +201,12 @@ export default function ReportSetupPage() {
     }
     const handle = window.setTimeout(() => {
       reportRulesApi
-        .validateExpression(form.expression, assessmentId)
+        .validateExpression(form.expression, assessmentId, null, form.id)
         .then(setCheck)
         .catch(() => setCheck(null));
     }, 350);
     return () => window.clearTimeout(handle);
-  }, [form?.expression, form?.definitionKind, assessmentId]);
+  }, [form?.expression, form?.definitionKind, form?.id, assessmentId]);
 
   const openCreate = (stage: RuleStage) => {
     setFormError('');
@@ -776,6 +776,12 @@ export default function ReportSetupPage() {
                             <button
                               key={r.reportRuleId}
                               className="block w-full truncate rounded px-1.5 py-1 text-left text-[11px] hover:bg-muted"
+                              // The slug, not the name, is what a formula reads,
+                              // and the two differ often enough that guessing it
+                              // from the name is how an author ends up with an
+                              // unresolvable reference. Clicking inserts it;
+                              // hovering shows it.
+                              title={`[rule:${r.slug}]`}
                               onClick={() => insert(`[rule:${r.slug}]`)}
                             >
                               <Sigma className="mr-1 inline h-3 w-3" />{r.name}
