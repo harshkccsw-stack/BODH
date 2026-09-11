@@ -3,6 +3,7 @@ package com.bodhpsychometric;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -603,6 +604,161 @@ class ReportDirectDeliveryTest {
                 "the output key must survive versioning, or the new version renders blank");
         assertEquals(computationId, ((Number) comps.get(0)).intValue(),
                 "and so must the computation it points at");
+    }
+
+    /**
+     * An approved computation can be renamed and cloned — the two ways out of
+     * "approved is frozen".
+     *
+     * <p>Both error messages told people to clone long before clone existed, so
+     * approval was a dead end: the computation could not be changed and could
+     * not be copied either. Renaming is allowed because approval freezes what a
+     * computation PRODUCES, and a name is not that; cloning is how an actual
+     * change gets made without disturbing the reports already issued.
+     */
+    @Test
+    void anApprovedComputationCanBeRenamedAndCloned() throws Exception {
+        String bearer = auth();
+
+        int mq = JsonPath.read(postJson("/api/qualities/create",
+                "{\"name\":\"__smoke__ Clone MQ\",\"description\":null}"),
+                "$.measuredQualityId");
+        int mqt = JsonPath.read(postJson("/api/quality-types/create",
+                "{\"measuredQualityId\":" + mq + ",\"parentTypeId\":null,"
+                        + "\"name\":\"Clone Trait\"}"), "$.measuredQualityTypeId");
+        String item = likertItem("__smoke__ CL1 item", mqt, false);
+
+        int questionnaireId = JsonPath.read(postJson("/api/questionnaire/create",
+                "{\"name\":\"__smoke__ Clone QNR\",\"shortName\":null,\"category\":null,"
+                        + "\"vertical\":null,\"description\":null,\"durationMinutes\":null,"
+                        + "\"generalInstruction\":null,\"hasSections\":false}"), "$.questionnaireId");
+        mvc.perform(put("/api/questionnaire/" + questionnaireId + "/questions")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("[{\"questionId\":" + (int) JsonPath.read(item, "$.questionId")
+                                + ",\"sectionId\":null,\"sortOrder\":1}]"))
+                .andExpect(status().isOk());
+        int assessmentId = JsonPath.read(postJson("/api/assessments/create",
+                "{\"name\":\"__smoke__ Clone\",\"questionnaireId\":" + questionnaireId
+                        + ",\"showTermsAndConditions\":false,\"status\":\"ACTIVE\","
+                        + "\"autoNext\":false}"), "$.assessmentId");
+        submit(assessmentId, "clone.one@test.local", new int[] { 4 }, item);
+
+        String scoreRule = rule("""
+                {"name":"__smoke__ Clone score","stage":"SCORE","stepOrder":1,
+                 "definitionKind":"EXPRESSION","expression":"[mqt:%d]",
+                 "assessmentId":%d}""".formatted(mqt, assessmentId));
+        int ruleVersionId = JsonPath.read(scoreRule, "$.latest.reportRuleVersionId");
+        String scoreSlug = JsonPath.read(scoreRule, "$.slug");
+
+        String template = mvc.perform(post("/api/report-templates/create")
+                        .header(HttpHeaders.AUTHORIZATION, bearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"name":"__smoke__ Clone layout","description":null,
+                                 "html":"<html><body><p>${total}</p></body></html>"}"""))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        int templateId = JsonPath.read(template, "$.reportTemplateId");
+
+        String created = mvc.perform(post("/api/report-computations/create")
+                        .header(HttpHeaders.AUTHORIZATION, bearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"name":"__smoke__ Clone computation","assessmentId":%d,
+                                 "reportTemplateId":%d,"ruleVersionIds":[%d],
+                                 "sourcePrompt":"n/a","respondentScope":"ALL_COMPLETED"}"""
+                                .formatted(assessmentId, templateId, ruleVersionId)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        int computationId = JsonPath.read(created, "$.reportComputationId");
+        String originalSlug = JsonPath.read(created, "$.slug");
+
+        bind(bearer, templateId, "total", "{\"binderType\":\"VALUE\",\"reportComputationId\":"
+                + computationId + ",\"outputKey\":\"" + scoreSlug + "\"}");
+        mvc.perform(post("/api/report-templates/publish/" + templateId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer))
+                .andExpect(status().isOk());
+        mvc.perform(post("/api/report-computations/approve/" + computationId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer))
+                .andExpect(status().isOk());
+
+        // Rename works, and the SLUG stays put — values.json in every batch
+        // already delivered records the slug, not the name.
+        mvc.perform(put("/api/report-computations/rename/" + computationId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"__smoke__ Academic Drive NICR\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value("__smoke__ Academic Drive NICR"))
+                .andExpect(jsonPath("$.slug").value(originalSlug))
+                .andExpect(jsonPath("$.status").value("APPROVED"));
+
+        // Changing what it PRODUCES is still refused.
+        mvc.perform(put("/api/report-computations/update/" + computationId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"name":"__smoke__ Academic Drive NICR","assessmentId":%d,
+                                 "reportTemplateId":null,"ruleVersionIds":[],
+                                 "sourcePrompt":"n/a","respondentScope":"ALL_COMPLETED"}"""
+                                .formatted(assessmentId)))
+                .andExpect(status().isConflict());
+
+        // Clone is the way through: a DRAFT restating exactly what was approved.
+        String copy = mvc.perform(post("/api/report-computations/clone/" + computationId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("DRAFT"))
+                .andExpect(jsonPath("$.mode").value("DIRECT"))
+                .andReturn().getResponse().getContentAsString();
+
+        assertEquals("__smoke__ Academic Drive NICR (copy)", JsonPath.read(copy, "$.name"));
+        assertEquals(originalSlug + "-copy", JsonPath.read(copy, "$.slug"));
+        assertEquals(templateId, (int) JsonPath.read(copy, "$.reportTemplateId"),
+                "the copy starts on the same template");
+        List<Object> copiedVersions = JsonPath.read(copy, "$.rules[*].reportRuleVersionId");
+        assertEquals(1, copiedVersions.size());
+        assertEquals(ruleVersionId, ((Number) copiedVersions.get(0)).intValue(),
+                "the PINNED version is copied, not re-resolved to latest — a clone starts as "
+                        + "an exact restatement of what was approved");
+
+        // And the copy really is editable.
+        mvc.perform(put("/api/report-computations/update/"
+                        + (int) JsonPath.read(copy, "$.reportComputationId"))
+                        .header(HttpHeaders.AUTHORIZATION, bearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"name":"__smoke__ Clone edited","assessmentId":%d,
+                                 "reportTemplateId":%d,"ruleVersionIds":[%d],
+                                 "sourcePrompt":"n/a","respondentScope":"ALL_COMPLETED"}"""
+                                .formatted(assessmentId, templateId, ruleVersionId)))
+                .andExpect(status().isOk());
+
+        // The approved original is untouched.
+        mvc.perform(get("/api/report-computations/getById/" + computationId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer))
+                .andExpect(jsonPath("$.status").value("APPROVED"))
+                .andExpect(jsonPath("$.name").value("__smoke__ Academic Drive NICR"));
+
+        // Deleting an approved one is refused, and names archive — which must
+        // therefore EXIST. It did not, for as long as the guard had named it,
+        // so approval was a state nothing could leave.
+        mvc.perform(delete("/api/report-computations/delete/" + computationId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value(
+                        org.hamcrest.Matchers.containsString("archive it first")));
+
+        mvc.perform(post("/api/report-computations/archive/" + computationId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("ARCHIVED"));
+
+        // And an archived one can be deleted: retiring it and then deleting it
+        // is two deliberate acts.
+        mvc.perform(delete("/api/report-computations/delete/" + computationId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer))
+                .andExpect(status().isNoContent());
     }
 
     private void bind(String bearer, int templateId, String tag, String body) throws Exception {

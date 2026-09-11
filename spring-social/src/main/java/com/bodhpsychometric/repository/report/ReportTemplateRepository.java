@@ -40,6 +40,19 @@ public interface ReportTemplateRepository extends JpaRepository<ReportTemplate, 
     boolean existsByNameIgnoreCaseAndVersionAndReportTemplateIdNot(
             String name, int version, Long reportTemplateId);
 
+    /**
+     * Every version filed under one name — the whole family a rename moves.
+     *
+     * <p>A rename that touched only the row the user clicked would split the
+     * family in two: {@code findMaxVersionForName} would then start a renamed
+     * v3 back at v1, and the unique key on (name, version) would let two
+     * unrelated documents share a name and a version number.
+     */
+    List<ReportTemplate> findAllByNameIgnoreCase(String name);
+
+    /** Is this name taken by ANY version, i.e. by another family. */
+    boolean existsByNameIgnoreCase(String name);
+
     /** Highest version published under this name, for the publish bump. */
     @Query("select max(t.version) from ReportTemplate t where lower(t.name) = lower(:name)")
     Optional<Integer> findMaxVersionForName(@Param("name") String name);

@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.bodhpsychometric.dto.ReportComputationRenameRequest;
 import com.bodhpsychometric.dto.ReportComputationRequest;
 import com.bodhpsychometric.dto.ReportComputationResponse;
 import com.bodhpsychometric.service.report.ReportComputationService;
@@ -125,6 +126,42 @@ public class ReportComputationController {
                 .header("X-Report-Count", String.valueOf(batch.reportCount()))
                 .header("X-Report-Skipped", String.valueOf(batch.skipped()))
                 .body(batch.zip());
+    }
+
+    /**
+     * Rename this computation. Allowed on an APPROVED one, unlike update.
+     *
+     * <p>The slug does not change: it is what every delivered batch's
+     * {@code values.json} records, so moving it would orphan the audit trail.
+     */
+    @PutMapping("/rename/{id}")
+    public ReportComputationResponse rename(@PathVariable Long id,
+            @Valid @RequestBody ReportComputationRenameRequest request) {
+        return computationService.rename(id, request.name());
+    }
+
+    /**
+     * Copy an approved computation to a DRAFT that can be changed.
+     *
+     * <p>The operation "an approved computation is frozen, clone it" has been
+     * naming since approval existed. The frozen original keeps standing behind
+     * the reports it produced.
+     */
+    @PostMapping("/clone/{id}")
+    public ReportComputationResponse clone(@PathVariable Long id) {
+        return computationService.clone(id);
+    }
+
+    /**
+     * Retire a computation — the operation the delete guard names.
+     *
+     * <p>Archiving rather than deleting keeps the pinned rule versions and the
+     * template, which are the only record of what reports issued from it were
+     * built from.
+     */
+    @PostMapping("/archive/{id}")
+    public ReportComputationResponse archive(@PathVariable Long id) {
+        return computationService.archive(id);
     }
 
     @PostMapping("/reopen/{id}")

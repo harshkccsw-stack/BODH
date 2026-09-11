@@ -109,7 +109,7 @@ public class ReportRenderer {
             builder.run();
         } catch (Exception e) {
             throw new RenderFailedException("Could not render this template to PDF: "
-                    + e.getMessage(), e);
+                    + e.getMessage() + locate(html, e), e);
         }
         if (!blocked.isEmpty()) {
             log.warn("Report render blocked {} external resource(s): {}",
@@ -118,6 +118,54 @@ public class ReportRenderer {
         log.debug("Rendered report PDF in {} ms ({} bytes)",
                 System.currentTimeMillis() - started, out.size());
         return new Rendered(out.toByteArray(), List.copyOf(blocked));
+    }
+
+    /**
+     * The offending line, quoted, when the parser said which one.
+     *
+     * <p>A SAX error gives a line and column against the SUBSTITUTED document,
+     * which is not the document the author is looking at — and for the most
+     * common failure, an unclosed void element, it names the element AROUND the
+     * mistake rather than the mistake. So "line 134" sends an author to a line
+     * where nothing is wrong. Quoting the text there, with the line before it,
+     * turns an unactionable coordinate into the thing to fix.
+     *
+     * <p>Best effort by design: any failure to locate the line returns nothing
+     * and the caller still gets the parser's own message. A diagnostic that can
+     * itself throw would replace a bad error with a worse one.
+     */
+    private static String locate(String html, Exception e) {
+        try {
+            Throwable cause = e;
+            while (cause != null && !(cause instanceof org.xml.sax.SAXParseException)) {
+                cause = cause.getCause();
+            }
+            if (cause == null) {
+                return "";
+            }
+            int line = ((org.xml.sax.SAXParseException) cause).getLineNumber();
+            if (line < 1 || html == null) {
+                return "";
+            }
+            String[] lines = html.split("\n", -1);
+            if (line > lines.length) {
+                return "";
+            }
+            StringBuilder sb = new StringBuilder("\n\nAt line ").append(line).append(':');
+            for (int n = Math.max(1, line - 1); n <= line; n++) {
+                String text = lines[n - 1].strip();
+                if (text.length() > 200) {
+                    text = text.substring(0, 200) + "…";
+                }
+                sb.append("\n  ").append(n).append(" | ").append(text);
+            }
+            sb.append("\n\nNote the line quoted is where the parser GAVE UP, which for an "
+                    + "unclosed tag is after the mistake — check just above it for a <br>, "
+                    + "<hr> or <img> that is not written self-closed.");
+            return sb.toString();
+        } catch (RuntimeException ignored) {
+            return "";
+        }
     }
 
     /**

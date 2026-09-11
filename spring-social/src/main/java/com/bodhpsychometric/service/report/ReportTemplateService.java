@@ -263,6 +263,52 @@ public class ReportTemplateService {
         return ReportTemplateResponse.from(saved, lint.check(saved.getHtml()), true);
     }
 
+    /**
+     * Rename a template — every version of it, whatever their status.
+     *
+     * <p>Deliberately NOT part of {@code update}, which refuses a published
+     * template. Freezing a published template is about its CONTENT: a report
+     * already delivered must keep meaning what it said, and editing the HTML or
+     * the bindings under it would break that. A name is a label on the shelf.
+     * Renaming "Untitled report 2" to something a person can recognise changes
+     * nothing about what any report said, and being unable to do it leaves
+     * every delivered report citing a placeholder name forever.
+     *
+     * <p>The whole family moves together. The name is the family identity —
+     * {@code findMaxVersionForName} groups by it and the unique key is
+     * (name, version) — so renaming one row would split the chain, and the next
+     * "new version" would start back at v1 alongside a stranger's v1.
+     */
+    public ReportTemplateResponse rename(Long id, String requested) {
+        access.requireAuthor();
+        ReportTemplate template = load(id);
+
+        String name = requested == null ? "" : requested.trim();
+        if (name.isEmpty()) {
+            throw new IllegalArgumentException("Give the template a name");
+        }
+        if (name.length() > 160) {
+            throw new IllegalArgumentException("Name must be 160 characters or fewer");
+        }
+
+        String current = template.getName();
+        boolean sameFamily = name.equalsIgnoreCase(current);
+        // A pure change of case stays inside the family, so the taken-name
+        // check must not refuse it against itself.
+        if (!sameFamily && templates.existsByNameIgnoreCase(name)) {
+            throw new IllegalStateException(
+                    "Another template is already called \"" + name + "\".");
+        }
+        if (name.equals(current)) {
+            return get(id);
+        }
+
+        List<ReportTemplate> family = templates.findAllByNameIgnoreCase(current);
+        family.forEach(t -> t.setName(name));
+        templates.saveAll(family);
+        return get(id);
+    }
+
     public void delete(Long id) {
         access.requireAuthor();
         ReportTemplate template = load(id);

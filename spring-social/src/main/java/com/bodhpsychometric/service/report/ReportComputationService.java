@@ -55,6 +55,7 @@ public class ReportComputationService {
     private final ReportTemplateRepository templates;
     private final ReportColumnCatalog columns;
     private final ReportPromptAssembler assembler;
+    private final TemplateLint lint;
     private final ReportDryRunService dryRun;
     private final ReportAccess access;
 
@@ -64,6 +65,7 @@ public class ReportComputationService {
             ReportTemplateRepository templates,
             ReportColumnCatalog columns,
             ReportPromptAssembler assembler,
+            TemplateLint lint,
             ReportDryRunService dryRun,
             ReportAccess access) {
         this.computations = computations;
@@ -72,6 +74,7 @@ public class ReportComputationService {
         this.templates = templates;
         this.columns = columns;
         this.assembler = assembler;
+        this.lint = lint;
         this.dryRun = dryRun;
         this.access = access;
     }
@@ -230,6 +233,17 @@ public class ReportComputationService {
             out.add("The template \"" + template.getName() + "\" is not published yet.");
         }
 
+        // Re-linted here, not trusted from publish time. Publish checks what the
+        // rules knew THEN, and these rules have grown — a template published
+        // before the unclosed-void and named-entity checks existed was frozen
+        // with a fault that only appears when a real report is rendered, which
+        // is to say when it is too late to be cheap. Approval is the last gate
+        // before documents about real people leave the building.
+        lint.check(template.getHtml()).stream()
+                .filter(f -> f.severity() == TemplateLint.Severity.ERROR)
+                .findFirst()
+                .ifPresent(f -> out.add("The template will not render: " + f.message()));
+
         List<String> pinnedSlugs = computation.getRules().stream()
                 .map(r -> r.getRuleVersion().getRule().getSlug())
                 .toList();
@@ -272,6 +286,121 @@ public class ReportComputationService {
         return out;
     }
 
+    /**
+     * Rename a computation, whatever its status.
+     *
+     * <p>Allowed on an APPROVED one, unlike every other write. What approval
+     * freezes is what the computation PRODUCES — the pinned rule versions, the
+     * template, the respondent scope — because a report already issued has to
+     * stay explicable. A name is none of those. Renaming "NICR" to something a
+     * colleague can recognise changes nothing about any number in any report
+     * that was ever generated.
+     *
+     * <p><b>The slug does not move.</b> It is the stable identifier: it is what
+     * {@code values.json} records in every batch already delivered, so changing
+     * it would orphan the audit trail from the thing it describes. The name is
+     * the label; the slug is the identity.
+     */
+    public ReportComputationResponse rename(Long id, String requested) {
+        access.requireAuthor();
+        ReportComputation computation = load(id);
+
+        String name = requested == null ? "" : requested.trim();
+        if (name.isEmpty()) {
+            throw new IllegalArgumentException("Give the computation a name");
+        }
+        if (name.length() > 160) {
+            throw new IllegalArgumentException("Name must be 160 characters or fewer");
+        }
+        computation.setName(name);
+        computations.save(computation);
+        return get(id);
+    }
+
+    /**
+     * Copy an approved computation back to a DRAFT that can be changed.
+     *
+     * <p>This is the operation two error messages have been telling people to
+     * perform since approval existed, and it is what makes "approved is frozen"
+     * a workable rule rather than a dead end: the frozen one keeps standing
+     * behind the reports it produced, and the copy is where the change happens.
+     *
+     * <p>The pinned rule VERSIONS are copied, not re-resolved to latest. A clone
+     * starts as an exact restatement of what was approved, so the first diff
+     * anybody sees is the one they make on purpose — re-pointing it at newer
+     * rules silently would make the copy a different computation before anyone
+     * had touched it.
+     */
+    public ReportComputationResponse clone(Long id) {
+        RequestActor actor = access.requireAuthor();
+        ReportComputation source = load(id);
+
+        ReportComputation copy = new ReportComputation();
+        copy.setName(uniqueCopyName(source.getName()));
+        copy.setSlug(uniqueCopySlug(source.getSlug()));
+        copy.setDescription(source.getDescription());
+        copy.setAssessmentId(source.getAssessmentId());
+        copy.setOrganizationId(source.getOrganizationId());
+        copy.setTemplate(source.getTemplate());
+        copy.setSourcePrompt(source.getSourcePrompt());
+        copy.setRespondentScope(source.getRespondentScope());
+        copy.setRespondentIdsJson(source.getRespondentIdsJson());
+        copy.setMode(source.getMode());
+        copy.setStatus(ReportComputation.STATUS_DRAFT);
+        copy.setCreatedByUserId(actor.userId());
+
+        int order = 0;
+        for (ReportComputationRule link : source.getRules()) {
+            ReportComputationRule fresh = new ReportComputationRule();
+            fresh.setComputation(copy);
+            fresh.setRuleVersion(link.getRuleVersion());
+            fresh.setSortOrder(order++);
+            copy.getRules().add(fresh);
+        }
+
+        ReportComputation saved = computations.save(copy);
+
+        // Guidance is a separate table, so it is copied after the parent has an
+        // id rather than through the association.
+        int guidanceOrder = 0;
+        List<ReportComputationTagGuidance> copied = new ArrayList<>();
+        for (ReportComputationTagGuidance row : loadGuidance(id)) {
+            ReportComputationTagGuidance fresh = new ReportComputationTagGuidance();
+            fresh.setComputation(saved);
+            fresh.setTag(row.getTag());
+            fresh.setGuidance(row.getGuidance());
+            fresh.setSortOrder(guidanceOrder++);
+            copied.add(fresh);
+        }
+        if (!copied.isEmpty()) {
+            tagGuidance.saveAll(copied);
+        }
+        return get(saved.getReportComputationId());
+    }
+
+    /** "NICR" -> "NICR (copy)", then "(copy 2)" and so on. */
+    private String uniqueCopyName(String base) {
+        String candidate = base + " (copy)";
+        for (int n = 2; candidate.length() <= 160 && n < 100; n++) {
+            if (!computations.existsByNameIgnoreCase(candidate)) {
+                return candidate;
+            }
+            candidate = base + " (copy " + n + ")";
+        }
+        return candidate.length() > 160 ? candidate.substring(0, 160) : candidate;
+    }
+
+    private String uniqueCopySlug(String base) {
+        String candidate = base + "-copy";
+        for (int n = 2; n < 100; n++) {
+            if (!computations.existsBySlugIgnoreCase(candidate)) {
+                return candidate;
+            }
+            candidate = base + "-copy-" + n;
+        }
+        return candidate;
+    }
+
     public ReportComputationResponse reopen(Long id) {
         access.requireAuthor();
         ReportComputation computation = load(id);
@@ -285,12 +414,44 @@ public class ReportComputationService {
         return get(id);
     }
 
+    /**
+     * Retire an approved computation.
+     *
+     * <p>The operation the delete guard has been naming. Archiving rather than
+     * deleting outright is the point: reports may have been issued from this
+     * one, and the pinned rule versions plus the template are the only record
+     * of what those reports were built from. Retiring keeps that record while
+     * taking it out of the working list.
+     *
+     * <p>Reachable from APPROVED and from DRAFT alike — a draft somebody has
+     * abandoned is worth putting away too, and refusing that would just send
+     * them back to delete.
+     */
+    public ReportComputationResponse archive(Long id) {
+        access.requireAuthor();
+        ReportComputation computation = load(id);
+        if (ReportComputation.STATUS_ARCHIVED.equals(computation.getStatus())) {
+            return get(id);
+        }
+        computation.setStatus(ReportComputation.STATUS_ARCHIVED);
+        computations.save(computation);
+        return get(id);
+    }
+
+    /**
+     * Delete, once nothing is standing behind it.
+     *
+     * <p>An APPROVED computation is refused because reports may have been
+     * issued from it — archive first. An ARCHIVED one is allowed: retiring it
+     * and then deleting it is two deliberate acts, which is enough said.
+     */
     public void delete(Long id) {
         access.requireAuthor();
         ReportComputation computation = load(id);
         if (ReportComputation.STATUS_APPROVED.equals(computation.getStatus())) {
             throw new IllegalStateException(
-                    "An approved computation cannot be deleted. Archive it instead.");
+                    "An approved computation cannot be deleted — archive it first, so any "
+                            + "report already issued from it stays explicable.");
         }
         computations.delete(computation);
     }

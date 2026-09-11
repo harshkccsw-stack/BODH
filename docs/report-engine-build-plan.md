@@ -1,10 +1,15 @@
 # Report Engine — agreed architecture and build plan
 
-> **Status: agreed in discussion 2026-09-03. No code written.**
-> Starts fresh from `report-generation-engine-spec.md` (the codegen brief).
-> Supersedes [report-rules-and-templates-plan.md](report-rules-and-templates-plan.md)
-> as the *build* document; that doc stays worth reading for its argument
-> against codegen (§4) and its risk list, both of which informed this one.
+> **Status: P0–P2.5 BUILT and delivering. Last verified 2026-09-11.**
+> Reports are generated end to end with no LLM and no sandbox — see §5 for the
+> phase table and [direct-computation-mode.md](direct-computation-mode.md) for
+> the mode that made that possible. P3/P4 remain unbuilt and are now needed only
+> for `STATEMENT` rules.
+>
+> *(Original header: "agreed in discussion 2026-09-03. No code written.")*
+> Started from the codegen brief and superseded `report-rules-and-templates-plan.md`,
+> which is parked in `bodh/deleted/` — worth reading only for its argument against
+> codegen and its risk list, both of which informed this document.
 > Every fact in §1 was re-verified against source and the live DB on 2026-09-03.
 
 ## 0. The three decisions taken
@@ -622,17 +627,29 @@ every respondent in the top band.
 
 ## 5. Phases
 
-| | Phase | Schema | Needs LLM? | Shippable | Status |
-|---|---|---|---|---|---|
-| **P0a** | PDF spike — throwaway | — | no | no | **DONE** 9/9 (§4.1) |
-| **P0b** | Rule corpus + golden values, from the psychometricians (§4.2) | — | no | no | **Intake sent** |
-| **P1** | Templates, tag extraction + binding, `CORE`/`LITERAL` binders, renderer, PDF | **V25** | no | **yes** | **DONE** (§5.1) |
-| **P2** | Rules library + computation drafts + prompt assembly, up to "ready to send" | **V26** | no | **yes** | **DONE** (§5.2) |
-| **P3** | **Sandbox execution service** — new container, built and tested against hand-written Python | — | **no** | no | next |
-| **P4** | Codegen — provider behind an interface, declaration envelope, validate-and-retry, audit log. **Prompt assembly already done in P2** | **V27** | **yes** | yes | blocked: no provider chosen |
-| **P5** | Approval gate — pick respondents, generate, read PDFs, **cohort distribution strip**, approve. **Mandatory (§4.4)** | — | no | **yes** | |
-| **P6** | Batch + `values_json` + `inputs_hash` + `reviewStatus` | **V28** | no | yes | |
-| **P7** | Cloning across assessments, interactive HTML, retention, prototype-page rework | — | no | yes | |
+> **Migration numbers below are as SHIPPED, not as this table originally
+> reserved them.** §3 says numbers are assigned in ship order and never reserved
+> ahead; the original table broke its own rule and drifted by one from V25 on.
+
+| | Phase | Schema | Needs LLM? | Status |
+|---|---|---|---|---|
+| **P0a** | PDF spike — throwaway | — | no | **DONE** (§4.1) |
+| **P0b** | Rule corpus + golden values from the psychometricians (§4.2) | — | no | **DONE** — the Academic Drive workbook is authored, running and delivering |
+| **P1** | Templates, tag extraction + binding, `CORE`/`LITERAL`, renderer, PDF | **V26** | no | **DONE** (§5.1) |
+| **P2** | Rules library + computation drafts + prompt assembly, to "ready to send" | **V27**, **V28** | no | **DONE** (§5.2) + [report-rule-authoring-plan.md](report-rule-authoring-plan.md) |
+| **P2.5** | **DIRECT mode** — `VALUE` binding, cohort evaluation, approval, batch ZIP. Reports delivered with no model and no sandbox | **V29** | no | **DONE** — [direct-computation-mode.md](direct-computation-mode.md) |
+| **P3** | **Sandbox execution service** — new container, tested against hand-written Python | — | no | needed ONLY for `STATEMENT` rules |
+| **P4** | Codegen — provider behind an interface, declaration envelope, validate-and-retry, audit log | — | **yes** | blocked: no provider chosen |
+| **P5** | Approval gate — pick respondents, generate, read PDFs, cohort distribution strip | — | no | **DONE for DIRECT**; the generated branch waits on P4 |
+| **P6** | Persisted batches — `report_batch`, `generated_report`, stored PDFs, `values_json` | **V30** | no | **PARTIAL** — the ZIP carries a `values.json` manifest, but nothing is stored server-side. Needs the `app-uploads` volume uncommented |
+| **P7** | Cloning, interactive HTML, retention, prototype-page rework | — | no | computation cloning **DONE**; the rest open |
+
+**P2.5 was not in the original plan and changes what the rest of it is for.**
+The plan assumed no computed value could exist before P3 and P4, which put the
+sandbox and the model on the critical path for *every* report. They are now on
+the critical path only for reports that need **composed** prose. A rule bank of
+formulas — including interpretive paragraphs SELECTED by score, which the DSL
+can do — delivers today on two containers.
 
 **P1 ships a real, useful report with zero computation built** — respondent name,
 dob, org, assessment date, plus authored boilerplate — and it de-risks the entire

@@ -432,4 +432,86 @@ class ReportTemplateControllerTest {
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.message").isNotEmpty());
     }
+
+    /**
+     * Renaming works on a PUBLISHED template, and moves every version with it.
+     *
+     * <p>Publish freezes CONTENT — a delivered report must keep meaning what it
+     * said. A name is a label, and a template stuck as "Untitled report 2"
+     * forever is a report that cites a placeholder for the rest of its life.
+     *
+     * <p>The family moves together because the name IS the family identity: the
+     * unique key is (name, version) and the next-version bump is computed by
+     * name, so renaming one row alone would restart the chain at v1 next to a
+     * stranger's v1.
+     */
+    @Test
+    void renamingAPublishedTemplateMovesEveryVersion() throws Exception {
+        String bearer = "Bearer " + token();
+
+        String created = createTemplate("__smoke__ Untitled report 9", "<p>${who}</p>");
+        long v1 = idOf(created);
+
+        mvc.perform(put("/api/report-templates/bindTag/" + v1 + "/who")
+                        .header(HttpHeaders.AUTHORIZATION, bearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"binderType\":\"CORE\",\"coreField\":\"core:name\"}"))
+                .andExpect(status().isOk());
+        mvc.perform(post("/api/report-templates/publish/" + v1)
+                        .header(HttpHeaders.AUTHORIZATION, bearer))
+                .andExpect(status().isOk());
+
+        String v2Body = mvc.perform(post("/api/report-templates/newVersion/" + v1)
+                        .header(HttpHeaders.AUTHORIZATION, bearer))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        long v2 = idOf(v2Body);
+
+        // Editing the published one is still refused — only the label moves.
+        mvc.perform(put("/api/report-templates/update/" + v1)
+                        .header(HttpHeaders.AUTHORIZATION, bearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"__smoke__ Nope\",\"html\":\"<p>x</p>\"}"))
+                .andExpect(status().isConflict());
+
+        mvc.perform(put("/api/report-templates/rename/" + v1)
+                        .header(HttpHeaders.AUTHORIZATION, bearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"__smoke__ Academic Drive report\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value("__smoke__ Academic Drive report"))
+                .andExpect(jsonPath("$.status").value("PUBLISHED"));
+
+        // The draft v2 came with it, or the two would drift apart.
+        mvc.perform(get("/api/report-templates/getById/" + v2)
+                        .header(HttpHeaders.AUTHORIZATION, bearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value("__smoke__ Academic Drive report"))
+                .andExpect(jsonPath("$.version").value(2));
+    }
+
+    @Test
+    void renamingOntoAnotherTemplatesNameIsRefused() throws Exception {
+        String bearer = "Bearer " + token();
+        long a = idOf(createTemplate("__smoke__ Rename source", "<p>a</p>"));
+        createTemplate("__smoke__ Rename taken", "<p>b</p>");
+
+        mvc.perform(put("/api/report-templates/rename/" + a)
+                        .header(HttpHeaders.AUTHORIZATION, bearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"__smoke__ Rename taken\"}"))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    void renamingToBlankIsRefused() throws Exception {
+        String bearer = "Bearer " + token();
+        long a = idOf(createTemplate("__smoke__ Rename blank", "<p>a</p>"));
+
+        mvc.perform(put("/api/report-templates/rename/" + a)
+                        .header(HttpHeaders.AUTHORIZATION, bearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"   \"}"))
+                .andExpect(status().isBadRequest());
+    }
 }

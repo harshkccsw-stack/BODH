@@ -312,6 +312,34 @@ export default function ReportTemplatesPage() {
     || editorHtml !== (open.html ?? '')
   );
 
+  /**
+   * A pending rename on a template that cannot otherwise be edited.
+   *
+   * Kept separate from `dirty`: that one guards unsaved CONTENT and drives the
+   * close confirmation, and a published template has none to lose.
+   */
+  const renameDirty = !!open && !!open.reportTemplateId && readOnly
+    && editorName.trim() !== '' && editorName.trim() !== open.name;
+
+  const renameTemplate = async () => {
+    if (!open?.reportTemplateId) return;
+    setSaving(true);
+    setActionError(null);
+    try {
+      const saved = await reportTemplatesApi.rename(open.reportTemplateId, editorName.trim());
+      setOpen(saved);
+      setEditorName(saved.name);
+      // Every version was renamed, so the whole list is refetched rather than
+      // patching the one row the user happened to have open.
+      await load();
+    } catch (e: any) {
+      setActionError(errorText(e, 'Could not rename this template'));
+      setEditorName(open.name);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const requestClose = () => {
     if (dirty) setConfirmClose(true);
     else setOpen(null);
@@ -466,10 +494,15 @@ export default function ReportTemplatesPage() {
           <div className="bg-background rounded-xl shadow-xl w-full max-w-6xl my-6">
             <div className="flex items-start justify-between gap-4 border-b px-6 py-4">
               <div className="min-w-0 flex-1">
+                {/* Editable even when published, unlike everything else here.
+                    Publishing freezes the CONTENT a delivered report was built
+                    from; the name is a label on the shelf, and a template stuck
+                    as "Untitled report 2" leaves every report it ever produces
+                    citing a placeholder. */}
                 <input
                   className={cn(INPUT_CLASS, 'font-medium text-base h-10')}
                   value={editorName}
-                  disabled={readOnly}
+                  disabled={saving}
                   placeholder="Template name"
                   onChange={(e) => setEditorName(e.target.value)}
                   aria-label="Template name"
@@ -488,6 +521,12 @@ export default function ReportTemplatesPage() {
                   impossible: people typed a name, saw nothing that would keep
                   it, and closed. */}
               <div className="flex items-center gap-2 shrink-0">
+                {renameDirty && (
+                  <Button variant="primary" size="sm" onClick={renameTemplate} disabled={saving}>
+                    {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                    Rename
+                  </Button>
+                )}
                 {!readOnly && (
                   <Button
                     variant="primary"

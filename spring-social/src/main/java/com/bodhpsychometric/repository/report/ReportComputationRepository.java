@@ -34,6 +34,9 @@ public interface ReportComputationRepository extends JpaRepository<ReportComputa
 
     boolean existsBySlugIgnoreCase(String slug);
 
+    /** Clone naming: "NICR (copy)" must not collide with an existing one. */
+    boolean existsByNameIgnoreCase(String name);
+
     boolean existsBySlugIgnoreCaseAndReportComputationIdNot(String slug, Long id);
 
     /** Pre-check behind "this rule version is in use" — a 409, not an FK error. */

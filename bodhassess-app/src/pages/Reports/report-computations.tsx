@@ -269,6 +269,62 @@ export default function ReportComputationsPage() {
     }
   };
 
+  /**
+   * Rename an approved computation.
+   *
+   * Approval freezes what a computation PRODUCES — pinned rule versions, the
+   * template, the respondent scope — because a report already issued must stay
+   * explicable. A name is none of those, so it can still move.
+   */
+  const renameApproved = async () => {
+    if (!open?.reportComputationId) return;
+    setActionError(null);
+    setSaving(true);
+    try {
+      const saved = await reportComputationsApi.rename(open.reportComputationId, name.trim());
+      applyToForm(saved);
+      setItems((prev) =>
+        prev.map((c) => (c.reportComputationId === saved.reportComputationId ? saved : c)),
+      );
+    } catch (e: any) {
+      setActionError(errorText(e, 'Could not rename this computation'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  /** Copy an approved computation to a draft, and open the copy. */
+  const cloneComputation = async () => {
+    if (!open?.reportComputationId) return;
+    setActionError(null);
+    setSaving(true);
+    try {
+      const copy = await reportComputationsApi.clone(open.reportComputationId);
+      await load();
+      applyToForm(copy);
+    } catch (e: any) {
+      setActionError(errorText(e, 'Could not clone this computation'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  /** Retire a computation instead of deleting it. */
+  const doArchive = async () => {
+    if (!confirmDelete) return;
+    setDeleteError(null);
+    try {
+      const saved = await reportComputationsApi.archive(confirmDelete.reportComputationId);
+      setItems((prev) =>
+        prev.map((c) => (c.reportComputationId === saved.reportComputationId ? saved : c)),
+      );
+      if (open?.reportComputationId === saved.reportComputationId) applyToForm(saved);
+      setConfirmDelete(null);
+    } catch (e: any) {
+      setDeleteError(errorText(e, 'Could not archive this computation'));
+    }
+  };
+
   const approve = async () => {
     if (!open?.reportComputationId) return;
     setActionError(null);
@@ -625,6 +681,12 @@ export default function ReportComputationsPage() {
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                   />
+                  {open.status === 'APPROVED' && (
+                    <p className="mt-1 text-[11px] text-muted-foreground">
+                      Approved: the name can still change, but the rules, template and
+                      respondents are frozen. Clone it to change those.
+                    </p>
+                  )}
                 </div>
                 <div>
                   <label className="text-sm font-medium mb-1.5 block">Assessment</label>
@@ -1031,6 +1093,25 @@ export default function ReportComputationsPage() {
                     Approve for delivery
                   </Button>
                 )}
+                {/*
+                  * Approved is frozen, so the only two writes left are the two
+                  * that do not change what it produces: relabelling it, and
+                  * copying it somewhere changes are allowed. Both error
+                  * messages have named cloning since approval existed.
+                  */}
+                {!!open.reportComputationId && open.status === 'APPROVED'
+                  && name.trim() !== '' && name.trim() !== open.name && (
+                  <Button variant="outline" onClick={renameApproved} disabled={saving}>
+                    {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+                    Rename
+                  </Button>
+                )}
+                {!!open.reportComputationId && open.status === 'APPROVED' && (
+                  <Button variant="outline" onClick={cloneComputation} disabled={saving}>
+                    {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+                    Clone to edit
+                  </Button>
+                )}
                 {!!open.reportComputationId && open.status === 'APPROVED' && (
                   <Button variant="primary" onClick={generate} disabled={generating}>
                     {generating && <Loader2 className="h-4 w-4 animate-spin" />}
@@ -1046,10 +1127,32 @@ export default function ReportComputationsPage() {
       {confirmDelete && (
         <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
           <div className="bg-background rounded-xl shadow-xl w-full max-w-md p-6">
-            <h2 className="text-lg font-semibold">Delete this computation?</h2>
+            {/*
+              * An approved computation gets a different dialog, not the same
+              * one with an error after the fact. Reports may have been issued
+              * from it, and the pinned rule versions are the only record of
+              * what they were built from — so archiving is the offer, and
+              * deleting is not on the table until it has been retired.
+              */}
+            <h2 className="text-lg font-semibold">
+              {confirmDelete.status === 'APPROVED'
+                ? 'Archive this computation?'
+                : 'Delete this computation?'}
+            </h2>
             <p className="text-sm text-muted-foreground mt-2">
-              “{confirmDelete.name}” will be removed. The rules it referenced are not
-              affected — they belong to the library.
+              {confirmDelete.status === 'APPROVED' ? (
+                <>
+                  “{confirmDelete.name}” is approved, so it cannot be deleted outright —
+                  any report already issued from it is explained by the rule versions it
+                  pinned. Archiving takes it out of the list and keeps that record. You can
+                  delete it afterwards if you are sure nothing was generated.
+                </>
+              ) : (
+                <>
+                  “{confirmDelete.name}” will be removed. The rules it referenced are not
+                  affected — they belong to the library.
+                </>
+              )}
             </p>
             {deleteError && (
               <div className="mt-4 rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-4 py-3 text-sm text-red-700 dark:text-red-400">
@@ -1058,7 +1161,11 @@ export default function ReportComputationsPage() {
             )}
             <div className="flex justify-end gap-2 mt-6">
               <Button variant="outline" onClick={() => setConfirmDelete(null)}>Cancel</Button>
-              <Button variant="destructive" onClick={doDelete}>Delete</Button>
+              {confirmDelete.status === 'APPROVED' ? (
+                <Button variant="primary" onClick={doArchive}>Archive</Button>
+              ) : (
+                <Button variant="destructive" onClick={doDelete}>Delete</Button>
+              )}
             </div>
           </div>
         </div>

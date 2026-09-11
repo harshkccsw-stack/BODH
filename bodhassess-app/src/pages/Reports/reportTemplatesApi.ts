@@ -141,6 +141,16 @@ export const reportTemplatesApi = {
   ): Promise<ReportTemplateResponse> =>
     (await api.put(`${ROOT}/bindTag/${id}/${encodeURIComponent(tag)}`, payload)).data,
 
+  /**
+   * Rename this template and every version of it.
+   *
+   * Works on a PUBLISHED template, unlike `update`. Publish freezes the
+   * CONTENT a delivered report was built from; the name is a label, and every
+   * version moves together because the name is the family's identity.
+   */
+  rename: async (id: number, name: string): Promise<ReportTemplateResponse> =>
+    (await api.put(`${ROOT}/rename/${id}`, { name })).data,
+
   /** Refuses unanswered tags and any lint ERROR, both as a 409. */
   publish: async (id: number): Promise<ReportTemplateResponse> =>
     (await api.post(`${ROOT}/publish/${id}`)).data,

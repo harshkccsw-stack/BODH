@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.bodhpsychometric.dto.ReportTagBindingRequest;
+import com.bodhpsychometric.dto.ReportTemplateRenameRequest;
 import com.bodhpsychometric.dto.ReportTemplateRequest;
 import com.bodhpsychometric.dto.ReportTemplateResponse;
 import com.bodhpsychometric.service.report.ReportTemplateService;
@@ -87,6 +88,19 @@ public class ReportTemplateController {
     }
 
     /** Freeze as renderable. Refuses unanswered tags and any lint ERROR. */
+    /**
+     * Rename this template and every version of it.
+     *
+     * <p>Allowed on a PUBLISHED template, unlike {@code update}. What publish
+     * freezes is the content a delivered report was built from; the name is a
+     * label, and a report citing "Untitled report 2" forever helps nobody.
+     */
+    @PutMapping("/rename/{id}")
+    public ReportTemplateResponse rename(@PathVariable Long id,
+            @Valid @RequestBody ReportTemplateRenameRequest request) {
+        return templateService.rename(id, request.name());
+    }
+
     @PostMapping("/publish/{id}")
     public ReportTemplateResponse publish(@PathVariable Long id) {
         return templateService.publish(id);

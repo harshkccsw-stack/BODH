@@ -75,6 +75,9 @@ class AcademicDriveTemplateTest {
     @Autowired
     private com.bodhpsychometric.service.report.ReportRenderer renderer;
 
+    @Autowired
+    private com.bodhpsychometric.service.report.TemplateLint lint;
+
     /**
      * The worst case: every tag resolves to nothing.
      *
@@ -85,6 +88,32 @@ class AcademicDriveTemplateTest {
      * inside {@code style="width: ${…}%"}, or the report fails for the quietest
      * respondents rather than the loudest.
      */
+    /**
+     * The bar-free variant: 19 placeholders, no {@code _pct} rules, no
+     * {@code band_routing}. Same proof as the full layout — parses, lints clean
+     * and renders with every value empty.
+     */
+    @Test
+    void theSimpleLayoutRendersToo() throws Exception {
+        String html = new String(new ClassPathResource(
+                "report-templates/academic-drive-report-simple.html")
+                .getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+
+        assertTrue(lint.check(html).stream()
+                        .noneMatch(f -> f.severity()
+                                == com.bodhpsychometric.service.report.TemplateLint.Severity.ERROR),
+                "the simple layout must publish as-is: " + lint.check(html));
+
+        java.util.Map<String, String> empty = new java.util.LinkedHashMap<>();
+        java.util.List<String> tags = parser.parse(html);
+        assertEquals(19, tags.size(), "19 placeholders, 13 of them from rules: " + tags);
+        tags.forEach(tag -> empty.put(tag, ""));
+
+        byte[] pdf = renderer.toPdf(parser.substitute(html, empty)).bytes();
+        assertTrue(pdf.length > 1000);
+        assertEquals('%', (char) pdf[0]);
+    }
+
     @Test
     void theLayoutStillRendersWhenEveryValueIsEmpty() throws Exception {
         String html = templateHtml();
@@ -94,6 +123,35 @@ class AcademicDriveTemplateTest {
         byte[] pdf = renderer.toPdf(parser.substitute(html, empty)).bytes();
         assertTrue(pdf.length > 1000, "an all-empty report is still a page");
         assertEquals('%', (char) pdf[0]);
+    }
+
+    /**
+     * A render failure names the line AND quotes it.
+     *
+     * <p>A SAX line number alone points at where the parser gave up, which for
+     * an unclosed void element is past the mistake and inside an element that
+     * looks fine — so the author is sent to the wrong place. The quoted text is
+     * what makes the message actionable.
+     */
+    @Test
+    void aRenderFailureQuotesTheOffendingLine() {
+        String broken = """
+                <html><body>
+                <table><tr>
+                <td>Internal Drive<br>16</td>
+                </tr></table>
+                </body></html>
+                """;
+        var failure = org.junit.jupiter.api.Assertions.assertThrows(
+                com.bodhpsychometric.service.report.ReportRenderer.RenderFailedException.class,
+                () -> renderer.toPdf(broken));
+
+        assertTrue(failure.getMessage().contains("At line"),
+                "the message must locate the failure: " + failure.getMessage());
+        assertTrue(failure.getMessage().contains("|"),
+                "and quote the source line: " + failure.getMessage());
+        assertTrue(failure.getMessage().contains("self-closed"),
+                "and name the likely cause: " + failure.getMessage());
     }
 
     @Test

@@ -207,6 +207,34 @@ export const reportComputationsApi = {
     };
   }),
 
+  /**
+   * Rename — allowed on an APPROVED computation, unlike `update`.
+   *
+   * The slug deliberately does not move: it is what every delivered batch's
+   * values.json records, so changing it would orphan the audit trail from the
+   * thing it describes.
+   */
+  rename: async (id: number, name: string): Promise<ReportComputationResponse> =>
+    (await api.put(`${ROOT}/rename/${id}`, { name })).data,
+
+  /**
+   * Copy an approved computation to a DRAFT that can be changed.
+   *
+   * The pinned rule versions come across as they are, so the copy starts as an
+   * exact restatement of what was approved and the first difference is the one
+   * you make on purpose.
+   */
+  clone: async (id: number): Promise<ReportComputationResponse> =>
+    (await api.post(`${ROOT}/clone/${id}`)).data,
+
+  /**
+   * Retire a computation. An APPROVED one must be archived before it can be
+   * deleted — the pinned rule versions and template are the only record of
+   * what any report issued from it was built from.
+   */
+  archive: async (id: number): Promise<ReportComputationResponse> =>
+    (await api.post(`${ROOT}/archive/${id}`)).data,
+
   reopen: async (id: number): Promise<ReportComputationResponse> =>
     (await api.post(`${ROOT}/reopen/${id}`)).data,
 
