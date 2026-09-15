@@ -84,6 +84,18 @@ export interface ReportComputationResponse {
   rules: SelectedRule[];
   tagGuidance: TagGuidance[];
   prompt: PromptPreview | null;
+  /**
+   * Template tags a model writes the prose for, in document order.
+   *
+   * Deliberately NOT folded into `mode`. The two say different things: `mode`
+   * is about the NUMBERS (still DIRECT here — every score is a pinned formula),
+   * this is about the TEXT. A report can have both, and one combined "uses AI"
+   * flag would either imply the scores were generated or hide that any prose
+   * was.
+   */
+  narrativeTags: string[];
+  /** Whether a model is configured to write them. */
+  narrativeAvailable: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -237,6 +249,19 @@ export const reportComputationsApi = {
 
   reopen: async (id: number): Promise<ReportComputationResponse> =>
     (await api.post(`${ROOT}/reopen/${id}`)).data,
+
+  /**
+   * Discard the prose a model wrote, so the next preview writes it again.
+   *
+   * Stored narrative is sticky on purpose — it is reused while the guidance and
+   * the scores behind it are unchanged, which is what stops a re-issued report
+   * contradicting the one already in somebody's hands. This is the escape hatch
+   * for the one case that cannot detect: the wording is simply not good enough.
+   * Costs one model call per respondent on the next run, so it is a deliberate
+   * button and never automatic.
+   */
+  clearNarratives: async (id: number): Promise<{ cleared: number; message: string }> =>
+    (await api.post(`${ROOT}/clearNarratives/${id}`)).data,
 
   delete: async (id: number): Promise<void> => {
     await api.delete(`${ROOT}/delete/${id}`);

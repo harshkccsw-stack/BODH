@@ -50,20 +50,38 @@ public class ReportValueResolver {
      */
     public Map<String, String> resolve(ReportTemplate template, Map<String, String> coreValues,
             Map<String, Object> ruleValues) {
+        return resolve(template, coreValues, ruleValues, Map.of());
+    }
+
+    /**
+     * @param narratives one respondent's generated prose, keyed by tag — from
+     *        {@link ReportNarrativeService#resolveForCohort}. Empty when the
+     *        template has no NARRATIVE tag, which is the ordinary case and the
+     *        reason this is an overload rather than a required argument.
+     */
+    public Map<String, String> resolve(ReportTemplate template, Map<String, String> coreValues,
+            Map<String, Object> ruleValues, Map<String, String> narratives) {
         Map<String, String> out = new LinkedHashMap<>();
         for (ReportTagBinding binding : template.getBindings()) {
-            out.put(binding.getTag(), escape(valueFor(binding, coreValues, ruleValues)));
+            out.put(binding.getTag(),
+                    escape(valueFor(binding, coreValues, ruleValues, narratives)));
         }
         return out;
     }
 
     /** Raw value for one binding, before escaping. Null means "use fallback". */
     private String valueFor(ReportTagBinding binding, Map<String, String> coreValues,
-            Map<String, Object> ruleValues) {
+            Map<String, Object> ruleValues, Map<String, String> narratives) {
         String raw = switch (binding.getBinderType()) {
             case ReportTagBinding.TYPE_CORE -> coreValues.get(binding.getCoreField());
             case ReportTagBinding.TYPE_LITERAL -> binding.getLiteralText();
             case ReportTagBinding.TYPE_VALUE -> computed(binding, ruleValues);
+            // Escaped on the way out like everything else, which is what keeps
+            // a model unable to emit markup into a PDF. It is handed in already
+            // written rather than generated here: one call covers every
+            // narrative tag for a respondent, and that call cannot happen once
+            // per binding inside a loop.
+            case ReportTagBinding.TYPE_NARRATIVE -> narratives.get(binding.getTag());
             // UNBOUND and COMPUTED resolve to nothing. COMPUTED is deliberately
             // vague — "a computation fills this, we have not said which" — so
             // it is an authoring placeholder, not something renderable.

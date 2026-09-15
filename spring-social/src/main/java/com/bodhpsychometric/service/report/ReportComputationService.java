@@ -1,6 +1,8 @@
 package com.bodhpsychometric.service.report;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.List;
 import java.util.Locale;
 
@@ -58,6 +60,7 @@ public class ReportComputationService {
     private final TemplateLint lint;
     private final ReportDryRunService dryRun;
     private final ReportAccess access;
+    private final ReportNarrativeService narrative;
 
     public ReportComputationService(ReportComputationRepository computations,
             ReportComputationTagGuidanceRepository tagGuidance,
@@ -67,7 +70,8 @@ public class ReportComputationService {
             ReportPromptAssembler assembler,
             TemplateLint lint,
             ReportDryRunService dryRun,
-            ReportAccess access) {
+            ReportAccess access,
+            ReportNarrativeService narrative) {
         this.computations = computations;
         this.tagGuidance = tagGuidance;
         this.ruleVersions = ruleVersions;
@@ -77,6 +81,7 @@ public class ReportComputationService {
         this.lint = lint;
         this.dryRun = dryRun;
         this.access = access;
+        this.narrative = narrative;
     }
 
     // ── reads ─────────────────────────────────────────────────────────────
@@ -267,6 +272,17 @@ public class ReportComputationService {
         if (!dangling.isEmpty()) {
             out.add("These tags point at rules this computation does not pin: "
                     + String.join(", ", dangling) + ".");
+        }
+
+        // A narrative tag is answered — a model writes it — but only if there is
+        // a model. Checked here rather than at render because discovering it
+        // halfway through a batch means half a ZIP and a held-open request,
+        // while discovering it at approval costs nothing.
+        List<String> narrativeTags = ReportNarrativeService.narrativeTags(template);
+        if (!narrativeTags.isEmpty() && !narrative.isAvailable()) {
+            out.add("These tags are written by a model: " + String.join(", ", narrativeTags)
+                    + ". AI is not configured, so set OPENAI_API_KEY and restart, or bind "
+                    + "them to a value or fixed text instead.");
         }
         if (!out.isEmpty()) {
             return out;
@@ -496,28 +512,54 @@ public class ReportComputationService {
         applyTagGuidance(computation, request.tagGuidance());
     }
 
-    /** Replace-all: the screen sends the full selection every save. */
+    /**
+     * Replace-all: the screen sends the full selection every save.
+     *
+     * <p><b>Reconciled in place, never cleared and rebuilt.</b> The obvious
+     * spelling — {@code clear()} then {@code addAll()} of fresh rows — looks
+     * like a replace but is not one: Hibernate orders INSERTs before DELETEs
+     * within a flush, so a rule the author KEPT is inserted a second time while
+     * the original is still there, and
+     * {@code uqRcrComputationRuleVersion} rejects it. The author sees "that
+     * change conflicts with existing data" on an edit that conflicted with
+     * nothing, and the only saves that work are the ones that happen to keep no
+     * rule at all.
+     *
+     * <p>So: rows that survive are kept and re-ordered, rows that went are
+     * removed (orphanRemoval deletes them), and only genuinely new pairs are
+     * inserted. No key is ever deleted and re-inserted in the same flush.
+     */
     private void applyRules(ReportComputation computation, List<Long> ruleVersionIds) {
-        List<Long> ids = ruleVersionIds == null ? List.of() : ruleVersionIds;
-        List<ReportComputationRule> links = new ArrayList<>(ids.size());
-        int order = 0;
-        for (Long versionId : ids.stream().distinct().toList()) {
-            ReportRuleVersion version = ruleVersions.findById(versionId)
-                    .orElseThrow(() -> new NotFoundException(
-                            "Rule version " + versionId + " not found"));
-            ReportComputationRule link = new ReportComputationRule();
-            link.setRuleVersion(version);
-            link.setComputation(computation);
-            link.setSortOrder(order++);
-            links.add(link);
+        List<Long> ids = ruleVersionIds == null
+                ? List.of() : ruleVersionIds.stream().distinct().toList();
+
+        Map<Long, ReportComputationRule> existing = new LinkedHashMap<>();
+        for (ReportComputationRule link : computation.getRules()) {
+            existing.put(link.getRuleVersion().getReportRuleVersionId(), link);
         }
-        computation.getRules().clear();
-        computation.getRules().addAll(links);
+
+        computation.getRules().removeIf(
+                link -> !ids.contains(link.getRuleVersion().getReportRuleVersionId()));
+
+        int order = 0;
+        for (Long versionId : ids) {
+            ReportComputationRule link = existing.get(versionId);
+            if (link == null) {
+                ReportRuleVersion version = ruleVersions.findById(versionId)
+                        .orElseThrow(() -> new NotFoundException(
+                                "Rule version " + versionId + " not found"));
+                link = new ReportComputationRule();
+                link.setRuleVersion(version);
+                link.setComputation(computation);
+                computation.getRules().add(link);
+            }
+            link.setSortOrder(order++);
+        }
 
         // Mode is DERIVED, never asked. The author does not get to declare that
         // a computation needs no AI — the rules they pinned decide it, and a
         // STATEMENT has no runnable form however anyone labels the computation.
-        boolean everyRuleRunnable = links.stream()
+        boolean everyRuleRunnable = computation.getRules().stream()
                 .allMatch(l -> l.getRuleVersion().isExpression());
         computation.setMode(everyRuleRunnable
                 ? ReportComputation.MODE_DIRECT : ReportComputation.MODE_GENERATED);
@@ -528,8 +570,12 @@ public class ReportComputationService {
 
         List<ReportComputationRequest.TagGuidance> items =
                 requested == null ? List.of() : requested;
-        List<ReportComputationTagGuidance> rows = new ArrayList<>(items.size());
-        int order = 0;
+
+        // Same reconcile-in-place as applyRules, and for the same reason:
+        // uqRctgComputationTag turns a clear-and-rebuild into a duplicate key
+        // the moment an author edits one tag's note and leaves the others
+        // alone — which is nearly every edit anybody makes on this screen.
+        Map<String, String> wanted = new LinkedHashMap<>();
         for (ReportComputationRequest.TagGuidance item : items) {
             if (item.tag() == null || item.tag().isBlank()) {
                 continue;
@@ -538,15 +584,43 @@ public class ReportComputationService {
                 // An empty note is the absence of a note, not an empty row.
                 continue;
             }
-            ReportComputationTagGuidance row = new ReportComputationTagGuidance();
-            row.setTag(item.tag().trim());
-            row.setGuidance(item.guidance().trim());
-            row.setSortOrder(order++);
-            row.setComputation(computation);
-            rows.add(row);
+            wanted.put(item.tag().trim(), item.guidance().trim());
         }
-        computation.getTagGuidance().clear();
-        computation.getTagGuidance().addAll(rows);
+
+        Map<String, ReportComputationTagGuidance> existing = new LinkedHashMap<>();
+        for (ReportComputationTagGuidance row : computation.getTagGuidance()) {
+            existing.put(row.getTag(), row);
+        }
+        computation.getTagGuidance().removeIf(row -> !wanted.containsKey(row.getTag()));
+
+        int order = 0;
+        for (Map.Entry<String, String> entry : wanted.entrySet()) {
+            ReportComputationTagGuidance row = existing.get(entry.getKey());
+            if (row == null) {
+                row = new ReportComputationTagGuidance();
+                row.setTag(entry.getKey());
+                row.setComputation(computation);
+                computation.getTagGuidance().add(row);
+            }
+            row.setGuidance(entry.getValue());
+            row.setSortOrder(order++);
+        }
+    }
+
+    /**
+     * Discard the stored narrative prose for one computation.
+     *
+     * <p>Allowed on an APPROVED computation, unlike every other write, and the
+     * reasoning is the same as {@code rename}: approval freezes what the
+     * computation MEANS — the pinned rule versions, the template, the scope —
+     * and none of those move here. Every number in every report stays exactly
+     * what it was; only the wording is written again, from the same values,
+     * under the same guidance.
+     */
+    public int clearNarratives(Long id) {
+        access.requireAuthor();
+        load(id); // 404 rather than a cheerful "0 cleared" for an id that is not there.
+        return narrative.clear(id);
     }
 
     private void requireEditable(ReportComputation computation) {
@@ -620,6 +694,8 @@ public class ReportComputationService {
                         prompt.expectedTags(),
                         prompt.blockers(),
                         prompt.warnings()),
+                ReportNarrativeService.narrativeTags(c.getTemplate()),
+                narrative.isAvailable(),
                 c.getCreatedAt(),
                 c.getUpdatedAt());
     }

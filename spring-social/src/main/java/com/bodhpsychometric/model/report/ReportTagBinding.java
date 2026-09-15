@@ -55,11 +55,20 @@ import jakarta.persistence.Table;
  * tags is a layout that has been signed off, not a report that can be sent.
  *
  * <p>{@code VALUE}, {@code NARRATIVE}, {@code TABLE} and {@code CHART} refine
- * {@code COMPUTED} in P4 by naming the SHAPE of what comes back, once
- * {@code report_computation} exists to point at. They are named here so the
- * vocabulary is settled, but a binding cannot be set to one yet —
- * {@link #isImplemented(String)} is what refuses it, with a message that says
- * so rather than a validation error nobody can act on.
+ * {@code COMPUTED} by naming the SHAPE of what comes back, once
+ * {@code report_computation} exists to point at. {@code VALUE} and
+ * {@code NARRATIVE} are live; {@code TABLE} and {@code CHART} are named so the
+ * vocabulary is settled but cannot be set yet — {@link #isImplemented(String)}
+ * is what refuses them, with a message that says so rather than a validation
+ * error nobody can act on.
+ *
+ * <p>The line between the two live ones is worth being precise about, because
+ * it is the line between reproducible and not. A {@code VALUE} tag prints a
+ * number a pinned formula computed, and printing it twice gives the same digit
+ * twice. A {@code NARRATIVE} tag prints prose a model wrote FROM those same
+ * finished numbers — it never scores anything — and because a model does not
+ * repeat itself, that prose is generated once and stored. Everything about
+ * that trade is in {@link ReportNarrative}.
  */
 @Entity
 @Table(name = "ReportTagBinding")
@@ -95,7 +104,25 @@ public class ReportTagBinding implements java.io.Serializable {
                 || TYPE_CORE.equals(binderType)
                 || TYPE_LITERAL.equals(binderType)
                 || TYPE_COMPUTED.equals(binderType)
-                || TYPE_VALUE.equals(binderType);
+                || TYPE_VALUE.equals(binderType)
+                || TYPE_NARRATIVE.equals(binderType);
+    }
+
+    /**
+     * True when a model writes this tag's text at render time.
+     *
+     * <p>{@code NARRATIVE} needs no second field, which is what separates it
+     * from {@code VALUE}. A VALUE binding names the computation and the output
+     * key because it is addressing one specific number; a narrative is written
+     * from whatever that computation's rules produced, and the instructions for
+     * writing it live on the COMPUTATION as per-tag guidance — one template can
+     * then be worded differently by two computations without being copied.
+     *
+     * <p>See {@link com.bodhpsychometric.service.report.ReportNarrativeService}
+     * for what is and is not sent to the model.
+     */
+    public boolean isNarrative() {
+        return TYPE_NARRATIVE.equals(binderType);
     }
 
     /**

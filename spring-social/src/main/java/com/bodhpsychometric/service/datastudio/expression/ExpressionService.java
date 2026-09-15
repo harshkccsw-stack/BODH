@@ -44,13 +44,35 @@ public class ExpressionService {
     private static final int MAX_LEN = 2000;
 
     // Row-local functions — safe to evaluate client-side over loaded rows.
+    //
+    // SUM sits here, not below: SUM(a, b, c) adds one respondent's a, b and c.
+    // It is the one name a reader is most likely to assume means the cohort
+    // total, and it deliberately does not — see ExpressionEvaluator#rowSum.
+    // Being here is also what makes "SUM(x BY dept)" a parse error, since BY
+    // scopes a population and SUM no longer describes one.
     static final Set<String> CLIENT_FUNCS = new LinkedHashSet<>(Arrays.asList(
-            "IF", "AND", "OR", "NOT", "MIN", "MAX", "ROUND", "ABS", "SQRT", "LOG"));
+            "IF", "AND", "OR", "NOT", "MIN", "MAX", "SUM", "ROUND", "ABS", "SQRT", "LOG",
+            "FIRST"));
 
     // Population / cohort functions — require all rows → server-side only.
     static final Set<String> SERVER_FUNCS = new LinkedHashSet<>(Arrays.asList(
-            "AVERAGE", "SUM", "COUNT", "AVERAGEIF", "COUNTIF",
+            "AVERAGE", "COUNT", "AVERAGEIF", "COUNTIF",
             "PERCENTILE", "PERCENTRANK", "ZSCORE", "RANK", "NORMBAND"));
+
+    /**
+     * Every function name the grammar accepts, for callers that must state the
+     * vocabulary rather than discover it — the AI translator's prompt, above
+     * all, where naming a function that does not exist is the model's most
+     * likely mistake and the cheapest one to prevent.
+     *
+     * <p>Read from the same two sets the parser checks, so the list cannot
+     * drift away from what {@code parseCall} actually allows.
+     */
+    public static java.util.List<String> functionNames() {
+        java.util.List<String> all = new ArrayList<>(CLIENT_FUNCS);
+        all.addAll(SERVER_FUNCS);
+        return java.util.List.copyOf(all);
+    }
 
     enum T { NUMBER, STRING, BOOLEAN, UNKNOWN }
 
@@ -171,7 +193,7 @@ public class ExpressionService {
         int n = c.args.size();
         switch (c.name) {
             case "IF": if (n != 3) a.errors.add("IF() takes 3 arguments (condition, then, else)."); break;
-            case "NOT": case "ABS": case "SQRT": case "AVERAGE": case "SUM": case "COUNT":
+            case "NOT": case "ABS": case "SQRT": case "AVERAGE": case "COUNT":
             case "ZSCORE": case "PERCENTRANK": case "RANK": case "COUNTIF":
                 if (n < 1) a.errors.add(c.name + "() requires an argument."); break;
             case "PERCENTILE": if (n != 2) a.errors.add("PERCENTILE(value, p) takes 2 arguments (p in 0–100)."); break;
@@ -183,8 +205,13 @@ public class ExpressionService {
                     a.errors.add("NORMBAND(value, cut1, label1, …, finalLabel) needs value plus cut/label pairs and a final label.");
                 }
                 break;
-            case "MIN": case "MAX": case "AND": case "OR":
+            case "MIN": case "MAX": case "SUM": case "AND": case "OR":
                 if (n < 1) a.errors.add(c.name + "() requires at least one argument."); break;
+            // Two, not one: FIRST(x) is x, so a one-argument call is always a
+            // half-finished edit rather than something somebody meant.
+            case "FIRST":
+                if (n < 2) a.errors.add("FIRST() takes at least 2 arguments — the candidates in priority order, "
+                        + "usually ending in a fallback."); break;
             default: break;
         }
     }
@@ -208,6 +235,17 @@ public class ExpressionService {
                 if (then == T.STRING || otherwise == T.STRING) return T.STRING;
                 if (then == T.BOOLEAN && otherwise == T.BOOLEAN) return T.BOOLEAN;
                 return T.NUMBER;
+            }
+            // FIRST answers with one of its candidates, so its type is theirs —
+            // the IF reasoning above widened from two branches to n.
+            if ("FIRST".equals(c.name) && !c.args.isEmpty()) {
+                boolean allBoolean = true;
+                for (Node arg : c.args) {
+                    T t = inferType(arg);
+                    if (t == T.STRING) return T.STRING;
+                    if (t != T.BOOLEAN) allBoolean = false;
+                }
+                return allBoolean ? T.BOOLEAN : T.NUMBER;
             }
             return T.NUMBER;
         }

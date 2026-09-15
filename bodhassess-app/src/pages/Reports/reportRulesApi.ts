@@ -35,6 +35,12 @@ export interface ExprCheck {
   errors: string[];
   referencedColumns: string[];
   functions: string[];
+  /**
+   * Valid, and still suspect — a band cut no respondent can reach, above all.
+   * Never blocks a save: `ok` stays true. Older responses may omit it, so
+   * always read it as `warnings ?? []`.
+   */
+  warnings?: string[];
 }
 
 /**
@@ -177,9 +183,230 @@ export interface DryRunResult {
 
 const ROOT = '/report-rules';
 
+/* ===================== workbook import ===================== */
+
+/** Matches ScoringSheetPreviewResponse.DraftRule on the backend. */
+export interface DraftRule {
+  sheetRow: number;
+  code: string;
+  name: string;
+  slug: string;
+  stage: RuleStage;
+  stepOrder: number;
+  logicText: string;
+  /** The name this rule assigns to, when it states one. A grouping HINT. */
+  writesTo: string | null;
+  nameTaken: boolean;
+}
+
+/**
+ * Rules competing to fill one placeholder — 4.1/4.2/4.3 all setting `band`.
+ *
+ * `ruleNames` is in SHEET order, which is the priority order: FIRST() answers
+ * with the earliest candidate that produced text.
+ */
+export interface SelectionGroup {
+  writesTo: string;
+  stage: RuleStage;
+  ruleNames: string[];
+}
+
+/** Matches ScoringSheetPreviewResponse on the backend. */
+export interface SheetPreview {
+  rules: DraftRule[];
+  warnings: string[];
+  /** Non-empty means the import cannot run. */
+  blocking: string[];
+  groups: SelectionGroup[];
+}
+
+/**
+ * Read a workbook into CSV text for the backend.
+ *
+ * An .xlsx is converted HERE, with the SheetJS build this app already bundles
+ * for the question sheet, so the backend never gained a spreadsheet dependency
+ * to read three columns. `FS: ','` and `blankrows: true` both matter: the
+ * sheet's structure IS its blank rows and its empty columns, and a converter
+ * that tidies them away destroys the section headings the parser reads.
+ */
+export async function workbookToCsv(file: File): Promise<string> {
+  if (/\.csv$/i.test(file.name)) {
+    return file.text();
+  }
+  const XLSX = await import('xlsx');
+  const wb = XLSX.read(await file.arrayBuffer());
+  const first = wb.SheetNames[0];
+  if (!first) {
+    throw new Error('That workbook has no sheets.');
+  }
+  return XLSX.utils.sheet_to_csv(wb.Sheets[first], { FS: ',', blankrows: true });
+}
+
+/* ===================== AI translation ===================== */
+
+/** Matches RuleTranslationResponse.Proposal on the backend. */
+export interface TranslationProposal {
+  reportRuleId: number;
+  name: string;
+  sourceText: string;
+  expression: string | null;
+  resultType: string | null;
+  /** The VALIDATOR's verdict, not the model's. Only `ok` may be applied. */
+  ok: boolean;
+  /** The model's own judgement. False means "parses, but check the meaning". */
+  confident: boolean;
+  errors: string[];
+  note: string | null;
+  /**
+   * What the validator found suspect in a formula it nonetheless accepted.
+   * A proposal with warnings is never marked `confident`, so the tick and the
+   * warning cannot appear together.
+   */
+  warnings?: string[];
+}
+
+/** Matches RuleTranslationResponse on the backend. */
+export interface TranslationResult {
+  model: string;
+  proposals: TranslationProposal[];
+}
+
+/**
+ * A worked example of the sheet this importer reads, as .xlsx.
+ *
+ * Filled in rather than blank on purpose. A psychometrician handed an empty
+ * grid has to guess what "column C" wants; handed a sheet that already states
+ * a validity check, a reverse-scored transform, three factor scores, a band
+ * and two competing profile notes, they can replace the text and keep the
+ * shape. Every structural rule the parser relies on — headings alone on their
+ * row, a blank row between sections, the assignment written as `name = ...` —
+ * is demonstrated at least once here rather than only described.
+ *
+ * Written as an array of arrays, NOT json_to_sheet: this sheet has no header
+ * row. Its first column holds a step heading on one line and a rule code on
+ * the next, which is a shape a header-keyed converter cannot express.
+ */
+export async function downloadSheetTemplate() {
+  const XLSX = await import('xlsx');
+
+  const rows: string[][] = [
+    ['STEP 1 — VALIDITY CHECKS (run BEFORE any scoring)', '', ''],
+    ['1.1', 'Infrequency check',
+      "IF V3 <= 3 THEN protocol_status = 'INVALID'. Do not compute any scores. " +
+      "Message: 'Response pattern suggests careless responding. Please retake.'"],
+    ['1.2', 'Straight-lining',
+      "IF all 15 raw responses are identical THEN protocol_status = 'INVALID'. Same handling as 1.1."],
+    ['', '', ''],
+
+    ['STEP 2 — REVERSE SCORING', '', ''],
+    ['2.1', 'Transform',
+      "FOR each item WHERE Reverse_Scored = 'Y' (I3, I6, I11): scored_value = 6 - raw_value. " +
+      'All other scored items: scored_value = raw_value.'],
+    ['', '', ''],
+
+    ['STEP 3 — SCORE COMPUTATION', '', ''],
+    ['3.1', 'Internal Drive', 'ID_score = I1 + I2 + I3(rev) + I4. Range 4-20.'],
+    ['3.2', 'Sustained Tenacity', 'ST_score = I5 + I6(rev) + I7 + I8. Range 4-20.'],
+    ['3.3', 'Adaptive Execution', 'AE_score = I9 + I10 + I11(rev) + I12. Range 4-20.'],
+    ['3.4', 'Composite', 'AD_composite = ID_score + ST_score + AE_score. Range 12-60.'],
+    ['', '', ''],
+
+    ['STEP 4 — INTERPRETATION BANDS', '', ''],
+    ['4.1', 'High', "IF AD_composite >= 48 THEN band = 'High Drive'."],
+    ['4.2', 'Moderate', "IF 34 <= AD_composite <= 47 THEN band = 'Moderate Drive'."],
+    ['4.3', 'Developing', "IF AD_composite <= 33 THEN band = 'Developing Drive'."],
+    ['', '', ''],
+
+    ['STEP 5 — PROFILE INTERPRETATION RULES', '', ''],
+    ['5.1', "Believes, doesn't act",
+      "IF ID_score >= 15 AND AE_score <= 11 THEN profile_note = " +
+      "'High belief, low execution - needs accountability structures.'"],
+    ['5.2', "Starts, doesn't finish",
+      "IF ID_score >= 15 AND ST_score <= 11 THEN profile_note = " +
+      "'Strong start, weak follow-through - needs milestone commitments.'"],
+    ['', '', ''],
+
+    ['EDGE CASES', '', ''],
+    ['E1', 'Ties at band boundaries',
+      'Band cutoffs are inclusive as written (>= and <=); no rounding needed.'],
+  ];
+
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = [{ wch: 12 }, { wch: 26 }, { wch: 96 }];
+
+  const guide = XLSX.utils.aoa_to_sheet([
+    ['How to fill in the Scoring Logic sheet'],
+    [''],
+    ['Column A', 'The step heading, OR a rule code like 3.1 / E1.'],
+    ['Column B', "The rule's short name. Leave blank on a heading row."],
+    ['Column C', 'The rule itself, in your own words. Leave blank on a heading row.'],
+    [''],
+    ['A row is read as a HEADING when columns B and C are both empty.'],
+    ['A row with nothing in any column is a separator and is ignored.'],
+    ['Everything else is read as one rule.'],
+    [''],
+    ['Which step a heading means is read from its WORDS, not its number, so'],
+    ['"STEP 3 — SCORE COMPUTATION" and "SCORING" both file under Score computation.'],
+    ['Recognised: VALIDITY, DATA CAPTURE, REVERSE, SCORING, COMPUTATION, BAND,'],
+    ['INTERPRETATION, PROFILE, EDGE.'],
+    [''],
+    ['Write the output as "name = value" (e.g. band = \'High Drive\'). Rules that'],
+    ['set the SAME name are treated as competing for one placeholder — 4.1, 4.2'],
+    ['and 4.3 above all set "band" — and the importer will tell you so, because'],
+    ['more than one can match the same respondent and you have to say which wins.'],
+    [''],
+    ['Order matters inside a step: it becomes the priority order.'],
+    [''],
+    ['Nothing imported can run until it is turned into a formula. Importing is'],
+    ['always safe — the worst case is a rule filed under the wrong step.'],
+  ]);
+  guide['!cols'] = [{ wch: 14 }, { wch: 86 }];
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Scoring Logic');
+  XLSX.utils.book_append_sheet(wb, guide, 'How to fill this in');
+  XLSX.writeFile(wb, 'scoring-logic-template.xlsx');
+}
+
 export const reportRulesApi = {
+
   getAll: async (): Promise<ReportRuleResponse[]> =>
     (await api.get(`${ROOT}/getAll`)).data,
+
+  /** Whether AI translation is configured, asked before the button is drawn. */
+  aiAvailable: async (): Promise<boolean> =>
+    (await api.get(`${ROOT}/ai/available`)).data?.available === true,
+
+  /**
+   * Propose formulae for plain-language rules. Saves NOTHING.
+   *
+   * Sent as a batch because workbook rules reference each other — a composite
+   * score is meaningless without the factor scores it adds up — so translating
+   * one at a time would hand the model a sentence with half its vocabulary
+   * missing.
+   */
+  aiTranslate: async (
+    assessmentId: number,
+    ruleIds: number[],
+    organizationId?: number | null,
+  ): Promise<TranslationResult> =>
+    (await api.post(`${ROOT}/ai/translate`, { assessmentId, ruleIds, organizationId })).data,
+
+  /** What a workbook WOULD create. Writes nothing. */
+  importPreview: async (
+    csv: string,
+    assessmentId: number | null,
+    organizationId?: number | null,
+  ): Promise<SheetPreview> =>
+    (await api.post(`${ROOT}/import/preview`, { csv, assessmentId, organizationId })).data,
+
+  /** Creates every rule in the sheet, or none of them. */
+  importSheet: async (
+    csv: string,
+    assessmentId: number | null,
+    organizationId?: number | null,
+  ): Promise<ReportRuleResponse[]> =>
+    (await api.post(`${ROOT}/import`, { csv, assessmentId, organizationId })).data,
 
   getById: async (id: number): Promise<ReportRuleResponse> =>
     (await api.get(`${ROOT}/getById/${id}`)).data,

@@ -9,6 +9,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import java.util.List;
+
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
@@ -206,6 +208,55 @@ class ReportDryRunTest {
                  "expression":"NORMBAND([rule:smoke-drive-vs-cohort], 0, 'Below average', 'At or above')",
                  "assessmentId":%d}""".formatted(assessmentId));
 
+        // A composite: SUM over one respondent's OWN columns.
+        //
+        // This is the shape that was silently wrong. SUM used to be a cohort
+        // aggregate — it returned the population total of its FIRST argument
+        // and discarded the rest — so this rule would have read 36 (16+8+12,
+        // the cohort total of the factor) for all three respondents alike.
+        // The three distinct answers below are the whole proof.
+        rule("""
+                {"name":"__smoke__ Composite","stage":"SCORE","stepOrder":3,
+                 "definitionKind":"EXPRESSION",
+                 "expression":"SUM([rule:smoke-internal-drive], [mqt:%d])",
+                 "assessmentId":%d}""".formatted(infrequency, assessmentId));
+
+        // ── A threshold the instrument cannot produce ─────────────────────
+        // Four 1-5 items feed Internal Drive, so it runs 4-20. A band cut of 48
+        // belongs to the 12-60 composite and is simply never met here. The
+        // formula is VALID - it parses, the column exists, it would save and
+        // run - and it bands nobody. That gap between "valid" and "right" is
+        // the whole reason the warning exists, so ok must stay true.
+        String verdict = mvc.perform(post("/api/report-rules/validate-expression")
+                        .header(HttpHeaders.AUTHORIZATION, auth())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"assessmentId\":" + assessmentId
+                                + ",\"expression\":\"IF([mqt:" + internalDrive
+                                + "] >= 48, 'High Drive', '')\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.ok").value(true))
+                .andReturn().getResponse().getContentAsString();
+        org.junit.jupiter.api.Assertions.assertTrue(
+                verdict.contains("\"warnings\""), () -> "no warnings field: " + verdict);
+        org.junit.jupiter.api.Assertions.assertTrue(
+                JsonPath.<List<String>>read(verdict, "$.warnings").stream()
+                        .anyMatch(w -> w.contains("20") && w.contains("48")),
+                () -> "expected the ceiling and the cut to be named: "
+                        + JsonPath.read(verdict, "$.warnings"));
+
+        // The same cut against the whole quality, which four items can still
+        // only take to 20 - and the reachable version, which says nothing.
+        org.junit.jupiter.api.Assertions.assertTrue(
+                JsonPath.<List<String>>read(mvc.perform(post("/api/report-rules/validate-expression")
+                                .header(HttpHeaders.AUTHORIZATION, auth())
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"assessmentId\":" + assessmentId
+                                        + ",\"expression\":\"IF([mqt:" + internalDrive
+                                        + "] >= 15, 'High Drive', '')\"}"))
+                        .andExpect(status().isOk())
+                        .andReturn().getResponse().getContentAsString(), "$.warnings").isEmpty(),
+                "a cut inside the range must not warn");
+
         // ── The dry run ───────────────────────────────────────────────────
         String out = mvc.perform(post("/api/report-rules/dry-run")
                         .header(HttpHeaders.AUTHORIZATION, auth())
@@ -250,6 +301,15 @@ class ReportDryRunTest {
         org.junit.jupiter.api.Assertions.assertEquals("OK",
                 rowValue(out, "drive.one", "smoke-infrequency-check"));
 
+        // The composite, per respondent: factor + validity item, three
+        // different numbers. 16+5, 8+5, 12+2 — and not one shared 36.
+        org.junit.jupiter.api.Assertions.assertEquals(21.0,
+                (double) rowValue(out, "drive.one", "smoke-composite"), 0.0001);
+        org.junit.jupiter.api.Assertions.assertEquals(13.0,
+                (double) rowValue(out, "drive.two", "smoke-composite"), 0.0001);
+        org.junit.jupiter.api.Assertions.assertEquals(14.0,
+                (double) rowValue(out, "drive.three", "smoke-composite"), 0.0001);
+
         // The cohort view — the only one that shows a band cut written
         // backwards. 8, 12, 16: mean 12, and one respondent in each band.
         org.junit.jupiter.api.Assertions.assertEquals(8.0,
@@ -270,7 +330,8 @@ class ReportDryRunTest {
         // Studio's sheet compute writes null and carries on, which is right for
         // a spreadsheet and wrong here — a null score is a wrong report.
         for (String slug : new String[] { "smoke-internal-drive", "smoke-drive-band",
-                "smoke-infrequency-check", "smoke-drive-vs-cohort", "smoke-cohort-band" }) {
+                "smoke-infrequency-check", "smoke-drive-vs-cohort", "smoke-cohort-band",
+                "smoke-composite" }) {
             org.junit.jupiter.api.Assertions.assertEquals("EVALUATED",
                     ruleField(out, slug, "status"), slug + " should have evaluated");
         }
@@ -284,6 +345,11 @@ class ReportDryRunTest {
                 ruleField(out, "smoke-internal-drive", "population"));
         org.junit.jupiter.api.Assertions.assertEquals(false,
                 ruleField(out, "smoke-drive-band", "population"));
+        // Nor does SUM: a composite of a respondent's own columns needs nobody
+        // else's row, and flagging it would suppress it below the minimum
+        // cohort size for no reason.
+        org.junit.jupiter.api.Assertions.assertEquals(false,
+                ruleField(out, "smoke-composite", "population"));
         // ZSCORE does, and it carries down the chain: a band reading a
         // cohort-relative score is itself cohort-relative.
         org.junit.jupiter.api.Assertions.assertEquals(true,

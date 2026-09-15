@@ -33,6 +33,19 @@ public record ReportComputationResponse(
         List<SelectedRule> rules,
         List<TagGuidance> tagGuidance,
         PromptPreview prompt,
+        /**
+         * The template tags a model writes the prose for, in document order.
+         *
+         * <p>Separate from {@code mode}, and deliberately so: the two answer
+         * different questions. {@code mode} says how the NUMBERS are produced —
+         * still DIRECT here, because every score comes from a pinned formula.
+         * This says whether any TEXT is written by a model. A report can have
+         * both, and a screen that collapsed them into one "uses AI" flag would
+         * either claim the scores were generated or claim nothing was.
+         */
+        List<String> narrativeTags,
+        /** Whether a model is actually configured to write them. */
+        boolean narrativeAvailable,
         OffsetDateTime createdAt,
         OffsetDateTime updatedAt) {
 

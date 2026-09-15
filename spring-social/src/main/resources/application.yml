@@ -1,6 +1,27 @@
 spring:
   application:
     name: bodhpsychometric
+  # ── Secrets ───────────────────────────────────────────────────────────────
+  # Real environment variables still win; this only fills in what the shell or
+  # the run configuration did not set, so nothing here can override a value a
+  # deployment already provides.
+  #
+  # Both paths are OPTIONAL and both are tried because the working directory
+  # differs by launcher: the IDE and `./mvnw` run from spring-social/, while a
+  # script started at the repository root does not. A missing file is silence,
+  # not a failure — the app boots without it and the OpenAI feature simply
+  # stays off.
+  #
+  # [.properties] is not decoration: without it the extensionless file has no
+  # parser and the import fails. It also means the file is read as Java
+  # properties, so values are literal — no quotes, no shell expansion.
+  #
+  # secrets.env is gitignored at every depth. Do NOT move these values into
+  # this file or into the repository-root .env, which IS tracked by git.
+  config:
+    import:
+      - optional:file:./secrets.env[.properties]
+      - optional:file:../secrets.env[.properties]
   profiles:
     # Pick the active profile with SPRING_PROFILES_ACTIVE (defaults to development).
     active: ${SPRING_PROFILES_ACTIVE:development}
@@ -141,6 +162,37 @@ app:
       dob: 2001-01-01
     - email: superadmin@bodh.biz
       dob: 1990-01-01
+  openai:
+    # Translates workbook rule text into DSL expressions at IMPORT time — a
+    # practitioner-facing authoring aid, never part of rendering a report. An
+    # unreachable or unconfigured OpenAI therefore delays nobody's report: it
+    # blocks one button on one wizard, and every rule can still be typed by
+    # hand exactly as before.
+    #
+    # BLANK KEY = FEATURE OFF, and that is the default on purpose. No key is
+    # committed here and none ever should be: unlike jwt.secret below — whose
+    # checked-in default is a dev convenience for a value that only signs
+    # local tokens — this one bills a real account and cannot be rotated by
+    # the people who would find it in the repository.
+    #
+    # Set OPENAI_API_KEY in the run configuration or the shell, never in a
+    # file under this directory.
+    enabled: ${OPENAI_ENABLED:true}
+    api-key: ${OPENAI_API_KEY:}
+    # Confirm the exact id against the model list on the account that owns the
+    # key — names move, and a wrong one is a 404 "model_not_found" on the
+    # first call rather than anything subtler. Pick the strongest general
+    # model available, NOT a mini/nano variant: this runs once per imported
+    # workbook over ~20 rows, so the entire cost of being generous here is a
+    # few cents, and the cost of being cheap is a mistranslated band cutoff
+    # nobody catches.
+    model: ${OPENAI_MODEL:gpt-4.1}
+    base-url: ${OPENAI_BASE_URL:https://api.openai.com/v1}
+    # One import is one call over a whole sheet, so this is a per-sheet budget
+    # and not a per-request one. Generous on purpose — a reasoning model on 20
+    # interdependent rules is slow, and a timeout here throws away the whole
+    # translation.
+    timeout-seconds: ${OPENAI_TIMEOUT_SECONDS:120}
   jwt:
     # HS256 needs >= 32 bytes; override in every real environment.
     secret: ${JWT_SECRET:eb36fabf9a4245f0e94e981537361065878f2b21d557f75b0137343b7de06f80}
@@ -265,6 +317,37 @@ app:
       dob: 2001-01-01
     - email: superadmin@bodh.biz
       dob: 1990-01-01
+  openai:
+    # Translates workbook rule text into DSL expressions at IMPORT time — a
+    # practitioner-facing authoring aid, never part of rendering a report. An
+    # unreachable or unconfigured OpenAI therefore delays nobody's report: it
+    # blocks one button on one wizard, and every rule can still be typed by
+    # hand exactly as before.
+    #
+    # BLANK KEY = FEATURE OFF, and that is the default on purpose. No key is
+    # committed here and none ever should be: unlike jwt.secret below — whose
+    # checked-in default is a dev convenience for a value that only signs
+    # local tokens — this one bills a real account and cannot be rotated by
+    # the people who would find it in the repository.
+    #
+    # Set OPENAI_API_KEY in the run configuration or the shell, never in a
+    # file under this directory.
+    enabled: ${OPENAI_ENABLED:true}
+    api-key: ${OPENAI_API_KEY:}
+    # Confirm the exact id against the model list on the account that owns the
+    # key — names move, and a wrong one is a 404 "model_not_found" on the
+    # first call rather than anything subtler. Pick the strongest general
+    # model available, NOT a mini/nano variant: this runs once per imported
+    # workbook over ~20 rows, so the entire cost of being generous here is a
+    # few cents, and the cost of being cheap is a mistranslated band cutoff
+    # nobody catches.
+    model: ${OPENAI_MODEL:gpt-5}
+    base-url: ${OPENAI_BASE_URL:https://api.openai.com/v1}
+    # One import is one call over a whole sheet, so this is a per-sheet budget
+    # and not a per-request one. Generous on purpose — a reasoning model on 20
+    # interdependent rules is slow, and a timeout here throws away the whole
+    # translation.
+    timeout-seconds: ${OPENAI_TIMEOUT_SECONDS:120}
   jwt:
     # HS256 needs >= 32 bytes; override in every real environment.
     secret: ${JWT_SECRET:eb36fabf9a4245f0e94e981537361065878f2b21d557f75b0137343b7de06f80}

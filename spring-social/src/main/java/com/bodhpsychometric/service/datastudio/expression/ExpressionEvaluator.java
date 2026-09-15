@@ -90,6 +90,7 @@ public class ExpressionEvaluator {
             case "NOT": return !truthy(eval(c.args.get(0), row));
             case "MIN": return reduce(c, row, true);
             case "MAX": return reduce(c, row, false);
+            case "SUM": return rowSum(c, row);
             case "ABS": return safe(Math.abs(toNum(eval(c.args.get(0), row))));
             case "SQRT": return safe(Math.sqrt(toNum(eval(c.args.get(0), row))));
             case "LOG": {
@@ -102,11 +103,19 @@ public class ExpressionEvaluator {
                 return safe(Math.round(toNum(eval(c.args.get(0), row)) * f) / f);
             }
             case "NORMBAND": return normBand(c, row);
+            case "FIRST": {
+                // Short-circuits: a later candidate is never evaluated once an
+                // earlier one answers, so priority order is also cost order.
+                for (Node arg : c.args) {
+                    Object v = eval(arg, row);
+                    if (!absent(v)) return v;
+                }
+                return null;
+            }
             // ---- population / cohort ----
             case "COUNTIF": return (double) countIf(c, row);
             case "AVERAGEIF": return averageIf(c, row);
             case "AVERAGE": return safe(stats(c, c.args.get(0), row).mean);
-            case "SUM": return safe(stats(c, c.args.get(0), row).sum);
             case "COUNT": return (double) stats(c, c.args.get(0), row).values.length;
             case "PERCENTILE": {
                 double p = toNum(eval(c.args.get(1), row));
@@ -132,6 +141,28 @@ public class ExpressionEvaluator {
             }
             default: return null;
         }
+    }
+
+    /**
+     * {@code SUM(a, b, c)} — this respondent's a + b + c, and nothing to do
+     * with anybody else's row.
+     *
+     * <p>It reads as a cohort total in Data Studio's other aggregates and it is
+     * deliberately not one here. A scoring workbook writes "Composite = sum of
+     * the three factor scores" and means one person's three numbers; read as a
+     * population function it silently returned the cohort total of the FIRST
+     * argument and discarded the rest, which for a cohort of one is the first
+     * factor's own score — a plausible number that is not the composite.
+     * The cohort total is still reachable as {@code AVERAGE(x) * COUNT(x)}.
+     *
+     * <p>Missing values do NOT skip: this is exactly {@code a + b + c}, so one
+     * absent factor yields no composite rather than a quietly smaller one, and
+     * the two spellings of the same formula can never disagree.
+     */
+    private Object rowSum(Call c, Map<String, Object> row) {
+        double acc = 0;
+        for (Node a : c.args) acc += toNum(eval(a, row));
+        return safe(acc);
     }
 
     private Object reduce(Call c, Map<String, Object> row, boolean min) {
@@ -265,6 +296,19 @@ public class ExpressionEvaluator {
         } catch (NumberFormatException e) {
             return Double.NaN;
         }
+    }
+
+    /**
+     * What {@code FIRST()} is entitled to skip past: null and blank text only.
+     *
+     * <p>Deliberately NOT {@link #truthy} — zero and false are present. A rule
+     * that did not fire yields '' from the else-branch of its IF, and that is
+     * the whole of what "no answer" means here. Reusing truthy() would make
+     * {@code FIRST([rule:score], 'n/a')} print "n/a" for every respondent who
+     * genuinely scored 0, discarding a real value as if it were missing.
+     */
+    private static boolean absent(Object v) {
+        return v == null || (v instanceof String && ((String) v).isBlank());
     }
 
     public static boolean truthy(Object v) {

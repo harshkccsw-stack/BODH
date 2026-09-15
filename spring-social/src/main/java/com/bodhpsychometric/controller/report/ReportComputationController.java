@@ -1,6 +1,7 @@
 package com.bodhpsychometric.controller.report;
 
 import java.util.List;
+import java.util.Map;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
@@ -27,11 +28,17 @@ import jakarta.validation.Valid;
  * Computation drafts: rules + template + respondents + guidance, assembled into
  * a prompt that is ready to send.
  *
- * <p><b>Nothing here makes an outbound call.</b> No AI provider has been
- * chosen and the backend still has no outbound HTTP anywhere. For a computation
- * whose every rule is a formula that costs nothing: {@code approve} and
- * {@code generate} deliver real PDFs from the rules themselves, evaluated in
- * Java. {@code markReady} remains the ceiling for one that needs a model.
+ * <p><b>Scores never involve a model.</b> {@code approve} and {@code generate}
+ * deliver real PDFs from the pinned rules themselves, evaluated in Java, and
+ * that is true whether or not AI is configured. {@code markReady} remains the
+ * ceiling for a computation that pins a STATEMENT rule, because generating the
+ * scoring code itself still has no engine behind it.
+ *
+ * <p>The one outbound call on this path is narrative PROSE: a template tag
+ * bound {@code NARRATIVE} is written by a model from values the formulae have
+ * already produced — never from a name, an email or an id. See
+ * {@link com.bodhpsychometric.service.report.ReportNarrativeService} for
+ * exactly what is sent and what is refused.
  */
 @RequestMapping("/api/report-computations")
 @RestController
@@ -167,6 +174,28 @@ public class ReportComputationController {
     @PostMapping("/reopen/{id}")
     public ReportComputationResponse reopen(@PathVariable Long id) {
         return computationService.reopen(id);
+    }
+
+    /**
+     * Throw away the prose a model wrote for this computation, so the next
+     * preview or batch writes it again.
+     *
+     * <p>Needed because the stored narrative is deliberately sticky: it is
+     * reused for as long as the guidance and the scores behind it are
+     * unchanged, which is what stops a re-issued report contradicting the one
+     * already in somebody's hands. That leaves one case the fingerprint cannot
+     * detect — the author read it and simply wants it written better — and this
+     * is that case. It costs another call per respondent, which is why it is an
+     * explicit action rather than something the screen does on its own.
+     */
+    @PostMapping("/clearNarratives/{id}")
+    public Map<String, Object> clearNarratives(@PathVariable Long id) {
+        int cleared = computationService.clearNarratives(id);
+        return Map.of("cleared", cleared,
+                "message", cleared == 0
+                        ? "There was no generated text to clear."
+                        : cleared + " generated passage" + (cleared == 1 ? "" : "s")
+                                + " cleared. The next preview will write them again.");
     }
 
     @DeleteMapping("/delete/{id}")

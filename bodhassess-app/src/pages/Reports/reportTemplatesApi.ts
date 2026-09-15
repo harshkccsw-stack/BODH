@@ -12,11 +12,14 @@ import { api } from '@/lib/apiClient';
 export type TemplateStatus = 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';
 
 /**
- * Matches ReportTagBinding's type constants. UNBOUND / CORE / LITERAL / VALUE
- * work today — VALUE fills a tag from a computation's output, which for a
- * DIRECT computation is one of its pinned rules. NARRATIVE / TABLE / CHART
- * still need the generation engine and the backend refuses them with an
- * explanation, so the UI shows them disabled rather than hiding them.
+ * Matches ReportTagBinding's type constants. UNBOUND / CORE / LITERAL / VALUE /
+ * NARRATIVE work today. VALUE fills a tag from a computation's output, which
+ * for a DIRECT computation is one of its pinned rules; NARRATIVE has a model
+ * write the prose from those same computed values, and takes its instructions
+ * from the computation's per-tag guidance rather than from anything stored
+ * here. TABLE / CHART still need the generation engine and the backend refuses
+ * them with an explanation, so the UI shows them disabled rather than hiding
+ * them.
  */
 export type BinderType =
   | 'UNBOUND'
@@ -28,7 +31,23 @@ export type BinderType =
   | 'TABLE'
   | 'CHART';
 
-export const IMPLEMENTED_BINDERS: BinderType[] = ['CORE', 'LITERAL', 'COMPUTED', 'VALUE'];
+export const IMPLEMENTED_BINDERS: BinderType[] = [
+  'CORE',
+  'LITERAL',
+  'COMPUTED',
+  'VALUE',
+  'NARRATIVE',
+];
+
+/**
+ * The binder types a computation can actually RESOLVE — what a template needs
+ * before a report can be delivered from it.
+ *
+ * <p>Distinct from COMPUTED_BINDERS below, which is the wider "somebody else
+ * fills this" set and still includes the vague COMPUTED placeholder. A tag left
+ * on COMPUTED renders empty, so it blocks delivery; these two do not.
+ */
+export const DELIVERABLE_COMPUTED_BINDERS: BinderType[] = ['VALUE', 'NARRATIVE'];
 
 /**
  * The binder types a computation is responsible for producing. Mirrors

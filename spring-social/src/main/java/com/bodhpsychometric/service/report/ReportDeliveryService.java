@@ -83,6 +83,7 @@ public class ReportDeliveryService {
     private final TemplateTagParser parser;
     private final ReportRenderer renderer;
     private final ReportAccess access;
+    private final ReportNarrativeService narrativeService;
 
     public ReportDeliveryService(ReportComputationRepository computations,
             RespondentAssessmentMappingRepository attempts,
@@ -91,7 +92,8 @@ public class ReportDeliveryService {
             ReportValueResolver values,
             TemplateTagParser parser,
             ReportRenderer renderer,
-            ReportAccess access) {
+            ReportAccess access,
+            ReportNarrativeService narrativeService) {
         this.computations = computations;
         this.attempts = attempts;
         this.dryRun = dryRun;
@@ -100,6 +102,7 @@ public class ReportDeliveryService {
         this.parser = parser;
         this.renderer = renderer;
         this.access = access;
+        this.narrativeService = narrativeService;
     }
 
     /** One respondent's report, as a ZIP entry name and its bytes. */
@@ -120,6 +123,12 @@ public class ReportDeliveryService {
      * is how somebody decides whether to approve, and requiring approval first
      * would make the gate meaningless.
      */
+    // Writable, unlike the class default. Generating a narrative STORES it, and
+    // a readOnly transaction sets the flush mode to MANUAL — the save would be
+    // dropped without an error and every render would silently buy the prose
+    // again. Reads are still the overwhelming majority here, hence the override
+    // sitting on the two methods that write rather than on the class.
+    @Transactional
     public Report preview(Long computationId, Long attemptId) {
         access.requireRenderer();
         ReportComputation computation = load(computationId);
@@ -138,7 +147,14 @@ public class ReportDeliveryService {
             throw new IllegalStateException("This respondent has no scored row on this "
                     + "assessment, so there is nothing to report.");
         }
-        return render(template, attempt, ruleValues);
+        // A preview writes and STORES its narratives, exactly as a batch does,
+        // so that what somebody approves is what later gets delivered. Cheaper
+        // too — the batch reuses this respondent's paragraph instead of buying
+        // it twice. To get different wording, clear the prose and preview again.
+        Map<String, String> narratives = narrativeService
+                .resolveForCohort(computation, template, Map.of(attemptId, ruleValues))
+                .getOrDefault(attemptId, Map.of());
+        return render(template, attempt, ruleValues, narratives);
     }
 
     /**
@@ -147,6 +163,7 @@ public class ReportDeliveryService {
      * <p>APPROVED is required here and nowhere else. A preview is somebody
      * looking; a batch is documents about real people leaving the building.
      */
+    @Transactional // writable: see the note on preview.
     public Batch generate(Long computationId) {
         access.requireRenderer();
         ReportComputation computation = load(computationId);
@@ -162,7 +179,11 @@ public class ReportDeliveryService {
                         computation.getOrganizationId())
                 .forEach(a -> byId.put(a.getRespondentAssessmentMappingId(), a));
 
-        List<Report> reports = new ArrayList<>();
+        // Recipients first, rendering second. The narrative pass needs the whole
+        // cohort in one go — one model call per respondent, run on a small pool
+        // — and a render loop that called it per person would serialise every
+        // one of them behind the PDF before it.
+        Map<Long, Map<String, Object>> valuesByAttempt = new LinkedHashMap<>();
         int skipped = 0;
         for (Map<String, Object> row : cohort.population()) {
             Long attemptId = asLong(row.get("rowId"));
@@ -174,11 +195,20 @@ public class ReportDeliveryService {
                 skipped++;
                 continue;
             }
-            reports.add(render(template, attempt, cohort.valuesFor(row)));
+            valuesByAttempt.put(attemptId, cohort.valuesFor(row));
         }
-        if (reports.isEmpty()) {
+        if (valuesByAttempt.isEmpty()) {
             throw new IllegalStateException("Nobody has completed this assessment yet, "
                     + "so there are no reports to generate.");
+        }
+
+        Map<Long, Map<String, String>> narratives =
+                narrativeService.resolveForCohort(computation, template, valuesByAttempt);
+
+        List<Report> reports = new ArrayList<>();
+        for (Map.Entry<Long, Map<String, Object>> entry : valuesByAttempt.entrySet()) {
+            reports.add(render(template, byId.get(entry.getKey()), entry.getValue(),
+                    narratives.getOrDefault(entry.getKey(), Map.of())));
         }
         return new Batch(fileName(computation.getSlug() + "-reports-" + LocalDate.now()) + ".zip",
                 zip(reports, computation), reports.size(), skipped);
@@ -214,10 +244,10 @@ public class ReportDeliveryService {
     }
 
     private Report render(ReportTemplate template, RespondentAssessmentMapping attempt,
-            Map<String, Object> ruleValues) {
+            Map<String, Object> ruleValues, Map<String, String> narratives) {
 
         Map<String, String> resolved =
-                values.resolve(template, core.resolve(attempt), ruleValues);
+                values.resolve(template, core.resolve(attempt), ruleValues, narratives);
         byte[] pdf = renderer.toPdf(parser.substitute(template.getHtml(), resolved)).bytes();
         String name = attempt.getRespondent().getName();
         return new Report(attempt.getRespondentAssessmentMappingId(), name,

@@ -11,7 +11,9 @@ import {
   Play,
   Plus,
   Sigma,
+  Sparkles,
   Trash2,
+  Upload,
   X,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
@@ -30,6 +32,8 @@ import {
   type RulePortability,
   type RuleStage,
 } from '@/pages/Reports/reportRulesApi';
+import { ReportRuleImport } from './report-rule-import';
+import { ReportRuleTranslate } from './report-rule-translate';
 
 /**
  * Report setup — the scoring pipeline for ONE assessment.
@@ -117,6 +121,7 @@ export default function ReportSetupPage() {
   const [columns, setColumns] = useState<ReportColumn[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
 
   const [active, setActive] = useState<string>('SCORE');
   const [form, setForm] = useState<RuleForm | null>(null);
@@ -131,6 +136,12 @@ export default function ReportSetupPage() {
   const [runError, setRunError] = useState('');
 
   const expressionRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // Asked once, so an install with no key never draws a button that fails when
+  // pressed. A failure here simply leaves the feature hidden.
+  useEffect(() => {
+    reportRulesApi.aiAvailable().then(setAiReady).catch(() => setAiReady(false));
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -296,6 +307,10 @@ export default function ReportSetupPage() {
     }
   };
 
+  const [importing, setImporting] = useState(false);
+  const [translating, setTranslating] = useState(false);
+  const [aiReady, setAiReady] = useState(false);
+
   const stageMeta = RULE_STAGES.find((s) => s.key === active);
   const informational = INFORMATIONAL.find((s) => s.id === active);
 
@@ -323,15 +338,35 @@ export default function ReportSetupPage() {
             {assessment?.name ?? `Assessment ${assessmentId}`} — the scoring pipeline, step by step.
           </p>
         </div>
-        <Button onClick={run} disabled={running}>
-          {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-          Run over respondents
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => setImporting(true)}>
+            <Upload className="h-4 w-4" /> Import workbook
+          </Button>
+          {aiReady && (
+            <Button variant="outline" onClick={() => setTranslating(true)}>
+              <Sparkles className="h-4 w-4" /> Write formulae with AI
+            </Button>
+          )}
+          <Button onClick={run} disabled={running}>
+            {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+            Run over respondents
+          </Button>
+        </div>
       </div>
 
       {error && (
         <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
           {error}
+        </div>
+      )}
+
+      {notice && (
+        <div className="flex items-start gap-2 rounded-md border border-green-200 bg-green-50 p-3 text-sm text-green-800">
+          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+          <span className="flex-1">{notice}</span>
+          <button className="text-green-700 hover:text-green-900" onClick={() => setNotice('')}>
+            <X className="h-4 w-4" />
+          </button>
         </div>
       )}
 
@@ -375,7 +410,11 @@ export default function ReportSetupPage() {
         </Card>
 
         {/* ── the step ────────────────────────────────────────────────── */}
-        <div className="space-y-5">
+        {/* min-w-0 is load-bearing: a grid item is min-width:auto by default,
+            so this 1fr track would size to its WIDEST child. One wide table
+            then pushed the whole page sideways instead of scrolling inside its
+            own box. Every horizontal scroller below depends on this. */}
+        <div className="min-w-0 space-y-5">
           {informational && (
             <Card>
               <CardContent className="p-5 space-y-3">
@@ -415,6 +454,18 @@ export default function ReportSetupPage() {
                     “below 34 Developing, below 48 Moderate, otherwise High”. A workbook written as
                     “≤ 33 / 34–47 / ≥ 48” therefore uses <b>34 and 48</b>, not 33 and 47 — writing
                     the lower number puts everyone on the boundary in the wrong band, silently.
+                  </div>
+                )}
+
+                {stageMeta.key === 'PROFILE' && (
+                  <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+                    <b>More than one profile rule can fire for the same respondent.</b> Someone
+                    scoring high on drive but low on both execution and tenacity matches “believes,
+                    doesn’t act” <i>and</i> “starts, doesn’t finish”. If the template has one
+                    profile placeholder, pick the winner explicitly with{' '}
+                    <code>FIRST([rule:a], [rule:b], 'No distinctive profile')</code> — it answers
+                    with the first rule that produced text, so <b>argument order is priority</b>.
+                    Leave them separate only if the report is meant to show every match.
                   </div>
                 )}
 
@@ -614,12 +665,19 @@ export default function ReportSetupPage() {
                       ))}
                     </div>
 
+                    {/* One rule per column, so this table is as wide as the
+                        workbook is long — it is MEANT to scroll. What it must
+                        not do is scroll the page: the box is what moves, and
+                        the respondent stays pinned so a value is never read
+                        against the wrong person. */}
                     {dryRun.rows.length > 0 && (
-                      <div className="overflow-x-auto rounded-md border">
-                        <table className="w-full text-xs">
-                          <thead className="bg-muted/50">
+                      <div className="max-h-[60vh] overflow-auto rounded-md border">
+                        <table className="w-max min-w-full text-xs">
+                          <thead className="sticky top-0 z-20 bg-background shadow-[inset_0_-1px_0_var(--color-border)]">
                             <tr>
-                              <th className="p-2 text-left font-medium">Respondent</th>
+                              <th className="sticky left-0 z-30 bg-background p-2 text-left font-medium shadow-[inset_-1px_0_0_var(--color-border)]">
+                                Respondent
+                              </th>
                               {dryRun.rules.map((o) => (
                                 <th key={o.slug} className="p-2 text-left font-medium whitespace-nowrap">
                                   {o.name}
@@ -629,8 +687,10 @@ export default function ReportSetupPage() {
                           </thead>
                           <tbody className="divide-y">
                             {dryRun.rows.map((row, i) => (
-                              <tr key={i}>
-                                <td className="p-2 whitespace-nowrap">{row.label}</td>
+                              <tr key={i} className="bg-background">
+                                <td className="sticky left-0 z-10 bg-background p-2 whitespace-nowrap shadow-[inset_-1px_0_0_var(--color-border)]">
+                                  {row.label}
+                                </td>
                                 {dryRun.rules.map((o) => (
                                   <td key={o.slug} className="p-2 whitespace-nowrap">
                                     {row.values[o.slug] === null || row.values[o.slug] === undefined
@@ -642,12 +702,15 @@ export default function ReportSetupPage() {
                             ))}
                           </tbody>
                         </table>
-                        {dryRun.respondentCount > dryRun.rowsReturned && (
-                          <div className="border-t p-2 text-[11px] text-muted-foreground">
-                            Showing {dryRun.rowsReturned} of {dryRun.respondentCount}. The
-                            summaries above cover every respondent.
-                          </div>
-                        )}
+                      </div>
+                    )}
+
+                    {/* Outside the scroller on purpose: "you are not seeing
+                        everyone" is the one line that must not scroll away. */}
+                    {dryRun.rows.length > 0 && dryRun.respondentCount > dryRun.rowsReturned && (
+                      <div className="rounded-md border bg-muted/30 p-2 text-[11px] text-muted-foreground">
+                        Showing {dryRun.rowsReturned} of {dryRun.respondentCount}. The
+                        summaries above cover every respondent.
                       </div>
                     )}
                   </>
@@ -740,17 +803,28 @@ export default function ReportSetupPage() {
                     {check && (
                       <div className={cn(
                         'rounded-md border p-2 text-xs',
-                        check.ok
-                          ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
-                          : 'border-red-200 bg-red-50 text-red-700',
+                        !check.ok
+                          ? 'border-red-200 bg-red-50 text-red-700'
+                          : (check.warnings ?? []).length > 0
+                            ? 'border-amber-300 bg-amber-50 text-amber-900'
+                            : 'border-emerald-200 bg-emerald-50 text-emerald-800',
                       )}>
-                        {check.ok ? (
+                        {!check.ok ? (
+                          check.errors.join(' ')
+                        ) : (check.warnings ?? []).length > 0 ? (
+                          // Valid, and it cannot ever fire. Said plainly rather
+                          // than as a tick with a footnote: "checks out" is what
+                          // a reader takes away, and here it would be the wrong
+                          // thing to take away.
+                          <span className="inline-flex items-start gap-1">
+                            <AlertTriangle className="mt-px h-3 w-3 shrink-0" />
+                            <span>{(check.warnings ?? []).join(' ')}</span>
+                          </span>
+                        ) : (
                           <span className="inline-flex items-center gap-1">
                             <CheckCircle2 className="h-3 w-3" /> Checks out — returns{' '}
                             {check.resultType}
                           </span>
-                        ) : (
-                          check.errors.join(' ')
                         )}
                       </div>
                     )}
@@ -846,6 +920,33 @@ export default function ReportSetupPage() {
             </CardContent>
           </Card>
         </div>
+      )}
+
+      {importing && (
+        <ReportRuleImport
+          assessmentId={assessmentId}
+          onClose={() => setImporting(false)}
+          onImported={(count) => {
+            setImporting(false);
+            setError('');
+            void load();
+            setNotice(`Imported ${count} rules. They are plain text until you write formulae.`);
+          }}
+        />
+      )}
+
+      {translating && (
+        <ReportRuleTranslate
+          assessmentId={assessmentId}
+          rules={rules.filter((r) => r.assessmentId === assessmentId && r.status === 'ACTIVE')}
+          onClose={() => setTranslating(false)}
+          onApplied={(count) => {
+            setTranslating(false);
+            setError('');
+            void load();
+            setNotice(`${count} rules are now formulae. Run them over respondents to check.`);
+          }}
+        />
       )}
 
       {confirmDelete && (

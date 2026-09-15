@@ -21,10 +21,16 @@ import com.bodhpsychometric.dto.ReportDryRunResponse;
 import com.bodhpsychometric.dto.ReportRulePortabilityResponse;
 import com.bodhpsychometric.dto.ReportRuleRequest;
 import com.bodhpsychometric.dto.ReportRuleResponse;
+import com.bodhpsychometric.dto.RuleTranslationRequest;
+import com.bodhpsychometric.dto.RuleTranslationResponse;
+import com.bodhpsychometric.dto.ScoringSheetImportRequest;
+import com.bodhpsychometric.dto.ScoringSheetPreviewResponse;
 import com.bodhpsychometric.model.report.ReportRule;
 import com.bodhpsychometric.service.report.ReportColumnCatalog;
 import com.bodhpsychometric.service.report.ReportDryRunService;
 import com.bodhpsychometric.service.report.ReportRuleService;
+import com.bodhpsychometric.service.report.RuleTranslationService;
+import com.bodhpsychometric.service.report.ScoringSheetImportService;
 
 import jakarta.validation.Valid;
 
@@ -44,6 +50,12 @@ public class ReportRuleController {
 
     @Autowired
     private ReportDryRunService dryRunService;
+
+    @Autowired
+    private ScoringSheetImportService sheetImport;
+
+    @Autowired
+    private RuleTranslationService translation;
 
     @GetMapping("/getAll")
     public List<ReportRuleResponse> getAll() {
@@ -134,6 +146,49 @@ public class ReportRuleController {
     @PostMapping("/dry-run")
     public ReportDryRunResponse dryRun(@Valid @RequestBody ReportDryRunRequest request) {
         return dryRunService.run(request);
+    }
+
+    /**
+     * Whether AI translation is configured at all.
+     *
+     * <p>Asked BEFORE the button is drawn, so an install without a key hides
+     * the feature rather than offering one that fails when pressed.
+     */
+    @GetMapping("/ai/available")
+    public Map<String, Object> aiAvailable() {
+        return Map.of("available", translation.isAvailable());
+    }
+
+    /**
+     * Propose formulae for plain-language rules. <b>Saves nothing.</b>
+     *
+     * <p>Every proposal has already been through the same validator the save
+     * path uses. Accepting one is an ordinary update, which checks it again —
+     * there is deliberately no way to write a rule from here.
+     */
+    @PostMapping("/ai/translate")
+    public RuleTranslationResponse translate(@Valid @RequestBody RuleTranslationRequest request) {
+        return translation.propose(request);
+    }
+
+    /**
+     * What a scoring workbook would create. Writes nothing.
+     *
+     * <p>Separate from the import itself because rule names are unique across
+     * the installation: a clash is far cheaper to see on a preview screen than
+     * to hit partway through writing twenty-two rows.
+     */
+    @PostMapping("/import/preview")
+    public ScoringSheetPreviewResponse importPreview(
+            @Valid @RequestBody ScoringSheetImportRequest request) {
+        return sheetImport.preview(request);
+    }
+
+    /** Creates every rule in the sheet, or none of them. */
+    @PostMapping("/import")
+    public List<ReportRuleResponse> importSheet(
+            @Valid @RequestBody ScoringSheetImportRequest request) {
+        return sheetImport.importAll(request);
     }
 
     @PostMapping("/create")

@@ -107,6 +107,30 @@ public class ReportRuleService {
     @Transactional(readOnly = true)
     public DsExprResponse validateExpression(String expression, Long assessmentId,
             Long organizationId, Long editingRuleId) {
+        return validateExpression(expression, assessmentId, organizationId, editingRuleId, Set.of());
+    }
+
+    /**
+     * The same check, with some plain-language rules treated as though they
+     * were already formulae.
+     *
+     * <p>This exists for translating a WHOLE workbook at once, where the
+     * dependency order works against the checker. A composite score reads the
+     * three factor scores; if those three are still STATEMENTs at the moment
+     * the composite is checked, a perfectly correct formula is rejected for
+     * depending on plain language. Every cross-referencing rule in a real sheet
+     * would fail that way - which is most of the interesting ones.
+     *
+     * <p>{@code pendingExpressionSlugs} names the rules the caller is about to
+     * turn into formulae in the same batch. It relaxes ONLY the
+     * plain-language-dependency refusal: unknown columns, invented functions,
+     * self-references and cycles are all still refused exactly as before, and
+     * the ordinary save path re-runs the strict check with an empty set, so
+     * nothing accepted here can be saved until its dependencies really are
+     * formulae.
+     */
+    public DsExprResponse validateExpression(String expression, Long assessmentId,
+            Long organizationId, Long editingRuleId, Set<String> pendingExpressionSlugs) {
         access.requireActor();
         Set<String> columnKeys = assessmentId == null
                 ? Set.of()
@@ -148,16 +172,55 @@ public class ReportRuleService {
             }
             ReportRule target = graph.get(dep);
             ReportRuleVersion latest = target == null ? null : target.latestVersion().orElse(null);
-            if (latest != null && !latest.isExpression()) {
+            boolean pending = pendingExpressionSlugs.stream().anyMatch(dep::equalsIgnoreCase);
+            if (latest != null && !latest.isExpression() && !pending) {
                 errors.add("\"" + dep + "\" is a plain-language rule, so it has no value a "
                         + "formula can read. Reference it from the guidance prompt instead.");
             }
         }
-        if (errors.isEmpty()) {
-            return checked;
+        if (!errors.isEmpty()) {
+            return new DsExprResponse(false, checked.evalTarget(), checked.resultType(),
+                    List.copyOf(errors), checked.referencedColumns(), checked.functions());
         }
-        return new DsExprResponse(false, checked.evalTarget(), checked.resultType(),
-                List.copyOf(errors), checked.referencedColumns(), checked.functions());
+
+        // Valid, and possibly still wrong. A threshold no respondent can reach
+        // is the one defect this layer can PROVE without asking a human, and
+        // the one the author is least likely to spot: see RuleRangeLint.
+        return checked.withWarnings(rangeWarnings(expression, assessmentId, organizationId));
+    }
+
+    /**
+     * Thresholds the instrument cannot produce.
+     *
+     * <p>Advisory, never a refusal. Two reasons, and the second is the one that
+     * settles it: a maximum is read from the questionnaire as it stands today,
+     * so a rule written ahead of the items that will feed it would be blocked
+     * for being early rather than wrong; and an author knows things about their
+     * own instrument that a probe does not. Warn, and let them decide.
+     *
+     * <p>Silent when anything needed is missing — no assessment chosen, an
+     * unparseable formula (the caller has already reported that as an error),
+     * or a questionnaire with nothing placed. A lint with nothing to go on says
+     * nothing rather than guessing.
+     */
+    private List<String> rangeWarnings(String expression, Long assessmentId, Long organizationId) {
+        if (assessmentId == null || expression == null || expression.isBlank()) {
+            return List.of();
+        }
+        Map<String, Double> maxima = RuleRangeLint.maximaOf(shapes.shapeOf(assessmentId));
+        if (maxima.isEmpty()) {
+            return List.of();
+        }
+        Map<String, String> labels = new LinkedHashMap<>();
+        for (ReportColumnCatalog.ReportColumn column
+                : columns.columnsFor(assessmentId, organizationId)) {
+            labels.put(column.key(), column.label());
+        }
+        try {
+            return RuleRangeLint.check(expressions.parse(expression), maxima, labels);
+        } catch (RuntimeException e) {
+            return List.of();
+        }
     }
 
     /** The slug of the rule being edited, so the checker can exclude it. */
@@ -605,6 +668,10 @@ public class ReportRuleService {
      * server. {@code NORMBAND} is nonetheless <b>row-local</b> — its evaluator
      * reads cut points and the current row and nothing else.
      *
+     * <p>{@code SUM} is absent from both lists and that is not an oversight:
+     * {@code SUM(a, b, c)} adds up one respondent's own columns. A composite
+     * score is not cohort-relative and must not arm the guard below.
+     *
      * <p>Borrowing that list would therefore mark <b>every band rule</b>
      * population, and {@code is_population} is not a latency hint here: it arms
      * the minimum-cohort guard, which suppresses a value and prints "norm group
@@ -613,7 +680,7 @@ public class ReportRuleService {
      * questions.
      */
     private static final Set<String> POPULATION_FUNCTIONS = Set.of(
-            "AVERAGE", "SUM", "COUNT", "AVERAGEIF", "COUNTIF",
+            "AVERAGE", "COUNT", "AVERAGEIF", "COUNTIF",
             "PERCENTILE", "PERCENTRANK", "ZSCORE", "RANK");
 
     /** ACTIVE rules by slug. Archived ones are deliberately unreferenceable. */

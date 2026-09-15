@@ -52,7 +52,7 @@ const BINDER_LABEL: Record<BinderType, string> = {
   LITERAL: 'Fixed text',
   COMPUTED: 'A computation fills this',
   VALUE: 'A value from a computation',
-  NARRATIVE: 'Written interpretation (needs the scoring engine)',
+  NARRATIVE: 'Prose written by AI from the computed values',
   TABLE: 'A table of scores (needs the scoring engine)',
   CHART: 'A chart (needs the scoring engine)',
 };
@@ -870,7 +870,11 @@ function TagRow({
         ? literalText.trim() !== ''
         : type === 'VALUE'
           ? computationId !== '' && outputKey !== ''
-          : type === 'COMPUTED');
+          // NARRATIVE, like COMPUTED, is the whole answer on its own. What the
+          // prose should say belongs to the COMPUTATION — two computations over
+          // one template can word the same section differently without either
+          // of them having to copy the template first.
+          : type === 'COMPUTED' || type === 'NARRATIVE');
 
   return (
     <div className="p-3">
@@ -898,7 +902,7 @@ function TagRow({
             {IMPLEMENTED_BINDERS.map((b) => (
               <option key={b} value={b}>{BINDER_LABEL[b]}</option>
             ))}
-            {(['NARRATIVE', 'TABLE', 'CHART'] as BinderType[]).map((b) => (
+            {(['TABLE', 'CHART'] as BinderType[]).map((b) => (
               <option key={b} value={b} disabled>{BINDER_LABEL[b]}</option>
             ))}
           </select>
@@ -923,6 +927,21 @@ function TagRow({
               Until one does it renders empty — so a template with computed
               placeholders can be published, but not yet delivered.
             </p>
+          )}
+
+          {type === 'NARRATIVE' && (
+            <div className="rounded-md border border-violet-200 bg-violet-50 dark:border-violet-900 dark:bg-violet-950/30 p-2.5 text-xs text-violet-800 dark:text-violet-300 space-y-1">
+              <p>
+                A model writes this paragraph from the values the computation’s formulae
+                already produced. It never scores anything — every number on the report
+                still comes from a pinned rule.
+              </p>
+              <p>
+                It is sent the rule names and this respondent’s scores, and nothing that
+                says who they are: no name, email, or id. Write the instructions on the
+                computation, under the placeholder’s guidance box.
+              </p>
+            </div>
           )}
 
           {type === 'VALUE' && (
