@@ -221,26 +221,13 @@ export interface SheetPreview {
 }
 
 /**
- * Read a workbook into CSV text for the backend.
+ * Reading a workbook is in `workbookSheets.ts`, not here.
  *
- * An .xlsx is converted HERE, with the SheetJS build this app already bundles
- * for the question sheet, so the backend never gained a spreadsheet dependency
- * to read three columns. `FS: ','` and `blankrows: true` both matter: the
- * sheet's structure IS its blank rows and its empty columns, and a converter
- * that tidies them away destroys the section headings the parser reads.
+ * It has no `@/` imports on purpose, which is what lets the tab-picking rules
+ * be transpiled and run against the real workbook outside the browser — the
+ * only verification available in a project with no test runner. See
+ * `readWorkbook` there.
  */
-export async function workbookToCsv(file: File): Promise<string> {
-  if (/\.csv$/i.test(file.name)) {
-    return file.text();
-  }
-  const XLSX = await import('xlsx');
-  const wb = XLSX.read(await file.arrayBuffer());
-  const first = wb.SheetNames[0];
-  if (!first) {
-    throw new Error('That workbook has no sheets.');
-  }
-  return XLSX.utils.sheet_to_csv(wb.Sheets[first], { FS: ',', blankrows: true });
-}
 
 /* ===================== AI translation ===================== */
 

@@ -43,6 +43,16 @@ class ScoringSheetParserTest {
         }
     }
 
+    private static String itemList() throws IOException {
+        try (InputStream in = ScoringSheetParserTest.class
+                .getResourceAsStream("/report/items-master.csv")) {
+            if (in == null) {
+                throw new IllegalStateException("report/items-master.csv is missing");
+            }
+            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        }
+    }
+
     private static Map<String, ParsedRule> byCode(ParsedSheet sheet) {
         return sheet.rules().stream()
                 .collect(Collectors.toMap(ParsedRule::code, Function.identity()));
@@ -246,6 +256,42 @@ class ScoringSheetParserTest {
         assertEquals(1, sheet.rules().size());
         assertTrue(sheet.warnings().get(0).contains("before any STEP heading"),
                 () -> String.valueOf(sheet.warnings()));
+    }
+
+    /* ===================== the wrong tab ===================== */
+
+    /**
+     * The Items_Master tab of the SAME workbook, refused.
+     *
+     * <p>This is the bug the sheet picker was written for, pinned at the layer
+     * that is the record rather than the layer that is a convenience. The item
+     * list is the most dangerous possible input: every row has a code in A, a
+     * number in B and a factor name in C, so it satisfies every structural test
+     * the parser applies. Before this guard it imported fifteen rules called
+     * "I1 1", "I2 2" with no blockers and no warnings a reviewer would read as
+     * fatal — indistinguishable, downstream, from real ones.
+     */
+    @Test
+    void refusesTheItemListEvenThoughItParsesAsRules() throws IOException {
+        ParsedSheet sheet = parser.parse(itemList());
+        assertFalse(sheet.isImportable());
+        assertTrue(sheet.rules().isEmpty(), () -> "imported " + sheet.rules().size() + " rules");
+        assertTrue(sheet.blocking().get(0).contains("item list"),
+                () -> String.valueOf(sheet.blocking()));
+    }
+
+    /**
+     * The guard reads column A and only column A. A rule whose LOGIC happens to
+     * mention an item id must import normally — rule 0.1 of the real workbook
+     * says "keyed by Item_ID" and would otherwise take the whole sheet down.
+     */
+    @Test
+    void doesNotMistakeARuleMentioningItemIdForTheItemList() throws IOException {
+        ParsedSheet sheet = parser.parse(realSheet());
+        assertTrue(sheet.isImportable(), () -> String.valueOf(sheet.blocking()));
+        assertEquals("Store raw response (1-5) for all 15 items keyed by Item_ID. "
+                + "Timestamp start and finish; store total completion time in seconds.",
+                byCode(sheet).get("0.1").logicText());
     }
 
     @Test

@@ -1,6 +1,10 @@
 # Items_Master binding — joining the practitioner's item codes to the platform
 
-> **Status: PROPOSAL 2026-09-15.** Written after discussion; nothing built.
+> **Status: §1, §4 and §5 BUILT 2026-09-15. §6-§8 proposed, all decisions
+> settled.** The sheet picker, the `report_item_binding` table and the resolver
+> have shipped; §11 is settled, not open. What is left is the part that uses
+> them: the lints (§7), substitution before the model (§6) and the
+> Sample_Calculator fixture (§8).
 > Extends [report-rule-authoring-plan.md](report-rule-authoring-plan.md), which
 > shipped 2026-09-07 — it does not supersede it. Every decision in that
 > document's §3.1 (validity items get their own MQTs) and §3.2 (reverse scoring
@@ -22,6 +26,9 @@
 | What resolves `I1` in a rule? | A **deterministic substitution pass before the model is called**, not a better prompt. §6. |
 | What is the binding actually for? | **Lints.** The mapping is worth having because it makes "the bank implements what the sheet declares" checkable. §7. |
 | Sample_Calculator? | Parse into a dry-run fixture. §8. |
+| Does every item get its own MQT? | **No.** Items stay grouped under their constructs; only validity items keep the MQTs authoring-plan §3.1 gave them. Settled 2026-09-15 — §11.1. |
+| Re-importing a corrected sheet? | **Updates bindings in place**, with a diff in the preview. No versioning. Settled 2026-09-15 — §11.2. |
+| Assessment or questionnaire? | **Assessment**, matching `ReportRule`. Settled 2026-09-15 — §11.3. |
 
 ## 1. The live bug — only the first sheet is read
 
@@ -51,6 +58,14 @@ unique.
 
 The existing `{ FS: ',', blankrows: true }` conversion is right and stays —
 the structure of the logic sheet *is* its blank rows.
+
+> **BUILT 2026-09-15.** [`workbookSheets.ts`](../bodhassess-app/src/pages/Reports/workbookSheets.ts)
+> does the picking; the wizard now states which tab it read and what it skipped.
+> `ScoringSheetParser.isItemList` refuses an item list posted straight at the
+> API, because the browser picker is a convenience and the parser is the record.
+> 326 backend tests green. The tab rules were transpiled and run against
+> `docs/Report Logic.xlsx` in node — which is why that module has no `@/`
+> imports, and why it must keep none.
 
 ## 2. What the three tabs actually are
 
@@ -261,35 +276,159 @@ Worth stating so they are not mistaken for scope:
 
 Each step is useful shipped alone.
 
-1. **§1 — two-sheet reading.** Fixes a live bug. No schema, no backend change
-   beyond accepting a second CSV on `ScoringSheetImportRequest` and ignoring it.
-2. **§4 + §5 — the table and the resolver**, surfaced in
-   [report-rule-import.tsx](../bodhassess-app/src/pages/assessments/report-rule-import.tsx)
-   as a third wizard step between "pick" and "review". Import still produces
-   `STATEMENT` rules; nothing runs differently yet.
+1. ~~**§1 — two-sheet reading.**~~ **Done 2026-09-15.** The second CSV was
+   *not* added to `ScoringSheetImportRequest` after all — an accepted-and-
+   ignored field is dead weight until step 2 has something to do with it, and
+   step 2 changes that signature anyway.
+2. ~~**§4 + §5 — the table and the resolver.**~~ **Done 2026-09-15.** `V31`,
+   `ReportItemBinding`, `ItemMasterParser`, `ItemStatementMatcher`,
+   `ItemBindingService`, `/api/report-item-bindings`, and the review step in the
+   wizard. Import still produces `STATEMENT` rules; nothing runs differently
+   yet. 363 backend tests green (326 before). See §12.
 3. **§7 — the lints.** Value without touching translation at all.
 4. **§6 — substitution.** Last, because it is the only step that changes what
    reaches the model, and it wants the lints already catching the cases where
    the sheet and the bank disagree.
 5. **§8 — the fixture.** Any time after 2.
 
-## 11. Open
+## 11. Settled — 2026-09-15
 
-1. **Should every item get its own MQT, not just validity items?** It would
-   make rule 1.2 (straight-lining across all fifteen raw responses) expressible
-   and give per-item columns for free. **Recommendation: no.** It doubles the
-   taxonomy for one rule, and it makes the MQT tree a mirror of the item list
-   rather than a model of the constructs. Straight-lining stays a `STATEMENT`
-   rule until the `ansv:` numeric namespace authoring-plan §3.1 rejected is
-   worth revisiting — which needs an answer for grid and multi-select questions
-   first, where "the numeric value" is not one number.
-2. **Re-import semantics.** A second upload of a corrected sheet — update
-   bindings in place, or version them? Bindings are not pinned by computations
-   the way rule versions are, so in-place update with a diff shown in the
-   preview is probably right. Not settled.
-3. **Does a binding belong to the assessment or the questionnaire?** Written
-   above as `assessmentId` to match `ReportRule`. The argument for
-   `questionnaireId` is that item codes describe the instrument and two
-   assessments over one questionnaire should share them. Worth deciding before
-   `V31` is written, because it is the one thing in this plan that a later
-   migration cannot cheaply undo.
+All three answered. Nothing in this document is open; §10 can be built as
+written.
+
+### 11.1 Every item does NOT get its own MQT
+
+**Decided: no.** Items stay grouped under the construct they measure. Only
+validity items keep the dedicated MQTs authoring-plan §3.1 gave them, and that
+is an existing decision this one does not reopen.
+
+The reasoning stands as written: per-item MQTs would double the taxonomy to
+serve one rule, and would make the MQT tree a mirror of the item list rather
+than a model of the constructs.
+
+**Three consequences, all of which the build must handle explicitly:**
+
+1. **There is no numeric column for a single scored item.** A rule naming one —
+   `IF I3 >= 4 THEN ...` — is **not translatable**, and §6's substitution pass
+   must refuse it with a message saying so rather than reaching for the
+   construct's MQT. Substituting the trait for one of its items is the exact
+   shape of silent wrongness this plan exists to prevent: it parses, it runs,
+   and it is a different number.
+2. **Substitution only fires on an exact set match.** `I1 + I2 + I3(rev) + I4`
+   becomes `[mq:7]` **only** when those four are precisely the items bound to
+   that MQ. Any difference — an extra item in the bank, a missing one in the
+   sheet — is a blocker naming the difference, never a best effort.
+3. **Rule 1.2 (straight-lining across all fifteen raw responses) stays a
+   `STATEMENT` rule.** Permanently, unless the `ansv:` numeric namespace
+   authoring-plan §3.1 rejected is revisited — which still needs an answer for
+   grid and multi-select questions, where "the numeric value" is not one
+   number. Do not build a workaround for this one rule.
+
+### 11.2 Re-import updates bindings in place
+
+**Decided: in place.** A second upload of a corrected sheet overwrites the
+matched columns on `(assessmentId, itemCode)`. No version table, no history.
+
+**Why that is safe, stated precisely, because it is the part that could go
+wrong:** a binding is **authoring-time metadata only**. §6 resolves item codes
+at translation time, and what gets stored is a rule version holding the
+resolved `[mq:7]`. The *rule version* is what a computation pins, exactly as it
+does today. So a binding can change afterwards without altering the meaning of
+any rule already written, and certainly not of an approved report. If that ever
+stops being true — if anything starts resolving a binding at report time — this
+decision has to be revisited, and that is the trigger to watch for.
+
+**What the preview must show before it writes:** a diff, not a count.
+
+| Case | Treatment |
+|---|---|
+| Item code is new | Listed as an addition. |
+| Item code exists, matched question unchanged | Silent. |
+| Item code exists, **matched question changes** | Listed prominently. This is the one that can move a rule's meaning, and it is usually a reworded statement rather than an intended remap. |
+| Item code exists, flags change (`reverseScored`, `inComposite`) | Listed, and re-runs §7's lints — a flag flip is exactly what those checks exist for. |
+| Item code is **absent from the new sheet** | **Deleted**, and named in the preview. The sheet is the authority; a binding the practitioner has removed is a stale fact, and stale facts are what this table exists to eliminate. |
+
+A deleted code that a rule's text still names is a **blocking** lint, so the
+delete cannot quietly orphan a rule.
+
+### 11.3 Bindings key on the assessment
+
+**Decided: `assessmentId`**, as §4 is written. Matches `ReportRule` — not an
+FK, same reasoning.
+
+The cost is accepted and worth writing down so nobody re-litigates it later:
+**two assessments over the same questionnaire each need their own import.** The
+counter-argument — that item codes describe the instrument, so a questionnaire
+key would share them — is real but loses to the failure it would allow. A
+questionnaire-level binding is shared state that one assessment's re-import can
+silently change underneath another's rules, and §11.2's in-place update makes
+that a live hazard rather than a theoretical one. Per-assessment bindings mean a
+re-import can only affect the assessment whose sheet was re-imported.
+
+`V31` is therefore written as specified, with `UNIQUE uqRibAssessmentItemCode
+(assessmentId, itemCode)`.
+
+---
+
+## 12. STATUS — §4 + §5 built and verified 2026-09-15
+
+**363 backend tests green** (326 before, so 37 new); `npm run typecheck` and
+`npm run build` clean. `V31` applied to the local database on 3310 and the app
+boots against it with `ddl-auto: validate`, which is the only real proof the
+entity and the hand-written migration agree.
+
+| Shipped | Where |
+|---|---|
+| `V31` — `report_item_binding`, unique on (assessment, item code) | `db/migration/` |
+| The entity, with `MATCH_*` constants | `model/report/ReportItemBinding.java` |
+| Item tab reader, by column NAME | `service/report/ItemMasterParser.java` |
+| The matcher — tiered, greedy, pure | `service/report/ItemStatementMatcher.java` |
+| Preview / diff / in-place import | `service/report/ItemBindingService.java` |
+| `/api/report-item-bindings` — preview, import, getByAssessment | `controller/report/` |
+| The review step, with a per-row question picker | `pages/assessments/report-item-binding-step.tsx` |
+| The item tab reaching the API at all | `pages/Reports/workbookSheets.ts` (`itemsCsv`) |
+
+### Four things worth knowing
+
+1. **The notes block forced the table-end rule.** The real sheet ends with a
+   blank row, then "NOTES FOR TECH TEAM" and four paragraphs — each of which has
+   text in the Item_ID column and nothing in Statement. A parser that merely
+   skipped rows without a statement would report four items with no statement
+   and refuse the whole workbook. The table therefore ends at its first blank
+   row, hard, and warns how many rows it ignored.
+2. **Matching had to become tiered and greedy, not item-by-item.** Two items
+   whose statements differ by a word will both clear the fuzzy floor against
+   each other's questions; matched in sheet order, the first claims the second's
+   question and the second takes what is left. Taking every EXACT match first,
+   across all items, then NORMALISED, then FUZZY, is what puts each item on its
+   own question. `ItemStatementMatcher` is pure so that rule is tested directly.
+3. **Ambiguity resolves to nothing, deliberately.** Two questions with the same
+   stem, or two equally close fuzzy matches, bind NEITHER. An unresolved item
+   blocks the import and is one click to fix; a confidently wrong one is
+   invisible for the life of the assessment.
+4. **The construct/factor scoping works and is pinned by a test that builds the
+   collision.** `ItemBindingImportTest` creates "Self-Efficacy" under TWO
+   qualities and asserts each item resolves to the one its Factor column names.
+   That is the claim the whole table rests on, so it is tested against the
+   thing it claims to solve rather than against a happy path.
+
+### Verified across the layer boundary
+
+The browser converts the workbook and the backend parses the text, so the two
+halves can drift without either side failing. They are pinned together: the
+backend's `report/items-master.csv` fixture is byte-identical to what
+`readWorkbook` produces from `docs/Report Logic.xlsx`, checked by running the
+frontend module in node against the real file.
+
+### Deliberately not built
+
+- **The lints (§7).** The bindings exist and nothing yet checks them against the
+  question bank. This is the next slice and the one that pays for the table:
+  `reverse_scored = Y` against ascending option scores is a silently wrong
+  report today.
+- **Substitution (§6).** Item codes are stored but `RuleTranslationService` does
+  not read them yet, so a rule saying `IF V3 <= 3` still translates no better
+  than before.
+- **No live curl smoke.** `/api/report-item-bindings` requires a dashboard
+  sign-in and the local database has no known account. The MockMvc tests drive
+  the same controllers through the same auth, including the 401.

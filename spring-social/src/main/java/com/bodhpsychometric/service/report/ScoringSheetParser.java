@@ -102,6 +102,12 @@ public class ScoringSheetParser {
         }
 
         List<List<String>> rows = readCsv(csv);
+        if (isItemList(rows)) {
+            blocking.add("This is the item list, not the scoring logic. Its rules belong on a "
+                    + "sheet with a step heading in column A, a rule code in column A and the "
+                    + "logic in column C.");
+            return new ParsedSheet(List.of(), warnings, blocking);
+        }
         String stage = null;
         String heading = null;
         int stepOrder = 0;
@@ -171,6 +177,44 @@ public class ScoringSheetParser {
     }
 
     /* ===================== structure ===================== */
+
+    /** Column A of an item list's header row. */
+    private static final Pattern ITEM_ID_HEADER =
+            Pattern.compile("^item[\\s_-]?id$", Pattern.CASE_INSENSITIVE);
+
+    /**
+     * Is this the workbook's ITEM sheet rather than its logic sheet?
+     *
+     * <p>Worth refusing outright, because an item list parses perfectly as
+     * rules and that is the whole problem: every row has a code in A, a number
+     * in B and a factor name in C, so fifteen rules called "I1 1.0" import with
+     * no blockers and distinct names. Nothing downstream can tell them from
+     * real ones. The browser now picks the tab by name and by shape
+     * (workbookSheets.ts), but the browser is a convenience and this is the
+     * record — a CSV posted straight at the API reaches here having been
+     * through no picker at all.
+     *
+     * <p>Matched on column A of an early row and nothing else. A logic sheet's
+     * column A holds a step heading or a rule code, never the literal words
+     * "Item ID", so this cannot fire on the sheet we want. A looser check —
+     * "looks tabular", "has a header row" — could, and refusing a real workbook
+     * with no way to see why would be worse than the bug it prevents.
+     */
+    static boolean isItemList(List<List<String>> rows) {
+        int checked = 0;
+        for (List<String> row : rows) {
+            if (isBlank(row)) {
+                continue;
+            }
+            if (ITEM_ID_HEADER.matcher(cell(row, COL_CODE)).matches()) {
+                return true;
+            }
+            if (++checked >= 5) {
+                break;
+            }
+        }
+        return false;
+    }
 
     /**
      * A heading is a row with a label and nothing beside it.

@@ -274,6 +274,40 @@ public class ReportComputationService {
                     + String.join(", ", dangling) + ".");
         }
 
+        // The same check one level down, and the one that actually bites.
+        //
+        // The check above asks whether a TAG points at a pinned rule. This asks
+        // whether a pinned RULE's own [rule:...] references are pinned — and
+        // nothing else asks it. Delivery evaluates from the pinned versions
+        // alone (ReportDryRunService#evaluatePinned), so an unpinned reference
+        // is simply absent from the row map, and the evaluator does not treat
+        // an absent key as an error: a null operand makes toNum() return NaN,
+        // the comparison degrades to comparing strings, and the rule quietly
+        // answers something. "" <= "33" is TRUE, so a band whose score never
+        // arrived labels every respondent with the lowest band, for everyone,
+        // silently. The rule does not fail, so cohort.isClean() passes it too.
+        //
+        // This is the invariant ReportRulePortabilityResponse#dependencySlugs
+        // already states in words — "a dependency left behind is a rule that
+        // reads a value nothing computes" — enforced at the one moment it can
+        // be enforced, rather than left as advice on the adoption screen.
+        List<String> starved = new ArrayList<>();
+        for (ReportComputationRule pinned : computation.getRules()) {
+            ReportRuleVersion version = pinned.getRuleVersion();
+            List<String> missing = ReportRuleService.parseKeys(version.getReferencedRuleSlugsJson())
+                    .stream()
+                    .filter(slug -> !pinnedSlugs.contains(slug))
+                    .toList();
+            if (!missing.isEmpty()) {
+                starved.add(version.getRule().getName() + " → " + String.join(", ", missing));
+            }
+        }
+        if (!starved.isEmpty()) {
+            out.add("These rules read other rules this computation does not pin, so they will "
+                    + "run against a missing value: " + String.join("; ", starved)
+                    + ". Pin the rules they read, or point them at rules that are pinned.");
+        }
+
         // A narrative tag is answered — a model writes it — but only if there is
         // a model. Checked here rather than at render because discovering it
         // halfway through a batch means half a ZIP and a held-open request,

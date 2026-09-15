@@ -200,6 +200,36 @@ class ReportDirectDeliveryTest {
         assertEquals("DIRECT", JsonPath.read(created, "$.mode"),
                 "a computation pinning only expressions must be runnable without a model");
 
+        // (1b) A pinned rule whose own [rule:...] reference is NOT pinned is a
+        // blocker, and the message names both sides.
+        //
+        // This is the failure the tag check below cannot see. Delivery
+        // evaluates from the pinned versions alone, so an unpinned reference is
+        // absent from the row map — and an absent key is not an error: the
+        // comparison degrades to comparing strings, and a band whose score
+        // never arrived answers with its lowest label for every respondent.
+        // Nothing fails, so the cohort check passes it too. Caught here or not
+        // at all.
+        String starved = mvc.perform(post("/api/report-computations/create")
+                        .header(HttpHeaders.AUTHORIZATION, bearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"name":"__smoke__ Starved computation","assessmentId":%d,
+                                 "reportTemplateId":%d,"ruleVersionIds":[%d],
+                                 "sourcePrompt":"n/a","respondentScope":"ALL_COMPLETED"}"""
+                                .formatted(assessmentId, templateId, bandVersionId)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        int starvedId = JsonPath.read(starved, "$.reportComputationId");
+        assertTrue(JsonPath.<List<String>>read(starved, "$.directBlockers").stream()
+                        .anyMatch(b -> b.contains("does not pin") && b.contains(scoreSlug)),
+                "pinning a band without the score it reads must be blocked, naming the score: "
+                        + JsonPath.<List<String>>read(starved, "$.directBlockers"));
+
+        mvc.perform(delete("/api/report-computations/delete/" + starvedId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer))
+                .andExpect(status().isNoContent());
+
         // (2) A VALUE tag can only name an output this computation produces.
         mvc.perform(put("/api/report-templates/bindTag/" + templateId + "/score")
                         .header(HttpHeaders.AUTHORIZATION, bearer)

@@ -259,6 +259,12 @@ public class RuleTranslationService {
                 - Use ONLY functions from the list given. Any other name is rejected.
                 - Use ONLY column keys and rule references given. NEVER guess a column \
                   key or invent a [rule:...] slug.
+                - Rules are listed in two groups. Reference a rule of THIS assessment \
+                  whenever one computes the quantity. A rule of another assessment may \
+                  carry almost the same name and mean the same thing for a different \
+                  workbook: choosing it produces a formula that validates and then reads \
+                  a value this report never computes. If only the other group has it, \
+                  reference it and say so in note.
                 - When the text names a quantity that another rule already computes - a \
                   composite, a factor score, a band - reference that rule with \
                   [rule:slug]. Do NOT rebuild it from columns, and do NOT substitute a \
@@ -304,23 +310,65 @@ public class RuleTranslationService {
                 .append("when another rule's text mentions that name, reference this rule. ")
                 .append("'says' is what the workbook said the rule does - when another ")
                 .append("rule's text names that quantity in any wording, reference this ")
-                .append("rule rather than rebuilding it from columns:\n");
-        for (ReportRule rule : rules.findAllWithVersions()) {
-            if (!ReportRule.STATUS_ACTIVE.equals(rule.getStatus())) {
-                continue;
-            }
-            sb.append("  [rule:").append(rule.getSlug()).append("]  ").append(rule.getName());
-            String writes = writesFor(rule);
-            if (writes != null) {
-                sb.append("  writes: ").append(writes);
-            }
-            String says = statementOf(rule);
-            if (!says.isBlank()) {
-                sb.append("  says: ").append(oneLine(says));
-            }
-            sb.append('\n');
+                .append("rule rather than rebuilding it from columns.\n");
+
+        // Split by home assessment, and the split is the whole point.
+        //
+        // The list used to be flat, and a library that holds two workbooks
+        // scoring the same construct holds two rules called "Internal Drive" —
+        // one per assessment, differing only by slug prefix. A flat list gives
+        // the model no way to tell them apart, and it picked the shorter,
+        // older slug: every band and profile rule of the newer workbook was
+        // translated to read the OLDER workbook's scores. The formulae
+        // validated (the rule graph is library-wide, by design, because a rule
+        // may legitimately be adopted across assessments) and then evaluated
+        // against a value nothing on this computation produces.
+        //
+        // Cross-assessment references stay offered rather than filtered out —
+        // removing them would break portability, which is a real feature. They
+        // are labelled instead, and the instruction below makes the home
+        // assessment's rule the default. Both halves matter: the model needs to
+        // see the foreign rule to adopt one deliberately, and needs to be told
+        // not to reach for it by accident.
+        List<ReportRule> active = rules.findAllWithVersions().stream()
+                .filter(r -> ReportRule.STATUS_ACTIVE.equals(r.getStatus()))
+                .toList();
+        List<ReportRule> here = active.stream()
+                .filter(r -> Objects.equals(r.getAssessmentId(), request.assessmentId()))
+                .toList();
+        List<ReportRule> elsewhere = active.stream()
+                .filter(r -> !Objects.equals(r.getAssessmentId(), request.assessmentId()))
+                .toList();
+
+        sb.append("\nRules of THIS assessment - prefer these always:\n");
+        if (here.isEmpty()) {
+            sb.append("  (none yet)\n");
+        }
+        here.forEach(rule -> appendRule(sb, rule));
+
+        if (!elsewhere.isEmpty()) {
+            sb.append("\nRules of OTHER assessments, sharing this library. A rule above and a ")
+                    .append("rule here may have almost the same name and compute the same ")
+                    .append("construct for a DIFFERENT workbook. Reference one of these ONLY ")
+                    .append("when no rule of this assessment computes the quantity - never ")
+                    .append("because the name matched more closely:\n");
+            elsewhere.forEach(rule -> appendRule(sb, rule));
         }
         return sb.toString();
+    }
+
+    /** One catalog line: slug, name, and whatever the workbook said about it. */
+    private static void appendRule(StringBuilder sb, ReportRule rule) {
+        sb.append("  [rule:").append(rule.getSlug()).append("]  ").append(rule.getName());
+        String writes = writesFor(rule);
+        if (writes != null) {
+            sb.append("  writes: ").append(writes);
+        }
+        String says = statementOf(rule);
+        if (!says.isBlank()) {
+            sb.append("  says: ").append(oneLine(says));
+        }
+        sb.append('\n');
     }
 
     /**
