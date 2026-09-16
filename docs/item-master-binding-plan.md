@@ -387,6 +387,7 @@ entity and the hand-written migration agree.
 | `/api/report-item-bindings` — preview, import, getByAssessment | `controller/report/` |
 | The review step, with a per-row question picker | `pages/assessments/report-item-binding-step.tsx` |
 | The item tab reaching the API at all | `pages/Reports/workbookSheets.ts` (`itemsCsv`) |
+| The downloadable template, now a two-tab workbook | `pages/Reports/reportRulesApi.ts` |
 
 ### Four things worth knowing
 
@@ -412,6 +413,24 @@ entity and the hand-written migration agree.
    That is the claim the whole table rests on, so it is tested against the
    thing it claims to solve rather than against a happy path.
 
+### The template had to change too, and it was the real tell
+
+`downloadSheetTemplate()` handed out a single-tab workbook whose example rules
+were written in item codes — `IF V3 <= 3`, `I1 + I2 + I3(rev) + I4` — with no
+tab anywhere defining them. A practitioner who filled it in produced exactly the
+workbook this plan exists because we cannot bind: every rule naming items that
+are defined nowhere. The template now ships `Items_Master` (the fifteen real
+items) and `Scoring_Logic`, named as the importer looks for them, with a guide
+tab covering both.
+
+`Items_Master` is appended FIRST, deliberately. If the picker ever regresses to
+reading `SheetNames[0]`, the template this app hands out is the first thing that
+breaks.
+
+Verified by round-trip: the template was generated in node, read back through
+`readWorkbook`, and both tabs fed to the real parsers — 15 items and 13 rules,
+zero warnings on either side.
+
 ### Verified across the layer boundary
 
 The browser converts the workbook and the backend parses the text, so the two
@@ -432,3 +451,8 @@ frontend module in node against the real file.
 - **No live curl smoke.** `/api/report-item-bindings` requires a dashboard
   sign-in and the local database has no known account. The MockMvc tests drive
   the same controllers through the same auth, including the 401.
+- **No standing test that the template stays importable.** The round-trip above
+  was run once, by hand. A permanent version means committing the generated CSVs
+  as fixtures, which would go stale silently the first time somebody edits the
+  template and not the fixture — worse than no test. The honest fix is a
+  frontend test runner, which this project does not have.

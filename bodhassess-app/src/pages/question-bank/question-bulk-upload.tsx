@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -9,6 +9,7 @@ import {
   ListChecks,
   Loader2,
   Shuffle,
+  Sparkles,
   Target,
   Trash2,
   Upload,
@@ -20,13 +21,24 @@ import {
   questionApis,
   selectionLabel,
   type MqtScorePayload,
-  type QuestionContentType,
-  type QuestionOptionPayload,
   type QuestionPayload,
   type QuestionResponse,
-  type SelectionRule,
 } from './questionApis';
 import { contentMeta, type MqtChoice } from './question-form-modal';
+import { looksLikeOurTemplate, parseQuestionRows } from './question-sheet-rules';
+import type { ParsedQuestions } from './question-sheet-rules';
+
+// The rules themselves live in question-sheet-rules.ts (pure, testable); they
+// are re-exported here so nothing that imported them from this file changes.
+export {
+  looksLikeOurTemplate,
+  mqtKeyResolver,
+  parseQuestionRows,
+  PATH_MARK,
+} from './question-sheet-rules';
+export type { MqtKeyResolver, ParsedQuestions } from './question-sheet-rules';
+import { AiSheetImport } from './ai-sheet-import';
+import { questionImportApi, workbookHasRows } from './questionImportApi';
 
 // ── Bulk XLSX upload — shared by the Questions page and the questionnaire
 // wizard's Step 2 ───────────────────────────────────────────────────────────
@@ -45,186 +57,26 @@ import { contentMeta, type MqtChoice } from './question-form-modal';
 // /questions/bulk-create, which is all-or-nothing — so ANY row error blocks
 // the whole upload rather than importing half a sheet.
 
-// What the selectRule cell may say. Matched after lowercasing and stripping
-// separators, so "At Least", "at_least" and "atleast" all land here.
-const SELECT_RULES: Record<string, SelectionRule> = {
-  min: 'MIN', atleast: 'MIN',
-  max: 'MAX', atmost: 'MAX', upto: 'MAX',
-  equals: 'EQUALS', equal: 'EQUALS', exactly: 'EQUALS',
-};
-
 /**
- * The selectRule/selectCount pair for one row, validated against the options
- * that row actually carries. Both blank = single choice, which is what every
- * sheet written before these columns existed says — so old sheets import
- * unchanged and produce no errors.
+ * The workbook's rows, untouched. Split out from the parser so the AI import
+ * path can look at a sheet BEFORE deciding what it is — see
+ * `looksLikeOurTemplate`.
  */
-function parseSelection(
-  row: Record<string, string>,
-  optionCount: number,
-  rowNo: number,
-  errors: string[],
-): { selectionRule: SelectionRule | null; selectionCount: number | null } {
-  const none = { selectionRule: null, selectionCount: null };
-  const ruleCell = (row.selectrule || '').toLowerCase().replace(/[\s_-]/g, '');
-  const countCell = (row.selectcount || '').trim();
-  if (!ruleCell) {
-    // A count with no rule is always a typo — importing it as single choice
-    // would silently ship a question that contradicts the sheet.
-    if (countCell) errors.push(`Row ${rowNo}: selectCount ${countCell} needs a selectRule (min/max/equals)`);
-    return none;
-  }
-  const rule = SELECT_RULES[ruleCell];
-  if (!rule) {
-    errors.push(`Row ${rowNo}: selectRule "${row.selectrule}" is not min/max/equals`);
-    return none;
-  }
-  if (!countCell) {
-    errors.push(`Row ${rowNo}: selectRule "${row.selectrule}" needs a selectCount`);
-    return none;
-  }
-  // Excel hands back 3 or 3.0 for the same cell, so parse as a number and
-  // demand an integer rather than pattern-matching the text.
-  const count = Number(countCell);
-  if (!Number.isInteger(count) || count < 1) {
-    errors.push(`Row ${rowNo}: selectCount "${countCell}" is not a whole number above 0`);
-    return none;
-  }
-  if (count > optionCount) {
-    errors.push(`Row ${rowNo}: selectCount ${count} but the row only has ${optionCount} option${optionCount === 1 ? '' : 's'}`);
-    return none;
-  }
-  return { selectionRule: rule, selectionCount: count };
-}
-
-/**
- * "Extraversion:3 | 14:0.5" → payload entries, appending problems to errors.
- *
- * Scores are decimal: a cell may weight an option at 0.25 as readily as 3.
- * Rounded to the 2 decimals the backend stores — NOT truncated, which is what
- * this did while the column was an int and would silently upload 0.75 as 0.
- */
-function parseScoreCell(raw: string, where: string, choices: MqtChoice[], errors: string[]): MqtScorePayload[] {
-  const out: MqtScorePayload[] = [];
-  for (const part of raw.split('|').map((p) => p.trim()).filter(Boolean)) {
-    const sep = part.lastIndexOf(':');
-    if (sep < 0) { errors.push(`${where}: "${part}" is not name:score`); continue; }
-    const key = part.slice(0, sep).trim();
-    const score = Number(part.slice(sep + 1).trim());
-    if (!Number.isFinite(score)) { errors.push(`${where}: score in "${part}" is not a number`); continue; }
-    let id: number | null = null;
-    if (/^\d+$/.test(key)) {
-      id = Number(key);
-      if (!choices.some((c) => c.id === id)) { errors.push(`${where}: no MQT with id ${id}`); id = null; }
-    } else {
-      const matches = choices.filter((c) => c.name.toLowerCase() === key.toLowerCase());
-      if (matches.length === 0) errors.push(`${where}: no MQT named "${key}"`);
-      else if (matches.length > 1) errors.push(`${where}: "${key}" matches ${matches.length} MQTs — use the id instead`);
-      else id = matches[0].id;
-    }
-    if (id != null) out.push({ measuredQualityTypeId: id, score: Math.round(score * 100) / 100 });
-  }
-  return out;
-}
-
-export async function parseQuestionsXlsx(
-  file: File,
-  choices: MqtChoice[],
-): Promise<{ payloads: QuestionPayload[]; sections: (string | null)[]; rowNos: number[]; errors: string[] }> {
+export async function readQuestionSheet(file: File): Promise<Record<string, unknown>[]> {
   const XLSX = await import('xlsx');
   const wb = XLSX.read(await file.arrayBuffer());
   // Prefer the sheet named "questions" (the template ships an "mqts"
   // reference sheet beside it); fall back to the first sheet.
   const ws = wb.Sheets['questions'] || wb.Sheets[wb.SheetNames[0]];
-  const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '' });
-  const payloads: QuestionPayload[] = [];
-  // sections[i]/rowNos[i] belong to payloads[i] — the raw section cell
-  // (matched or ignored by the caller depending on where the upload
-  // happens) and the sheet row it came from, for error messages.
-  const sections: (string | null)[] = [];
-  const rowNos: number[] = [];
-  const errors: string[] = [];
+  return XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '' });
+}
 
-  rawRows.forEach((r, i) => {
-    const rowNo = i + 2; // sheet row: 1 is the header
-    const row: Record<string, string> = {};
-    for (const [k, v] of Object.entries(r)) {
-      row[k.toLowerCase().replace(/[\s_-]/g, '')] = String(v ?? '').trim();
-    }
-    if (!Object.values(row).some(Boolean)) return; // fully blank row
-
-    const stem = row.stem || '';
-    if (!stem) { errors.push(`Row ${rowNo}: stem is required`); return; }
-    const typeRaw = (row.type || 'TEXT').toUpperCase();
-    if (!['TEXT', 'IMAGE', 'VIDEO', 'URL'].includes(typeRaw)) {
-      errors.push(`Row ${rowNo}: type "${row.type}" is not TEXT/IMAGE/VIDEO/URL`);
-      return;
-    }
-    const type = typeRaw as QuestionContentType;
-    const mediaUrl = row.mediaurl || '';
-    if (type !== 'TEXT' && !mediaUrl) {
-      errors.push(`Row ${rowNo}: a ${type.toLowerCase()} question needs mediaUrl`);
-      return;
-    }
-    const riskFlag = ['1', 'true', 'yes', 'y'].includes((row.risk || '').toLowerCase());
-    // Blank = false = the authored order, which is what every sheet written
-    // before this column existed means. Read exactly like `risk`, so the two
-    // yes/no columns behave the same.
-    const shuffleOptions = ['1', 'true', 'yes', 'y'].includes((row.shuffle || '').toLowerCase());
-    const mqtScores = parseScoreCell(row.scores || '', `Row ${rowNo} scores`, choices, errors);
-
-    const optionNums = Object.keys(row)
-      .map((k) => k.match(/^option(\d+)$/))
-      .filter((m): m is RegExpMatchArray => m != null)
-      .map((m) => Number(m[1]))
-      .sort((a, b) => a - b);
-    const options: QuestionOptionPayload[] = [];
-    for (const n of optionNums) {
-      const text = row[`option${n}`] || '';
-      if (!text) continue; // empty option cell — fine, sheet just has spare columns
-      options.push({
-        optionText: text,
-        // optionNDescription, beside optionNScores. Blank = none, so every
-        // sheet written before the column existed imports unchanged.
-        description: row[`option${n}description`] || null,
-        contentType: 'TEXT',
-        mediaUrl: null,
-        mqtScores: parseScoreCell(row[`option${n}scores`] || '', `Row ${rowNo} option${n}Scores`, choices, errors),
-      });
-    }
-
-    // After the option loop on purpose: the count is validated against the
-    // options this row actually carries.
-    const selection = parseSelection(row, options.length, rowNo, errors);
-
-    payloads.push({
-      contentType: type,
-      // The sheet writes MCQs only. A linear scale has no option columns to
-      // fill in and a grid has no flat-row shape at all, so both are authored
-      // in the form; every sheet ever written already means MCQ.
-      questionType: 'MCQ',
-      stem,
-      // Optional help text under the stem. Blank = none, so old sheets are
-      // unaffected; there is nothing to validate — any text is acceptable.
-      description: row.description || null,
-      mediaUrl: type === 'TEXT' ? null : mediaUrl,
-      riskFlag,
-      shuffleOptions,
-      ...selection,
-      scaleFrom: null,
-      scaleTo: null,
-      scaleLowLabel: null,
-      scaleHighLabel: null,
-      options,
-      rows: [],
-      mqtScores,
-    });
-    sections.push(row.section || null);
-    rowNos.push(rowNo);
-  });
-
-  if (payloads.length === 0 && errors.length === 0) errors.push('No data rows found in the sheet');
-  return { payloads, sections, rowNos, errors };
+/** Read + parse, the template upload's entry point. Unchanged signature. */
+export async function parseQuestionsXlsx(
+  file: File,
+  choices: MqtChoice[],
+): Promise<ParsedQuestions> {
+  return parseQuestionRows(await readQuestionSheet(file), choices);
 }
 
 export async function downloadTemplate(choices: MqtChoice[]) {
@@ -304,7 +156,7 @@ function ScoreChips({ scores, choices }: { scores: MqtScorePayload[]; choices: M
 }
 
 /** One parsed question, rendered for the pre-submit review step. */
-function QuestionPreview({
+export function QuestionPreview({
   p,
   choices,
   sectionName,
@@ -424,7 +276,16 @@ export function BulkUploadModal({
   /** Present = questionnaire mode; absent = bank mode. */
   questionnaire?: QuestionnaireUploadTarget;
 }) {
-  const [step, setStep] = useState<'pick' | 'review'>('pick');
+  // 'fork' is the warning screen a foreign sheet lands on; 'ai' is the mapper.
+  // Both are reachable ONLY from a file that has rows and no `stem` column —
+  // the template path never passes through either.
+  const [step, setStep] = useState<'pick' | 'fork' | 'ai' | 'review'>('pick');
+  const [foreignFile, setForeignFile] = useState<File | null>(null);
+  const [aiAvailable, setAiAvailable] = useState(false);
+  // True while the AI panel is writing. "Choose another file" must not be
+  // available then: abandoning a transaction mid-flight is fine for the
+  // server, but the user would never see whether it landed.
+  const [aiBusy, setAiBusy] = useState(false);
   const [idx, setIdx] = useState(0);
   const [fileName, setFileName] = useState('');
   const [parsing, setParsing] = useState(false);
@@ -439,6 +300,20 @@ export function BulkUploadModal({
   const [uploadError, setUploadError] = useState('');
 
   const sectioned = questionnaire != null && questionnaire.hasSections;
+
+  // Asked before the route is offered: an install with no key shows the
+  // template alone rather than a button that fails when pressed.
+  useEffect(() => {
+    let live = true;
+    questionImportApi.available().then((ok) => { if (live) setAiAvailable(ok); });
+    return () => { live = false; };
+  }, []);
+
+  // A sectioned questionnaire needs every row to name an existing section, and
+  // a foreign sheet has no section column to map. Rather than invent one, the
+  // route is withheld here and said so — the bank import still works, and the
+  // questions can be placed afterwards.
+  const aiOffered = aiAvailable && !sectioned;
 
   /**
    * Trim + case-insensitive match against the questionnaire's sections.
@@ -482,9 +357,24 @@ export function BulkUploadModal({
     setErrors([]);
     setStep('pick');
     setIdx(0);
+    setForeignFile(null);
     setParsing(true);
     try {
-      const result = await parseQuestionsXlsx(file, choices);
+      const rawRows = await readQuestionSheet(file);
+      // The fork. NOT a failed parse — a sheet of ours with bad rows is fixed
+      // in the sheet, and routing it through the model would turn a fixable
+      // typo into a re-interpretation. Only rows with no `stem` column at all
+      // are a foreign format. An empty file is neither, and falls through to
+      // the ordinary "no data rows" error.
+      // A first tab with NO rows is not proof of an empty workbook — a cover
+      // sheet in front of the items is common — so before calling it empty,
+      // ask whether any other tab has rows. Only then does it fork.
+      if (!looksLikeOurTemplate(rawRows) && (rawRows.length > 0 || (await workbookHasRows(file)))) {
+        setForeignFile(file);
+        setStep('fork');
+        return;
+      }
+      const result = parseQuestionRows(rawRows, choices);
       const errs = [...result.errors];
       if (sectioned) {
         const { ids, names } = matchSections(result.sections, result.rowNos, errs);
@@ -543,11 +433,86 @@ export function BulkUploadModal({
         <CardHeader className="flex flex-row items-center justify-between pb-3 shrink-0">
           <CardTitle className="text-base flex items-center gap-2">
             <Upload className="h-4 w-4 text-primary" />
-            {step === 'pick' ? 'Upload Questions (XLSX)' : `Review — Question ${idx + 1} of ${payloads.length}`}
+            {step === 'pick' ? 'Upload Questions (XLSX)'
+              : step === 'fork' ? 'This is not our template'
+              : step === 'ai' ? 'Mapping your sheet'
+              : `Review — Question ${idx + 1} of ${payloads.length}`}
           </CardTitle>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
         </CardHeader>
         <CardContent className="space-y-4 overflow-y-auto">
+          {step === 'fork' && (
+            <div className="space-y-4">
+              <div className="rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30 px-3 py-2.5 text-xs text-amber-700 dark:text-amber-500 flex items-start gap-2">
+                <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                <span>
+                  <strong>{fileName}</strong> has rows but no <code>stem</code> column, so it is
+                  not the questions template. Nothing has been read from it beyond its column names.
+                </span>
+              </div>
+              <div className="rounded-lg border border-border p-3 space-y-1.5">
+                <p className="text-sm font-medium">Use the template</p>
+                <p className="text-xs text-muted-foreground">
+                  Download it, copy your questions across, and upload it here. Always works,
+                  costs nothing, and needs no connection to anything.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => downloadTemplate(choices)}
+                  className="inline-flex items-center gap-1 text-primary hover:underline font-medium text-xs pt-0.5"
+                >
+                  <Download className="h-3 w-3" /> Download template
+                </button>
+              </div>
+              <div className="rounded-lg border border-border p-3 space-y-1.5">
+                <p className="text-sm font-medium flex items-center gap-1.5">
+                  <Sparkles className="h-3.5 w-3.5 text-primary" /> Map it with AI
+                </p>
+                {aiOffered ? (
+                  <>
+                    <p className="text-xs text-muted-foreground">
+                      Your sheet is read into the template for you. You see how it was read,
+                      can edit it, and can download it before anything is created.
+                    </p>
+                    {/* Consent happens HERE and nowhere else — this screen is the
+                        only point at which anything leaves the building, so it
+                        says what would, before the button is pressed. */}
+                    <p className="text-[0.6875rem] text-muted-foreground">
+                      This sends a sample of your sheet — its column names, about ten rows and any
+                      notes — to OpenAI. No respondent data is involved.
+                    </p>
+                    <Button
+                      variant="primary"
+                      className="mt-1"
+                      onClick={() => setStep('ai')}
+                    >
+                      <Sparkles className="h-3.5 w-3.5" /> Map it with AI
+                    </Button>
+                  </>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    {sectioned
+                      ? 'Not available while uploading into a questionnaire with sections — a foreign sheet has no section column to match. Upload to the question bank instead, then place the questions here.'
+                      : 'Not configured on this server.'}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {step === 'ai' && foreignFile && (
+            <AiSheetImport
+              file={foreignFile}
+              choices={choices}
+              onBusyChange={setAiBusy}
+              onBack={() => setStep('fork')}
+              onImported={async (created) => {
+                if (questionnaire) await questionnaire.onCreated(created, created.map(() => null));
+                else await onDone?.();
+              }}
+            />
+          )}
+
           {step === 'pick' ? (
             <>
               <div className="rounded-lg border border-border/70 bg-muted/30 px-3 py-2 text-xs text-muted-foreground space-y-1">
@@ -580,7 +545,10 @@ export function BulkUploadModal({
                     applies when uploading inside a sectioned questionnaire.</p>
                 )}
                 <p>Score cells: <code className="text-foreground">MqtName:score | MqtId:score</code> — names must be
-                  unambiguous, otherwise use the id. Scores may be decimal
+                  unambiguous, otherwise use the id or the full tree path
+                  (<code className="text-foreground">Internal Drive › Self-Efficacy:3</code>, exactly as the{' '}
+                  <code className="text-foreground">mqts</code> sheet&apos;s <code className="text-foreground">tree</code>{' '}
+                  column prints it). Scores may be decimal
                   (<code className="text-foreground">0.25</code>, <code className="text-foreground">0.5</code>), kept to two
                   places. The template&apos;s <code className="text-foreground">mqts</code> sheet
                   lists every MQT with its exact name, id and tree position.</p>
@@ -629,7 +597,7 @@ export function BulkUploadModal({
                 </div>
               )}
             </>
-          ) : (
+          ) : step === 'review' ? (
             <>
               {/* progress bar across the batch */}
               <div className="h-1 rounded bg-muted">
@@ -638,7 +606,9 @@ export function BulkUploadModal({
                   style={{ width: `${((idx + 1) / payloads.length) * 100}%` }}
                 />
               </div>
-              <QuestionPreview p={payloads[idx]} choices={choices} sectionName={sectionNames[idx] ?? undefined} />
+              {payloads[idx] && (
+                <QuestionPreview p={payloads[idx]} choices={choices} sectionName={sectionNames[idx] ?? undefined} />
+              )}
               <div className="flex justify-end">
                 <button
                   type="button"
@@ -656,10 +626,18 @@ export function BulkUploadModal({
                 </div>
               )}
             </>
-          )}
+          ) : null}
         </CardContent>
         <div className="flex justify-between gap-2 p-4 border-t border-border shrink-0">
-          {step === 'pick' ? (
+          {step === 'fork' || step === 'ai' ? (
+            <Button
+              variant="outline"
+              disabled={aiBusy}
+              onClick={() => { setStep('pick'); setForeignFile(null); }}
+            >
+              Choose another file
+            </Button>
+          ) : step === 'pick' ? (
             <>
               <Button variant="outline" onClick={onClose}>Cancel</Button>
               <Button variant="primary" onClick={() => { setIdx(0); setStep('review'); }} disabled={!ready}>

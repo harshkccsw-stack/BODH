@@ -18,12 +18,14 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 import com.bodhpsychometric.dto.MqtRefResponse;
 import com.bodhpsychometric.dto.MqtScoreRequest;
 import com.bodhpsychometric.dto.MqtScoreResponse;
 import com.bodhpsychometric.dto.QuestionOptionRequest;
 import com.bodhpsychometric.dto.QuestionOptionResponse;
+import com.bodhpsychometric.dto.QuestionImportRequest;
 import com.bodhpsychometric.dto.QuestionRequest;
 import com.bodhpsychometric.dto.QuestionResponse;
 import com.bodhpsychometric.dto.QuestionRowRequest;
@@ -37,9 +39,11 @@ import com.bodhpsychometric.model.question.enums.SelectionRule;
 import com.bodhpsychometric.model.scoring.OptionMqtScore;
 import com.bodhpsychometric.model.scoring.QuestionMqtScore;
 import com.bodhpsychometric.model.scoring.QuestionRowMqt;
+import com.bodhpsychometric.model.taxonomy.MeasuredQuality;
 import com.bodhpsychometric.model.taxonomy.MeasuredQualityType;
 import com.bodhpsychometric.model.questionnaire.QuestionnaireQuestion;
 import com.bodhpsychometric.repository.assessment.AssessmentAnswerRepository;
+import com.bodhpsychometric.repository.measures.MeasuredQualityRepository;
 import com.bodhpsychometric.repository.measures.MeasuredQualityTypeRepository;
 import com.bodhpsychometric.repository.question.QuestionRepository;
 import com.bodhpsychometric.repository.questionnaire.QuestionnaireQuestionRepository;
@@ -104,6 +108,9 @@ public class QuestionController {
 
     @Autowired
     private MeasuredQualityTypeRepository measuredQualityTypeRepository;
+
+    @Autowired
+    private MeasuredQualityRepository measuredQualityRepository;
 
     @Autowired
     private QuestionnaireQuestionRepository questionnaireQuestionRepository;
@@ -213,6 +220,234 @@ public class QuestionController {
             created.add(toResponse(question));
         }
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
+    }
+
+    /**
+     * Questions AND the measured qualities they need, in one transaction.
+     *
+     * <h2>Why this endpoint exists</h2>
+     *
+     * An imported sheet names qualities the bank does not have. Creating those
+     * through the taxonomy endpoints and then posting here is a dozen calls in
+     * one logical act, and when the last one fails the qualities stay behind —
+     * so the retry resolves its own leftovers as though somebody had chosen
+     * them. Here it is all or nothing.
+     *
+     * <h2>The three phases, and the one keyword the guarantee rests on</h2>
+     *
+     * <ol>
+     *   <li><b>A — validate everything that needs no ids.</b> Nothing has been
+     *       written, so a returned 400 is safe. This is the only phase that may
+     *       return one.
+     *   <li><b>B — create the taxonomy</b>, qualities first, then types parent
+     *       before child.
+     *   <li><b>C — resolve the pending ids and write the questions</b>, through
+     *       exactly the same helpers {@code /bulk-create} uses.
+     * </ol>
+     *
+     * <b>Phases B and C throw and never return.</b> A {@code return
+     * ResponseEntity.badRequest()} after phase B has run COMMITS the qualities
+     * it created — the transaction is only rolled back by an exception — and
+     * silently reproduces the half-built taxonomy this endpoint exists to
+     * prevent. It would look like it worked. {@link ResponseStatusException}
+     * rolls back and {@code ApiExceptionHandler} renders it in the same
+     * {@code message} shape as every other error here.
+     */
+    @PostMapping("/import")
+    public ResponseEntity<?> importQuestions(@Valid @RequestBody QuestionImportRequest request) {
+        List<QuestionImportRequest.NewQuality> newQualities =
+                request.newQualities() == null ? List.of() : request.newQualities();
+        List<QuestionImportRequest.NewQualityType> newTypes =
+                request.newQualityTypes() == null ? List.of() : request.newQualityTypes();
+
+        /* ── Phase A — nothing is written, so these may RETURN ────────────── */
+
+        Map<Long, QuestionImportRequest.NewQuality> qualityByRef = new LinkedHashMap<>();
+        for (QuestionImportRequest.NewQuality q : newQualities) {
+            if (q.ref() >= 0) {
+                return bad("a new measured quality's ref must be negative (got " + q.ref() + ")");
+            }
+            if (qualityByRef.put(q.ref(), q) != null) {
+                return bad("two new measured qualities share the ref " + q.ref());
+            }
+        }
+        Map<Long, QuestionImportRequest.NewQualityType> typeByRef = new LinkedHashMap<>();
+        for (QuestionImportRequest.NewQualityType t : newTypes) {
+            if (t.ref() >= 0) {
+                return bad("a new quality type's ref must be negative (got " + t.ref() + ")");
+            }
+            if (typeByRef.put(t.ref(), t) != null) {
+                return bad("two new quality types share the ref " + t.ref());
+            }
+        }
+        for (QuestionImportRequest.NewQualityType t : newTypes) {
+            if (t.anchorCount() != 1) {
+                return bad("\"" + t.name() + "\" needs exactly one parent — a measured quality "
+                        + "or a quality type, given once");
+            }
+            if (t.qualityRef() != null && !qualityByRef.containsKey(t.qualityRef())) {
+                return bad("\"" + t.name() + "\" is to be created under a measured quality that "
+                        + "is not in this payload");
+            }
+            if (t.parentTypeRef() != null && !typeByRef.containsKey(t.parentTypeRef())) {
+                return bad("\"" + t.name() + "\" is to be created under a quality type that is "
+                        + "not in this payload");
+            }
+            if (t.qualityId() != null && !measuredQualityRepository.existsById(t.qualityId())) {
+                return bad("\"" + t.name() + "\" names a measured quality that does not exist");
+            }
+            if (t.parentTypeId() != null && !measuredQualityTypeRepository.existsById(t.parentTypeId())) {
+                return bad("\"" + t.name() + "\" names a quality type that does not exist");
+            }
+        }
+
+        // Parent before child, and a loop refused rather than hung on.
+        List<QuestionImportRequest.NewQualityType> ordered = new java.util.ArrayList<>();
+        java.util.Set<Long> placed = new java.util.HashSet<>();
+        boolean progress = true;
+        while (ordered.size() < newTypes.size() && progress) {
+            progress = false;
+            for (QuestionImportRequest.NewQualityType t : newTypes) {
+                if (placed.contains(t.ref())) {
+                    continue;
+                }
+                if (t.parentTypeRef() == null || placed.contains(t.parentTypeRef())) {
+                    ordered.add(t);
+                    placed.add(t.ref());
+                    progress = true;
+                }
+            }
+        }
+        if (ordered.size() != newTypes.size()) {
+            return bad("the new quality types reference each other in a loop");
+        }
+
+        for (int i = 0; i < request.questions().size(); i++) {
+            QuestionRequest q = request.questions().get(i);
+            if (q.stem() == null || q.stem().isBlank()) {
+                return bad("question " + (i + 1) + ": stem is required");
+            }
+            // Pending ids are checked HERE, against the payload, because after
+            // phase B an unmatched one would mean rolling back real writes.
+            for (Long id : referencedMqtIds(q)) {
+                if (id != null && id < 0 && !typeByRef.containsKey(id)) {
+                    return bad("question " + (i + 1) + ": scores a quality type ("
+                            + id + ") that this payload does not create");
+                }
+            }
+            String problem = firstProblem(q);
+            if (problem != null) {
+                return bad("question " + (i + 1) + ": " + problem);
+            }
+        }
+
+        /* ── Phase B — writing starts here, so everything below THROWS ────── */
+
+        Map<Long, MeasuredQuality> createdQualities = new LinkedHashMap<>();
+        for (QuestionImportRequest.NewQuality q : newQualities) {
+            String name = q.name().trim();
+            requireNameFree(measuredQualityRepository.findAll().stream()
+                    .map(MeasuredQuality::getName).toList(), name, "a measured quality");
+            MeasuredQuality mq = new MeasuredQuality();
+            mq.setName(name);
+            mq.setDescription(q.description());
+            createdQualities.put(q.ref(), measuredQualityRepository.save(mq));
+        }
+
+        Map<Long, MeasuredQualityType> createdTypes = new LinkedHashMap<>();
+        for (QuestionImportRequest.NewQualityType t : ordered) {
+            String name = t.name().trim();
+            MeasuredQualityType node = new MeasuredQualityType();
+            node.setName(name);
+
+            if (t.parentTypeRef() != null || t.parentTypeId() != null) {
+                MeasuredQualityType parent = t.parentTypeRef() != null
+                        ? createdTypes.get(t.parentTypeRef())
+                        : measuredQualityTypeRepository.findById(t.parentTypeId())
+                                .orElseThrow(() -> conflict("a quality type named as a parent has gone"));
+                requireNameFree(parent.getChildren().stream()
+                        .map(MeasuredQualityType::getName).toList(), name,
+                        "a type under \"" + parent.getName() + "\"");
+                // Read the sibling count BEFORE adding, and add through the sync
+                // helper: three roots created under one new quality in a single
+                // transaction would otherwise all see an empty collection and
+                // all take sortOrder 0.
+                node.setSortOrder(parent.getChildren().size());
+                parent.addChild(node);
+            } else {
+                MeasuredQuality mq = t.qualityRef() != null
+                        ? createdQualities.get(t.qualityRef())
+                        : measuredQualityRepository.findById(t.qualityId())
+                                .orElseThrow(() -> conflict("a measured quality named as a parent has gone"));
+                List<MeasuredQualityType> roots = mq.getTypes().stream()
+                        .filter(MeasuredQualityType::isRoot).toList();
+                requireNameFree(roots.stream().map(MeasuredQualityType::getName).toList(), name,
+                        "a type under \"" + mq.getName() + "\"");
+                node.setSortOrder(roots.size());
+                mq.addType(node);
+            }
+            createdTypes.put(t.ref(), measuredQualityTypeRepository.save(node));
+        }
+
+        /* ── Phase C — the ordinary write path, with pending ids seeded in ── */
+
+        List<QuestionResponse> created = new java.util.ArrayList<>();
+        for (int i = 0; i < request.questions().size(); i++) {
+            QuestionRequest q = request.questions().get(i);
+            Map<Long, MeasuredQualityType> mqts = resolveMqts(q, createdTypes);
+            if (mqts == null) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "question " + (i + 1) + ": a referenced MQT does not exist");
+            }
+            Question question = new Question();
+            applyFields(question, q);
+            rebuildOptions(question, q);
+            rebuildRows(question, q);
+            questionRepository.save(question);
+            writeScores(question, q, mqts);
+            created.add(toResponse(question));
+        }
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("questions", created);
+        // ref -> real id, so the caller can show what it actually created
+        // without re-fetching the whole taxonomy.
+        body.put("createdQualityIds", createdQualities.entrySet().stream()
+                .collect(LinkedHashMap::new,
+                        (m, e) -> m.put(String.valueOf(e.getKey()), e.getValue().getMeasuredQualityId()),
+                        LinkedHashMap::putAll));
+        body.put("createdQualityTypeIds", createdTypes.entrySet().stream()
+                .collect(LinkedHashMap::new,
+                        (m, e) -> m.put(String.valueOf(e.getKey()), e.getValue().getMeasuredQualityTypeId()),
+                        LinkedHashMap::putAll));
+        return ResponseEntity.status(HttpStatus.CREATED).body(body);
+    }
+
+    private ResponseEntity<?> bad(String message) {
+        return ResponseEntity.badRequest().body(Map.of("message", message));
+    }
+
+    private ResponseStatusException conflict(String message) {
+        return new ResponseStatusException(HttpStatus.CONFLICT, message);
+    }
+
+    /**
+     * Refuses a name that already exists among its siblings. Neither measured
+     * qualities nor their types are unique in general — the same construct name
+     * under two different parents is deliberate, and the whole path resolver
+     * depends on it. But two SIBLINGS of one name make that resolution
+     * permanently ambiguous, and an import is exactly where such a name gets
+     * chosen by a machine reading somebody's spreadsheet rather than by a person.
+     */
+    private void requireNameFree(List<String> existing, String name, String what) {
+        String key = name.trim().toLowerCase(java.util.Locale.ROOT).replaceAll("[\\s_-]", "");
+        boolean clash = existing.stream()
+                .anyMatch(n -> n != null
+                        && n.trim().toLowerCase(java.util.Locale.ROOT).replaceAll("[\\s_-]", "").equals(key));
+        if (clash) {
+            throw conflict(what + " called \"" + name + "\" already exists — "
+                    + "use the existing one instead of creating a second");
+        }
     }
 
     @PutMapping("/update/{id}")
@@ -369,6 +604,35 @@ public class QuestionController {
      * when an id does not exist (caller 400s).
      */
     private Map<Long, MeasuredQualityType> resolveMqts(QuestionRequest request) {
+        return resolveMqts(request, Map.of());
+    }
+
+    /**
+     * As above, but with types that exist only inside this transaction seeded
+     * in — the import endpoint's freshly created nodes, keyed by the NEGATIVE
+     * ref the payload used for them. Seeded first, so a pending id never
+     * reaches the repository and a real id never resolves to a pending node.
+     */
+    private Map<Long, MeasuredQualityType> resolveMqts(QuestionRequest request,
+            Map<Long, MeasuredQualityType> pending) {
+        var ids = referencedMqtIds(request);
+        Map<Long, MeasuredQualityType> found = new LinkedHashMap<>();
+        var lookup = new java.util.LinkedHashSet<Long>();
+        for (Long id : ids) {
+            MeasuredQualityType seeded = pending.get(id);
+            if (seeded != null) {
+                found.put(id, seeded);
+            } else {
+                lookup.add(id);
+            }
+        }
+        measuredQualityTypeRepository.findAllById(lookup)
+                .forEach(m -> found.put(m.getMeasuredQualityTypeId(), m));
+        return found.keySet().containsAll(ids) ? found : null;
+    }
+
+    /** Every MQT this payload points at, from all three levels it can point from. */
+    private java.util.LinkedHashSet<Long> referencedMqtIds(QuestionRequest request) {
         var ids = new java.util.LinkedHashSet<Long>();
         dedupe(request.mqtScores()).keySet().forEach(ids::add);
         for (QuestionOptionRequest o : desiredOptions(request)) {
@@ -379,9 +643,7 @@ public class QuestionController {
         for (QuestionRowRequest r : sanitizedRows(request)) {
             ids.addAll(r.measuredQualityTypeIds());
         }
-        Map<Long, MeasuredQualityType> found = measuredQualityTypeRepository.findAllById(ids).stream()
-                .collect(Collectors.toMap(MeasuredQualityType::getMeasuredQualityTypeId, m -> m));
-        return found.keySet().containsAll(ids) ? found : null;
+        return ids;
     }
 
     private void writeScores(Question question, QuestionRequest request, Map<Long, MeasuredQualityType> mqts) {

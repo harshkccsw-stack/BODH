@@ -259,22 +259,88 @@ export interface TranslationResult {
 }
 
 /**
- * A worked example of the sheet this importer reads, as .xlsx.
+ * A worked example of the workbook this importer reads, as .xlsx.
  *
- * Filled in rather than blank on purpose. A psychometrician handed an empty
- * grid has to guess what "column C" wants; handed a sheet that already states
- * a validity check, a reverse-scored transform, three factor scores, a band
- * and two competing profile notes, they can replace the text and keep the
- * shape. Every structural rule the parser relies on — headings alone on their
- * row, a blank row between sections, the assignment written as `name = ...` —
- * is demonstrated at least once here rather than only described.
+ * ## Why it has an item list as well as rules
  *
- * Written as an array of arrays, NOT json_to_sheet: this sheet has no header
- * row. Its first column holds a step heading on one line and a rule code on
- * the next, which is a shape a header-keyed converter cannot express.
+ * The rules are written in the item list's vocabulary — `IF V3 <= 3`,
+ * `I1 + I2 + I3(rev) + I4` — and those codes mean nothing to this product on
+ * their own. A template that shipped only the logic tab would teach a
+ * practitioner to write exactly the workbook we cannot bind: every rule
+ * referring to items that are defined nowhere. The two tabs are one artifact
+ * and the template has to say so.
+ *
+ * ## Filled in rather than blank, on purpose
+ *
+ * A psychometrician handed an empty grid has to guess what "column C" wants;
+ * handed a sheet that already states a validity check, three factor scores, a
+ * band and two competing profile notes, they can replace the text and keep the
+ * shape. Every structural rule the parsers rely on — headings alone on their
+ * row, a blank row between sections, the assignment written as `name = ...`,
+ * the item table under a named header — is demonstrated at least once here
+ * rather than only described.
+ *
+ * ## The tabs are named the way the importer looks for them
+ *
+ * `Items_Master` and `Scoring_Logic`, matching the workbook the psychometrician
+ * already produces. The picker also identifies them by shape, so a rename is
+ * survivable — but a template is the one place to teach the names that need no
+ * guessing.
+ *
+ * Written as arrays of arrays, NOT json_to_sheet: the logic sheet has no header
+ * row at all, and its first column holds a step heading on one line and a rule
+ * code on the next — a shape a header-keyed converter cannot express.
  */
 export async function downloadSheetTemplate() {
   const XLSX = await import('xlsx');
+
+  // The item list. Column NAMES are what the parser reads here — unlike the
+  // logic sheet, this is a flat table and the columns may be reordered freely.
+  const items: string[][] = [
+    ['Item_ID', 'Admin_Position', 'Factor', 'Construct', 'Statement',
+      'Reverse_Scored', 'In_Composite'],
+    ['I1', '1', 'Internal Drive', 'Self-Efficacy',
+      'If I get a totally new kind of task or role, I am sure I can learn what it needs.',
+      'N', 'Y'],
+    ['I2', '2', 'Internal Drive', 'Growth Mindset',
+      'Even in things I am weak at today, regular practice can make me really good at them.',
+      'N', 'Y'],
+    ['I3', '3', 'Internal Drive', 'Growth Mindset',
+      'When something does not come naturally to me, I take it as a sign I am just not built for it.',
+      'Y', 'Y'],
+    ['V1', '4', 'Validity', 'Social Desirability',
+      'I have never felt lazy about any task in my life.', 'N', 'N'],
+    ['I4', '5', 'Internal Drive', 'Self-Efficacy',
+      'Tough semesters or heavy workloads do not shake my belief that I can cope.', 'N', 'Y'],
+    ['I5', '6', 'Sustained Tenacity', 'Perseverance',
+      'When a long project turns out harder than I expected, I stay with it till it is done.',
+      'N', 'Y'],
+    ['I6', '7', 'Sustained Tenacity', 'Perseverance',
+      'Like most people, when early efforts show no quick results, I often lose steam and shift to something else.',
+      'Y', 'Y'],
+    ['I7', '8', 'Sustained Tenacity', 'Perseverance',
+      'In the past few months, I have kept working on at least one goal even after it stopped being exciting.',
+      'N', 'Y'],
+    ['V3', '9', 'Validity', 'Infrequency',
+      'I have attended at least one class or meeting in the past year.', 'N', 'N'],
+    ['I8', '10', 'Sustained Tenacity', 'Perseverance',
+      'A rejection or a failed attempt usually makes me work harder on my preparation, not step back.',
+      'N', 'Y'],
+    ['I9', '11', 'Adaptive Execution', 'Proactivity',
+      'In the last few months, I have worked on fixing a skill gap on my own, without anyone asking me to.',
+      'N', 'Y'],
+    ['I10', '12', 'Adaptive Execution', 'Proactivity',
+      'I go to seniors or mentors for direction before a problem becomes a crisis, even when asking feels awkward.',
+      'N', 'Y'],
+    ['I11', '13', 'Adaptive Execution', 'Learning Agility',
+      'When my usual method stops working, I still tend to repeat it instead of trying something new.',
+      'Y', 'Y'],
+    ['V2', '14', 'Validity', 'Social Desirability',
+      'I have never been annoyed by anyone, even slightly.', 'N', 'N'],
+    ['I12', '15', 'Adaptive Execution', 'Metacognition',
+      'I stop now and then to ask myself whether my daily routine is actually moving me forward or just keeping me busy.',
+      'N', 'Y'],
+  ];
 
   const rows: string[][] = [
     ['STEP 1 — VALIDITY CHECKS (run BEFORE any scoring)', '', ''],
@@ -318,11 +384,47 @@ export async function downloadSheetTemplate() {
       'Band cutoffs are inclusive as written (>= and <=); no rounding needed.'],
   ];
 
+  const itemSheet = XLSX.utils.aoa_to_sheet(items);
+  itemSheet['!cols'] = [{ wch: 10 }, { wch: 15 }, { wch: 20 }, { wch: 20 }, { wch: 90 },
+    { wch: 15 }, { wch: 14 }];
+
   const ws = XLSX.utils.aoa_to_sheet(rows);
   ws['!cols'] = [{ wch: 12 }, { wch: 26 }, { wch: 96 }];
 
   const guide = XLSX.utils.aoa_to_sheet([
-    ['How to fill in the Scoring Logic sheet'],
+    ['This workbook has TWO tabs and both are read.'],
+    [''],
+    ['Items_Master', 'Your items. This is the dictionary — it is what makes "V3" and'],
+    ['', '"I1" in the rules mean an actual question.'],
+    ['Scoring_Logic', 'Your rules, written in those item codes.'],
+    [''],
+    ['A workbook with rules but no item list still imports, but every rule that'],
+    ['names an item code stays plain text and can never become a formula.'],
+    [''],
+    ['---'],
+    [''],
+    ['How to fill in the Items_Master sheet'],
+    [''],
+    ['Item_ID', 'Your code for the item, as the rules refer to it: I1, V3.'],
+    ['Admin_Position', 'The order the item is shown in.'],
+    ['Factor', 'The measured quality it belongs to.'],
+    ['Construct', 'The trait under that quality. Trait names are not unique in'],
+    ['', 'this system, so the Factor beside it is what says which one.'],
+    ['Statement', 'The item wording, EXACTLY as the question is worded in the'],
+    ['', 'question bank. This is what matches an item to a question —'],
+    ['', 'position is not used, because question order changes.'],
+    ['Reverse_Scored', 'Y or N.'],
+    ['In_Composite', 'N for validity items, which are never summed into a score.'],
+    [''],
+    ['These columns are read BY NAME, so you may reorder them. The table ends at'],
+    ['its first blank row — notes below that are ignored.'],
+    [''],
+    ['Every item must match a question, or the import is refused. You get one'],
+    ['chance to pick a question by hand for any the system cannot match itself.'],
+    [''],
+    ['---'],
+    [''],
+    ['How to fill in the Scoring_Logic sheet'],
     [''],
     ['Column A', 'The step heading, OR a rule code like 3.1 / E1.'],
     ['Column B', "The rule's short name. Leave blank on a heading row."],
@@ -350,9 +452,13 @@ export async function downloadSheetTemplate() {
   guide['!cols'] = [{ wch: 14 }, { wch: 86 }];
 
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Scoring Logic');
+  // Items_Master FIRST, matching the workbook the psychometrician produces —
+  // and a standing reminder that tab ORDER means nothing here. Reading the
+  // first tab is exactly the bug this importer used to have.
+  XLSX.utils.book_append_sheet(wb, itemSheet, 'Items_Master');
+  XLSX.utils.book_append_sheet(wb, ws, 'Scoring_Logic');
   XLSX.utils.book_append_sheet(wb, guide, 'How to fill this in');
-  XLSX.writeFile(wb, 'scoring-logic-template.xlsx');
+  XLSX.writeFile(wb, 'scoring-workbook-template.xlsx');
 }
 
 export const reportRulesApi = {
