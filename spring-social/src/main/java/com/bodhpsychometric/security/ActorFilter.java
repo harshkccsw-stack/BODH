@@ -70,12 +70,18 @@ public class ActorFilter extends OncePerRequestFilter {
      * Portal endpoints are deliberately NOT here. They carry a respondent's
      * token, which this filter resolves like any other, and the controllers
      * do their own ownership checks on top.
+     *
+     * The MemoryMesh sync door is here because its caller is a SERVER with no
+     * bearer of its own; it guards itself with a shared key instead
+     * (MemoryMeshSyncController) and refuses everyone until that key is
+     * configured.
      */
     private static final List<String> PUBLIC_PATTERNS = List.of(
             "/api/auth/login",
             "/api/portal/login",
             "/api/portal/register/**",
-            "/api/registration-tokens/getByToken/**");
+            "/api/registration-tokens/getByToken/**",
+            "/api/sync/memorymesh/**");
 
     private static final AntPathMatcher MATCHER = new AntPathMatcher();
 

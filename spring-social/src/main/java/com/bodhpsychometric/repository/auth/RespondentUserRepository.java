@@ -38,6 +38,14 @@ public interface RespondentUserRepository extends JpaRepository<RespondentUser, 
     List<RespondentUser> findByEmployeeIdForPortal(String employeeId);
 
     /**
+     * The E.164 pair, for MemoryMesh's phone sign-in verified here. Not unique
+     * on this side (old free-text rows), so a list; the caller narrows by dob.
+     */
+    @Query("select r from RespondentUser r join fetch r.user u left join fetch r.organization "
+            + "where r.phoneCountryCode = :countryCode and r.phone = :phone")
+    List<RespondentUser> findByPhonePairForPortal(String countryCode, String phone);
+
+    /**
      * Duplicate pre-checks for the create/edit form, one per org branch —
      * Spring Data cannot express "organization is null" and "organization =
      * :id" in a single derived name. Case-insensitive on purpose: the column's
