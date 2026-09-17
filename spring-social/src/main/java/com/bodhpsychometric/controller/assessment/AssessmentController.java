@@ -122,6 +122,15 @@ public class AssessmentController {
         return ResponseEntity.noContent().build();
     }
 
+    /** Uppercased ISO code, or null when blank — never an empty string. */
+    private String normalizeCurrency(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String trimmed = raw.trim().toUpperCase();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
     private void apply(Assessment assessment, AssessmentRequest request, Questionnaire questionnaire) {
         assessment.setQuestionnaire(questionnaire);
         assessment.setName(request.name().trim());
@@ -129,5 +138,10 @@ public class AssessmentController {
                 request.showTermsAndConditions() == null || request.showTermsAndConditions());
         assessment.setStatus(request.status() == null ? AssessmentStatus.INACTIVE : request.status());
         assessment.setAutoNext(Boolean.TRUE.equals(request.autoNext()));
+        // Public catalog: an unpriced assessment renders as "Price on request",
+        // so a currency without a price is meaningless — drop it rather than
+        // storing a code the site would have nothing to attach it to.
+        assessment.setPrice(request.price());
+        assessment.setCurrency(request.price() == null ? null : normalizeCurrency(request.currency()));
     }
 }

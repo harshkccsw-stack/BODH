@@ -14,6 +14,10 @@ export interface AssessmentPayload {
   showTermsAndConditions: boolean;
   status: AssessmentStatus;
   autoNext: boolean;
+  /** Public catalog price. null = "Price on request" on the marketing site. */
+  price: number | null;
+  /** 3-letter code, e.g. INR. null when unpriced. */
+  currency: string | null;
 }
 
 /** Matches AssessmentResponse on the backend. */
@@ -26,6 +30,8 @@ export interface AssessmentResponse {
   status: AssessmentStatus;
   autoNext: boolean;
   respondentCount: number;
+  price: number | null;
+  currency: string | null;
 }
 
 function getAllAssessments() {

@@ -57,6 +57,9 @@ services:
       SPRING_PROFILES_ACTIVE: production
       DB_USERNAME: ${DB_USERNAME:-bodh}
       DB_PASSWORD: ${DB_PASSWORD:-bodh}
+      # Binds to app.cors.allowed-origins. Without this the container never
+      # sees the root .env value and silently falls back to the yml defaults.
+      APP_CORS_ALLOWED_ORIGINS: ${APP_CORS_ALLOWED_ORIGINS:-https://admin.bodh.biz,https://portal.bodh.biz,https://bodh.biz,https://www.bodh.biz}
 
     ports:
       - "8080:8080"

@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Assessment — BODH Psychometrics</title>
+<meta name="description" content="Full details of a psychometric assessment available from BODH Psychometrics.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<style>
+  /* Brand tokens lifted from index.html so the two pages read as one site. */
+  :root{
+    --ink:#16213E; --bone:#F7F5F2; --copper:#B87333; --teal:#006D77;
+    --deep-teal:#00565E; --body:#3B3B3B; --hair:rgba(59,59,59,.16);
+    --ease:cubic-bezier(.22,.61,.36,1);
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  html,body{margin:0;padding:0;background:var(--bone);color:var(--ink);
+    font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+    font-size:17px;line-height:1.6;-webkit-font-smoothing:antialiased}
+  a{color:var(--teal);text-decoration:none}
+  a:hover{color:var(--copper)}
+  .wrap{max-width:1320px;margin:0 auto;padding:0 40px}
+
+  /* ── Header ─────────────────────────────────────────────────────────── */
+  header{background:rgba(22,33,62,.96);backdrop-filter:blur(10px);
+    border-bottom:1px solid rgba(247,245,242,.08);position:sticky;top:0;z-index:40}
+  .hrow{height:74px;display:flex;align-items:center;justify-content:space-between;gap:24px}
+  .brand{display:inline-flex;align-items:center;gap:11px;flex-shrink:0}
+  .brand b{font-family:'Manrope',sans-serif;font-weight:800;font-size:19px;
+    letter-spacing:.14em;color:var(--bone);line-height:1;display:block}
+  .brand s{font-family:'Manrope',sans-serif;font-weight:600;font-size:9.5px;
+    letter-spacing:.22em;color:rgba(247,245,242,.55);text-decoration:none;display:block}
+  .hnav{display:flex;gap:20px;align-items:center}
+  .hnav a{font-family:'Manrope',sans-serif;font-weight:600;font-size:14px;
+    color:rgba(247,245,242,.72);white-space:nowrap;transition:color 160ms var(--ease)}
+  .hnav a:hover,.hnav a[aria-current]{color:var(--copper)}
+  .cta{font-family:'Manrope',sans-serif;font-weight:700;font-size:13.5px;
+    padding:9px 18px;border-radius:999px;background:var(--bone);color:var(--ink);
+    transition:background 160ms var(--ease),color 160ms var(--ease)}
+  .cta:hover{background:var(--copper);color:var(--ink)}
+  @media (max-width:760px){
+    .hrow{height:auto;padding:14px 0;flex-wrap:wrap;gap:12px}
+    .hnav{order:3;width:100%;gap:16px;overflow-x:auto}
+  }
+
+  /* ── Hero ───────────────────────────────────────────────────────────── */
+  .phead{background:var(--ink);color:var(--bone);padding:clamp(40px,4.4vw,72px) 0}
+  .crumb{font-family:'Manrope',sans-serif;font-weight:600;font-size:12.5px;
+    letter-spacing:.06em;color:rgba(247,245,242,.55);margin:0 0 18px}
+  .crumb a{color:rgba(247,245,242,.72)}
+  .eyebrow{font-family:'Manrope',sans-serif;font-weight:700;font-size:11.5px;
+    letter-spacing:.16em;text-transform:uppercase;color:var(--copper);margin:0 0 12px}
+  .phead h1{font-family:Georgia,serif;font-weight:400;
+    font-size:clamp(28px,3.2vw,42px);line-height:1.14;letter-spacing:-.022em;
+    margin:0 0 16px;text-wrap:pretty;max-width:22ch}
+  .lede{font-size:17px;color:rgba(247,245,242,.72);margin:0;max-width:64ch;text-wrap:pretty}
+  .buybar{display:flex;flex-wrap:wrap;align-items:center;gap:18px 26px;margin-top:30px;
+    padding-top:26px;border-top:1px solid rgba(247,245,242,.14)}
+  .price{font-family:'Manrope',sans-serif;font-weight:800;
+    font-size:clamp(26px,2.6vw,34px);color:var(--bone);line-height:1}
+  .price.tbd{font-size:19px;font-weight:700;color:rgba(247,245,242,.8)}
+  .buybar .cta{padding:12px 24px;font-size:14px}
+
+  /* ── Body ───────────────────────────────────────────────────────────── */
+  main{padding:clamp(40px,4vw,64px) 0 clamp(56px,6vw,88px)}
+  .cols{display:grid;grid-template-columns:1.6fr 1fr;gap:32px;align-items:start}
+  @media (max-width:960px){.cols{grid-template-columns:1fr}}
+  @media (max-width:720px){.wrap{padding:0 20px}}
+  .panel{background:#fff;border:1px solid var(--hair);border-radius:16px;padding:30px 28px}
+  .panel + .panel{margin-top:24px}
+  .panel h2{font-family:Georgia,serif;font-weight:400;font-size:clamp(21px,2.1vw,26px);
+    line-height:1.2;letter-spacing:-.018em;color:var(--ink);margin:0 0 14px}
+  .panel h3{font-family:'Manrope',sans-serif;font-weight:700;font-size:11.5px;
+    letter-spacing:.14em;text-transform:uppercase;color:var(--deep-teal);margin:0 0 14px}
+  .panel p{color:var(--body);margin:0 0 14px;text-wrap:pretty}
+  .panel p:last-child{margin-bottom:0}
+  .prose{white-space:pre-wrap}
+  .facts{list-style:none;margin:0;padding:0}
+  .facts li{display:flex;justify-content:space-between;gap:16px;padding:12px 0;
+    border-bottom:1px solid rgba(59,59,59,.12);font-size:15px}
+  .facts li:last-child{border-bottom:none;padding-bottom:0}
+  .facts dt{font-family:'Manrope',sans-serif;font-weight:600;color:var(--body)}
+  .facts dd{margin:0;font-family:'Manrope',sans-serif;font-weight:700;color:var(--ink);text-align:right}
+  .traits{display:flex;flex-wrap:wrap;gap:8px;margin:0;padding:0;list-style:none}
+  .traits li{font-family:'Manrope',sans-serif;font-weight:700;font-size:12.5px;
+    color:var(--deep-teal);background:rgba(0,109,119,.09);border-radius:999px;padding:7px 14px}
+
+  /* ── Loading / error ────────────────────────────────────────────────── */
+  .state{border:1px solid var(--hair);border-radius:16px;background:#fff;
+    padding:56px 32px;text-align:center;max-width:60ch;margin:0 auto}
+  .state h2{font-family:Georgia,serif;font-weight:400;font-size:24px;margin:0 0 10px;color:var(--ink)}
+  .state p{color:var(--body);margin:0 0 20px;font-size:16px}
+  .btn{display:inline-block;font-family:'Manrope',sans-serif;font-weight:700;font-size:13.5px;
+    padding:10px 20px;border-radius:999px;background:var(--ink);color:var(--bone);
+    border:none;cursor:pointer;transition:background 160ms var(--ease)}
+  .btn:hover{background:var(--copper);color:var(--ink)}
+  .btn.ghost{background:transparent;color:var(--ink);border:1px solid var(--hair)}
+  .btn.ghost:hover{border-color:var(--copper);color:var(--copper);background:transparent}
+  .sk i{display:block;height:14px;border-radius:7px;background:rgba(59,59,59,.09);
+    margin-bottom:14px;animation:pulse 1.4s var(--ease) infinite}
+  .sk i:nth-child(1){width:30%;height:26px;border-radius:999px}
+  .sk i:nth-child(2){width:70%;height:30px}
+  .sk i:nth-child(4){width:55%}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
+  @media (prefers-reduced-motion:reduce){.sk i{animation:none}}
+
+  /* ── Footer ─────────────────────────────────────────────────────────── */
+  footer{background:var(--ink);color:rgba(247,245,242,.55);padding:36px 0;
+    font-size:13.5px;border-top:1px solid rgba(247,245,242,.08)}
+  footer a{color:rgba(247,245,242,.72)}
+  footer a:hover{color:var(--copper)}
+  .frow{display:flex;flex-wrap:wrap;gap:12px 28px;align-items:center;justify-content:space-between}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap hrow">
+    <a class="brand" href="index.html">
+      <span>
+        <b>BODH</b>
+        <s>PSYCHOMETRICS</s>
+      </span>
+    </a>
+    <nav class="hnav">
+      <a href="index.html">Home</a>
+      <a href="products.html" aria-current="page">Products</a>
+      <a href="index.html#science">Science</a>
+      <a href="index.html#proof">Testimonials</a>
+    </nav>
+    <a class="cta" href="index.html#demo">Request a Demo</a>
+  </div>
+</header>
+
+<div id="hero"></div>
+
+<main>
+  <div class="wrap">
+    <div id="root"></div>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap frow">
+    <span>&copy; <span id="yr"></span> BODH Psychometrics. All rights reserved.</span>
+    <span><a href="products.html">All assessments</a> &nbsp;&middot;&nbsp; <a href="index.html#demo">Request a demo</a></span>
+  </div>
+</footer>
+
+<script>
+(function () {
+  'use strict';
+
+  // The marketing site and the API live on different hosts, so this is a
+  // deliberate cross-origin call — this origin must appear in the backend's
+  // app.cors.allowed-origins or the browser will block the response.
+  var API_URL = /^(localhost|127\.0\.0\.1)$/.test(location.hostname)
+    ? 'http://localhost:8080/api'
+    : 'https://api.bodh.biz/api';
+
+  var hero = document.getElementById('hero');
+  var root = document.getElementById('root');
+  document.getElementById('yr').textContent = new Date().getFullYear();
+
+  var ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' };
+
+  // Everything rendered below is practitioner-authored content arriving from
+  // the API, so it is escaped rather than trusted as markup.
+  function esc(value) {
+    if (value === null || value === undefined) return '';
+    return String(value).replace(/[&<>"]/g, function (ch) { return ESCAPES[ch]; });
+  }
+
+  function money(price, currency) {
+    if (price === null || price === undefined) {
+      return { text: 'Price on request', tbd: true };
+    }
+    var code = String(currency || 'INR').toUpperCase();
+    try {
+      return {
+        text: new Intl.NumberFormat('en-IN', {
+          style: 'currency', currency: code, maximumFractionDigits: 0
+        }).format(price),
+        tbd: false
+      };
+    } catch (e) {
+      // Unrecognised currency code — fall back to the raw number.
+      return { text: code + ' ' + price, tbd: false };
+    }
+  }
+
+  function titleCase(text) {
+    return String(text).toLowerCase().replace(/\b[a-z]/g, function (m) {
+      return m.toUpperCase();
+    });
+  }
+
+  function skeleton() {
+    hero.innerHTML =
+      '<section class="phead"><div class="wrap sk">' +
+      '<i></i><i></i><i></i><i></i></div></section>';
+    root.innerHTML = '';
+  }
+
+  function state(title, body, retry) {
+    hero.innerHTML = '';
+    root.innerHTML =
+      '<div class="state"><h2>' + esc(title) + '</h2><p>' + esc(body) + '</p>' +
+      (retry ? '<button class="btn" id="retry" type="button">Try again</button> ' : '') +
+      '<a class="btn' + (retry ? ' ghost' : '') + '" href="products.html">Browse all assessments</a>' +
+      '</div>';
+    var button = document.getElementById('retry');
+    if (button) button.addEventListener('click', load);
+  }
+
+  function fact(label, value) {
+    if (value === null || value === undefined || value === '') return '';
+    return '<li><dt>' + esc(label) + '</dt><dd>' + esc(value) + '</dd></li>';
+  }
+
+  function render(product) {
+    document.title = product.name + ' — BODH Psychometrics';
+
+    var m = money(product.price, product.currency);
+    var label = product.category || (product.vertical ? titleCase(product.vertical) : '');
+
+    hero.innerHTML =
+      '<section class="phead"><div class="wrap">' +
+        '<p class="crumb"><a href="products.html">Assessments</a> &nbsp;/&nbsp; ' + esc(product.name) + '</p>' +
+        (label ? '<p class="eyebrow">' + esc(label) + '</p>' : '') +
+        '<h1>' + esc(product.name) + '</h1>' +
+        (product.description ? '<p class="lede">' + esc(product.description) + '</p>' : '') +
+        '<div class="buybar">' +
+          '<span class="price' + (m.tbd ? ' tbd' : '') + '">' + esc(m.text) + '</span>' +
+          '<a class="cta" href="index.html#demo">Enquire about this assessment</a>' +
+        '</div>' +
+      '</div></section>';
+
+    var facts =
+      fact('Instrument', product.questionnaireName) +
+      fact('Short name', product.shortName) +
+      fact('Category', product.category) +
+      fact('Practice area', product.vertical ? titleCase(product.vertical) : '') +
+      fact('Duration', product.durationMinutes ? product.durationMinutes + ' minutes' : '') +
+      fact('Questions', product.questionCount || '') +
+      fact('Structure', product.hasSections ? 'Sectioned' : 'Single section');
+
+    var traits = Array.isArray(product.measuredQualities) ? product.measuredQualities : [];
+
+    root.innerHTML =
+      '<div class="cols">' +
+        '<div>' +
+          (product.description
+            ? '<section class="panel"><h2>About this assessment</h2>' +
+              '<p class="prose">' + esc(product.description) + '</p></section>'
+            : '') +
+          (traits.length
+            ? '<section class="panel"><h3>What it measures</h3><ul class="traits">' +
+              traits.map(function (t) { return '<li>' + esc(t) + '</li>'; }).join('') +
+              '</ul></section>'
+            : '') +
+          (product.generalInstruction
+            ? '<section class="panel"><h3>How it is administered</h3>' +
+              '<p class="prose">' + esc(product.generalInstruction) + '</p></section>'
+            : '') +
+        '</div>' +
+        '<aside>' +
+          '<section class="panel"><h3>At a glance</h3><ul class="facts">' + facts + '</ul></section>' +
+          '<section class="panel"><h3>Next step</h3>' +
+          '<p>Talk to us about licensing this instrument for your organisation, ' +
+          'or see it running on the BODH platform.</p>' +
+          '<a class="btn" href="index.html#demo">Request a demo</a></section>' +
+        '</aside>' +
+      '</div>';
+  }
+
+  function load() {
+    var id = new URLSearchParams(location.search).get('id');
+    if (!id || !/^\d+$/.test(id)) {
+      state('Assessment not found',
+        'That link does not point at an assessment we publish.',
+        false);
+      return;
+    }
+
+    skeleton();
+    fetch(API_URL + '/public/products/getById/' + encodeURIComponent(id),
+      { headers: { Accept: 'application/json' } })
+      .then(function (response) {
+        // 404 covers both "no such assessment" and "not currently listed" —
+        // the API deliberately does not distinguish the two publicly.
+        if (response.status === 404) return null;
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        return response.json();
+      })
+      .then(function (product) {
+        if (!product) {
+          state('Assessment not available',
+            'This assessment is not currently listed. It may have been withdrawn or replaced.',
+            false);
+          return;
+        }
+        render(product);
+      })
+      .catch(function () {
+        state('We could not load this assessment',
+          'Something went wrong reaching our servers. Please try again in a moment.',
+          true);
+      });
+  }
+
+  load();
+})();
+</script>
+</body>
+</html>

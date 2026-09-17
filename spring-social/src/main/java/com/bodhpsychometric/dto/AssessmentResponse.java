@@ -1,5 +1,7 @@
 package com.bodhpsychometric.dto;
 
+import java.math.BigDecimal;
+
 import com.bodhpsychometric.model.assessment.Assessment;
 import com.bodhpsychometric.model.assessment.enums.AssessmentStatus;
 
@@ -16,7 +18,9 @@ public record AssessmentResponse(
         boolean showTermsAndConditions,
         AssessmentStatus status,
         boolean autoNext,
-        int respondentCount) {
+        int respondentCount,
+        BigDecimal price,
+        String currency) {
 
     public static AssessmentResponse from(Assessment a, int respondentCount) {
         return new AssessmentResponse(
@@ -27,6 +31,8 @@ public record AssessmentResponse(
                 a.isShowTermsAndConditions(),
                 a.getStatus(),
                 a.isAutoNext(),
-                respondentCount);
+                respondentCount,
+                a.getPrice(),
+                a.getCurrency());
     }
 }

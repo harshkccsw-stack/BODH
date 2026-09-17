@@ -1,5 +1,7 @@
 package com.bodhpsychometric.model.assessment;
 
+import java.math.BigDecimal;
+
 import com.bodhpsychometric.model.assessment.enums.AssessmentStatus;
 import com.bodhpsychometric.model.questionnaire.Questionnaire;
 
@@ -54,6 +56,16 @@ public class Assessment implements java.io.Serializable {
     @Column(name = "autoNext", nullable = false)
     private boolean autoNext;
 
+    // ── Public catalog ───────────────────────────────────────────────────
+    // Shown on the marketing site when the assessment is ACTIVE. Both are
+    // nullable: an unpriced assessment renders as "Price on request" rather
+    // than being withheld from the listing.
+    @Column(name = "price", precision = 10, scale = 2)
+    private BigDecimal price;
+
+    @Column(name = "currency", length = 3)
+    private String currency;
+
     public Long getAssessmentId() {
         return assessmentId;
     }
@@ -100,5 +112,21 @@ public class Assessment implements java.io.Serializable {
 
     public void setAutoNext(boolean autoNext) {
         this.autoNext = autoNext;
+    }
+
+    public BigDecimal getPrice() {
+        return price;
+    }
+
+    public void setPrice(BigDecimal price) {
+        this.price = price;
+    }
+
+    public String getCurrency() {
+        return currency;
+    }
+
+    public void setCurrency(String currency) {
+        this.currency = currency;
     }
 }

@@ -13,8 +13,12 @@ public class CorsConfig implements WebMvcConfigurer {
 
     @Override
     public void addCorsMappings(CorsRegistry registry) {
+        // allowedOriginPatterns, not allowedOrigins: the configured list holds
+        // host wildcards (https://*.bodh.biz) which allowedOrigins matches
+        // literally and therefore never matches at all. Patterns are also the
+        // only form legal alongside allowCredentials(true).
         registry.addMapping("/**")
-                .allowedOrigins(allowedOrigins)
+                .allowedOriginPatterns(allowedOrigins)
                 .allowedMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
                 .allowedHeaders("*")
                 .allowCredentials(true)

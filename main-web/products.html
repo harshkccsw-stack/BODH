@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Assessments — BODH Psychometrics</title>
+<meta name="description" content="Browse the psychometric assessments available from BODH Psychometrics.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<style>
+  /* Brand tokens lifted from index.html so the two pages read as one site. */
+  :root{
+    --ink:#16213E; --bone:#F7F5F2; --copper:#B87333; --teal:#006D77;
+    --deep-teal:#00565E; --body:#3B3B3B; --hair:rgba(59,59,59,.16);
+    --ease:cubic-bezier(.22,.61,.36,1);
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  html,body{margin:0;padding:0;background:var(--bone);color:var(--ink);
+    font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+    font-size:17px;line-height:1.6;-webkit-font-smoothing:antialiased}
+  a{color:var(--teal);text-decoration:none}
+  a:hover{color:var(--copper)}
+  .wrap{max-width:1320px;margin:0 auto;padding:0 40px}
+
+  /* ── Header ─────────────────────────────────────────────────────────── */
+  header{background:rgba(22,33,62,.96);backdrop-filter:blur(10px);
+    border-bottom:1px solid rgba(247,245,242,.08);position:sticky;top:0;z-index:40}
+  .hrow{height:74px;display:flex;align-items:center;justify-content:space-between;gap:24px}
+  .brand{display:inline-flex;align-items:center;gap:11px;flex-shrink:0}
+  .brand b{font-family:'Manrope',sans-serif;font-weight:800;font-size:19px;
+    letter-spacing:.14em;color:var(--bone);line-height:1;display:block}
+  .brand s{font-family:'Manrope',sans-serif;font-weight:600;font-size:9.5px;
+    letter-spacing:.22em;color:rgba(247,245,242,.55);text-decoration:none;display:block}
+  .hnav{display:flex;gap:20px;align-items:center}
+  .hnav a{font-family:'Manrope',sans-serif;font-weight:600;font-size:14px;
+    color:rgba(247,245,242,.72);white-space:nowrap;transition:color 160ms var(--ease)}
+  .hnav a:hover,.hnav a[aria-current]{color:var(--copper)}
+  .cta{font-family:'Manrope',sans-serif;font-weight:700;font-size:13.5px;
+    padding:9px 18px;border-radius:999px;background:var(--bone);color:var(--ink);
+    transition:background 160ms var(--ease),color 160ms var(--ease)}
+  .cta:hover{background:var(--copper);color:var(--ink)}
+  @media (max-width:760px){
+    .hrow{height:auto;padding:14px 0;flex-wrap:wrap;gap:12px}
+    .hnav{order:3;width:100%;gap:16px;overflow-x:auto}
+  }
+
+  /* ── Page head ──────────────────────────────────────────────────────── */
+  .phead{background:var(--ink);color:var(--bone);padding:clamp(48px,5vw,84px) 0}
+  .eyebrow{font-family:'Manrope',sans-serif;font-weight:700;font-size:11.5px;
+    letter-spacing:.16em;text-transform:uppercase;color:var(--copper);margin:0 0 14px}
+  .phead h1{font-family:Georgia,serif;font-weight:400;
+    font-size:clamp(30px,3.4vw,44px);line-height:1.14;letter-spacing:-.022em;
+    margin:0 0 16px;text-wrap:pretty}
+  .phead p{font-size:17px;color:rgba(247,245,242,.72);margin:0;max-width:62ch;text-wrap:pretty}
+
+  /* ── Grid ───────────────────────────────────────────────────────────── */
+  main{padding:clamp(40px,4vw,64px) 0 clamp(56px,6vw,88px)}
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:24px}
+  @media (max-width:1080px){.grid{grid-template-columns:repeat(2,1fr)}}
+  @media (max-width:720px){.grid{grid-template-columns:1fr}.wrap{padding:0 20px}}
+  .card{background:#fff;border:1px solid var(--hair);border-radius:16px;
+    padding:28px 24px;display:flex;flex-direction:column;gap:12px;color:inherit;
+    transition:border-color 200ms var(--ease),box-shadow 200ms var(--ease),transform 200ms var(--ease)}
+  .card:hover{border-color:rgba(184,115,51,.5);transform:translateY(-2px);
+    box-shadow:0 1px 2px rgba(22,33,62,.05),0 14px 30px rgba(22,33,62,.08);color:inherit}
+  .tag{display:inline-flex;align-items:center;gap:6px;align-self:flex-start;
+    font-family:'Manrope',sans-serif;font-weight:700;font-size:10.5px;letter-spacing:.09em;
+    text-transform:uppercase;color:var(--deep-teal);background:rgba(0,109,119,.09);
+    border-radius:999px;padding:5px 11px}
+  .card h2{font-family:'Manrope',sans-serif;font-weight:700;font-size:18px;
+    color:var(--ink);margin:0;line-height:1.3}
+  .card .desc{font-size:15px;line-height:1.55;color:var(--body);margin:0;text-wrap:pretty}
+  .meta{font-family:'Manrope',sans-serif;font-weight:600;font-size:12.5px;
+    color:var(--body);margin:0;display:flex;flex-wrap:wrap;gap:6px 14px}
+  .foot{margin:auto 0 0;padding-top:16px;border-top:1px solid rgba(59,59,59,.14);
+    display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+  .price{font-family:'Manrope',sans-serif;font-weight:800;font-size:20px;color:var(--ink)}
+  .price.tbd{font-size:14px;font-weight:700;color:var(--deep-teal)}
+  .more{font-family:'Manrope',sans-serif;font-weight:700;font-size:12.5px;
+    letter-spacing:.06em;text-transform:uppercase;color:var(--copper)}
+
+  /* ── Loading / empty / error ────────────────────────────────────────── */
+  .state{border:1px solid var(--hair);border-radius:16px;background:#fff;
+    padding:56px 32px;text-align:center;max-width:60ch;margin:0 auto}
+  .state h2{font-family:Georgia,serif;font-weight:400;font-size:24px;margin:0 0 10px;color:var(--ink)}
+  .state p{color:var(--body);margin:0 0 20px;font-size:16px}
+  .btn{display:inline-block;font-family:'Manrope',sans-serif;font-weight:700;font-size:13.5px;
+    padding:10px 20px;border-radius:999px;background:var(--ink);color:var(--bone);
+    border:none;cursor:pointer;transition:background 160ms var(--ease)}
+  .btn:hover{background:var(--copper);color:var(--ink)}
+  .sk{background:#fff;border:1px solid var(--hair);border-radius:16px;padding:28px 24px}
+  .sk i{display:block;height:12px;border-radius:6px;background:rgba(59,59,59,.09);
+    margin-bottom:12px;animation:pulse 1.4s var(--ease) infinite}
+  .sk i:nth-child(1){width:38%;height:22px;border-radius:999px}
+  .sk i:nth-child(2){width:80%;height:18px}
+  .sk i:nth-child(4){width:60%}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
+  @media (prefers-reduced-motion:reduce){.sk i{animation:none}.card{transition:none}}
+
+  /* ── Footer ─────────────────────────────────────────────────────────── */
+  footer{background:var(--ink);color:rgba(247,245,242,.55);padding:36px 0;
+    font-size:13.5px;border-top:1px solid rgba(247,245,242,.08)}
+  footer a{color:rgba(247,245,242,.72)}
+  footer a:hover{color:var(--copper)}
+  .frow{display:flex;flex-wrap:wrap;gap:12px 28px;align-items:center;justify-content:space-between}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap hrow">
+    <a class="brand" href="index.html">
+      <span>
+        <b>BODH</b>
+        <s>PSYCHOMETRICS</s>
+      </span>
+    </a>
+    <nav class="hnav">
+      <a href="index.html">Home</a>
+      <a href="products.html" aria-current="page">Products</a>
+      <a href="index.html#science">Science</a>
+      <a href="index.html#proof">Testimonials</a>
+    </nav>
+    <a class="cta" href="index.html#demo">Request a Demo</a>
+  </div>
+</header>
+
+<section class="phead">
+  <div class="wrap">
+    <p class="eyebrow">Assessments</p>
+    <h1>Instruments available to license</h1>
+    <p>Every instrument below is live on the BODH platform and ready to administer. Select one to see what it measures, how long it takes, and how it is structured.</p>
+  </div>
+</section>
+
+<main>
+  <div class="wrap">
+    <div id="root"></div>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap frow">
+    <span>&copy; <span id="yr"></span> BODH Psychometrics. All rights reserved.</span>
+    <span><a href="index.html">Home</a> &nbsp;&middot;&nbsp; <a href="index.html#demo">Request a demo</a></span>
+  </div>
+</footer>
+
+<script>
+(function () {
+  'use strict';
+
+  // The marketing site and the API live on different hosts, so this is a
+  // deliberate cross-origin call — this origin must appear in the backend's
+  // app.cors.allowed-origins or the browser will block the response.
+  var API_URL = /^(localhost|127\.0\.0\.1)$/.test(location.hostname)
+    ? 'http://localhost:8080/api'
+    : 'https://api.bodh.biz/api';
+
+  var root = document.getElementById('root');
+  document.getElementById('yr').textContent = new Date().getFullYear();
+
+  var ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' };
+
+  // Everything rendered below is practitioner-authored content arriving from
+  // the API, so it is escaped rather than trusted as markup.
+  function esc(value) {
+    if (value === null || value === undefined) return '';
+    return String(value).replace(/[&<>"]/g, function (ch) { return ESCAPES[ch]; });
+  }
+
+  function money(price, currency) {
+    if (price === null || price === undefined) {
+      return { text: 'Price on request', tbd: true };
+    }
+    var code = String(currency || 'INR').toUpperCase();
+    try {
+      return {
+        text: new Intl.NumberFormat('en-IN', {
+          style: 'currency', currency: code, maximumFractionDigits: 0
+        }).format(price),
+        tbd: false
+      };
+    } catch (e) {
+      // Unrecognised currency code — fall back to the raw number.
+      return { text: code + ' ' + price, tbd: false };
+    }
+  }
+
+  function titleCase(text) {
+    return String(text).toLowerCase().replace(/\b[a-z]/g, function (m) {
+      return m.toUpperCase();
+    });
+  }
+
+  function skeleton() {
+    var cells = '';
+    for (var i = 0; i < 6; i++) {
+      cells += '<div class="sk"><i></i><i></i><i></i><i></i></div>';
+    }
+    root.innerHTML = '<div class="grid">' + cells + '</div>';
+  }
+
+  function state(title, body, retry) {
+    root.innerHTML =
+      '<div class="state"><h2>' + esc(title) + '</h2><p>' + esc(body) + '</p>' +
+      (retry
+        ? '<button class="btn" id="retry" type="button">Try again</button>'
+        : '<a class="btn" href="index.html#demo">Request a demo</a>') +
+      '</div>';
+    var button = document.getElementById('retry');
+    if (button) button.addEventListener('click', load);
+  }
+
+  function card(product) {
+    var m = money(product.price, product.currency);
+    var bits = [];
+    if (product.durationMinutes) bits.push(esc(product.durationMinutes) + ' min');
+    if (product.questionCount) bits.push(esc(product.questionCount) + ' questions');
+    var label = product.category || (product.vertical ? titleCase(product.vertical) : '');
+
+    return '' +
+      '<a class="card" href="product.html?id=' + encodeURIComponent(product.assessmentId) + '">' +
+        (label ? '<span class="tag">' + esc(label) + '</span>' : '') +
+        '<h2>' + esc(product.name) + '</h2>' +
+        (product.description ? '<p class="desc">' + esc(product.description) + '</p>' : '') +
+        (bits.length
+          ? '<p class="meta">' + bits.map(function (b) { return '<span>' + b + '</span>'; }).join('') + '</p>'
+          : '') +
+        '<span class="foot">' +
+          '<span class="price' + (m.tbd ? ' tbd' : '') + '">' + esc(m.text) + '</span>' +
+          '<span class="more">View details &rarr;</span>' +
+        '</span>' +
+      '</a>';
+  }
+
+  function load() {
+    skeleton();
+    fetch(API_URL + '/public/products/getAll', { headers: { Accept: 'application/json' } })
+      .then(function (response) {
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        return response.json();
+      })
+      .then(function (items) {
+        if (!Array.isArray(items) || items.length === 0) {
+          state('No assessments listed yet',
+            'Our catalogue is being prepared. Get in touch and we will walk you through what is available.',
+            false);
+          return;
+        }
+        root.innerHTML = '<div class="grid">' + items.map(card).join('') + '</div>';
+      })
+      .catch(function () {
+        state('We could not load the catalogue',
+          'Something went wrong reaching our servers. Please try again in a moment.',
+          true);
+      });
+  }
+
+  load();
+})();
+</script>
+</body>
+</html>

@@ -36,6 +36,8 @@ interface AssessmentForm {
   status: AssessmentStatus;
   showTermsAndConditions: boolean;
   autoNext: boolean;
+  price: string; // '' = unpriced; inputs are strings
+  currency: string;
 }
 
 const EMPTY_FORM: AssessmentForm = {
@@ -45,6 +47,8 @@ const EMPTY_FORM: AssessmentForm = {
   status: 'INACTIVE',
   showTermsAndConditions: true,
   autoNext: false,
+  price: '',
+  currency: 'INR',
 };
 
 const statusChip = (s: AssessmentStatus) =>
@@ -131,6 +135,8 @@ export default function AssessmentLibraryPage() {
       status: a.status,
       showTermsAndConditions: a.showTermsAndConditions,
       autoNext: a.autoNext,
+      price: a.price == null ? '' : String(a.price),
+      currency: a.currency ?? 'INR',
     });
     setFormError('');
     setModalOpen(true);
@@ -140,12 +146,19 @@ export default function AssessmentLibraryPage() {
     const name = form.name.trim();
     if (!name) { setFormError('Assessment name is required'); return; }
     if (!form.questionnaireId) { setFormError('Pick the questionnaire this assessment offers'); return; }
+    const priceText = form.price.trim();
+    if (priceText && !(Number(priceText) >= 0)) {
+      setFormError('Price must be a number, or left blank for "Price on request"');
+      return;
+    }
     const payload: AssessmentPayload = {
       name,
       questionnaireId: Number(form.questionnaireId),
       status: form.status,
       showTermsAndConditions: form.showTermsAndConditions,
       autoNext: form.autoNext,
+      price: priceText ? Number(priceText) : null,
+      currency: priceText ? form.currency.trim().toUpperCase() || null : null,
     };
     setSaving(true);
     try {
@@ -402,7 +415,36 @@ export default function AssessmentLibraryPage() {
                   ))}
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Only active assessments can be allotted and taken.
+                  Only active assessments can be allotted and taken, and active
+                  assessments are listed publicly on the website.
+                </p>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <div className="col-span-2">
+                  <label className="text-sm font-medium">Price</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    className="w-full mt-1 rounded-md border border-border bg-background px-3 py-2 text-sm"
+                    placeholder="Leave blank for “Price on request”"
+                    value={form.price}
+                    onChange={(e) => setForm({ ...form, price: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium">Currency</label>
+                  <input
+                    type="text"
+                    maxLength={3}
+                    className="w-full mt-1 rounded-md border border-border bg-background px-3 py-2 text-sm uppercase"
+                    placeholder="INR"
+                    value={form.currency}
+                    onChange={(e) => setForm({ ...form, currency: e.target.value })}
+                  />
+                </div>
+                <p className="col-span-3 text-xs text-muted-foreground">
+                  Shown on the public Products page when this assessment is active.
                 </p>
               </div>
               <label className="flex items-center gap-2 text-sm cursor-pointer">
