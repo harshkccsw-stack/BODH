@@ -1,12 +1,14 @@
 import { api } from '@/lib/apiClient';
 
 /**
- * Computation drafts — rules + template + respondents + guidance, assembled
- * into a prompt that is ready to send.
+ * Computation drafts — rules + template + respondents + guidance — and their
+ * delivery: check, approve, preview one respondent, generate the batch.
  *
- * There is deliberately NO generate call: no AI provider has been chosen, so
- * the backend has no such endpoint and makes no outbound request anywhere.
- * `markReady` is the ceiling.
+ * Scores never involve a model: `approve` and `generate` evaluate the pinned
+ * formulae in Java. `markReady` remains the ceiling only for a computation that
+ * pins a STATEMENT rule, because generating scoring code has no engine behind
+ * it. The one outbound call on this path is NARRATIVE prose, written from
+ * values the formulae already produced.
  *
  * Matches ReportComputationController on the backend.
  */
@@ -34,11 +36,33 @@ export interface SelectedRule {
   sortOrder: number;
 }
 
-/** Matches ReportComputationResponse.TagGuidance on the backend. */
+/**
+ * Matches ReportComputationResponse.TagGuidance on the backend — one tag's
+ * ANSWER on this computation.
+ *
+ * The template says only what shape a tag has. Which rule fills a VALUE tag
+ * (`ruleSlug`) and what a NARRATIVE tag should say (`guidance`) is this
+ * assessment's business and lives here, so one published template serves any
+ * number of assessments.
+ */
 export interface TagGuidance {
   tag: string;
   guidance: string | null;
+  /** VALUE tags: the pinned rule whose result prints here. */
+  ruleSlug: string | null;
+  /** Optional DecimalFormat pattern for a number. */
+  format: string | null;
+  /** Printed when the value is empty. */
+  fallbackText: string | null;
   sortOrder: number;
+}
+
+/** Matches ReportTagAnswerRequest on the backend. */
+export interface TagAnswerPayload {
+  ruleSlug?: string | null;
+  guidance?: string | null;
+  format?: string | null;
+  fallbackText?: string | null;
 }
 
 /**
@@ -74,10 +98,12 @@ export interface ReportComputationResponse {
    */
   mode: ComputationMode;
   /**
-   * What still stands between this computation and a delivered report, in the
-   * author's language. Empty means approve will succeed.
+   * The CHEAP half of what stands between this computation and a delivered
+   * report — template, bindings, pinned dependencies — without the cohort
+   * evaluation. Empty means nothing cheap is wrong; only a clean `check()`
+   * means approve will succeed. Null on the list, which computes nothing.
    */
-  directBlockers: string[];
+  directBlockers: string[] | null;
   sourcePrompt: string | null;
   respondentScope: RespondentScope;
   respondentIds: number[];
@@ -96,8 +122,60 @@ export interface ReportComputationResponse {
   narrativeTags: string[];
   /** Whether a model is configured to write them. */
   narrativeAvailable: boolean;
+  /** Who approved, when, over how many completed respondents. Null until approved. */
+  approvedByUserId: number | null;
+  approvedAt: string | null;
+  approvedCohortSize: number | null;
   createdAt: string;
   updatedAt: string;
+}
+
+/** Matches ReportDryRunResponse.RuleOutcome — one rule's result over the cohort. */
+export interface CheckRuleOutcome {
+  reportRuleId: number;
+  slug: string;
+  name: string;
+  stage: string;
+  definitionKind: 'EXPRESSION' | 'STATEMENT';
+  resultType: string | null;
+  population: boolean;
+  status: 'EVALUATED' | 'NEEDS_GENERATION' | 'ERROR' | 'TOO_SMALL';
+  error: string | null;
+  summary: {
+    count: number;
+    nulls: number;
+    min: number | null;
+    max: number | null;
+    mean: number | null;
+    bands: Record<string, number>;
+  } | null;
+}
+
+/**
+ * Matches ReportCheckResponse on the backend: the full pre-approval check,
+ * cohort evaluation included. Asked for on demand — after a change and before
+ * approve — because the evaluation is the expensive half and no longer runs on
+ * a plain read.
+ */
+export interface ReportCheckResponse {
+  reportComputationId: number | null;
+  blockers: string[];
+  cohortSize: number;
+  completed: number;
+  minCohortSize: number;
+  rules: CheckRuleOutcome[];
+  notes: string[];
+  ready: boolean;
+}
+
+/** Matches ReportRecipientResponse: one attempt in the cohort, and whether a batch writes it up. */
+export interface ReportRecipient {
+  attemptId: number;
+  respondentUserId: number;
+  name: string;
+  serialId: string | null;
+  status: 'NOT_STARTED' | 'ONGOING' | 'COMPLETED';
+  recipient: boolean;
 }
 
 /** Matches ReportComputation's mode constants. */
@@ -186,6 +264,64 @@ export const reportComputationsApi = {
     (await api.post(`${ROOT}/approve/${id}`)).data,
 
   /**
+   * The full pre-approval check, cohort evaluation included.
+   *
+   * A POST because it does real work — every pinned rule over every
+   * respondent. Call it after each change and before enabling approve; a plain
+   * read no longer runs it.
+   */
+  check: async (id: number): Promise<ReportCheckResponse> =>
+    (await api.post(`${ROOT}/check/${id}`)).data,
+
+  /** The cohort, with who would actually receive a report — the preview picker. */
+  recipients: async (id: number): Promise<ReportRecipient[]> =>
+    (await api.get(`${ROOT}/recipients/${id}`)).data,
+
+  /** One assessment's computations, newest first. Computes nothing per row. */
+  getByAssessment: async (assessmentId: number): Promise<ReportComputationResponse[]> =>
+    (await api.get(`${ROOT}/getByAssessment/${assessmentId}`)).data,
+
+  /**
+   * The one computation for an assessment and a template: found, or created
+   * with every formula rule of the assessment pinned at its latest version.
+   * The Layout step's first save.
+   */
+  forTemplate: async (payload: {
+    assessmentId: number;
+    reportTemplateId: number;
+    organizationId?: number | null;
+  }): Promise<ReportComputationResponse> =>
+    (await api.post(`${ROOT}/forTemplate`, payload)).data,
+
+  /** Re-pin the assessment's formula rules at their latest versions. DRAFT only. */
+  repin: async (id: number): Promise<ReportComputationResponse> =>
+    (await api.post(`${ROOT}/repin/${id}`)).data,
+
+  /**
+   * Answer one placeholder on this computation: the rule that fills a VALUE
+   * tag, or the guidance a NARRATIVE tag is written from. CORE and LITERAL
+   * tags are the template's and are refused here.
+   */
+  answerTag: async (
+    id: number,
+    tag: string,
+    payload: TagAnswerPayload,
+  ): Promise<ReportComputationResponse> =>
+    (await api.put(`${ROOT}/answerTag/${id}/${encodeURIComponent(tag)}`, payload)).data,
+
+  /**
+   * One respondent's FINAL report, as a blob URL. Requires approval, unlike
+   * `previewPdfUrl`, and refuses anyone the batch would skip. The caller
+   * revokes the URL when done.
+   */
+  reportPdfUrl: async (id: number, attemptId: number): Promise<string> =>
+    withReadableError(async () => {
+      const res = await api.get(`${ROOT}/report/${id}/${attemptId}.pdf`,
+        { responseType: 'blob' });
+      return URL.createObjectURL(res.data as Blob);
+    }),
+
+  /**
    * One respondent's real report, for checking before approving.
    *
    * A blob URL and not a plain href, for the same reason the template preview
@@ -200,15 +336,23 @@ export const reportComputationsApi = {
     }),
 
   /**
-   * Every completed respondent's report, as a ZIP.
+   * Reports as a ZIP — every completed respondent's, or only the attempts
+   * named in `attemptIds`. Who receives one is chosen HERE, at generation
+   * time; the cohort the rules run over is the whole population either way,
+   * so a percentile is the same number whoever is on the list.
    *
    * `responseType: 'blob'` is load-bearing — without it axios decodes the
    * archive as UTF-8 text and the saved file is corrupt in a way that only
    * shows up when somebody tries to open it.
    */
-  generate: async (id: number): Promise<{ blob: Blob; fileName: string; count: number; skipped: number }> =>
+  generate: async (
+    id: number,
+    attemptIds?: number[],
+  ): Promise<{ blob: Blob; fileName: string; count: number; skipped: number }> =>
     withReadableError(async () => {
-    const response = await api.post(`${ROOT}/generate/${id}`, null, { responseType: 'blob' });
+    const response = await api.post(`${ROOT}/generate/${id}`,
+      attemptIds && attemptIds.length ? { attemptIds } : null,
+      { responseType: 'blob' });
     const disposition = String(response.headers['content-disposition'] || '');
     const match = disposition.match(/filename="?([^"]+)"?/);
     return {

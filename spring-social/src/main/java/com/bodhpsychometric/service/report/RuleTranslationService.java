@@ -68,6 +68,8 @@ public class RuleTranslationService {
     @Autowired private ReportRuleRepository rules;
     @Autowired private ReportRuleService ruleService;
     @Autowired private ReportColumnCatalog columns;
+    @Autowired private ReportShapeProbe shapes;
+    @Autowired private ItemBindingService itemBindings;
     @Autowired private ReportAccess access;
     @Autowired private ObjectMapper json;
 
@@ -81,26 +83,38 @@ public class RuleTranslationService {
     public RuleTranslationResponse propose(RuleTranslationRequest request) {
         access.requireAuthor();
 
+        // A rule can be translated as long as it has sheet text to translate
+        // FROM — including one that is already a formula, which is how a
+        // reviewer re-translates a bad first attempt. A rule that never had a
+        // statement has nothing to say to a model.
         List<ReportRule> targets = rules.findAllById(request.ruleIds()).stream()
-                .filter(r -> r.latestVersion().map(v -> !v.isExpression()).orElse(false))
+                .filter(r -> !statementOf(r).isBlank())
                 .sorted((a, b) -> Integer.compare(a.getStepOrder(), b.getStepOrder()))
                 .toList();
 
         if (targets.isEmpty()) {
             throw new IllegalStateException(
-                    "None of those rules are plain-language rules waiting to be translated.");
+                    "None of those rules has plain-language text to translate from.");
         }
 
         // Every rule in this batch is about to become a formula, so none of
         // them counts as a plain-language dependency while the batch is being
         // checked. Without this a composite score reading three factor scores
         // is rejected for depending on plain language - which is most of a real
-        // workbook, since that is exactly how scoring sheets are written.
-        Set<String> pending = targets.stream().map(ReportRule::getSlug)
-                .collect(java.util.stream.Collectors.toSet());
+        // workbook, since that is exactly how scoring sheets are written. The
+        // batch's other DRAFT proposals count the same way, which is what lets
+        // one rule be re-asked on its own without the vocabulary going missing.
+        Set<String> pending = new java.util.LinkedHashSet<>();
+        targets.forEach(r -> pending.add(r.getSlug()));
+        request.contextOrEmpty().forEach(d -> {
+            if (d.slug() != null && !d.slug().isBlank()) {
+                pending.add(d.slug().trim());
+            }
+        });
 
-        String catalog = catalogPrompt(request);
-        String answer = openAi.completeAsJson(systemPrompt(), catalog + rulesPrompt(targets));
+        String catalog = catalogPrompt(request) + contextPrompt(request);
+        String answer = openAi.completeAsJson(systemPrompt(),
+                catalog + rulesPrompt(targets, request));
         Map<String, Attempt> attempts = readAttempts(answer);
 
         List<Proposal> proposals = new ArrayList<>();
@@ -279,7 +293,34 @@ public class RuleTranslationService {
                   and say in note exactly what was missing.
                 - A wrong formula is far worse than no formula. Guessing is the one \
                   thing you must not do.
+                - When a rule comes with "reviewer said", a person has read your previous \
+                  attempt and told you what is wrong. Their words override your own \
+                  reading of the text. Change only what they named and keep everything \
+                  else as it was.
                 """;
+    }
+
+    /**
+     * The batch's other draft proposals, so a rule re-asked on its own still
+     * sees the formulae it may reference. Not saved anywhere; they travel with
+     * the request and are shown exactly as the reviewer is holding them.
+     */
+    private static String contextPrompt(RuleTranslationRequest request) {
+        List<RuleTranslationRequest.Draft> drafts = request.contextOrEmpty().stream()
+                .filter(d -> d.slug() != null && !d.slug().isBlank()
+                        && d.expression() != null && !d.expression().isBlank())
+                .toList();
+        if (drafts.isEmpty()) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder("\nDRAFT FORMULAE already proposed in this batch. ")
+                .append("Reference them as [rule:slug] like any other rule; they will be ")
+                .append("saved alongside yours:\n");
+        for (RuleTranslationRequest.Draft d : drafts) {
+            sb.append("  [rule:").append(d.slug().trim()).append("] = ")
+                    .append(oneLine(d.expression())).append('\n');
+        }
+        return sb.toString();
     }
 
     /**
@@ -295,6 +336,14 @@ public class RuleTranslationService {
         sb.append("FUNCTIONS (the complete list; anything else is rejected):\n");
         sb.append(String.join(", ", ExpressionService.functionNames())).append("\n\n");
 
+        // The SHAPE of every score column, so a cut written for a 12–60
+        // composite is not placed on a 4–20 factor: the range lint catches
+        // that after the fact, and telling the model up front means it mostly
+        // stops happening. Item codes come from the practitioner's own item
+        // sheet, which is the vocabulary the rules were written in.
+        Map<String, ReportShapeProbe.MqtShape> shapeByKey = shapeOf(request.assessmentId());
+        Map<String, List<String>> itemsByKey = itemsOf(request.assessmentId());
+
         sb.append("COLUMNS (write them as shown, in square brackets):\n");
         for (ReportColumnCatalog.ReportColumn column
                 : columns.columnsFor(request.assessmentId(), request.organizationId())) {
@@ -302,7 +351,18 @@ public class RuleTranslationService {
                 continue;
             }
             sb.append("  [").append(column.key()).append("]  ")
-                    .append(column.label()).append("  (").append(column.type()).append(")\n");
+                    .append(column.label()).append("  (").append(column.type()).append(")");
+            ReportShapeProbe.MqtShape shape = shapeByKey.get(column.key());
+            if (shape != null && shape.questions() > 0) {
+                sb.append("  ").append(shape.questions()).append(" item")
+                        .append(shape.questions() == 1 ? "" : "s")
+                        .append(", max ").append(trimNumber(shape.maxPossible()));
+            }
+            List<String> items = itemsByKey.get(column.key());
+            if (items != null && !items.isEmpty()) {
+                sb.append("  items: ").append(String.join(", ", items));
+            }
+            sb.append('\n');
         }
 
         sb.append("\nRULES you may reference as [rule:slug]. ")
@@ -355,6 +415,46 @@ public class RuleTranslationService {
             elsewhere.forEach(rule -> appendRule(sb, rule));
         }
         return sb.toString();
+    }
+
+    /** Score-column shapes, or nothing when the probe cannot answer — the prompt still builds. */
+    private Map<String, ReportShapeProbe.MqtShape> shapeOf(Long assessmentId) {
+        try {
+            return shapes.shapeOf(assessmentId);
+        } catch (RuntimeException e) {
+            log.warn("Shape probe failed for assessment {}; catalog goes out without ranges", assessmentId, e);
+            return Map.of();
+        }
+    }
+
+    /**
+     * Item codes per score column, from the practitioner's item sheet: the
+     * validity items get their own MQT, so {@code [mqt:41]} is where "V3"
+     * lives, and the factor MQ is where "I1, I2, I3, I4" live.
+     */
+    private Map<String, List<String>> itemsOf(Long assessmentId) {
+        Map<String, List<String>> out = new LinkedHashMap<>();
+        try {
+            for (var item : itemBindings.listFor(assessmentId)) {
+                String label = item.itemCode()
+                        + (item.reverseScored() ? " (reverse-scored)" : "")
+                        + (item.inComposite() ? "" : " (validity, excluded from composites)");
+                if (item.mqtId() != null) {
+                    out.computeIfAbsent("mqt:" + item.mqtId(), k -> new ArrayList<>()).add(label);
+                }
+                if (item.mqId() != null) {
+                    out.computeIfAbsent("mq:" + item.mqId(), k -> new ArrayList<>()).add(label);
+                }
+            }
+        } catch (RuntimeException e) {
+            log.warn("Item bindings unavailable for assessment {}; catalog goes out without item codes",
+                    assessmentId, e);
+        }
+        return out;
+    }
+
+    private static String trimNumber(double value) {
+        return value == Math.rint(value) ? String.valueOf((long) value) : String.valueOf(value);
     }
 
     /** One catalog line: slug, name, and whatever the workbook said about it. */
@@ -421,13 +521,38 @@ public class RuleTranslationService {
         return flat.length() <= 200 ? flat : flat.substring(0, 197).trim() + "...";
     }
 
-    private static String rulesPrompt(List<ReportRule> targets) {
+    /**
+     * The rules to translate, each with its sheet text — and, when a reviewer
+     * has sent one back, the previous attempt and what they said about it.
+     *
+     * <p>The previous attempt is whatever the reviewer is holding: the draft in
+     * {@code context} for that slug if there is one, else the formula on file.
+     * Shown so "change only what was named" has something to be relative to.
+     */
+    private static String rulesPrompt(List<ReportRule> targets, RuleTranslationRequest request) {
+        Map<String, String> drafts = new LinkedHashMap<>();
+        request.contextOrEmpty().forEach(d -> {
+            if (d.slug() != null) {
+                drafts.put(d.slug().trim(), d.expression() == null ? "" : d.expression());
+            }
+        });
         StringBuilder sb = new StringBuilder("\nTRANSLATE THESE RULES:\n\n");
         for (ReportRule rule : targets) {
             sb.append("slug: ").append(rule.getSlug()).append('\n')
                     .append("name: ").append(rule.getName()).append('\n')
                     .append("step: ").append(rule.getStage()).append('\n')
-                    .append("text: ").append(sourceText(rule)).append("\n\n");
+                    .append("text: ").append(sourceText(rule)).append('\n');
+            String hint = request.hintsOrEmpty().get(rule.getReportRuleId());
+            if (hint != null && !hint.isBlank()) {
+                String previous = drafts.getOrDefault(rule.getSlug(),
+                        rule.latestVersion().map(ReportRuleVersion::getExpression).orElse(null));
+                sb.append("previous attempt: ")
+                        .append(previous == null || previous.isBlank() ? "(none)" : previous.trim())
+                        .append('\n')
+                        .append("reviewer said: ").append(hint.trim()).append('\n')
+                        .append("Change only what the reviewer named; keep everything else as it was.\n");
+            }
+            sb.append('\n');
         }
         return sb.toString();
     }

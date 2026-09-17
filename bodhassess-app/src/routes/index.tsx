@@ -8,6 +8,7 @@ import {
   createBrowserRouter,
   Navigate,
   Outlet,
+  useParams,
   type RouteObject,
 } from 'react-router';
 
@@ -89,10 +90,13 @@ const AdminDataGrid      = lazyPage(() => import('@/pages/admin/data-grid'));
 const Assessments              = lazyPage(() => import('@/pages/assessments/all-assessments'));
 // New-dialect catalog page wired to spring-social (Assessment Library group).
 const AssessmentLibrary        = lazyPage(() => import('@/pages/assessments/assessment-library'));
-// Per-assessment scoring pipeline. A resumable PAGE, not a wizard: a scoring
-// spec is revisited for months (the provisional bands get replaced with
-// percentile norms after the pilot), so landing straight on one step matters.
-const ReportSetup              = lazyPage(() => import('@/pages/assessments/report-setup'));
+// The per-assessment scoring pipeline moved under Reports → Report Setup
+// (/reports/setup/:assessmentId). The old library route redirects so bookmarks
+// and the hover icon keep working.
+function LegacyReportSetupRedirect() {
+  const { id } = useParams();
+  return <Navigate to={`/reports/setup/${id}`} replace />;
+}
 // Direct assessment→respondent assignment for unaffiliated respondents.
 const RespondentMapping        = lazyPage(() => import('@/pages/RespondentMapping/respondent-mapping'));
 // Org catalog + registration links + per-member allotments, one org at a time.
@@ -150,7 +154,13 @@ const ReportsResponses    = lazyPage(() => import('@/pages/Reports/response-shee
 // P1 of the report engine: the HTML layout and its ${tag} checklist.
 const ReportTemplates     = lazyPage(() => import('@/pages/Reports/report-templates'));
 const ReportRules         = lazyPage(() => import('@/pages/Reports/report-rules'));
-const ReportComputations  = lazyPage(() => import('@/pages/Reports/report-computations'));
+// Report Setup: assessment picker → Rules → Layout → Check & approve. A
+// resumable PAGE, not a wizard — the step is in the URL (?step=), because a
+// scoring spec is revisited for months. The old Computations page is parked in
+// bodh/deleted/; Setup and Generate between them cover every action it had.
+const ReportSetup         = lazyPage(() => import('@/pages/Reports/report-setup'));
+// Generate Reports: the operator's page — approved setup, then who gets one.
+const GenerateReports     = lazyPage(() => import('@/pages/Reports/generate-reports'));
 const ReportsClinical     = lazyPage(() => import('@/pages/Reports/clinical'));
 const ReportsCounselling  = lazyPage(() => import('@/pages/Reports/counselling'));
 const ReportsIndustrial   = lazyPage(() => import('@/pages/Reports/industrial'));
@@ -259,7 +269,7 @@ const routes: RouteObject[] = [
       // Same page create and edit — no id in the path, edit is ?edit=<id>,
       // so one menu entry and one permission path cover both.
       { path: '/assessment-library/assessments/create', element: <AssessmentsCreate /> },
-      { path: '/assessment-library/assessments/:id/report-setup', element: <ReportSetup /> },
+      { path: '/assessment-library/assessments/:id/report-setup', element: <LegacyReportSetupRedirect /> },
       // Renamed from /assessment-library/mapping. Role permissions are stored
       // as paths, so V12 rewrites the granted rows to match — a leaf grant
       // left on the old path would silently deny the page.
@@ -323,7 +333,13 @@ const routes: RouteObject[] = [
       { path: '/Reports/responses', element: <ReportsResponses /> },
       { path: '/Reports/templates', element: <ReportTemplates /> },
       { path: '/Reports/rules', element: <ReportRules /> },
-      { path: '/Reports/computations', element: <ReportComputations /> },
+      // Retired: Setup and Generate between them cover everything it did.
+      // Redirected rather than dropped, so a bookmark lands somewhere useful
+      // instead of on the dashboard via the catch-all.
+      { path: '/Reports/computations', element: <Navigate to="/reports/setup" replace /> },
+      { path: '/Reports/setup', element: <ReportSetup /> },
+      { path: '/Reports/setup/:assessmentId', element: <ReportSetup /> },
+      { path: '/Reports/generate', element: <GenerateReports /> },
       { path: '/Reports/clinical', element: <ReportsClinical /> },
       { path: '/Reports/counselling', element: <ReportsCounselling /> },
       { path: '/Reports/industrial', element: <ReportsIndustrial /> },

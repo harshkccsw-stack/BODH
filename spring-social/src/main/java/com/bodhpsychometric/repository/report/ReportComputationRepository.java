@@ -48,4 +48,28 @@ public interface ReportComputationRepository extends JpaRepository<ReportComputa
 
     /** Templates cannot be deleted while a computation points at them. */
     long countByTemplateReportTemplateId(Long reportTemplateId);
+
+    /** One assessment's computations, newest first — the Setup and Generate pages. */
+    @Query("""
+            select distinct c from ReportComputation c
+            left join fetch c.rules
+            where c.assessmentId = :assessmentId
+            order by c.updatedAt desc
+            """)
+    List<ReportComputation> findByAssessment(@Param("assessmentId") Long assessmentId);
+
+    /**
+     * The live (not archived) computations for one assessment and one
+     * template — "one per pair" is what the Layout step maintains.
+     */
+    @Query("""
+            select distinct c from ReportComputation c
+            left join fetch c.rules
+            where c.assessmentId = :assessmentId
+              and c.template.reportTemplateId = :templateId
+              and c.status <> 'ARCHIVED'
+            order by c.updatedAt desc
+            """)
+    List<ReportComputation> findLiveForTemplate(@Param("assessmentId") Long assessmentId,
+            @Param("templateId") Long templateId);
 }

@@ -61,34 +61,55 @@ public class ReportValueResolver {
      */
     public Map<String, String> resolve(ReportTemplate template, Map<String, String> coreValues,
             Map<String, Object> ruleValues, Map<String, String> narratives) {
+        return resolve(template, coreValues, ruleValues, narratives, Map.of());
+    }
+
+    /**
+     * One placeholder's answer on the computation: which rule fills a VALUE
+     * tag, and the format and fallback that override the template's.
+     */
+    public record TagAnswer(String ruleSlug, String format, String fallbackText) {
+    }
+
+    /**
+     * @param answers the computation's tag answers, by tag — from
+     *        {@code ReportComputation.getTagGuidance()}. A VALUE tag with no
+     *        answer prints its fallback; approval refuses that state before a
+     *        real report is ever rendered.
+     */
+    public Map<String, String> resolve(ReportTemplate template, Map<String, String> coreValues,
+            Map<String, Object> ruleValues, Map<String, String> narratives,
+            Map<String, TagAnswer> answers) {
         Map<String, String> out = new LinkedHashMap<>();
         for (ReportTagBinding binding : template.getBindings()) {
             out.put(binding.getTag(),
-                    escape(valueFor(binding, coreValues, ruleValues, narratives)));
+                    escape(valueFor(binding, coreValues, ruleValues, narratives,
+                            answers.get(binding.getTag()))));
         }
         return out;
     }
 
     /** Raw value for one binding, before escaping. Null means "use fallback". */
     private String valueFor(ReportTagBinding binding, Map<String, String> coreValues,
-            Map<String, Object> ruleValues, Map<String, String> narratives) {
+            Map<String, Object> ruleValues, Map<String, String> narratives, TagAnswer answer) {
         String raw = switch (binding.getBinderType()) {
             case ReportTagBinding.TYPE_CORE -> coreValues.get(binding.getCoreField());
             case ReportTagBinding.TYPE_LITERAL -> binding.getLiteralText();
-            case ReportTagBinding.TYPE_VALUE -> computed(binding, ruleValues);
+            // VALUE and COMPUTED are one shape. The rule that fills it is the
+            // computation's answer, never the template's (V33).
+            case ReportTagBinding.TYPE_VALUE, ReportTagBinding.TYPE_COMPUTED ->
+                computed(binding, ruleValues, answer);
             // Escaped on the way out like everything else, which is what keeps
             // a model unable to emit markup into a PDF. It is handed in already
             // written rather than generated here: one call covers every
             // narrative tag for a respondent, and that call cannot happen once
             // per binding inside a loop.
             case ReportTagBinding.TYPE_NARRATIVE -> narratives.get(binding.getTag());
-            // UNBOUND and COMPUTED resolve to nothing. COMPUTED is deliberately
-            // vague — "a computation fills this, we have not said which" — so
-            // it is an authoring placeholder, not something renderable.
             default -> null;
         };
         if (raw == null || raw.isBlank()) {
-            return binding.getFallbackText();
+            String fallback = answer == null ? null : answer.fallbackText();
+            return fallback != null && !fallback.isBlank() ? fallback : binding.getFallbackText();
         }
         return raw;
     }
@@ -103,12 +124,15 @@ public class ReportValueResolver {
      * nothing to say about this respondent (an unanswered optional section),
      * not that it broke.
      */
-    private String computed(ReportTagBinding binding, Map<String, Object> ruleValues) {
-        if (binding.getOutputKey() == null) {
+    private String computed(ReportTagBinding binding, Map<String, Object> ruleValues,
+            TagAnswer answer) {
+        if (answer == null || answer.ruleSlug() == null || answer.ruleSlug().isBlank()) {
             return null;
         }
-        Object value = ruleValues.get(binding.getOutputKey());
-        return format(value, binding.getFormat());
+        Object value = ruleValues.get(answer.ruleSlug());
+        String pattern = answer.format() != null && !answer.format().isBlank()
+                ? answer.format() : binding.getFormat();
+        return format(value, pattern);
     }
 
     /**

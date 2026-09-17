@@ -230,20 +230,19 @@ class ReportDirectDeliveryTest {
                         .header(HttpHeaders.AUTHORIZATION, bearer))
                 .andExpect(status().isNoContent());
 
-        // (2) A VALUE tag can only name an output this computation produces.
-        mvc.perform(put("/api/report-templates/bindTag/" + templateId + "/score")
+        // (2) The template says only that a VALUE goes here. WHICH rule is the
+        // computation's answer (V33), and it can only name a rule pinned here.
+        bind(bearer, templateId, "score", "{\"binderType\":\"VALUE\"}");
+        bind(bearer, templateId, "band", "{\"binderType\":\"VALUE\"}");
+        mvc.perform(put("/api/report-computations/answerTag/" + computationId + "/score")
                         .header(HttpHeaders.AUTHORIZATION, bearer)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"binderType\":\"VALUE\",\"reportComputationId\":" + computationId
-                                + ",\"outputKey\":\"no-such-rule\"}"))
+                        .content("{\"ruleSlug\":\"no-such-rule\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value(
-                        org.hamcrest.Matchers.containsString("does not compute")));
-
-        bind(bearer, templateId, "score", "{\"binderType\":\"VALUE\",\"reportComputationId\":"
-                + computationId + ",\"outputKey\":\"" + scoreSlug + "\"}");
-        bind(bearer, templateId, "band", "{\"binderType\":\"VALUE\",\"reportComputationId\":"
-                + computationId + ",\"outputKey\":\"" + bandSlug + "\"}");
+                        org.hamcrest.Matchers.containsString("not pinned")));
+        answer(bearer, computationId, "score", scoreSlug);
+        answer(bearer, computationId, "band", bandSlug);
 
         // (3) An unpublished template blocks approval, and it says so.
         mvc.perform(post("/api/report-computations/approve/" + computationId)
@@ -611,8 +610,8 @@ class ReportDirectDeliveryTest {
         int computationId = JsonPath.read(computation, "$.reportComputationId");
 
         bind(bearer, templateId, "who", "{\"binderType\":\"CORE\",\"coreField\":\"core:name\"}");
-        bind(bearer, templateId, "total", "{\"binderType\":\"VALUE\",\"reportComputationId\":"
-                + computationId + ",\"outputKey\":\"" + scoreSlug + "\"}");
+        bind(bearer, templateId, "total", "{\"binderType\":\"VALUE\"}");
+        answer(bearer, computationId, "total", scoreSlug);
         mvc.perform(post("/api/report-templates/publish/" + templateId)
                         .header(HttpHeaders.AUTHORIZATION, bearer))
                 .andExpect(status().isOk());
@@ -625,15 +624,24 @@ class ReportDirectDeliveryTest {
 
         assertEquals(2, (int) JsonPath.read(next, "$.version"));
         List<String> types = JsonPath.read(next, "$.bindings[?(@.tag == 'total')].binderType");
-        List<Object> keys = JsonPath.read(next, "$.bindings[?(@.tag == 'total')].outputKey");
-        List<Object> comps = JsonPath.read(next,
-                "$.bindings[?(@.tag == 'total')].reportComputationId");
+        assertEquals(List.of("VALUE"), types, "the shape survives versioning");
 
-        assertEquals(List.of("VALUE"), types);
-        assertEquals(scoreSlug, keys.get(0),
-                "the output key must survive versioning, or the new version renders blank");
-        assertEquals(computationId, ((Number) comps.get(0)).intValue(),
-                "and so must the computation it points at");
+        // The ANSWER lives on the computation, keyed by tag, so pointing the
+        // computation at the new version keeps it — no re-binding (V33).
+        int nextId = JsonPath.read(next, "$.reportTemplateId");
+        String repointed = mvc.perform(put("/api/report-computations/update/" + computationId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"name":"__smoke__ Version computation","assessmentId":%d,
+                                 "reportTemplateId":%d,"ruleVersionIds":[%d],
+                                 "sourcePrompt":"n/a","respondentScope":"ALL_COMPLETED"}"""
+                                .formatted(assessmentId, nextId, versionId)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        List<String> slugs = JsonPath.read(repointed, "$.tagGuidance[?(@.tag == 'total')].ruleSlug");
+        assertEquals(List.of(scoreSlug), slugs,
+                "the rule answering ${total} must survive versioning, or the new version renders blank");
     }
 
     /**
@@ -703,8 +711,8 @@ class ReportDirectDeliveryTest {
         int computationId = JsonPath.read(created, "$.reportComputationId");
         String originalSlug = JsonPath.read(created, "$.slug");
 
-        bind(bearer, templateId, "total", "{\"binderType\":\"VALUE\",\"reportComputationId\":"
-                + computationId + ",\"outputKey\":\"" + scoreSlug + "\"}");
+        bind(bearer, templateId, "total", "{\"binderType\":\"VALUE\"}");
+        answer(bearer, computationId, "total", scoreSlug);
         mvc.perform(post("/api/report-templates/publish/" + templateId)
                         .header(HttpHeaders.AUTHORIZATION, bearer))
                 .andExpect(status().isOk());
@@ -789,6 +797,16 @@ class ReportDirectDeliveryTest {
         mvc.perform(delete("/api/report-computations/delete/" + computationId)
                         .header(HttpHeaders.AUTHORIZATION, bearer))
                 .andExpect(status().isNoContent());
+    }
+
+    /** Answer a VALUE placeholder on the computation with a pinned rule (V33). */
+    private void answer(String bearer, int computationId, String tag, String ruleSlug)
+            throws Exception {
+        mvc.perform(put("/api/report-computations/answerTag/" + computationId + "/" + tag)
+                        .header(HttpHeaders.AUTHORIZATION, bearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"ruleSlug\":\"" + ruleSlug + "\"}"))
+                .andExpect(status().isOk());
     }
 
     private void bind(String bearer, int templateId, String tag, String body) throws Exception {

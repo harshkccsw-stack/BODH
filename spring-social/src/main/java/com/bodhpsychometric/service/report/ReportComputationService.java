@@ -1,25 +1,35 @@
 package com.bodhpsychometric.service.report;
 
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
-import java.util.Map;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.bodhpsychometric.dto.ReportCheckResponse;
+import com.bodhpsychometric.dto.ReportComputationForTemplateRequest;
+import com.bodhpsychometric.dto.ReportTagAnswerRequest;
 import com.bodhpsychometric.dto.ReportComputationRequest;
 import com.bodhpsychometric.dto.ReportComputationResponse;
 import com.bodhpsychometric.exception.NotFoundException;
 import com.bodhpsychometric.model.report.ReportComputation;
 import com.bodhpsychometric.model.report.ReportComputationRule;
 import com.bodhpsychometric.model.report.ReportComputationTagGuidance;
+import com.bodhpsychometric.model.report.ReportRule;
 import com.bodhpsychometric.model.report.ReportRuleVersion;
 import com.bodhpsychometric.model.report.ReportTagBinding;
 import com.bodhpsychometric.model.report.ReportTemplate;
+import com.bodhpsychometric.repository.assessment.AssessmentRepository;
 import com.bodhpsychometric.repository.report.ReportComputationRepository;
 import com.bodhpsychometric.repository.report.ReportComputationTagGuidanceRepository;
+import com.bodhpsychometric.repository.report.ReportRuleRepository;
 import com.bodhpsychometric.repository.report.ReportRuleVersionRepository;
 import com.bodhpsychometric.repository.report.ReportTemplateRepository;
 import com.bodhpsychometric.security.RequestActor;
@@ -61,6 +71,8 @@ public class ReportComputationService {
     private final ReportDryRunService dryRun;
     private final ReportAccess access;
     private final ReportNarrativeService narrative;
+    private final ReportRuleRepository rules;
+    private final AssessmentRepository assessments;
 
     public ReportComputationService(ReportComputationRepository computations,
             ReportComputationTagGuidanceRepository tagGuidance,
@@ -71,7 +83,9 @@ public class ReportComputationService {
             TemplateLint lint,
             ReportDryRunService dryRun,
             ReportAccess access,
-            ReportNarrativeService narrative) {
+            ReportNarrativeService narrative,
+            ReportRuleRepository rules,
+            AssessmentRepository assessments) {
         this.computations = computations;
         this.tagGuidance = tagGuidance;
         this.ruleVersions = ruleVersions;
@@ -82,6 +96,8 @@ public class ReportComputationService {
         this.dryRun = dryRun;
         this.access = access;
         this.narrative = narrative;
+        this.rules = rules;
+        this.assessments = assessments;
     }
 
     // ── reads ─────────────────────────────────────────────────────────────
@@ -89,9 +105,12 @@ public class ReportComputationService {
     @Transactional(readOnly = true)
     public List<ReportComputationResponse> listAll() {
         access.requireActor();
-        // No prompt assembly for the list: it reads the whole dataset per row.
+        // No prompt assembly and no blockers for the list. Both read the
+        // dataset — the blockers used to EVALUATE the whole cohort per row,
+        // so listing ten computations was ten complete rule runs. A list shows
+        // status, mode and counts, none of which needs a respondent.
         return computations.findAllWithRules().stream()
-                .map(c -> toResponse(c, null))
+                .map(c -> toResponse(c, null, null))
                 .toList();
     }
 
@@ -100,7 +119,254 @@ public class ReportComputationService {
         access.requireActor();
         ReportComputation computation = load(id);
         List<ReportComputationTagGuidance> guidance = loadGuidance(id);
-        return toResponse(computation, assembler.assemble(computation, guidance));
+        return toResponse(computation, assembler.assemble(computation, guidance),
+                check(computation, false).blockers());
+    }
+
+    /**
+     * The full pre-approval check, cohort evaluation included.
+     *
+     * <p>On demand, never on a read: the screen calls it after each change and
+     * before it enables approve, and approval runs the same method itself.
+     */
+    @Transactional(readOnly = true)
+    public ReportCheckResponse check(Long id) {
+        access.requireActor();
+        return toCheckResponse(check(load(id), true));
+    }
+
+    /** Every computation of one assessment, newest first, with cheap blockers only. */
+    @Transactional(readOnly = true)
+    public List<ReportComputationResponse> listByAssessment(Long assessmentId) {
+        access.requireActor();
+        return computations.findByAssessment(assessmentId).stream()
+                .map(c -> toResponse(c, null, check(c, false).blockers()))
+                .toList();
+    }
+
+    /**
+     * The one computation for an assessment and a template — found, or created.
+     *
+     * <p>This is the Setup page's Layout step: pick a published template and
+     * the computation behind it exists. Created ones pin every ACTIVE formula
+     * rule homed on the assessment at its latest version, which is what the
+     * Rules step produced; plain-language rules are left out because a
+     * computation that pins one cannot be delivered without a model, and the
+     * screen says how many were skipped.
+     *
+     * <p>An APPROVED one is returned as it is; the screen offers clone-to-edit.
+     * An ARCHIVED one is ignored and a fresh draft is made.
+     */
+    public ReportComputationResponse forTemplate(ReportComputationForTemplateRequest request) {
+        RequestActor actor = access.requireAuthor();
+        if (!columns.assessmentExists(request.assessmentId())) {
+            throw new NotFoundException("Assessment " + request.assessmentId() + " not found");
+        }
+        ReportTemplate template = templates.findByIdWithBindings(request.reportTemplateId())
+                .orElseThrow(() -> new NotFoundException(
+                        "Report template " + request.reportTemplateId() + " not found"));
+
+        List<ReportComputation> live = computations.findLiveForTemplate(
+                request.assessmentId(), request.reportTemplateId());
+        if (!live.isEmpty()) {
+            return get(live.get(0).getReportComputationId());
+        }
+
+        String assessmentName = assessments.findById(request.assessmentId())
+                .map(a -> a.getName()).orElse("Assessment " + request.assessmentId());
+        String name = assessmentName + " — " + template.getName();
+        if (name.length() > 160) {
+            name = name.substring(0, 160);
+        }
+        String base = slugFor(null, name);
+        String slug = base;
+        for (int n = 2; computations.existsBySlugIgnoreCase(slug) && n < 100; n++) {
+            slug = base.length() > 76 ? base.substring(0, 76) + "-" + n : base + "-" + n;
+        }
+
+        ReportComputation computation = new ReportComputation();
+        computation.setName(name);
+        computation.setSlug(slug);
+        computation.setAssessmentId(request.assessmentId());
+        computation.setOrganizationId(request.organizationId());
+        computation.setTemplate(template);
+        computation.setCreatedByUserId(actor.userId());
+        computation.setRespondentScope(ReportComputation.SCOPE_ALL_COMPLETED);
+        pinLatestExpressionRules(computation);
+        carryAnswersFromEarlierVersion(computation, template);
+
+        ReportComputation saved = computations.save(computation);
+        return get(saved.getReportComputationId());
+    }
+
+    /**
+     * Carry the placeholder answers across when a template gains a version.
+     *
+     * <p>{@code newVersion} on a template writes a NEW row with a new id, so a
+     * computation keeps pointing at the version it was approved against — which
+     * is the point, and is what makes an issued report still explicable. The
+     * cost is that setting up the new version looked like answering nineteen
+     * placeholders again from nothing.
+     *
+     * <p>So a computation created for version <i>n</i> starts from the answers
+     * of the newest live computation this assessment has on an EARLIER version
+     * of the same template family (matched by name, which is the family's
+     * identity — {@code newVersion} copies it and {@code rename} moves every
+     * version together). Only tags the new version actually has come across,
+     * and a rule slug comes across only if this computation pins it: carrying a
+     * slug that resolves to nothing would produce a tag that reports itself as
+     * answered and renders blank, which is the failure mode V33's binding copy
+     * was written to avoid.
+     */
+    private void carryAnswersFromEarlierVersion(ReportComputation fresh, ReportTemplate template) {
+        Set<String> tags = new LinkedHashSet<>();
+        for (ReportTagBinding binding : template.getBindings()) {
+            tags.add(binding.getTag());
+        }
+        if (tags.isEmpty()) {
+            return;
+        }
+        ReportComputation source = computations.findByAssessment(fresh.getAssessmentId()).stream()
+                .filter(c -> !ReportComputation.STATUS_ARCHIVED.equals(c.getStatus()))
+                .filter(c -> c.getTemplate() != null)
+                .filter(c -> c.getTemplate().getName().equalsIgnoreCase(template.getName()))
+                .filter(c -> c.getTemplate().getVersion() < template.getVersion())
+                .max(Comparator.comparingInt(c -> c.getTemplate().getVersion()))
+                .orElse(null);
+        if (source == null) {
+            return;
+        }
+        Set<String> pinned = new LinkedHashSet<>();
+        for (ReportComputationRule link : fresh.getRules()) {
+            pinned.add(link.getRuleVersion().getRule().getSlug());
+        }
+
+        int order = 0;
+        for (ReportComputationTagGuidance previous : source.getTagGuidance()) {
+            if (!tags.contains(previous.getTag())) {
+                continue;
+            }
+            String ruleSlug = pinned.contains(previous.getRuleSlug()) ? previous.getRuleSlug() : null;
+            if (ruleSlug == null && trimToNull(previous.getGuidance()) == null) {
+                continue;
+            }
+            ReportComputationTagGuidance copy = new ReportComputationTagGuidance();
+            copy.setTag(previous.getTag());
+            copy.setRuleSlug(ruleSlug);
+            copy.setGuidance(previous.getGuidance());
+            copy.setFormat(previous.getFormat());
+            copy.setFallbackText(previous.getFallbackText());
+            copy.setSortOrder(order++);
+            copy.setComputation(fresh);
+            fresh.getTagGuidance().add(copy);
+        }
+    }
+
+    /**
+     * Re-pin every ACTIVE formula rule of the assessment at its latest
+     * version — what the Setup page does after the Rules step changed.
+     *
+     * <p>Tag answers survive: they are keyed by tag and rule SLUG, and a slug
+     * does not move when a rule gains a version. An answer naming a rule that
+     * was archived since is left in place and reported by the check as
+     * pointing at a rule this computation does not pin.
+     */
+    public ReportComputationResponse repinLatest(Long id) {
+        access.requireAuthor();
+        ReportComputation computation = load(id);
+        requireEditable(computation);
+        pinLatestExpressionRules(computation);
+        computations.save(computation);
+        return get(id);
+    }
+
+    /**
+     * Answer one placeholder on this computation.
+     *
+     * <p>A VALUE-shaped tag takes a rule slug, which must be pinned here — a
+     * tag pointing at a rule nothing computes renders as its fallback, a blank
+     * on a delivered report, so it is refused while the author is looking at
+     * it. A NARRATIVE tag takes guidance. CORE and LITERAL tags are answered on
+     * the template and refused here so the two cannot disagree.
+     */
+    public ReportComputationResponse answerTag(Long id, String tag, ReportTagAnswerRequest request) {
+        access.requireAuthor();
+        ReportComputation computation = load(id);
+        requireEditable(computation);
+        ReportTemplate template = computation.getTemplate();
+        if (template == null) {
+            throw new IllegalStateException("Choose a template before answering its placeholders.");
+        }
+        ReportTagBinding binding = template.getBindings().stream()
+                .filter(b -> b.getTag().equals(tag))
+                .findFirst()
+                .orElseThrow(() -> new NotFoundException(
+                        "The template \"" + template.getName() + "\" has no placeholder called \""
+                                + tag + "\""));
+
+        String ruleSlug = trimToNull(request.ruleSlug());
+        String guidance = trimToNull(request.guidance());
+        if (binding.isValueShape()) {
+            if (ruleSlug == null) {
+                throw new IllegalArgumentException("Choose which rule fills ${" + tag + "}");
+            }
+            List<String> pinned = computation.getRules().stream()
+                    .map(r -> r.getRuleVersion().getRule().getSlug()).toList();
+            if (!pinned.contains(ruleSlug)) {
+                throw new IllegalArgumentException("\"" + ruleSlug + "\" is not pinned on this "
+                        + "computation. It produces: " + (pinned.isEmpty()
+                                ? "nothing yet — the Rules step has no formula rules for this assessment"
+                                : String.join(", ", pinned)));
+            }
+            guidance = null;
+        } else if (binding.isNarrative()) {
+            ruleSlug = null;
+        } else {
+            throw new IllegalArgumentException("${" + tag + "} is answered on the template ("
+                    + binding.getBinderType().toLowerCase(Locale.ROOT)
+                    + "), not by this computation.");
+        }
+
+        ReportComputationTagGuidance row = computation.getTagGuidance().stream()
+                .filter(g -> g.getTag().equals(tag))
+                .findFirst().orElse(null);
+        String format = trimToNull(request.format());
+        String fallback = trimToNull(request.fallbackText());
+        boolean empty = ruleSlug == null && guidance == null && format == null && fallback == null;
+        if (empty) {
+            if (row != null) {
+                computation.getTagGuidance().remove(row);
+            }
+        } else {
+            if (row == null) {
+                row = new ReportComputationTagGuidance();
+                row.setTag(tag);
+                row.setComputation(computation);
+                computation.getTagGuidance().add(row);
+            }
+            row.setRuleSlug(ruleSlug);
+            row.setGuidance(guidance);
+            row.setFormat(format);
+            row.setFallbackText(fallback);
+            row.setSortOrder(binding.getSortOrder());
+        }
+        computations.save(computation);
+        return get(id);
+    }
+
+    /** Every ACTIVE formula rule homed on the computation's assessment, at latest. */
+    private void pinLatestExpressionRules(ReportComputation computation) {
+        List<Long> ids = new ArrayList<>();
+        for (ReportRule rule : rules.findAllWithVersions()) {
+            if (!ReportRule.STATUS_ACTIVE.equals(rule.getStatus())
+                    || !computation.getAssessmentId().equals(rule.getAssessmentId())) {
+                continue;
+            }
+            rule.latestVersion()
+                    .filter(ReportRuleVersion::isExpression)
+                    .ifPresent(v -> ids.add(v.getReportRuleVersionId()));
+        }
+        applyRules(computation, ids);
     }
 
     // ── writes ────────────────────────────────────────────────────────────
@@ -191,29 +457,43 @@ public class ReportComputationService {
      * the real cohort with no rule failing. Then a person presses the button.
      */
     public ReportComputationResponse approve(Long id) {
-        access.requireAuthor();
+        RequestActor actor = access.requireAuthor();
         ReportComputation computation = load(id);
 
-        List<String> blockers = directBlockers(computation);
-        if (!blockers.isEmpty()) {
-            throw new IllegalStateException(String.join(" ", blockers));
+        Check check = check(computation, true);
+        if (!check.blockers().isEmpty()) {
+            throw new IllegalStateException(String.join(" ", check.blockers()));
         }
         computation.setStatus(ReportComputation.STATUS_APPROVED);
+        // The record of the one human act in the whole path: who, when, and
+        // over how many completed respondents the cohort-relative rules were
+        // judged. Printed into every batch's manifest.
+        computation.setApprovedByUserId(actor.userId());
+        computation.setApprovedAt(OffsetDateTime.now());
+        computation.setApprovedCohortSize(check.cohort() == null ? null
+                : check.cohort().completedCount());
         computations.save(computation);
         return get(id);
     }
 
     /**
+     * What a check found: the blockers, and the evaluated cohort when the
+     * check got as far as evaluating one.
+     */
+    public record Check(List<String> blockers, ReportDryRunService.EvaluatedCohort cohort) {
+    }
+
+    /**
      * Everything standing between this computation and a delivered report.
      *
-     * <p>Returned on every read, not only on the approve attempt, so the screen
-     * can show the author what is left instead of making them press a button to
-     * find out. Ordered cheapest check first — the cohort evaluation at the end
-     * runs every rule over every respondent.
+     * <p>Ordered cheapest first. The cohort evaluation at the end runs every
+     * rule over every respondent, so it is taken only when {@code evaluate} is
+     * true — on an explicit check and on approve — and never on a plain read.
      */
     @Transactional(readOnly = true)
-    public List<String> directBlockers(ReportComputation computation) {
+    public Check check(ReportComputation computation, boolean evaluate) {
         List<String> out = new ArrayList<>();
+        Check cheap = new Check(out, null);
         if (!computation.isDirect()) {
             List<String> statements = computation.getRules().stream()
                     .filter(r -> !r.getRuleVersion().isExpression())
@@ -223,7 +503,7 @@ public class ReportComputationService {
                     ? "This computation is set to be generated by a model."
                     : "These rules are written as statements and need a model to run: "
                             + String.join(", ", statements) + ".");
-            return out;
+            return cheap;
         }
         if (computation.getRules().isEmpty()) {
             out.add("No rules are pinned to this computation.");
@@ -232,7 +512,7 @@ public class ReportComputationService {
         ReportTemplate template = computation.getTemplate();
         if (template == null) {
             out.add("No template is chosen, so there is nothing to fill in.");
-            return out;
+            return cheap;
         }
         if (!ReportTemplate.STATUS_PUBLISHED.equals(template.getStatus())) {
             out.add("The template \"" + template.getName() + "\" is not published yet.");
@@ -252,22 +532,36 @@ public class ReportComputationService {
         List<String> pinnedSlugs = computation.getRules().stream()
                 .map(r -> r.getRuleVersion().getRule().getSlug())
                 .toList();
+        Map<String, ReportComputationTagGuidance> answers = new LinkedHashMap<>();
+        for (ReportComputationTagGuidance row : computation.getTagGuidance()) {
+            answers.put(row.getTag(), row);
+        }
         List<String> unbound = new ArrayList<>();
+        List<String> unanswered = new ArrayList<>();
         List<String> dangling = new ArrayList<>();
         for (ReportTagBinding binding : template.getBindings()) {
             if (!binding.isBound()) {
                 unbound.add(binding.getTag());
-            } else if (ReportTagBinding.TYPE_COMPUTED.equals(binding.getBinderType())) {
-                // COMPUTED says "something fills this" without saying what. It
-                // is an authoring placeholder and cannot resolve to anything.
-                unbound.add(binding.getTag());
-            } else if (binding.isResolvableValue()
-                    && !pinnedSlugs.contains(binding.getOutputKey())) {
-                dangling.add(binding.getTag() + " → " + binding.getOutputKey());
+                continue;
+            }
+            if (!binding.isValueShape()) {
+                continue;
+            }
+            // The template says "a value goes here"; THIS computation must say
+            // which rule (V33). No answer is a blank on a delivered report.
+            ReportComputationTagGuidance answer = answers.get(binding.getTag());
+            if (answer == null || !answer.fillsValue()) {
+                unanswered.add(binding.getTag());
+            } else if (!pinnedSlugs.contains(answer.getRuleSlug())) {
+                dangling.add(binding.getTag() + " → " + answer.getRuleSlug());
             }
         }
         if (!unbound.isEmpty()) {
             out.add("These tags have no value behind them: " + String.join(", ", unbound) + ".");
+        }
+        if (!unanswered.isEmpty()) {
+            out.add("These placeholders have no rule chosen yet: "
+                    + String.join(", ", unanswered) + ". Choose one on the Layout step.");
         }
         if (!dangling.isEmpty()) {
             out.add("These tags point at rules this computation does not pin: "
@@ -318,22 +612,40 @@ public class ReportComputationService {
                     + ". AI is not configured, so set OPENAI_API_KEY and restart, or bind "
                     + "them to a value or fixed text instead.");
         }
-        if (!out.isEmpty()) {
-            return out;
+        if (!out.isEmpty() || !evaluate) {
+            return cheap;
         }
 
         // Last and most expensive: does it actually run, on the real cohort?
         ReportDryRunService.EvaluatedCohort cohort = dryRun.evaluatePinned(
                 computation.getAssessmentId(), computation.getOrganizationId(),
                 computation.getRules().stream().map(ReportComputationRule::getRuleVersion).toList());
-        if (!cohort.isClean()) {
-            String failing = String.join(", ", cohort.failedSlugs());
-            out.add("These rules do not produce a value on this assessment: " + failing + ".");
+        if (!cohort.failedSlugs().isEmpty()) {
+            out.add("These rules do not produce a value on this assessment: "
+                    + String.join(", ", cohort.failedSlugs()) + ".");
         }
-        if (cohort.population().isEmpty()) {
+        if (!cohort.tooSmallSlugs().isEmpty()) {
+            out.add("These rules compare respondents to the cohort, and only "
+                    + cohort.completedCount() + " ha" + (cohort.completedCount() == 1 ? "s" : "ve")
+                    + " completed — at least " + dryRun.minCohortSize() + " are needed: "
+                    + String.join(", ", cohort.tooSmallSlugs()) + ".");
+        }
+        if (cohort.completedCount() == 0) {
             out.add("Nobody has completed this assessment yet, so there is nothing to report on.");
         }
-        return out;
+        return new Check(out, cohort);
+    }
+
+    private ReportCheckResponse toCheckResponse(Check check) {
+        ReportDryRunService.EvaluatedCohort cohort = check.cohort();
+        return new ReportCheckResponse(
+                null,
+                List.copyOf(check.blockers()),
+                cohort == null ? 0 : cohort.population().size(),
+                cohort == null ? 0 : cohort.completedCount(),
+                dryRun.minCohortSize(),
+                cohort == null ? List.of() : cohort.outcomes(),
+                cohort == null ? List.of() : cohort.notes());
     }
 
     /**
@@ -398,6 +710,11 @@ public class ReportComputationService {
         copy.setMode(source.getMode());
         copy.setStatus(ReportComputation.STATUS_DRAFT);
         copy.setCreatedByUserId(actor.userId());
+        // A copy is unapproved by definition; the provenance stays with the
+        // original, which is what the reports it issued point back to.
+        copy.setApprovedByUserId(null);
+        copy.setApprovedAt(null);
+        copy.setApprovedCohortSize(null);
 
         int order = 0;
         for (ReportComputationRule link : source.getRules()) {
@@ -419,6 +736,9 @@ public class ReportComputationService {
             fresh.setComputation(saved);
             fresh.setTag(row.getTag());
             fresh.setGuidance(row.getGuidance());
+            fresh.setRuleSlug(row.getRuleSlug());
+            fresh.setFormat(row.getFormat());
+            fresh.setFallbackText(row.getFallbackText());
             fresh.setSortOrder(guidanceOrder++);
             copied.add(fresh);
         }
@@ -625,7 +945,10 @@ public class ReportComputationService {
         for (ReportComputationTagGuidance row : computation.getTagGuidance()) {
             existing.put(row.getTag(), row);
         }
-        computation.getTagGuidance().removeIf(row -> !wanted.containsKey(row.getTag()));
+        // A row that answers a VALUE tag with a rule is not guidance and is
+        // not the form's to remove: the form sends guidance only (V33).
+        computation.getTagGuidance().removeIf(
+                row -> !wanted.containsKey(row.getTag()) && !row.fillsValue());
 
         int order = 0;
         for (Map.Entry<String, String> entry : wanted.entrySet()) {
@@ -677,7 +1000,7 @@ public class ReportComputationService {
     }
 
     private ReportComputationResponse toResponse(ReportComputation c,
-            ReportPromptAssembler.AssembledPrompt prompt) {
+            ReportPromptAssembler.AssembledPrompt prompt, List<String> blockers) {
 
         List<ReportComputationResponse.SelectedRule> rules = c.getRules().stream()
                 .sorted(java.util.Comparator.comparingInt(ReportComputationRule::getSortOrder))
@@ -701,7 +1024,8 @@ public class ReportComputationService {
                 c.getReportComputationId() == null ? List.of()
                         : loadGuidance(c.getReportComputationId()).stream()
                                 .map(g -> new ReportComputationResponse.TagGuidance(
-                                        g.getTag(), g.getGuidance(), g.getSortOrder()))
+                                        g.getTag(), g.getGuidance(), g.getRuleSlug(),
+                                        g.getFormat(), g.getFallbackText(), g.getSortOrder()))
                                 .toList();
 
         return new ReportComputationResponse(
@@ -715,7 +1039,7 @@ public class ReportComputationService {
                 ReportComputationResponse.templateNameOf(c),
                 c.getStatus(),
                 c.getMode(),
-                directBlockers(c),
+                blockers,
                 c.getSourcePrompt(),
                 c.getRespondentScope(),
                 parseNumbers(c.getRespondentIdsJson()),
@@ -730,6 +1054,9 @@ public class ReportComputationService {
                         prompt.warnings()),
                 ReportNarrativeService.narrativeTags(c.getTemplate()),
                 narrative.isAvailable(),
+                c.getApprovedByUserId(),
+                c.getApprovedAt(),
+                c.getApprovedCohortSize(),
                 c.getCreatedAt(),
                 c.getUpdatedAt());
     }

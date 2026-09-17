@@ -119,7 +119,7 @@ export default function AssessmentLibraryPage() {
   // "Report setup", not "add rule": the page is re-entered far more often than
   // it is created, and adding a rule is one button on one of its steps.
   const openReportSetup = (a: AssessmentResponse) =>
-    navigate(`/assessment-library/assessments/${a.assessmentId}/report-setup`);
+    navigate(`/reports/setup/${a.assessmentId}`);
 
   const doDelete = async () => {
     if (!confirmDelete) return;

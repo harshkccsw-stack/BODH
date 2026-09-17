@@ -141,6 +141,25 @@ public class ReportComputation implements java.io.Serializable {
     @Column(name = "updatedAt", nullable = false)
     private OffsetDateTime updatedAt;
 
+    /**
+     * Who approved, when, and over how many completed respondents.
+     *
+     * <p>Approval is the one human act in the whole path, and until these
+     * existed it left no record. All three are null until {@code approve} and
+     * cleared by {@code clone}, so a copy starts unapproved and says so.
+     * {@code approvedCohortSize} is the number the cohort-relative rules were
+     * checked over — the fact a reader of a report needs when they ask "a
+     * percentile of what?".
+     */
+    @Column(name = "approvedByUserId")
+    private Long approvedByUserId;
+
+    @Column(name = "approvedAt")
+    private OffsetDateTime approvedAt;
+
+    @Column(name = "approvedCohortSize")
+    private Integer approvedCohortSize;
+
     @OneToMany(mappedBy = "computation", cascade = CascadeType.ALL,
             orphanRemoval = true, fetch = FetchType.LAZY)
     @OrderBy("sortOrder ASC")
@@ -171,6 +190,49 @@ public class ReportComputation implements java.io.Serializable {
     public void addTagGuidance(ReportComputationTagGuidance guidance) {
         tagGuidance.add(guidance);
         guidance.setComputation(this);
+    }
+
+    /**
+     * The respondent ids a SELECTED scope names; empty for ALL_COMPLETED.
+     *
+     * <p>Parsed here rather than in each consumer so the JSON's shape has one
+     * reader. The array holds numbers only, so a digit scan is the whole
+     * parser.
+     */
+    public java.util.Set<Long> selectedRespondentIds() {
+        java.util.Set<Long> out = new java.util.LinkedHashSet<>();
+        if (!SCOPE_SELECTED.equals(respondentScope) || respondentIdsJson == null) {
+            return out;
+        }
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("\\d+").matcher(respondentIdsJson);
+        while (m.find()) {
+            out.add(Long.valueOf(m.group()));
+        }
+        return out;
+    }
+
+    public Long getApprovedByUserId() {
+        return approvedByUserId;
+    }
+
+    public void setApprovedByUserId(Long approvedByUserId) {
+        this.approvedByUserId = approvedByUserId;
+    }
+
+    public OffsetDateTime getApprovedAt() {
+        return approvedAt;
+    }
+
+    public void setApprovedAt(OffsetDateTime approvedAt) {
+        this.approvedAt = approvedAt;
+    }
+
+    public Integer getApprovedCohortSize() {
+        return approvedCohortSize;
+    }
+
+    public void setApprovedCohortSize(Integer approvedCohortSize) {
+        this.approvedCohortSize = approvedCohortSize;
     }
 
     // ── accessors ─────────────────────────────────────────────────────────

@@ -104,6 +104,14 @@ export interface ReportRuleResponse {
   updatedAt: string;
 }
 
+/**
+ * Whether a formula rule can be RE-translated: some version of it carries the
+ * sheet text it came from. The backend reads the same thing — the latest
+ * version with a statement — so a rule this says no to is refused there too.
+ */
+export const hasStatementHistory = (r: ReportRuleResponse) =>
+  (r.versions ?? []).some((v) => !!v.statementText && v.statementText.trim() !== '');
+
 /** Matches ReportRuleRequest on the backend. */
 export interface ReportRulePayload {
   name: string;
@@ -166,9 +174,20 @@ export interface DryRunOutcome {
   definitionKind: DefinitionKind;
   resultType: RuleResultType | null;
   population: boolean;
-  status: 'EVALUATED' | 'NEEDS_GENERATION' | 'ERROR';
+  /**
+   * TOO_SMALL: a cohort-relative rule over fewer completed respondents than
+   * the minimum. Nothing was computed — a z-score over three people is a
+   * number that looks like a norm and is not.
+   */
+  status: 'EVALUATED' | 'NEEDS_GENERATION' | 'ERROR' | 'TOO_SMALL';
   error: string | null;
   summary: DryRunSummary | null;
+}
+
+/** One formula the reviewer is holding but has not saved. */
+export interface DraftExpression {
+  slug: string;
+  expression: string;
 }
 
 /** Matches ReportDryRunResponse. */
@@ -482,8 +501,39 @@ export const reportRulesApi = {
     assessmentId: number,
     ruleIds: number[],
     organizationId?: number | null,
+    /**
+     * The reviewer's own words per rule id — "the composite is
+     * [rule:ad-composite], not [mq:7]". The model sees its previous attempt
+     * beside them, with the instruction to change only what was named.
+     */
+    hints?: Record<number, string>,
+    /**
+     * The batch's current draft formulae, by slug. They count as formulae for
+     * validation and appear in the prompt, so re-asking ONE rule still sees
+     * the vocabulary the workbook's rules depend on.
+     */
+    context?: DraftExpression[],
   ): Promise<TranslationResult> =>
-    (await api.post(`${ROOT}/ai/translate`, { assessmentId, ruleIds, organizationId })).data,
+    (await api.post(`${ROOT}/ai/translate`, {
+      assessmentId,
+      ruleIds,
+      organizationId,
+      hints: hints && Object.keys(hints).length ? hints : undefined,
+      context: context && context.length ? context : undefined,
+    })).data,
+
+  /**
+   * Run formulae that are NOT saved over the real cohort — "try it before
+   * accepting". Writes nothing. A draft may read saved rules and the other
+   * drafts in the list; a draft with a saved rule's slug stands in for it.
+   */
+  evaluateDraft: async (payload: {
+    assessmentId: number;
+    organizationId?: number | null;
+    drafts: DraftExpression[];
+    rowLimit?: number;
+  }): Promise<DryRunResult> =>
+    (await api.post(`${ROOT}/evaluate-draft`, payload)).data,
 
   /** What a workbook WOULD create. Writes nothing. */
   importPreview: async (
@@ -529,12 +579,18 @@ export const reportRulesApi = {
     assessmentId: number | null,
     organizationId?: number | null,
     reportRuleId?: number | null,
+    /**
+     * Slugs the caller holds as unsaved formulae — the other proposals of a
+     * translation batch — so one may read another before either is saved.
+     */
+    pendingExpressionSlugs?: string[],
   ): Promise<ExprCheck> =>
     (await api.post(`${ROOT}/validate-expression`, {
       expression,
       assessmentId,
       organizationId,
       reportRuleId,
+      pendingExpressionSlugs: pendingExpressionSlugs?.length ? pendingExpressionSlugs : undefined,
     })).data,
 
   canRunOn: async (id: number, assessmentId: number): Promise<{ canRun: boolean }> =>
@@ -580,6 +636,14 @@ export const reportRulesApi = {
 
   archive: async (id: number): Promise<ReportRuleResponse> =>
     (await api.post(`${ROOT}/archive/${id}`)).data,
+
+  /**
+   * Copy a rule, and everything it reads, onto an assessment — adoption from
+   * the library. All or nothing: a rule the target cannot score fails the whole
+   * copy with the validator's own message, and nothing is written.
+   */
+  fork: async (id: number, assessmentId: number): Promise<ReportRuleResponse[]> =>
+    (await api.post(`${ROOT}/fork/${id}`, { assessmentId })).data,
 
   delete: async (id: number): Promise<void> => {
     await api.delete(`${ROOT}/delete/${id}`);

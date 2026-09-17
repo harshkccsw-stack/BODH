@@ -16,8 +16,10 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.bodhpsychometric.dto.DsExprResponse;
+import com.bodhpsychometric.dto.ReportDraftEvaluationRequest;
 import com.bodhpsychometric.dto.ReportDryRunRequest;
 import com.bodhpsychometric.dto.ReportDryRunResponse;
+import com.bodhpsychometric.dto.ReportRuleForkRequest;
 import com.bodhpsychometric.dto.ReportRulePortabilityResponse;
 import com.bodhpsychometric.dto.ReportRuleRequest;
 import com.bodhpsychometric.dto.ReportRuleResponse;
@@ -98,11 +100,33 @@ public class ReportRuleController {
         // The rule being edited, when there is one: without it the checker
         // cannot tell a self-reference from a legitimate dependency.
         Object ruleId = body.get("reportRuleId");
+        // Slugs of rules the caller is holding as unsaved formulae — a batch
+        // of translation proposals — so one proposal may read another before
+        // either is saved. Only the plain-language-dependency refusal relaxes.
+        java.util.Set<String> pending = new java.util.LinkedHashSet<>();
+        if (body.get("pendingExpressionSlugs") instanceof java.util.Collection<?> slugs) {
+            for (Object slug : slugs) {
+                if (slug != null && !String.valueOf(slug).isBlank()) {
+                    pending.add(String.valueOf(slug).trim());
+                }
+            }
+        }
         return ruleService.validateExpression(
                 expr == null ? null : String.valueOf(expr),
                 assessmentId == null ? null : Long.valueOf(String.valueOf(assessmentId)),
                 organizationId == null ? null : Long.valueOf(String.valueOf(organizationId)),
-                ruleId == null ? null : Long.valueOf(String.valueOf(ruleId)));
+                ruleId == null ? null : Long.valueOf(String.valueOf(ruleId)),
+                pending);
+    }
+
+    /**
+     * Run formulae that are NOT saved over the real cohort — "try it before
+     * accepting". Writes nothing. See {@code ReportDryRunService#evaluateDrafts}.
+     */
+    @PostMapping("/evaluate-draft")
+    public ReportDryRunResponse evaluateDraft(
+            @Valid @RequestBody ReportDraftEvaluationRequest request) {
+        return dryRunService.evaluateDrafts(request);
     }
 
     /** Whether this rule's columns all exist on a given assessment. */
@@ -206,6 +230,17 @@ public class ReportRuleController {
     @PostMapping("/archive/{id}")
     public ReportRuleResponse archive(@PathVariable Long id) {
         return ruleService.archive(id);
+    }
+
+    /**
+     * Copy a rule, and everything it reads, onto an assessment — the adopt
+     * button behind the portability picker. All or nothing; a rule the target
+     * cannot score fails the whole copy with the validator's own message.
+     */
+    @PostMapping("/fork/{id}")
+    public List<ReportRuleResponse> fork(@PathVariable Long id,
+            @Valid @RequestBody ReportRuleForkRequest request) {
+        return ruleService.fork(id, request.assessmentId(), request.organizationId());
     }
 
     /** Refused with 409 while any computation pins a version of this rule. */

@@ -30,13 +30,14 @@ public record ReportTagBindingRequest(
         @Size(max = 20_000, message = "Literal text must be 20000 characters or fewer")
         String literalText,
 
-        /** VALUE only: which computation produces this tag. */
+        /**
+         * IGNORED since V33. A VALUE tag's rule is answered on the computation
+         * ({@code answerTag}), not on the template. Kept so an older client's
+         * body still parses; the columns behind it are dead and drop later.
+         */
         Long reportComputationId,
 
-        /**
-         * VALUE only: which of that computation's outputs fills the tag. In a
-         * DIRECT computation this is the slug of one of its pinned rules.
-         */
+        /** IGNORED since V33 — see {@link #reportComputationId()}. */
         @Size(max = 80, message = "Output key must be 80 characters or fewer")
         String outputKey,
 

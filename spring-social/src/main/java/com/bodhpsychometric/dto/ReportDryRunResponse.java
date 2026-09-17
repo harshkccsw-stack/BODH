@@ -42,6 +42,13 @@ public record ReportDryRunResponse(
     /** The rule, or something it depends on, could not be evaluated. */
     public static final String ERROR = "ERROR";
 
+    /**
+     * A cohort-relative rule over fewer completed respondents than the
+     * minimum. Nothing was computed: a z-score over three people, or a
+     * percentile over one, is a number that looks like a norm and is not.
+     */
+    public static final String TOO_SMALL = "TOO_SMALL";
+
     public record RuleOutcome(
             Long reportRuleId,
             String slug,

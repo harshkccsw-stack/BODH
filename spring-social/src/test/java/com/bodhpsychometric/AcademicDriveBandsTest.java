@@ -1,6 +1,7 @@
 package com.bodhpsychometric;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -99,28 +100,28 @@ class AcademicDriveBandsTest {
     }
 
     /**
-     * <b>A suppressed score satisfies {@code <=} and this is the trap.</b>
+     * <b>A suppressed score satisfies nothing.</b>
      *
      * <p>An invalid protocol suppresses each score to the empty string. The
-     * comparison then has a non-numeric side, so {@code compare()} falls back to
-     * comparing the two as STRINGS — and {@code "".compareTo("9")} is negative,
-     * so {@code '' <= 9} is <b>true</b>. A naive bottom-third callout therefore
-     * fires for exactly the respondents whose scores were thrown away.
-     *
-     * <p>{@code >=} is safe by the same accident (an empty string sorts below
-     * everything), which is why the step 5 profile rules — all of which require
-     * at least one {@code >=} — stay silent on their own. The callout has no
-     * {@code >=} and needs one.
+     * comparison then has a non-numeric side against a number, and
+     * {@code compare()} used to fall back to comparing the two as STRINGS —
+     * {@code "".compareTo("9")} is negative, so {@code '' <= 9} was <b>true</b>
+     * and a naive bottom-third callout fired for exactly the respondents whose
+     * scores had been thrown away. A number against text now yields no value,
+     * so the callout stays silent on its own. The range guard below is still
+     * worth writing — it also documents the scale — but it is no longer the
+     * only thing standing between a blank and a wrong sentence.
      */
     @Test
-    void aSuppressedScoreWronglySatisfiesALessThanTest() {
+    void aSuppressedScoreSatisfiesNoComparison() {
         Map<String, Object> suppressed = new LinkedHashMap<>();
         suppressed.put("rule:internal-drive", "");
 
-        assertEquals("Internal Drive is a development priority.",
-                evaluateWith(CALLOUT, suppressed),
-                "the naive callout fires on a protocol that was never scored — "
-                        + "this is the behaviour the range guard exists to stop");
+        assertEquals("", evaluateWith(CALLOUT, suppressed),
+                "a protocol that was never scored must not be called out");
+        assertNull(evaluateWith("[rule:internal-drive] <= 9", suppressed),
+                "blank against a number has no answer, in either direction");
+        assertNull(evaluateWith("[rule:internal-drive] >= 15", suppressed));
     }
 
     /** The fix: bound the test at the scale floor, so a blank cannot qualify. */

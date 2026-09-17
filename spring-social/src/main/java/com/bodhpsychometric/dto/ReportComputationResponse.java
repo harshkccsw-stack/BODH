@@ -25,7 +25,13 @@ public record ReportComputationResponse(
         String status,
         /** DIRECT or GENERATED — derived from the pinned rules, never asked. */
         String mode,
-        /** What DIRECT delivery still needs, in the author's language. Empty = ready. */
+        /**
+         * What DIRECT delivery still needs, in the author's language, WITHOUT
+         * the cohort evaluation — that is the expensive half and it lives in
+         * {@link ReportCheckResponse}, asked for on demand. Empty here means
+         * "nothing cheap is wrong"; only a clean check means approve will
+         * succeed. Null on the list endpoint, which computes nothing per row.
+         */
         List<String> directBlockers,
         String sourcePrompt,
         String respondentScope,
@@ -46,6 +52,10 @@ public record ReportComputationResponse(
         List<String> narrativeTags,
         /** Whether a model is actually configured to write them. */
         boolean narrativeAvailable,
+        /** Who approved, when, over how many completed respondents. Null until approved. */
+        Long approvedByUserId,
+        OffsetDateTime approvedAt,
+        Integer approvedCohortSize,
         OffsetDateTime createdAt,
         OffsetDateTime updatedAt) {
 
@@ -63,7 +73,12 @@ public record ReportComputationResponse(
             int sortOrder) {
     }
 
-    public record TagGuidance(String tag, String guidance, int sortOrder) {
+    /**
+     * One placeholder's answer on this computation: the rule that fills a
+     * VALUE tag, or the guidance a NARRATIVE tag is written from.
+     */
+    public record TagGuidance(String tag, String guidance, String ruleSlug, String format,
+            String fallbackText, int sortOrder) {
     }
 
     /**

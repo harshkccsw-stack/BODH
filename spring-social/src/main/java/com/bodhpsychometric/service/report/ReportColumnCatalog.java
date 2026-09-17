@@ -6,7 +6,6 @@ import java.util.Set;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.bodhpsychometric.dto.DsDatasetResponse;
 import com.bodhpsychometric.service.datastudio.DataStudioDatasetService;
 
 /**
@@ -32,12 +31,12 @@ import com.bodhpsychometric.service.datastudio.DataStudioDatasetService;
  * {@code dataset()} — the same source Data Studio validates its own formulas
  * against, so a formula means the same thing in a report as it does in a sheet.
  *
- * <p><b>Cost, stated honestly:</b> {@code columnKeys()} builds the whole dataset
- * (rows included) to return its column list, and this reuses that. It is the
- * existing behaviour rather than a regression, and correctness beats a cache
- * whose staleness is silent — but if the picker ever feels slow on a large
- * cohort, a columns-only path in {@code DataStudioDatasetService} is the fix,
- * not a cache here.
+ * <p><b>Cost:</b> {@code DataStudioDatasetService.columns()} lays out the
+ * column list without reading a single respondent — it depends on the
+ * questionnaire alone. It used to be obtained by building the whole dataset,
+ * rows and scores included, on every keystroke of the formula editor. Still
+ * read live and never cached: correctness beats a cache whose staleness is
+ * silent, and the columns-only path makes that affordable.
  */
 @Service
 public class ReportColumnCatalog {
@@ -72,8 +71,11 @@ public class ReportColumnCatalog {
      */
     @Transactional(readOnly = true)
     public List<ReportColumn> columnsFor(Long assessmentId, Long organizationId) {
-        return datasets.dataset(assessmentId, organizationId)
-                .map(DsDatasetResponse::columns)
+        // Columns only. This used to build the whole dataset — every row and
+        // every score — to read the headers off it, on every keystroke of the
+        // formula editor. The organization is kept in the signature and is
+        // irrelevant to the column list.
+        return datasets.columns(assessmentId)
                 .orElseGet(List::of)
                 .stream()
                 .map(c -> new ReportColumn(c.key(), c.label(), c.type(), c.group()))
@@ -89,7 +91,7 @@ public class ReportColumnCatalog {
     /** True when the assessment exists at all. Distinguishes 404 from "empty". */
     @Transactional(readOnly = true)
     public boolean assessmentExists(Long assessmentId) {
-        return datasets.dataset(assessmentId, null).isPresent();
+        return datasets.columns(assessmentId).isPresent();
     }
 
     /**

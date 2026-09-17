@@ -126,17 +126,21 @@ public class ReportTagBinding implements java.io.Serializable {
     }
 
     /**
-     * True when this binding names a specific computation output — the only
-     * computed type that can be RESOLVED today.
+     * True when a computation fills this tag with one rule's value.
      *
-     * <p>{@code COMPUTED} stays deliberately vague ("something computes this,
-     * we have not said what"), which is why it is separate: it is an authoring
-     * placeholder, and a template still carrying one cannot render.
+     * <p>{@code VALUE} and {@code COMPUTED} are the same shape since
+     * {@code V33}: "a number or a term goes here". WHICH rule is answered on
+     * the computation ({@code ReportComputationTagGuidance.ruleSlug}), never
+     * here — a template is portable across assessments precisely because it
+     * does not know.
      */
+    public boolean isValueShape() {
+        return TYPE_VALUE.equals(binderType) || TYPE_COMPUTED.equals(binderType);
+    }
+
+    /** Kept for readers of the old name; identical to {@link #isValueShape()}. */
     public boolean isResolvableValue() {
-        return TYPE_VALUE.equals(binderType)
-                && reportComputationId != null
-                && outputKey != null && !outputKey.isBlank();
+        return isValueShape();
     }
 
     /**

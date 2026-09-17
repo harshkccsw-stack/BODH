@@ -124,6 +124,11 @@ app:
     # never touches Redis and behaves exactly as before the integration —
     # one restart, no code change. Tests run with it off.
     enabled: ${REDIS_ENABLED:true}
+  report:
+    # Fewest COMPLETED respondents a cohort-relative rule (ZSCORE, PERCENTILE,
+    # RANK, AVERAGE…) needs before it produces a value. Below it the rule is
+    # reported TOO_SMALL and blocks approval. 30 is a convention, not a law.
+    min-cohort-size: ${REPORT_MIN_COHORT_SIZE:30}
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173,http://localhost:3002}
   security:
@@ -279,6 +284,9 @@ app:
   redis:
     # See the development profile — OFF restores the pre-Redis behaviour.
     enabled: ${REDIS_ENABLED:true}
+  report:
+    # See the development profile.
+    min-cohort-size: ${REPORT_MIN_COHORT_SIZE:30}
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:3002,http://localhost:5173,https://admin.bodh.biz,https://*.bodh.biz,https://portal.bodh.biz}
   security:

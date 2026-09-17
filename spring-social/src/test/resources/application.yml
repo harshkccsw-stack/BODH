@@ -27,6 +27,12 @@ app:
   # needed to run the suite.
   redis:
     enabled: false
+  # Three, not the production 30: the fixtures build cohorts of two to four
+  # respondents by hand, and a cohort-relative rule has to be able to run over
+  # them. The guard itself is tested by a two-respondent cohort against this
+  # value — see ReportCohortGuardTest.
+  report:
+    min-cohort-size: 3
   # Two entries on purpose: seeding more than one superadmin is a supported
   # configuration, so the tests cover it rather than only the first element.
   superadmins:

@@ -14,6 +14,7 @@ import java.util.zip.ZipOutputStream;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.bodhpsychometric.dto.ReportRecipientResponse;
 import com.bodhpsychometric.exception.NotFoundException;
 import com.bodhpsychometric.model.assessment.RespondentAssessmentMapping;
 import com.bodhpsychometric.model.assessment.enums.RespondentAssessmentStatus;
@@ -154,23 +155,69 @@ public class ReportDeliveryService {
         Map<String, String> narratives = narrativeService
                 .resolveForCohort(computation, template, Map.of(attemptId, ruleValues))
                 .getOrDefault(attemptId, Map.of());
-        return render(template, attempt, ruleValues, narratives);
+        return render(computation, template, attempt, ruleValues, narratives);
     }
 
     /**
-     * Every completed attempt, as a ZIP of PDFs plus the values manifest.
+     * One respondent's FINAL report — the Generate page's "one respondent".
+     *
+     * <p>Unlike {@link #preview}, this requires approval and refuses anyone the
+     * batch would skip, so the single PDF and the ZIP can never disagree about
+     * who gets a report. The narrative is stored exactly as a batch stores it.
+     */
+    @Transactional // writable: see the note on preview.
+    public Report report(Long computationId, Long attemptId) {
+        access.requireRenderer();
+        ReportComputation computation = load(computationId);
+        requireApproved(computation);
+        ReportTemplate template = requireTemplate(computation);
+
+        RespondentAssessmentMapping attempt = attempts.findById(attemptId)
+                .orElseThrow(() -> new NotFoundException("Attempt " + attemptId + " not found"));
+        if (!attempt.getAssessment().getAssessmentId().equals(computation.getAssessmentId())) {
+            throw new IllegalArgumentException("That attempt belongs to a different assessment.");
+        }
+        if (!isRecipient(computation, attempt)) {
+            throw new IllegalStateException(attempt.getRespondent().getName()
+                    + " has not completed this assessment, so there is no report to produce.");
+        }
+        ReportDryRunService.EvaluatedCohort cohort = evaluate(computation);
+        Map<String, Object> ruleValues = rowFor(cohort, attemptId);
+        if (ruleValues == null) {
+            throw new IllegalStateException("This respondent has no scored row on this "
+                    + "assessment, so there is nothing to report.");
+        }
+        Map<String, String> narratives = narrativeService
+                .resolveForCohort(computation, template, Map.of(attemptId, ruleValues))
+                .getOrDefault(attemptId, Map.of());
+        return render(computation, template, attempt, ruleValues, narratives);
+    }
+
+    /** Everyone who completed, as a ZIP. See {@link #generate(Long, java.util.Collection)}. */
+    @Transactional
+    public Batch generate(Long computationId) {
+        return generate(computationId, List.of());
+    }
+
+    /**
+     * A batch of PDFs plus the values manifest.
      *
      * <p>APPROVED is required here and nowhere else. A preview is somebody
      * looking; a batch is documents about real people leaving the building.
+     *
+     * @param attemptIds who receives a report; empty means everyone who
+     *        completed. Chosen at GENERATION time, not stored on the
+     *        computation — "who do I need today" is the question a batch
+     *        answers. The cohort the rules run over is the whole population
+     *        either way, so a percentile is the same number whoever is on the
+     *        list. An id that is not a recipient is refused rather than
+     *        silently skipped.
      */
     @Transactional // writable: see the note on preview.
-    public Batch generate(Long computationId) {
+    public Batch generate(Long computationId, java.util.Collection<Long> attemptIds) {
         access.requireRenderer();
         ReportComputation computation = load(computationId);
-        if (!ReportComputation.STATUS_APPROVED.equals(computation.getStatus())) {
-            throw new IllegalStateException("This computation is not approved yet. "
-                    + "Approve it before generating reports for real respondents.");
-        }
+        requireApproved(computation);
         ReportTemplate template = requireTemplate(computation);
         ReportDryRunService.EvaluatedCohort cohort = evaluate(computation);
 
@@ -178,6 +225,20 @@ public class ReportDeliveryService {
         attempts.findAllForDataStudio(computation.getAssessmentId(),
                         computation.getOrganizationId())
                 .forEach(a -> byId.put(a.getRespondentAssessmentMappingId(), a));
+
+        java.util.Set<Long> chosen = new java.util.LinkedHashSet<>(attemptIds);
+        for (Long id : chosen) {
+            RespondentAssessmentMapping attempt = byId.get(id);
+            if (attempt == null) {
+                throw new IllegalArgumentException("Attempt " + id + " is not in this "
+                        + "computation's cohort.");
+            }
+            if (!isRecipient(computation, attempt)) {
+                throw new IllegalArgumentException(attempt.getRespondent().getName()
+                        + " has not completed this assessment, so no report can be produced "
+                        + "for them.");
+            }
+        }
 
         // Recipients first, rendering second. The narrative pass needs the whole
         // cohort in one go — one model call per respondent, run on a small pool
@@ -188,10 +249,11 @@ public class ReportDeliveryService {
         for (Map<String, Object> row : cohort.population()) {
             Long attemptId = asLong(row.get("rowId"));
             RespondentAssessmentMapping attempt = attemptId == null ? null : byId.get(attemptId);
-            if (attempt == null
-                    || attempt.getAssessmentStatus() != RespondentAssessmentStatus.COMPLETED) {
-                // Allotted but unfinished. Present in the cohort so the
-                // statistics match the dry run, absent from the recipients.
+            if (attempt == null || !isRecipient(computation, attempt)
+                    || (!chosen.isEmpty() && !chosen.contains(attemptId))) {
+                // Allotted but unfinished, outside the scope, or not asked
+                // for this time. Present in the cohort so the statistics
+                // match the dry run, absent from the recipients.
                 skipped++;
                 continue;
             }
@@ -207,14 +269,73 @@ public class ReportDeliveryService {
 
         List<Report> reports = new ArrayList<>();
         for (Map.Entry<Long, Map<String, Object>> entry : valuesByAttempt.entrySet()) {
-            reports.add(render(template, byId.get(entry.getKey()), entry.getValue(),
+            reports.add(render(computation, template, byId.get(entry.getKey()), entry.getValue(),
                     narratives.getOrDefault(entry.getKey(), Map.of())));
         }
         return new Batch(fileName(computation.getSlug() + "-reports-" + LocalDate.now()) + ".zip",
                 zip(reports, computation), reports.size(), skipped);
     }
 
+    private static void requireApproved(ReportComputation computation) {
+        if (!ReportComputation.STATUS_APPROVED.equals(computation.getStatus())) {
+            throw new IllegalStateException("This computation is not approved yet. "
+                    + "Approve it before generating reports for real respondents.");
+        }
+    }
+
+    /** The computation's tag answers, by tag, as the resolver reads them. */
+    private static Map<String, ReportValueResolver.TagAnswer> answersOf(ReportComputation computation) {
+        Map<String, ReportValueResolver.TagAnswer> out = new LinkedHashMap<>();
+        for (var row : computation.getTagGuidance()) {
+            out.put(row.getTag(), new ReportValueResolver.TagAnswer(
+                    row.getRuleSlug(), row.getFormat(), row.getFallbackText()));
+        }
+        return out;
+    }
+
+    /**
+     * Who is in this computation's cohort, and which of them a batch would
+     * write up — the preview picker's list.
+     *
+     * <p>Reads the allotments only; no rule runs. The cohort and the recipients
+     * differ on purpose (see the class note), and this shows both so the
+     * author can see who the statistics include that the ZIP will not.
+     */
+    public List<ReportRecipientResponse> recipients(Long computationId) {
+        access.requireActor();
+        ReportComputation computation = load(computationId);
+        List<ReportRecipientResponse> out = new ArrayList<>();
+        for (RespondentAssessmentMapping attempt : attempts.findAllForDataStudio(
+                computation.getAssessmentId(), computation.getOrganizationId())) {
+            out.add(new ReportRecipientResponse(
+                    attempt.getRespondentAssessmentMappingId(),
+                    attempt.getRespondent().getId(),
+                    attempt.getRespondent().getName(),
+                    attempt.getRespondent().getUser().getSerialId(),
+                    attempt.getAssessmentStatus().name(),
+                    isRecipient(computation, attempt)));
+        }
+        return out;
+    }
+
     // ── internals ─────────────────────────────────────────────────────────
+
+    /**
+     * COMPLETED, and inside the respondent scope.
+     *
+     * <p>The scope is the one thing the batch honours that the cohort does
+     * not: a SELECTED scope names who receives a report, while every allotted
+     * attempt still stands in the population the rules are evaluated over, so
+     * a percentile means the same thing whoever is on the list.
+     */
+    private static boolean isRecipient(ReportComputation computation,
+            RespondentAssessmentMapping attempt) {
+        if (attempt.getAssessmentStatus() != RespondentAssessmentStatus.COMPLETED) {
+            return false;
+        }
+        java.util.Set<Long> selected = computation.selectedRespondentIds();
+        return selected.isEmpty() || selected.contains(attempt.getRespondent().getId());
+    }
 
     /**
      * Evaluate the pinned rules, and refuse the whole delivery if any failed.
@@ -237,17 +358,20 @@ public class ReportDeliveryService {
         if (!cohort.isClean()) {
             throw new IllegalStateException("These rules produce no value on this assessment, "
                     + "so no report can be built from them: "
-                    + String.join(", ", cohort.failedSlugs().isEmpty()
-                            ? cohort.unavailableSlugs() : cohort.failedSlugs()));
+                    + String.join(", ", cohort.blockedSlugs())
+                    + (cohort.tooSmallSlugs().isEmpty() ? "" : " (only "
+                            + cohort.completedCount() + " completed; cohort-relative rules need "
+                            + dryRun.minCohortSize() + ")"));
         }
         return cohort;
     }
 
-    private Report render(ReportTemplate template, RespondentAssessmentMapping attempt,
-            Map<String, Object> ruleValues, Map<String, String> narratives) {
+    private Report render(ReportComputation computation, ReportTemplate template,
+            RespondentAssessmentMapping attempt, Map<String, Object> ruleValues,
+            Map<String, String> narratives) {
 
-        Map<String, String> resolved =
-                values.resolve(template, core.resolve(attempt), ruleValues, narratives);
+        Map<String, String> resolved = values.resolve(template, core.resolve(attempt),
+                ruleValues, narratives, answersOf(computation));
         byte[] pdf = renderer.toPdf(parser.substitute(template.getHtml(), resolved)).bytes();
         String name = attempt.getRespondent().getName();
         return new Report(attempt.getRespondentAssessmentMappingId(), name,
@@ -293,6 +417,10 @@ public class ReportDeliveryService {
         sb.append("{\n  \"computation\": ").append(quote(computation.getSlug()))
                 .append(",\n  \"assessmentId\": ").append(computation.getAssessmentId())
                 .append(",\n  \"generatedAt\": ").append(quote(LocalDate.now().toString()))
+                .append(",\n  \"approvedByUserId\": ").append(computation.getApprovedByUserId())
+                .append(",\n  \"approvedAt\": ").append(quote(computation.getApprovedAt() == null
+                        ? null : computation.getApprovedAt().toString()))
+                .append(",\n  \"approvedCohortSize\": ").append(computation.getApprovedCohortSize())
                 .append(",\n  \"rules\": [");
         List<ReportComputationRule> rules = computation.getRules();
         for (int i = 0; i < rules.size(); i++) {

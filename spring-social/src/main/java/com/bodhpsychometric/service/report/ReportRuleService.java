@@ -512,6 +512,131 @@ public class ReportRuleService {
         return toResponse(rules.save(rule));
     }
 
+    /**
+     * Adopt a rule onto an assessment by COPYING it, dependencies included.
+     *
+     * <p>The authoring plan's §4 settled this as a fork rather than a shared
+     * reference: editing a shared rule writes version N+1 for every adopter at
+     * once, and a band cut tuned for one instrument silently moves under
+     * another. A copy is homed on the target assessment, gets its own slug
+     * and name, and its expression is rewritten so every {@code [rule:...]} it
+     * reads points at the copy of that dependency rather than the original.
+     *
+     * <p>All or nothing, in dependency order: a dependency that already has a
+     * copy on the target is reused, and a rule whose columns the target does
+     * not expose fails the whole fork with the validator's own message —
+     * which is exactly the BLOCKED verdict the adoption panel already shows.
+     * Each copy goes through {@link #create}, so nothing here can save what
+     * a hand-written rule could not.
+     */
+    public List<ReportRuleResponse> fork(Long id, Long assessmentId, Long organizationId) {
+        access.requireAuthor();
+        if (assessmentId == null) {
+            throw new IllegalArgumentException("Choose the assessment to copy this rule onto");
+        }
+        if (!columns.assessmentExists(assessmentId)) {
+            throw new NotFoundException("Assessment " + assessmentId + " not found");
+        }
+        ReportRule root = load(id);
+        if (assessmentId.equals(root.getAssessmentId())) {
+            throw new IllegalStateException("\"" + root.getName()
+                    + "\" already belongs to this assessment.");
+        }
+
+        Map<String, ReportRule> graph = activeRulesBySlug();
+
+        // Dependencies first, so each copy's rewritten references resolve to a
+        // rule that exists by the time the validator looks for it.
+        List<ReportRule> order = new ArrayList<>();
+        Set<String> seen = new LinkedHashSet<>();
+        forkOrder(root, graph, seen, order);
+
+        Map<String, String> slugOf = new LinkedHashMap<>();   // original slug → copy's slug
+        for (ReportRule original : order) {
+            slugOf.put(original.getSlug(), forkedSlug(original.getSlug(), assessmentId));
+        }
+
+        List<ReportRuleResponse> created = new ArrayList<>();
+        for (ReportRule original : order) {
+            String newSlug = slugOf.get(original.getSlug());
+            if (assessmentId.equals(original.getAssessmentId())) {
+                // Already homed here — reference it as itself.
+                slugOf.put(original.getSlug(), original.getSlug());
+                continue;
+            }
+            ReportRule existing = graph.get(newSlug);
+            if (existing != null) {
+                // Copied onto this assessment by an earlier fork. Reuse it.
+                continue;
+            }
+            ReportRuleVersion latest = original.latestVersion().orElseThrow(() ->
+                    new IllegalStateException("\"" + original.getName() + "\" has no version"));
+
+            String expression = latest.getExpression();
+            if (expression != null) {
+                for (Map.Entry<String, String> e : slugOf.entrySet()) {
+                    expression = expression.replace(
+                            "[" + RULE_PREFIX + e.getKey() + "]",
+                            "[" + RULE_PREFIX + e.getValue() + "]");
+                }
+            }
+            String notes = "Copied from \"" + original.getName() + "\" (" + original.getSlug()
+                    + " v" + latest.getVersion() + ")."
+                    + (latest.getNotes() == null ? "" : "\n\n" + latest.getNotes());
+
+            created.add(create(new ReportRuleRequest(
+                    forkedName(original.getName(), assessmentId),
+                    newSlug,
+                    original.getDescription(),
+                    latest.getDefinitionKind(),
+                    expression,
+                    latest.getStatementText(),
+                    latest.getResultType(),
+                    assessmentId,
+                    organizationId,
+                    original.getStage(),
+                    original.getStepOrder(),
+                    notes)));
+        }
+        if (created.isEmpty()) {
+            throw new IllegalStateException("Every rule this would copy is already on "
+                    + "this assessment.");
+        }
+        return created;
+    }
+
+    /** Post-order over the dependency graph: leaves first, the root last. */
+    private static void forkOrder(ReportRule rule, Map<String, ReportRule> graph,
+            Set<String> seen, List<ReportRule> out) {
+        if (!seen.add(rule.getSlug())) {
+            return;
+        }
+        for (String slug : edgesOf(rule)) {
+            ReportRule dep = graph.get(slug);
+            if (dep != null) {
+                forkOrder(dep, graph, seen, out);
+            }
+        }
+        out.add(rule);
+    }
+
+    /** {@code internal-drive} on assessment 12 → {@code a12-internal-drive}. */
+    static String forkedSlug(String slug, Long assessmentId) {
+        String prefixed = "a" + assessmentId + "-" + slug;
+        return prefixed.length() > 80 ? prefixed.substring(0, 80) : prefixed;
+    }
+
+    private String forkedName(String name, Long assessmentId) {
+        String suffix = " (A" + assessmentId + ")";
+        String base = name.length() + suffix.length() > 160
+                ? name.substring(0, 160 - suffix.length()).trim() : name;
+        String candidate = base + suffix;
+        for (int n = 2; rules.existsByNameIgnoreCase(candidate) && n < 100; n++) {
+            candidate = base + " (A" + assessmentId + " " + n + ")";
+        }
+        return candidate;
+    }
+
     // ── internals ─────────────────────────────────────────────────────────
 
     /**
@@ -682,6 +807,11 @@ public class ReportRuleService {
     private static final Set<String> POPULATION_FUNCTIONS = Set.of(
             "AVERAGE", "COUNT", "AVERAGEIF", "COUNTIF",
             "PERCENTILE", "PERCENTRANK", "ZSCORE", "RANK");
+
+    /** Whether a parsed formula's function list makes it cohort-relative. */
+    static boolean usesPopulationFunction(java.util.Collection<String> functions) {
+        return functions != null && functions.stream().anyMatch(POPULATION_FUNCTIONS::contains);
+    }
 
     /** ACTIVE rules by slug. Archived ones are deliberately unreferenceable. */
     private Map<String, ReportRule> activeRulesBySlug() {

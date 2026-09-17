@@ -30,13 +30,13 @@ import com.bodhpsychometric.model.question.QuestionRow;
 import com.bodhpsychometric.model.question.enums.QuestionType;
 import com.bodhpsychometric.model.questionnaire.Questionnaire;
 import com.bodhpsychometric.model.questionnaire.QuestionnaireQuestion;
-import com.bodhpsychometric.model.auth.RespondentUser;
 import com.bodhpsychometric.repository.assessment.AssessmentAnswerRepository;
 import com.bodhpsychometric.repository.assessment.AssessmentRepository;
 import com.bodhpsychometric.repository.assessment.RespondentAssessmentMappingRepository;
 import com.bodhpsychometric.repository.demographics.DemographicResponseRepository;
 import com.bodhpsychometric.repository.demographics.QuestionnaireDemographicFieldRepository;
 import com.bodhpsychometric.repository.questionnaire.QuestionnaireQuestionRepository;
+import com.bodhpsychometric.model.auth.RespondentUser;
 import com.bodhpsychometric.service.MqtScoringService;
 
 /**
@@ -127,6 +127,37 @@ public class DataStudioDatasetService {
      */
     @Transactional(readOnly = true)
     public Optional<DsDatasetResponse> dataset(Long assessmentId, Long organizationId) {
+        Layout layout = layout(assessmentId).orElse(null);
+        if (layout == null) {
+            return Optional.empty();
+        }
+        return Optional.of(new DsDatasetResponse("assessment:" + assessmentId, layout.columns(),
+                rows(assessmentId, organizationId, layout)));
+    }
+
+    /**
+     * The column list alone, with no respondent read at all.
+     *
+     * <p>The report engine validates every formula keystroke, every rule save
+     * and every portability verdict against this list, and used to obtain it
+     * by building the whole dataset — every row, every score — and reading
+     * the headers off it. The columns depend only on the questionnaire; the
+     * rows are what cost.
+     */
+    @Transactional(readOnly = true)
+    public Optional<List<Column>> columns(Long assessmentId) {
+        return layout(assessmentId).map(Layout::columns);
+    }
+
+    /** Everything about an assessment's grid that does not depend on who answered. */
+    private record Layout(
+            List<Column> columns,
+            List<DemographicField> fields,
+            Map<AnswerKey, String> tagByKey,
+            MqtScoringService.ScoringPlan plan) {
+    }
+
+    private Optional<Layout> layout(Long assessmentId) {
         Assessment assessment = assessments.findById(assessmentId).orElse(null);
         if (assessment == null) {
             return Optional.empty();
@@ -190,6 +221,13 @@ public class DataStudioDatasetService {
             columns.add(new Column(MQ + mq.measuredQualityId(), mq.name() + " (MQ total)",
                     "number", "scores"));
         }
+        return Optional.of(new Layout(columns, fields, tagByKey, plan));
+    }
+
+    private List<Map<String, Object>> rows(Long assessmentId, Long organizationId, Layout layout) {
+        List<DemographicField> fields = layout.fields();
+        Map<AnswerKey, String> tagByKey = layout.tagByKey();
+        MqtScoringService.ScoringPlan plan = layout.plan();
 
         // ── Rows ─────────────────────────────────────────────────────────
         List<RespondentAssessmentMapping> attempts =
@@ -232,20 +270,21 @@ public class DataStudioDatasetService {
                     rawByRespondent.getOrDefault(attempt.getRespondent().getId(), List.of()),
                     demographicsByRespondent.getOrDefault(attempt.getRespondent().getId(), Map.of())));
         }
-
-        return Optional.of(new DsDatasetResponse("assessment:" + assessmentId, columns, rows));
+        return rows;
     }
 
     /**
      * The set of keys a formula on this dataset may reference. Callers use it
      * to reject a typo'd column at save time rather than letting it silently
      * evaluate to blank on every row forever.
+     *
+     * <p>Columns only: the organization is accepted for signature stability
+     * and ignored, since it filters rows and rows are not read here.
      */
     @Transactional(readOnly = true)
     public Set<String> columnKeys(Long assessmentId, Long organizationId) {
         Set<String> keys = new LinkedHashSet<>();
-        dataset(assessmentId, organizationId)
-                .ifPresent(d -> d.columns().forEach(c -> keys.add(c.key())));
+        columns(assessmentId).ifPresent(cols -> cols.forEach(c -> keys.add(c.key())));
         return keys;
     }
 

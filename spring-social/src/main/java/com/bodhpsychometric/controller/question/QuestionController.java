@@ -41,7 +41,6 @@ import com.bodhpsychometric.model.scoring.QuestionMqtScore;
 import com.bodhpsychometric.model.scoring.QuestionRowMqt;
 import com.bodhpsychometric.model.taxonomy.MeasuredQuality;
 import com.bodhpsychometric.model.taxonomy.MeasuredQualityType;
-import com.bodhpsychometric.model.questionnaire.QuestionnaireQuestion;
 import com.bodhpsychometric.repository.assessment.AssessmentAnswerRepository;
 import com.bodhpsychometric.repository.measures.MeasuredQualityRepository;
 import com.bodhpsychometric.repository.measures.MeasuredQualityTypeRepository;
@@ -50,6 +49,7 @@ import com.bodhpsychometric.repository.questionnaire.QuestionnaireQuestionReposi
 import com.bodhpsychometric.repository.scoring.OptionMqtScoreRepository;
 import com.bodhpsychometric.repository.scoring.QuestionMqtScoreRepository;
 import com.bodhpsychometric.repository.scoring.QuestionRowMqtRepository;
+import com.bodhpsychometric.model.questionnaire.QuestionnaireQuestion;
 
 import jakarta.validation.Valid;
 

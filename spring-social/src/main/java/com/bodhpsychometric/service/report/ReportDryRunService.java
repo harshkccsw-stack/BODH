@@ -10,10 +10,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.bodhpsychometric.dto.DsDatasetResponse;
+import com.bodhpsychometric.dto.DsExprResponse;
+import com.bodhpsychometric.dto.ReportDraftEvaluationRequest;
 import com.bodhpsychometric.dto.ReportDryRunRequest;
 import com.bodhpsychometric.dto.ReportDryRunResponse;
 import com.bodhpsychometric.exception.NotFoundException;
@@ -75,14 +78,31 @@ public class ReportDryRunService {
     private final ExpressionService expressions;
     private final ReportAccess access;
 
+    /**
+     * How many COMPLETED respondents a cohort-relative rule needs before it
+     * produces anything.
+     *
+     * <p>Below this, every {@code is_population} rule yields no value and is
+     * reported {@link ReportDryRunResponse#TOO_SMALL}, which blocks approval
+     * and delivery. The number is a convention (30), not a law; it is a
+     * property, not a constant, so an installation can argue with it.
+     */
+    private final int minCohortSize;
+
     public ReportDryRunService(ReportRuleRepository rules,
             DataStudioDatasetService datasets,
             ExpressionService expressions,
-            ReportAccess access) {
+            ReportAccess access,
+            @Value("${app.report.min-cohort-size:30}") int minCohortSize) {
         this.rules = rules;
         this.datasets = datasets;
         this.expressions = expressions;
         this.access = access;
+        this.minCohortSize = minCohortSize;
+    }
+
+    public int minCohortSize() {
+        return minCohortSize;
     }
 
     @Transactional(readOnly = true)
@@ -115,10 +135,18 @@ public class ReportDryRunService {
             notes.add("No respondent has completed this assessment yet, so every rule ran "
                     + "against an empty cohort. Formulas are still checked; the numbers are not.");
         }
+        // The cohort a norm is drawn from is the people who FINISHED. Allotted
+        // rows with no scores are in the population so counts match the sheet,
+        // but they contribute nothing to a mean and must not count toward the
+        // minimum.
+        int completed = (int) population.stream()
+                .filter(row -> Integer.valueOf(1).equals(row.get(DataStudioDatasetService.CORE + "completed")))
+                .count();
 
         List<ReportDryRunResponse.RuleOutcome> outcomes = new ArrayList<>();
         Set<String> failed = new LinkedHashSet<>();
         Set<String> unavailable = new LinkedHashSet<>();
+        Set<String> tooSmall = new LinkedHashSet<>();
 
         for (ReportRule rule : ordered) {
             ReportRuleVersion version = versions.get(rule.getSlug());
@@ -133,11 +161,27 @@ public class ReportDryRunService {
                 continue;
             }
 
-            String blockedBy = firstBlockedDependency(version, failed, unavailable);
+            String blockedBy = firstBlockedDependency(version, failed, unavailable, tooSmall);
             if (blockedBy != null) {
                 failed.add(rule.getSlug());
                 outcomes.add(outcome(rule, version, ReportDryRunResponse.ERROR,
                         "Depends on \"" + blockedBy + "\", which produced no value.", null));
+                continue;
+            }
+
+            // The minimum-cohort guard. Judged on the version's own flag, which
+            // already carries the transitive answer (a band reading a z-score is
+            // flagged at save), so a rule two steps downstream of ZSCORE is
+            // caught here and not only by the dependency check above.
+            if (version.isPopulation() && completed < minCohortSize) {
+                tooSmall.add(rule.getSlug());
+                String key = ReportRuleService.RULE_PREFIX + rule.getSlug();
+                population.forEach(row -> row.put(key, null));
+                outcomes.add(outcome(rule, version, ReportDryRunResponse.TOO_SMALL,
+                        "Compares respondents to the cohort, and only " + completed
+                                + " ha" + (completed == 1 ? "s" : "ve") + " completed. "
+                                + "At least " + minCohortSize + " are needed before this "
+                                + "value means anything.", null));
                 continue;
             }
 
@@ -162,7 +206,8 @@ public class ReportDryRunService {
             }
         }
 
-        return new EvaluatedCohort(population, ordered, outcomes, failed, unavailable, notes);
+        return new EvaluatedCohort(population, ordered, outcomes, failed, unavailable, tooSmall,
+                completed, notes);
     }
 
     /** The rules pinned into a computation, in dependency order, at their pinned versions. */
@@ -179,6 +224,116 @@ public class ReportDryRunService {
         // dependency list is part of what was pinned.
         List<ReportRule> ordered = inDependencyOrder(List.copyOf(graph.values()), graph, versions);
         return evaluate(assessmentId, organizationId, ordered, versions);
+    }
+
+    /**
+     * Run formulae that are NOT saved over the real cohort — the "try it
+     * before accepting" behind a translation proposal or a hand edit.
+     *
+     * <p>Each draft becomes a transient rule and version built from the
+     * parser's output, evaluated exactly as a saved one would be. A draft may
+     * read saved rules, which come in at their latest version, and other
+     * drafts; a draft whose slug matches a saved rule stands in for it, so a
+     * proposed re-translation is judged in place of the version on file.
+     * Nothing is written.
+     */
+    @Transactional(readOnly = true)
+    public ReportDryRunResponse evaluateDrafts(ReportDraftEvaluationRequest request) {
+        access.requireActor();
+        if (request.drafts() == null || request.drafts().isEmpty()) {
+            throw new IllegalArgumentException("Give at least one formula to run");
+        }
+
+        Map<String, ReportRule> graph = activeBySlug();
+        Map<String, ReportRule> withDrafts = new LinkedHashMap<>(graph);
+        Map<String, ReportRuleVersion> versions = new LinkedHashMap<>();
+        List<ReportRule> roots = new ArrayList<>();
+
+        for (ReportDraftEvaluationRequest.Draft draft : request.drafts()) {
+            if (draft.slug() == null || draft.slug().isBlank()) {
+                throw new IllegalArgumentException("Every draft formula needs a rule slug");
+            }
+            String slug = draft.slug().trim();
+            ReportRule saved = graph.get(slug);
+
+            ReportRule rule = new ReportRule();
+            rule.setReportRuleId(saved == null ? null : saved.getReportRuleId());
+            rule.setSlug(slug);
+            rule.setName(saved == null ? slug : saved.getName());
+            rule.setStage(saved == null ? ReportRule.STAGE_SCORE : saved.getStage());
+            rule.setAssessmentId(request.assessmentId());
+
+            String expression = draft.expression() == null ? "" : draft.expression().trim();
+            DsExprResponse parsed = expressions.validate(expression, Set.of());
+            List<String> columns = new ArrayList<>();
+            List<String> edges = new ArrayList<>();
+            for (String key : parsed.referencedColumns()) {
+                if (key.startsWith(ReportRuleService.RULE_PREFIX)) {
+                    edges.add(key.substring(ReportRuleService.RULE_PREFIX.length()));
+                } else {
+                    columns.add(key);
+                }
+            }
+            ReportRuleVersion version = new ReportRuleVersion();
+            version.setVersion(0);
+            version.setDefinitionKind(ReportRuleVersion.KIND_EXPRESSION);
+            version.setExpression(expression);
+            version.setResultType("string".equalsIgnoreCase(parsed.resultType())
+                    ? ReportRuleVersion.RESULT_TERM : ReportRuleVersion.RESULT_NUMBER);
+            version.setReferencedKeysJson(ReportRuleService.toJsonArray(columns));
+            version.setReferencedRuleSlugsJson(ReportRuleService.toJsonArray(edges));
+            version.setPopulation(ReportRuleService.usesPopulationFunction(parsed.functions()));
+            rule.addVersion(version);
+
+            withDrafts.put(slug, rule);
+            versions.put(slug, version);
+            roots.add(rule);
+        }
+
+        // Saved dependencies come along at their latest version, transitively.
+        Map<String, ReportRule> selected = new LinkedHashMap<>();
+        Deque<ReportRule> queue = new ArrayDeque<>(roots);
+        while (!queue.isEmpty()) {
+            ReportRule rule = queue.removeFirst();
+            if (selected.putIfAbsent(rule.getSlug(), rule) != null) {
+                continue;
+            }
+            for (String slug : edgesOf(rule, versions)) {
+                ReportRule dep = withDrafts.get(slug);
+                if (dep == null) {
+                    continue;
+                }
+                if (!versions.containsKey(slug)) {
+                    dep.latestVersion().ifPresent(v -> versions.put(slug, v));
+                }
+                queue.add(dep);
+            }
+        }
+        List<ReportRule> ordered = inDependencyOrder(List.copyOf(selected.values()), withDrafts, versions);
+
+        // A draft reading a cohort-relative rule is itself cohort-relative —
+        // the same propagation a save performs, done here in dependency order.
+        for (ReportRule rule : ordered) {
+            ReportRuleVersion version = versions.get(rule.getSlug());
+            if (version == null || version.getReportRuleVersionId() != null || version.isPopulation()) {
+                continue;
+            }
+            for (String slug : edgesOf(rule, versions)) {
+                ReportRuleVersion dep = versions.get(slug);
+                if (dep != null && dep.isPopulation()) {
+                    version.setPopulation(true);
+                    break;
+                }
+            }
+        }
+
+        EvaluatedCohort cohort = evaluate(request.assessmentId(), request.organizationId(),
+                ordered, versions);
+        int limit = Math.min(request.rowLimit() == null ? DEFAULT_ROW_LIMIT
+                : Math.max(0, request.rowLimit()), MAX_ROW_LIMIT);
+        List<ReportDryRunResponse.Row> rows = sample(cohort.population(), ordered, limit);
+        return new ReportDryRunResponse(request.assessmentId(), cohort.population().size(),
+                rows.size(), cohort.outcomes(), rows, cohort.notes());
     }
 
     public ReportDryRunResponse run(ReportDryRunRequest request) {
@@ -218,11 +373,26 @@ public class ReportDryRunService {
             List<ReportDryRunResponse.RuleOutcome> outcomes,
             Set<String> failedSlugs,
             Set<String> unavailableSlugs,
+            /** Cohort-relative rules suppressed by the minimum-cohort guard. */
+            Set<String> tooSmallSlugs,
+            /** How many rows in {@code population} are COMPLETED attempts. */
+            int completedCount,
             List<String> notes) {
 
-        /** No rule errored and none needs generation — the delivery precondition. */
+        /**
+         * No rule errored, none needs generation, and none was suppressed for a
+         * cohort too small — the delivery precondition.
+         */
         public boolean isClean() {
-            return failedSlugs.isEmpty() && unavailableSlugs.isEmpty();
+            return failedSlugs.isEmpty() && unavailableSlugs.isEmpty() && tooSmallSlugs.isEmpty();
+        }
+
+        /** Every slug that produced no value, whatever the reason, for a message. */
+        public Set<String> blockedSlugs() {
+            Set<String> out = new LinkedHashSet<>(failedSlugs);
+            out.addAll(unavailableSlugs);
+            out.addAll(tooSmallSlugs);
+            return out;
         }
 
         /** Every rule value for one respondent row, keyed by slug. */
@@ -343,9 +513,9 @@ public class ReportDryRunService {
 
     /** The first dependency that produced nothing, or null when all are fine. */
     private static String firstBlockedDependency(ReportRuleVersion version, Set<String> failed,
-            Set<String> unavailable) {
+            Set<String> unavailable, Set<String> tooSmall) {
         for (String slug : ReportRuleService.parseKeys(version.getReferencedRuleSlugsJson())) {
-            if (failed.contains(slug) || unavailable.contains(slug)) {
+            if (failed.contains(slug) || unavailable.contains(slug) || tooSmall.contains(slug)) {
                 return slug;
             }
         }

@@ -247,17 +247,80 @@ class RuleTranslationVocabularyTest {
      * translated rules very much do appear.
      */
     @Test
-    void refusesToRetranslateAFormula() throws Exception {
-        long rule = statementRule(TAG + " retranslate",
+    void retranslatesAFormulaFromItsSheetTextAndRefusesOneThatNeverHadAny() throws Exception {
+        // A rule that once had sheet text can be re-asked — that text is what
+        // the model translates from, and a bad first attempt is exactly the
+        // case a reviewer wants to send back.
+        long translated = statementRule(TAG + " retranslate",
                 "IF the drive score is at least 15 THEN band = 'High'.");
-        becomesAFormula(rule, TAG + " retranslate", "1 + 1");
+        becomesAFormula(translated, TAG + " retranslate", "1 + 1");
+        String prompt = promptFor(translated);
+        assertTrue(prompt.contains("IF the drive score is at least 15"),
+                () -> "the sheet text must be what is translated from:\n" + prompt);
 
+        // One that never had any has nothing to say to a model.
+        long bare = expressionRule(TAG + " bare", "2 + 2");
         mvc.perform(post("/api/report-rules/ai/translate")
                         .header(HttpHeaders.AUTHORIZATION, auth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"assessmentId\":" + assessment()
-                                + ",\"ruleIds\":[" + rule + "]}"))
+                                + ",\"ruleIds\":[" + bare + "]}"))
                 .andExpect(status().isConflict());
+    }
+
+    /**
+     * Re-asking one rule with a hint: the model sees its previous attempt and
+     * the reviewer's words, and the batch's other drafts count as formulae so
+     * a proposal may read them before either is saved.
+     */
+    @Test
+    void aHintShowsThePreviousAttemptAndTheBatchDraftsCountAsFormulae() throws Exception {
+        long hinted = statementRule(TAG + " hinted", "Band the composite at 48.");
+        long other = statementRule(TAG + " ctx", "The composite.");
+        String ctxSlug = slugOf(other);
+        String hintedSlug = slugOf(hinted);
+
+        // The stub answers with a formula that READS the other draft.
+        when(openAi.completeAsJson(anyString(), anyString())).thenReturn(
+                "{\"translations\":[{\"slug\":\"" + hintedSlug + "\",\"expression\":\"[rule:"
+                        + ctxSlug + "] + 1\",\"confident\":true,\"note\":\"\"}]}");
+
+        String response = mvc.perform(post("/api/report-rules/ai/translate")
+                        .header(HttpHeaders.AUTHORIZATION, auth())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"assessmentId\":" + assessment()
+                                + ",\"ruleIds\":[" + hinted + "]"
+                                + ",\"hints\":{\"" + hinted + "\":\"the cut STARTS at 48, use NORMBAND\"}"
+                                + ",\"context\":[{\"slug\":\"" + ctxSlug + "\",\"expression\":\"1 + 2\"}]}"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        ArgumentCaptor<String> user = ArgumentCaptor.forClass(String.class);
+        verify(openAi).completeAsJson(anyString(), user.capture());
+        String prompt = user.getValue();
+        assertTrue(prompt.contains("reviewer said: the cut STARTS at 48, use NORMBAND"),
+                () -> "the hint must reach the model verbatim:\n" + prompt);
+        assertTrue(prompt.contains("previous attempt: (none)"),
+                () -> "a statement rule has no previous formula:\n" + prompt);
+        assertTrue(prompt.contains("[rule:" + ctxSlug + "] = 1 + 2"),
+                () -> "the batch's draft must be in the vocabulary:\n" + prompt);
+        assertTrue(json.readTree(response).path("proposals").path(0).path("ok").asBoolean(false),
+                () -> "a proposal reading a draft of the same batch validates: " + response);
+    }
+
+    private long expressionRule(String name, String expression) throws Exception {
+        String body = mvc.perform(post("/api/report-rules/create")
+                        .header(HttpHeaders.AUTHORIZATION, auth())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(Map.of(
+                                "name", name,
+                                "definitionKind", "EXPRESSION",
+                                "expression", expression,
+                                "assessmentId", assessment(),
+                                "stage", "SCORE"))))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        return json.readTree(body).path("reportRuleId").asLong();
     }
 
     /** The instruction that tells the model to prefer a rule over a column. */

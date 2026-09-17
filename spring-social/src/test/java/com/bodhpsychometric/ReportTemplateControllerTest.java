@@ -176,12 +176,22 @@ class ReportTemplateControllerTest {
     @Test
     void aBinderTypeThatNeedsTheScoringEngineIsRefusedWithAnExplanation() throws Exception {
         Long id = idOf(createTemplate("__smoke__ notyet", "<p>${x}</p>"));
+        // TABLE and CHART are named and not fillable yet. VALUE alone is a
+        // complete answer since V33: it declares the SHAPE, and the rule that
+        // fills it is the computation's business.
+        mvc.perform(put("/api/report-templates/bindTag/" + id + "/x")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"binderType\":\"TABLE\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").isNotEmpty());
         mvc.perform(put("/api/report-templates/bindTag/" + id + "/x")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"binderType\":\"VALUE\"}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").isNotEmpty());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.bindings[0].binderType").value("VALUE"))
+                .andExpect(jsonPath("$.bindings[0].reportComputationId").doesNotExist());
     }
 
     @Test

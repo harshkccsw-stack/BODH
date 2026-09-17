@@ -16,9 +16,14 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.bodhpsychometric.dto.ReportCheckResponse;
+import com.bodhpsychometric.dto.ReportComputationForTemplateRequest;
 import com.bodhpsychometric.dto.ReportComputationRenameRequest;
 import com.bodhpsychometric.dto.ReportComputationRequest;
 import com.bodhpsychometric.dto.ReportComputationResponse;
+import com.bodhpsychometric.dto.ReportGenerateRequest;
+import com.bodhpsychometric.dto.ReportRecipientResponse;
+import com.bodhpsychometric.dto.ReportTagAnswerRequest;
 import com.bodhpsychometric.service.report.ReportComputationService;
 import com.bodhpsychometric.service.report.ReportDeliveryService;
 
@@ -98,6 +103,70 @@ public class ReportComputationController {
     }
 
     /**
+     * The full pre-approval check, cohort evaluation included.
+     *
+     * <p>A POST because it does real work — every pinned rule over every
+     * respondent — and is asked for deliberately: after a change, and before
+     * the approve button is enabled. Reads no longer run it.
+     */
+    @PostMapping("/check/{id}")
+    public ReportCheckResponse check(@PathVariable Long id) {
+        return computationService.check(id);
+    }
+
+    /** The cohort, with who would actually receive a report — the preview picker. */
+    @GetMapping("/recipients/{id}")
+    public List<ReportRecipientResponse> recipients(@PathVariable Long id) {
+        return deliveryService.recipients(id);
+    }
+
+    /** One assessment's computations, newest first — the Setup and Generate pages. */
+    @GetMapping("/getByAssessment/{assessmentId}")
+    public List<ReportComputationResponse> getByAssessment(@PathVariable Long assessmentId) {
+        return computationService.listByAssessment(assessmentId);
+    }
+
+    /**
+     * The one computation for an assessment and a template: found, or created
+     * with every formula rule of the assessment pinned. The Layout step.
+     */
+    @PostMapping("/forTemplate")
+    public ReportComputationResponse forTemplate(
+            @Valid @RequestBody ReportComputationForTemplateRequest request) {
+        return computationService.forTemplate(request);
+    }
+
+    /** Re-pin the assessment's formula rules at their latest versions. DRAFT only. */
+    @PostMapping("/repin/{id}")
+    public ReportComputationResponse repin(@PathVariable Long id) {
+        return computationService.repinLatest(id);
+    }
+
+    /**
+     * Answer one placeholder on this computation: the rule that fills a VALUE
+     * tag, or the guidance a NARRATIVE tag is written from.
+     */
+    @PutMapping("/answerTag/{id}/{tag}")
+    public ReportComputationResponse answerTag(@PathVariable Long id, @PathVariable String tag,
+            @Valid @RequestBody ReportTagAnswerRequest request) {
+        return computationService.answerTag(id, tag, request);
+    }
+
+    /**
+     * One respondent's FINAL report, inline. Requires approval, unlike preview,
+     * and refuses anyone the batch would skip.
+     */
+    @GetMapping("/report/{id}/{attemptId}.pdf")
+    public ResponseEntity<byte[]> report(@PathVariable Long id, @PathVariable Long attemptId) {
+        ReportDeliveryService.Report report = deliveryService.report(id, attemptId);
+        return ResponseEntity.ok()
+                .contentType(MediaType.APPLICATION_PDF)
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        "inline; filename=\"" + report.fileName() + "\"")
+                .body(report.pdf());
+    }
+
+    /**
      * One respondent's real report, for checking before approving.
      *
      * <p>Inline so it opens in the browser's viewer beside the computation.
@@ -124,8 +193,10 @@ public class ReportComputationController {
      * see why without opening anything.
      */
     @PostMapping("/generate/{id}")
-    public ResponseEntity<byte[]> generate(@PathVariable Long id) {
-        ReportDeliveryService.Batch batch = deliveryService.generate(id);
+    public ResponseEntity<byte[]> generate(@PathVariable Long id,
+            @RequestBody(required = false) ReportGenerateRequest request) {
+        ReportDeliveryService.Batch batch = deliveryService.generate(id,
+                request == null ? List.of() : request.attemptIdsOrEmpty());
         return ResponseEntity.ok()
                 .contentType(MediaType.APPLICATION_OCTET_STREAM)
                 .header(HttpHeaders.CONTENT_DISPOSITION,

@@ -64,10 +64,25 @@ public class ExpressionEvaluator {
         }
     }
 
-    private Boolean compare(Cmp n, Map<String, Object> row) {
+    /**
+     * A comparison answers nothing when it has nothing to compare.
+     *
+     * <p>A missing operand used to degrade to comparing STRINGS: {@code null}
+     * became {@code ""}, and {@code "" <= "33"} is true, so a band rule whose
+     * score never arrived labelled every respondent with its lowest band and
+     * no rule failed. Now a null on either side, or a number against text,
+     * yields no value — which {@link #truthy} treats as false, so an
+     * {@code IF} takes its else branch and a {@code NORMBAND} prints nothing.
+     * Text against text stays lexical, because {@code [rule:flag] = 'INVALID'}
+     * is how a term is tested.
+     */
+    private Object compare(Cmp n, Map<String, Object> row) {
         Object la = eval(n.l, row), ra = eval(n.r, row);
+        if (la == null || ra == null) return null;
         double a = toNum(la), b = toNum(ra);
-        boolean numeric = !Double.isNaN(a) && !Double.isNaN(b);
+        boolean aNumeric = !Double.isNaN(a), bNumeric = !Double.isNaN(b);
+        if (aNumeric != bNumeric) return null;
+        boolean numeric = aNumeric;
         int c = numeric ? Double.compare(a, b) : str(la).compareTo(str(ra));
         boolean eq = numeric ? a == b : str(la).equals(str(ra));
         switch (n.op) {
@@ -129,7 +144,10 @@ public class ExpressionEvaluator {
             case "ZSCORE": {
                 Stats s = stats(c, c.args.get(0), row);
                 double v = toNum(eval(c.args.get(0), row));
-                if (Double.isNaN(v) || s.sd == 0) return s.sd == 0 ? 0d : null;
+                // A cohort with no spread has no z-score. Returning 0 here read
+                // as "exactly average" for a cohort of one, which is not a
+                // measurement of anything; no value is the honest answer.
+                if (Double.isNaN(v) || s.sd == 0) return null;
                 return safe((v - s.mean) / s.sd);
             }
             case "RANK": {
