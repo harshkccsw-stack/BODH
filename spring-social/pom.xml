@@ -28,6 +28,7 @@
 	</scm>
 	<properties>
 		<java.version>25</java.version>
+		<openhtmltopdf.version>1.0.10</openhtmltopdf.version>
 	</properties>
 	<dependencies>
 		<dependency>
@@ -108,6 +109,35 @@
 		<dependency>
 			<groupId>org.flywaydb</groupId>
 			<artifactId>flyway-mysql</artifactId>
+		</dependency>
+		<!--
+			Report rendering: HTML template -> PDF. Proven by the P0a spike
+			(docs/report-engine-build-plan.md §4.1) inside the real
+			eclipse-temurin:25-jre runtime image, which is the only place the
+			answer counts: a JRE ships NO system fonts, so the Devanagari face
+			has to be embedded from the classpath or every Indian respondent's
+			name renders as boxes.
+
+			openhtmltopdf-svg-support pulls Batik, for inline <svg> bars and
+			gauges. Note Batik does NOT read openhtmltopdf's font registry —
+			it resolves through AWT — which is why ReportFontRegistry
+			registers the same face twice, once with each. Removing either
+			half brings the tofu back, and only inside charts.
+		-->
+		<dependency>
+			<groupId>com.openhtmltopdf</groupId>
+			<artifactId>openhtmltopdf-core</artifactId>
+			<version>${openhtmltopdf.version}</version>
+		</dependency>
+		<dependency>
+			<groupId>com.openhtmltopdf</groupId>
+			<artifactId>openhtmltopdf-pdfbox</artifactId>
+			<version>${openhtmltopdf.version}</version>
+		</dependency>
+		<dependency>
+			<groupId>com.openhtmltopdf</groupId>
+			<artifactId>openhtmltopdf-svg-support</artifactId>
+			<version>${openhtmltopdf.version}</version>
 		</dependency>
 		<dependency>
 			<groupId>com.h2database</groupId>

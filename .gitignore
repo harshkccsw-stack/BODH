@@ -21,7 +21,12 @@ target/
 
 spring-social/target
 .envss
+# The ROOT .env is TRACKED (it holds non-secret local wiring and predates
+# this line), so secrets must never be added to it. secrets.env is the
+# untracked companion for anything that bills or authenticates — put
+# OPENAI_API_KEY there, not in .env.
 secrets.env
+.env.secrets
 .env.production
 .env.development
 docker-compose.prod.yml

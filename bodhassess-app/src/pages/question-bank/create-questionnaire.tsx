@@ -374,12 +374,24 @@ export default function CreateAssessmentPage() {
    * them as linked drafts in their matched section (all null on flat
    * questionnaires, where the sheet's section column is ignored).
    */
-  const handleBulkCreated = (created: QuestionResponse[], sectionIds: (number | null)[]) => {
+  const handleBulkCreated = async (created: QuestionResponse[], sectionIds: (number | null)[]) => {
     setDrafts((prev) => [
       ...prev,
       ...created.map((q, i) => draftFromQuestion(q, useSections ? sectionIds[i] : null)),
     ]);
     setBulkUploadOpen(false);
+    // The AI route can CREATE measured qualities on the way in. Left alone,
+    // this page's picker would not know them and the next sheet naming them
+    // by path would fail to resolve — the same error the round trip already
+    // found once. The bank page reloads qualities on every refresh; this
+    // page has to do it here. A template upload creates none, so for that
+    // path this is one harmless GET.
+    try {
+      const mq = await qualitiesApi.getQualities();
+      setMqtChoices(choicesFromQualities(mq.data));
+    } catch {
+      // The drafts are already placed; a stale picker is a nuisance, not a loss.
+    }
   };
 
   // ---- Import questions from another questionnaire ----

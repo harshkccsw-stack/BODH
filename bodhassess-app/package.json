@@ -9,6 +9,7 @@
     "build:production": "tsc -b && vite build --mode production",
     "preview": "vite preview",
     "typecheck": "tsc -b --noEmit",
+    "test": "vitest run",
     "lint": "eslint .",
     "format": "prettier --write ."
   },
@@ -85,7 +86,8 @@
     "tailwindcss": "^4.1.17",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.59.0",
-    "vite": "^7.1.5"
+    "vite": "^7.1.5",
+    "vitest": "^4.1.11"
   },
   "overrides": {
     "minimatch": "^10.2.1",

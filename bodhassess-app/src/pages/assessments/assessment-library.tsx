@@ -10,6 +10,7 @@ import {
   Plus,
   Save,
   Search,
+  SlidersHorizontal,
   Timer,
   Trash2,
   Users,
@@ -115,6 +116,10 @@ export default function AssessmentLibraryPage() {
 
   const openCreate = () => navigate(FORM_PATH);
   const openEdit = (a: AssessmentResponse) => navigate(`${FORM_PATH}?edit=${a.assessmentId}`);
+  // "Report setup", not "add rule": the page is re-entered far more often than
+  // it is created, and adding a rule is one button on one of its steps.
+  const openReportSetup = (a: AssessmentResponse) =>
+    navigate(`/reports/setup/${a.assessmentId}`);
 
   const doDelete = async () => {
     if (!confirmDelete) return;
@@ -281,6 +286,15 @@ export default function AssessmentLibraryPage() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    mode="icon"
+                    onClick={(e) => { e.stopPropagation(); openReportSetup(a); }}
+                    title="Report setup — the scoring pipeline for this assessment"
+                  >
+                    <SlidersHorizontal className="h-3.5 w-3.5" />
+                  </Button>
                   <Button
                     variant="ghost"
                     size="sm"

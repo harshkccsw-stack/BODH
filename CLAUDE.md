@@ -246,6 +246,76 @@ re-read a file before editing; expect it to have changed):
 - Organization: profile-level M:1 (PractitionerUser/RespondentUser each carry
   a nullable organizationId; one org per member). Carries TWO optional inline
   base64 logos (see the ContentType exception above).
+- Report engine, Phase A (2026-09-17, `docs/report-engine-consolidation-plan.md`
+  §2.6): a cohort-relative rule (`is_population`) over fewer COMPLETED
+  respondents than `app.report.min-cohort-size` (30; tests 3) yields no value,
+  is reported `TOO_SMALL`, and blocks approval and delivery — there is no
+  z-score of 0 for a cohort of one any more. A comparison with a null operand,
+  or a number against text, yields no value (`truthy` = false) instead of
+  comparing as strings; text against text stays lexical. This applies to Data
+  Studio sheets too. Delivery honours a `SELECTED` respondent scope for who
+  RECEIVES a PDF; the cohort the rules run over is always every allotment.
+  `approve` records `approvedByUserId/approvedAt/approvedCohortSize` (`V32`),
+  cleared on clone, printed in `values.json`. Reads of a computation carry only
+  the cheap blockers; `POST /api/report-computations/check/{id}` is the only
+  place the cohort is evaluated outside approve/generate, and the list
+  computes nothing per row. `DataStudioDatasetService.columns()` is the
+  columns-only path every validation goes through — do not reintroduce
+  `dataset()` there. Adopting a library rule is a COPY
+  (`/api/report-rules/fork/{id}`: closure included, `[rule:…]` rewritten,
+  slugs prefixed `a<assessmentId>-`, all or nothing).
+- Report engine, Phase B backend (2026-09-17, plan §3): **a VALUE placeholder's
+  rule is answered on the COMPUTATION, not the template** (`V33`:
+  `report_computation_tag_guidance.rule_slug/format/fallback_text`, backfilled
+  from the old binding pointers, which are then nulled and dead). A template
+  declares only a tag's SHAPE (VALUE or NARRATIVE; COMPUTED is an alias of
+  VALUE), so one published template serves any assessment. Endpoints:
+  `getByAssessment`, `forTemplate` (find-or-create the one computation per
+  assessment+template, pinning every ACTIVE formula rule of the assessment at
+  latest), `repin`, `answerTag/{id}/{tag}` (VALUE needs a pinned slug; CORE and
+  LITERAL are refused, they are the template's), `generate` with optional
+  `{attemptIds}` (recipients chosen at generation time; the stored
+  `respondentScope` is a legacy default the UI should stop offering),
+  `report/{id}/{attemptId}.pdf` (final PDF, APPROVED only). `forTemplate` also
+  CARRIES the placeholder answers forward when a template gains a version:
+  `newVersion` writes a new template row, so a new computation copies the tag
+  answers of the newest live computation on an earlier version of the same
+  template NAME, keeping only tags the new version has and rule slugs the new
+  computation pins. `bindTag` IGNORES
+  computation+outputKey (the bridge that forwarded them is gone with the
+  Computations page; the DTO fields stay so old bodies parse). Translation
+  (`/ai/translate`) takes `hints{ruleId:text}` and `context[{slug,expression}]`
+  (drafts count as formulae for validation and appear in the prompt), may
+  re-translate a formula rule from its last statement text, and the catalog
+  lists each score column's item count, max and item codes.
+  `POST /api/report-rules/evaluate-draft` runs unsaved formulae over the cohort
+  (a draft with a saved rule's slug stands in for it); `validate-expression`
+  takes `pendingExpressionSlugs`, which relaxes ONLY the "depends on a
+  plain-language rule" refusal — an unknown slug is still unknown.
+- Report engine, Phase B pages (2026-09-17): **Report Setup**
+  (`/reports/setup`, `/reports/setup/:assessmentId?step=rules|layout|check`,
+  `pages/Reports/report-setup.tsx`) is the ONE authoring flow: assessment
+  picker (any status) → Rules (`report-setup-rules.tsx`, the old
+  per-assessment page as a component) → Layout (one computation per
+  published template via `forTemplate`; VALUE tags pick a pinned rule,
+  NARRATIVE tags take guidance, `repin` for stale pins) → Check & approve
+  (`check`, preview one respondent, approve, clone/archive/delete).
+  **Generate Reports** (`/reports/generate`, `generate-reports.tsx`) is the
+  operator's page: approved setups only, then everyone / selected / one
+  respondent, chosen at generation time. The old Computations page is parked
+  in `bodh/deleted/`; `/assessment-library/assessments/:id/report-setup`
+  redirects to Setup. The Templates page offers VALUE and NARRATIVE as
+  SHAPES (plus fallback text) and lists no computations. **The template editor
+  is shared** (`pages/Reports/template-editor.tsx`: `TemplateEditor` +
+  `NewTemplateDialog`) — the Templates page is the library (find, create,
+  delete) and Setup's Layout step opens the SAME editor, so a template is
+  written, previewed and published without leaving the flow; publishing from
+  there attaches it to the assessment. Do not grow a second editor.
+  A wildcard grant on
+  `/reports/*` covers both new paths; a LEAF grant on `/reports/computations`
+  is now dead and needs rewriting the way `V12` rewrote the mapping rename
+  (no rows exist on this branch's local DB, so no migration was written).
+  Translation screen: see plan §3.7.
 
 ## Frontend conventions
 
@@ -267,9 +337,11 @@ re-read a file before editing; expect it to have changed):
 
 ## Verification loop (do this EVERY change)
 
-1. Backend: `cd spring-social && ./mvnw -B test` (105 tests green as of
-   2026-08-31). Tightening a DTO's validation breaks the fixtures that post
-   that shape — fix the payloads, do not relax the rule.
+1. Backend: `cd spring-social && ./mvnw -B test` (421 tests green as of
+   2026-09-17). Tightening a DTO's validation breaks the fixtures that post
+   that shape — fix the payloads, do not relax the rule. If every Spring test
+   errors with `BeanDefinitionOverrideException` on repositories, the IDE has
+   written stale class files into `target/classes`; run `./mvnw -B clean test`.
 2. Frontend: `cd bodhassess-app && npm run typecheck && npm run build`.
 3. LIVE smoke with curl against localhost:8080 — the user's running server
    hot-reloads via devtools/IDE compile. Use `__smoke__`-prefixed data and

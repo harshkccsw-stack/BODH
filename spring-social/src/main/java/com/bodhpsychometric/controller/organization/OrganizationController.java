@@ -32,13 +32,13 @@ import com.bodhpsychometric.model.assessment.OrganizationAssessmentMapping;
 import com.bodhpsychometric.model.auth.PractitionerUser;
 import com.bodhpsychometric.model.auth.RespondentUser;
 import com.bodhpsychometric.model.organization.Organization;
-import com.bodhpsychometric.repository.organization.RegistrationTokenRepository;
 import com.bodhpsychometric.repository.assessment.AssessmentRepository;
 import com.bodhpsychometric.repository.assessment.OrganizationAssessmentMappingRepository;
 import com.bodhpsychometric.repository.assessment.RespondentAssessmentMappingRepository;
 import com.bodhpsychometric.repository.auth.PractitionerUserRepository;
 import com.bodhpsychometric.repository.auth.RespondentUserRepository;
 import com.bodhpsychometric.repository.organization.OrganizationRepository;
+import com.bodhpsychometric.repository.organization.RegistrationTokenRepository;
 
 import jakarta.validation.Valid;
 

@@ -38,7 +38,6 @@ import com.bodhpsychometric.repository.auth.PractitionerUserRepository;
 import com.bodhpsychometric.repository.auth.RespondentUserRepository;
 import com.bodhpsychometric.repository.auth.UserRepository;
 import com.bodhpsychometric.repository.organization.OrganizationRepository;
-
 import com.bodhpsychometric.dto.validation.BirthDateValidator;
 import com.bodhpsychometric.dto.validation.PhoneRules;
 
