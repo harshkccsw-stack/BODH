@@ -12,6 +12,14 @@
 # NOTE: Docker writes iptables directly and BYPASSES ufw — a ufw rule would not
 # have covered these. /usr/local/sbin/docker-port-guard.sh adds DOCKER-USER
 # DROP rules as a second layer in case a mapping is ever reverted.
+#
+# ── Shared with MemoryMesh (2026-09-17) ──────────────────────────────────────
+# MemoryMesh (/root/memoryMesh/MemoryMesh) runs no MySQL or nginx of its own:
+# it joins the `bodhpsychometric` network below as an external network, owns a
+# separate `memorymesh` database + user on THIS mysql (created by its
+# ops/mysql-bootstrap.sh — never in the bodhpsychometric schema), and its vhost
+# is served by nginx/ here. So this stack must be up before that one, and
+# `down -v` here also destroys MemoryMesh's data.
 services:
   mysql:
     image: mysql:8.0

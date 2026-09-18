@@ -33,7 +33,7 @@ spring:
 spring:
   config:
     activate:
-      on-profile: development
+      on-profile: production
 
   datasource:
     url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:bodhpsychometric}?createDatabaseIfNotExist=true&allowPublicKeyRetrieval=true&useSSL=false&serverTimezone=UTC
