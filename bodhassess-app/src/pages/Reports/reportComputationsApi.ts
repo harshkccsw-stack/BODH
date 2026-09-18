@@ -313,12 +313,22 @@ export const reportComputationsApi = {
    * One respondent's FINAL report, as a blob URL. Requires approval, unlike
    * `previewPdfUrl`, and refuses anyone the batch would skip. The caller
    * revokes the URL when done.
+   *
+   * The name comes from the server's Content-Disposition, not from the
+   * respondent record here: one person's PDF and that same person's PDF inside
+   * a ZIP are the same document and must not be named two different things.
+   * (Readable only because CorsConfig exposes the header.)
    */
-  reportPdfUrl: async (id: number, attemptId: number): Promise<string> =>
+  reportPdf: async (id: number, attemptId: number): Promise<{ url: string; fileName: string }> =>
     withReadableError(async () => {
       const res = await api.get(`${ROOT}/report/${id}/${attemptId}.pdf`,
         { responseType: 'blob' });
-      return URL.createObjectURL(res.data as Blob);
+      const match = String(res.headers['content-disposition'] || '')
+        .match(/filename="?([^"]+)"?/);
+      return {
+        url: URL.createObjectURL(res.data as Blob),
+        fileName: match ? match[1] : `report-${attemptId}.pdf`,
+      };
     }),
 
   /**
@@ -344,6 +354,13 @@ export const reportComputationsApi = {
    * `responseType: 'blob'` is load-bearing — without it axios decodes the
    * archive as UTF-8 text and the saved file is corrupt in a way that only
    * shows up when somebody tries to open it.
+   *
+   * The body is ALWAYS sent, empty list and all. Posting `null` instead makes
+   * axios send `Content-Type: application/x-www-form-urlencoded`, and Spring
+   * has no converter that reads the request record from that — so it answers
+   * 415 before the handler runs, and `@RequestBody(required = false)` never
+   * gets a say. That is only reachable on the everyone path, which is exactly
+   * where it was found: selected and one-person worked because they send JSON.
    */
   generate: async (
     id: number,
@@ -351,7 +368,7 @@ export const reportComputationsApi = {
   ): Promise<{ blob: Blob; fileName: string; count: number; skipped: number }> =>
     withReadableError(async () => {
     const response = await api.post(`${ROOT}/generate/${id}`,
-      attemptIds && attemptIds.length ? { attemptIds } : null,
+      { attemptIds: attemptIds ?? [] },
       { responseType: 'blob' });
     const disposition = String(response.headers['content-disposition'] || '');
     const match = disposition.match(/filename="?([^"]+)"?/);

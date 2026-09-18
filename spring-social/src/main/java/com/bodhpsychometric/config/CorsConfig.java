@@ -23,6 +23,12 @@ public class CorsConfig implements WebMvcConfigurer {
                 .allowedOriginPatterns(allowedOrigins)
                 .allowedMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
                 .allowedHeaders("*")
+                // Response headers are NOT readable cross-origin unless they
+                // are named here — "*" does not work alongside credentials.
+                // Without this the report ZIP arrives fine but the browser
+                // sees none of what describes it: the batch counts read 0 and
+                // the download falls back to a made-up file name.
+                .exposedHeaders("Content-Disposition", "X-Report-Count", "X-Report-Skipped")
                 .allowCredentials(true)
                 .maxAge(3600);
     }

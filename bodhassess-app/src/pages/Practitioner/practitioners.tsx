@@ -12,6 +12,16 @@ import {
   X,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { DobInput } from '@/components/dob-input';
+import { PhoneInput } from '@/components/phone-input';
+import { BIRTH_DATE_ERROR } from '@/lib/helpers';
+import {
+  DEFAULT_DIAL_CODE,
+  PHONE_HINT,
+  isValidPhone,
+  phoneError,
+  splitStoredPhone,
+} from '@/lib/phone';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import {
@@ -52,18 +62,23 @@ const verticalLabel = (v: Vertical | null) => VERTICALS.find((x) => x.value === 
 
 // DOB is dd-mm-yyyy everywhere — display, input and wire — so the form keeps
 // the raw string and only auto-inserts the dashes while typing.
-const autoFormatDobDashes = (raw: string) => {
-  const digits = raw.replace(/\D/g, '').slice(0, 8);
-  const parts = [digits.slice(0, 2), digits.slice(2, 4), digits.slice(4, 8)].filter(Boolean);
-  return parts.join('-');
-};
-
+// A real calendar date AND one someone could have been born on: 01-01-1900 up
+// to and including today. Mirrors the backend's @BirthDate, which a
+// practitioner's dob now carries too — it is their sign-in credential, so a
+// future date is a password they can never reproduce. Note it bites on EDIT:
+// a practitioner stored with a nonsense dob has to be fixed before the record
+// will save.
 const isValidDob = (dob: string) => {
   const m = /^(\d{2})-(\d{2})-(\d{4})$/.exec(dob);
   if (!m) return false;
   const [, dd, mm, yyyy] = m.map(Number);
   const date = new Date(yyyy, mm - 1, dd);
-  return date.getFullYear() === yyyy && date.getMonth() === mm - 1 && date.getDate() === dd;
+  if (date.getFullYear() !== yyyy || date.getMonth() !== mm - 1 || date.getDate() !== dd) {
+    return false;
+  }
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return yyyy >= 1900 && date.getTime() <= today.getTime();
 };
 
 interface PractitionerForm {
@@ -71,6 +86,7 @@ interface PractitionerForm {
   name: string;
   email: string;
   dob: string;
+  phoneCountryCode: string;
   phone: string;
   practitionerStatus: PractitionerStatus;
   vertical: Vertical | '';
@@ -82,6 +98,7 @@ const EMPTY_FORM: PractitionerForm = {
   name: '',
   email: '',
   dob: '',
+  phoneCountryCode: DEFAULT_DIAL_CODE,
   phone: '',
   practitionerStatus: 'ACTIVE',
   vertical: '',
@@ -153,7 +170,10 @@ export default function PractitionersPage() {
       name: p.name,
       email: p.email,
       dob: p.dob,
-      phone: p.phone || '',
+      // A row written before the split has free text and no code.
+      // splitStoredPhone recovers what it safely can and hands back a blank
+      // country for anything ambiguous, so the form asks rather than guessing.
+      ...splitStoredPhone(p.phoneCountryCode, p.phone),
       practitionerStatus: p.practitionerStatus,
       vertical: p.vertical || '',
       organizationId: p.organizationId,
@@ -174,16 +194,27 @@ export default function PractitionersPage() {
     }
     if (!form.dob) { setFormError('Date of birth is required'); return; }
     if (!isValidDob(form.dob)) {
-      setFormError('Date of birth must be a real date in DD-MM-YYYY format');
+      setFormError(`${BIRTH_DATE_ERROR} (DD-MM-YYYY)`);
+      return;
+    }
+    // Required since the phone split, matching a respondent's rule: a staff
+    // record carries the same minimum as the record of the people assessed.
+    // Note this bites on EDIT too — a practitioner created before the rule has
+    // free text and no country, and saving them now means picking both.
+    const phone = form.phone.trim();
+    if (!phone) { setFormError('Phone number is required'); return; }
+    if (!isValidPhone(form.phoneCountryCode, phone)) {
+      setFormError(phoneError(form.phoneCountryCode, phone));
       return;
     }
     // Payload mirrors the backend's PractitionerRequest — dob is the login
-    // credential, so it is required even though phone/vertical/org are not.
+    // credential, so it is required, as is the phone; vertical and org are not.
     const payload: PractitionerPayload = {
       name,
       email,
       dob: form.dob,
-      phone: form.phone.trim() || null,
+      phoneCountryCode: form.phoneCountryCode,
+      phone,
       practitionerStatus: form.practitionerStatus,
       vertical: form.vertical || null,
       organizationId: form.organizationId,
@@ -335,7 +366,11 @@ export default function PractitionersPage() {
                   </div>
                   <div className="flex items-center gap-3 mt-0.5 text-xs text-muted-foreground">
                     <span className="truncate">{p.email}</span>
-                    {p.phone && <span className="shrink-0">{p.phone}</span>}
+                    {p.phone && (
+                      <span className="shrink-0">
+                        {p.phoneCountryCode ? `${p.phoneCountryCode} ${p.phone}` : p.phone}
+                      </span>
+                    )}
                     <span className="shrink-0">DOB {p.dob}</span>
                   </div>
                 </div>
@@ -435,12 +470,13 @@ export default function PractitionersPage() {
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-sm font-medium">Date of Birth *</label>
-                  <input
-                    inputMode="numeric"
+                  {/* Typed or picked — the same DobInput the Respondents page
+                      and the portal use, so one control owns the format and
+                      the calendar's bounds everywhere. */}
+                  <DobInput
                     value={form.dob}
-                    onChange={(e) => setForm({ ...form, dob: autoFormatDobDashes(e.target.value) })}
-                    placeholder="DD-MM-YYYY"
-                    maxLength={10}
+                    onChange={(dob) => setForm({ ...form, dob })}
+                    separator="-"
                     className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
                   />
                 </div>
@@ -450,14 +486,17 @@ export default function PractitionersPage() {
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <label className="text-sm font-medium">Phone</label>
-                  <input
-                    type="tel"
-                    value={form.phone}
-                    onChange={(e) => setForm({ ...form, phone: e.target.value })}
-                    placeholder="+91 98765 43210"
-                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                  <label className="text-sm font-medium">Phone *</label>
+                  {/* One bordered control holding both halves — see PhoneInput. */}
+                  <PhoneInput
+                    countryCode={form.phoneCountryCode}
+                    onCountryCodeChange={(phoneCountryCode) =>
+                      setForm({ ...form, phoneCountryCode })
+                    }
+                    phone={form.phone}
+                    onPhoneChange={(phone) => setForm({ ...form, phone })}
                   />
+                  <p className="text-[0.6875rem] text-muted-foreground">{PHONE_HINT}</p>
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-sm font-medium">Status *</label>
