@@ -81,7 +81,12 @@ public class ActorFilter extends OncePerRequestFilter {
             "/api/portal/login",
             "/api/portal/register/**",
             "/api/registration-tokens/getByToken/**",
-            "/api/sync/memorymesh/**");
+            "/api/sync/memorymesh/**",
+            // The deploy receiver's health gate and its "which release is
+            // this" check, polled over loopback; the public vhost 404s them.
+            "/actuator/health",
+            "/actuator/health/**",
+            "/actuator/info");
 
     private static final AntPathMatcher MATCHER = new AntPathMatcher();
 

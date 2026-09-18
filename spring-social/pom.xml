@@ -28,6 +28,12 @@
 	</scm>
 	<properties>
 		<java.version>25</java.version>
+		<!--
+			Stamped by deploy/client/push.sh (-Dbuild.sha=… -Dbuild.tag=…) into
+			build-info.properties, so /actuator/info says which release is running.
+		-->
+		<build.sha>unknown</build.sha>
+		<build.tag>local</build.tag>
 		<openhtmltopdf.version>1.0.10</openhtmltopdf.version>
 	</properties>
 	<dependencies>
@@ -154,6 +160,17 @@
 			<artifactId>spring-boot-starter-webmvc-test</artifactId>
 			<scope>test</scope>
 		</dependency>
+		<!--
+			/actuator/health and /actuator/info only — application.yml exposes
+			nothing else. The deploy receiver (deploy/server/deploy-api.sh) polls
+			health from the droplet to decide whether a pushed jar stays or is
+			rolled back; ActorFilter lets both paths through unauthenticated and
+			ActivityLogFilter skips them.
+		-->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-actuator</artifactId>
+		</dependency>
 	</dependencies>
 
 	<build>
@@ -161,6 +178,20 @@
 			<plugin>
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>
+				<executions>
+					<!-- META-INF/build-info.properties → /actuator/info (build.*). -->
+					<execution>
+						<goals>
+							<goal>build-info</goal>
+						</goals>
+						<configuration>
+							<additionalProperties>
+								<git.sha>${build.sha}</git.sha>
+								<release.tag>${build.tag}</release.tag>
+							</additionalProperties>
+						</configuration>
+					</execution>
+				</executions>
 			</plugin>
 		</plugins>
 	</build>

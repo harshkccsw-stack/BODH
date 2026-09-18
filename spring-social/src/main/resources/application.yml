@@ -1,3 +1,25 @@
+# Actuator: health and info, nothing else (no env, beans, metrics). The deploy
+# receiver (deploy/server/deploy-api.sh) polls /actuator/health over the
+# loopback publication to decide whether a pushed jar stays or is rolled
+# back; /actuator/info carries the git SHA and release tag the push stamped
+# in. Redis is optional BY DESIGN — its indicator must not turn health DOWN
+# and get a good jar rolled back. nginx/conf.d/default.conf returns 404 for
+# /actuator/ on the public vhost.
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: never
+  health:
+    redis:
+      enabled: false
+  info:
+    build:
+      enabled: true
+
 spring:
   application:
     name: bodhpsychometric

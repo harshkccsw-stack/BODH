@@ -75,10 +75,14 @@ services:
 
   api:
     profiles: ["production"]
-    build:
-      context: ./spring-social
-      dockerfile: Dockerfile
-    image: bodhpsychometric-api:latest
+    # No build: — deploy/server/deploy-api.sh builds this image on the droplet
+    # from a PUSHED jar (one COPY onto the JRE base, seconds, no Maven) and
+    # moves :latest to it only after the health gate passes, so a plain
+    # `up -d` always means "what was last deployed". API_TAG is an escape
+    # hatch for a one-off run of another release; the normal path is
+    # deploy/client/push.sh api, and deploy/server/rollback.sh to go back.
+    # Emergency source build: deploy/README.md "Fallback".
+    image: bodhpsychometric-api:${API_TAG:-latest}
     container_name: bodhpsychometric-api
     restart: unless-stopped
     depends_on:
@@ -102,6 +106,16 @@ services:
       # which proxies to bodhpsychometric-api:8080 over this network. Keeping
       # 8080 on 127.0.0.1 preserves local curl smoke tests.
       - "127.0.0.1:8080:8080"
+    healthcheck:
+      # The JRE image has bash but no curl; /dev/tcp is enough for a GET.
+      # Makes `docker compose ps` say (healthy). The deploy gate itself polls
+      # from the host and does not depend on this. The adopted pre-actuator
+      # image reads "unhealthy" here until the first pushed release replaces it.
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /actuator/health HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && grep -q '\"UP\"' <&3"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
     # volumes:
     #   - app-uploads:/app/uploads
     networks:

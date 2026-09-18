@@ -348,6 +348,16 @@ re-read a file before editing; expect it to have changed):
    DELETE it afterwards. Prove error paths (400/404/409), not just happy path.
 4. IDE diagnostics arriving mid-edit are often STALE — trust tsc/maven.
 
+## Deploying (droplet never builds)
+
+The jar is built HERE and pushed: `deploy/client/push.sh api` (Maven package,
+~70 MB over ssh, ~30 s restart on the droplet, health-gated on
+`/actuator/health`, automatic rollback to the previous jar if it does not come
+up). Rollback by hand: `ssh root@168.144.118.157
+/root/bodhassess-api/deploy/server/rollback.sh api`. Every deploy recreates
+the container, and `/app/uploads` is not a volume. `deploy/README.md` has the
+receiver contract; `deploy/server/` must stay identical to MemoryMesh's copy.
+
 ## Working style
 
 - Deleted/parked files go to `bodh/deleted/` (recycle bin), never plain rm.

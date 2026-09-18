@@ -1,0 +1,32 @@
+# Runtime-only image, built by deploy/server/deploy-api.sh from a jar that was
+# built on the developer machine. The build context is releases/api/<tag>/
+# (the jar and its manifest), so the only work here is one COPY onto the
+# cached JRE base: seconds, no Maven, no JDK on the droplet.
+# The multi-stage SOURCE build stays at <api-dir>/Dockerfile for emergencies.
+FROM eclipse-temurin:25-jre
+ARG RUN_USER=app
+ARG RELEASE_TAG=unknown
+ARG GIT_SHA=unknown
+WORKDIR /app
+
+# Non-root runtime user. /app/uploads exists for BodhAssess's upload path and
+# is harmless in MemoryMesh — keeps this file byte-identical in both repos.
+RUN groupadd --system ${RUN_USER} && useradd --system --gid ${RUN_USER} ${RUN_USER} \
+ && mkdir -p /app/uploads && chown ${RUN_USER}:${RUN_USER} /app /app/uploads
+
+# --chown here: one ~70 MB layer. A separate `RUN chown -R` would copy the
+# whole jar into a second layer.
+COPY --chown=${RUN_USER}:${RUN_USER} app.jar /app/app.jar
+
+USER ${RUN_USER}
+
+# MaxRAMPercentage is relative to the container's memory limit (compose caps
+# the service), not to the host.
+ENV JAVA_OPTS="-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0"
+LABEL org.opencontainers.image.version=${RELEASE_TAG} \
+      org.opencontainers.image.revision=${GIT_SHA}
+# Profile, datasource host and every credential arrive from compose
+# (environment + secrets.env); see the `production` doc of application.yml.
+EXPOSE 8080
+
+ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]
