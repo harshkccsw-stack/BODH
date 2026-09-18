@@ -196,12 +196,12 @@ export default function GenerateReportsPage() {
     try {
       if (who === 'ONE') {
         if (!one) return;
-        const url = await reportComputationsApi.reportPdfUrl(computation.reportComputationId, one);
+        const { url, fileName } = await reportComputationsApi
+          .reportPdf(computation.reportComputationId, one);
         const person = eligible.find((r) => r.attemptId === one);
-        const name = `${person?.name ?? 'report'}.pdf`;
         setPdfUrl(url);
-        setPdfName(name);
-        record(person?.name ?? 'one respondent', 1, 0, name);
+        setPdfName(fileName);
+        record(person?.name ?? 'one respondent', 1, 0, fileName);
       } else {
         const ids = who === 'SELECTED' ? [...ticked] : undefined;
         const result = await reportComputationsApi.generate(computation.reportComputationId, ids);

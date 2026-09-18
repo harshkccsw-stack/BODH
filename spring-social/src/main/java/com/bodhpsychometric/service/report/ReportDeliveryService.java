@@ -272,7 +272,14 @@ public class ReportDeliveryService {
             reports.add(render(computation, template, byId.get(entry.getKey()), entry.getValue(),
                     narratives.getOrDefault(entry.getKey(), Map.of())));
         }
-        return new Batch(fileName(computation.getSlug() + "-reports-" + LocalDate.now()) + ".zip",
+        // The assessment, not the computation slug: the slug is an authoring
+        // detail and the person receiving the archive is thinking about the
+        // assessment. Everyone and a selection deliberately produce the SAME
+        // name — the batch is the same kind of thing either way — so two runs
+        // to one download folder land as "(1)", which is the browser's job.
+        String assessmentName = byId.get(valuesByAttempt.keySet().iterator().next())
+                .getAssessment().getName();
+        return new Batch(fileName(assessmentName + "-report") + ".zip",
                 zip(reports, computation), reports.size(), skipped);
     }
 
@@ -374,8 +381,13 @@ public class ReportDeliveryService {
                 ruleValues, narratives, answersOf(computation));
         byte[] pdf = renderer.toPdf(parser.substitute(template.getHtml(), resolved)).bytes();
         String name = attempt.getRespondent().getName();
+        // Respondent, assessment, "report" — the name an operator would write
+        // on the file themselves. Nothing here is unique on its own: two
+        // attempts by the same person, or two people of the same name, produce
+        // the same name, and zip() disambiguates those rather than every file
+        // carrying an id for the sake of the rare pair that needs one.
         return new Report(attempt.getRespondentAssessmentMappingId(), name,
-                fileName(name + "-" + attempt.getRespondentAssessmentMappingId()) + ".pdf",
+                fileName(name + "-" + attempt.getAssessment().getName() + "-report") + ".pdf",
                 pdf, ruleValues);
     }
 
@@ -390,9 +402,19 @@ public class ReportDeliveryService {
 
     private byte[] zip(List<Report> reports, ReportComputation computation) {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
+        // Names carry no id any more, so two attempts by one person — or two
+        // respondents of the same name — collide. A duplicate ZipEntry throws
+        // and loses the WHOLE batch, so the ones that clash (and only those)
+        // take the attempt id back. Counted up front so every member of a
+        // clashing set is treated alike; suffixing only the second of two
+        // would leave a pair that reads as though one were the original.
+        Map<String, Long> collisions = new java.util.HashMap<>();
+        for (Report report : reports) {
+            collisions.merge(report.fileName(), 1L, Long::sum);
+        }
         try (ZipOutputStream zip = new ZipOutputStream(out, StandardCharsets.UTF_8)) {
             for (Report report : reports) {
-                zip.putNextEntry(new ZipEntry(report.fileName()));
+                zip.putNextEntry(new ZipEntry(entryName(report, collisions)));
                 zip.write(report.pdf());
                 zip.closeEntry();
             }
@@ -479,6 +501,17 @@ public class ReportDeliveryService {
             }
         }
         return sb.append('"').toString();
+    }
+
+    /**
+     * The ZIP entry name for one report: its file name, or that name with the
+     * attempt id restored when another report in the same batch wants it too.
+     */
+    private static String entryName(Report report, Map<String, Long> collisions) {
+        if (collisions.getOrDefault(report.fileName(), 1L) <= 1L) {
+            return report.fileName();
+        }
+        return report.fileName().replaceFirst("\\.pdf$", "-" + report.attemptId() + ".pdf");
     }
 
     /**

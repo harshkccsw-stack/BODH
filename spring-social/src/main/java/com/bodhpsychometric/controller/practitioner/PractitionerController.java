@@ -187,12 +187,19 @@ public class PractitionerController {
 
     private void apply(PractitionerUser practitioner, PractitionerRequest request, Organization organization) {
         practitioner.setName(request.name().trim());
-        practitioner.setPhone(request.phone() == null || request.phone().isBlank()
-                ? null : request.phone().trim());
+        // Both halves or neither: @NotBlank makes them mandatory on the way in,
+        // and blankToNull keeps a whitespace-only value from being stored as a
+        // country code nothing can dial.
+        practitioner.setPhoneCountryCode(blankToNull(request.phoneCountryCode()));
+        practitioner.setPhone(blankToNull(request.phone()));
         practitioner.setPractitionerStatus(request.practitionerStatus() == null
                 ? PractitionerStatus.ACTIVE : request.practitionerStatus());
         practitioner.setVertical(request.vertical());
         practitioner.setOrganization(organization);
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
     }
 
     private Organization resolveOrganization(Long organizationId) {

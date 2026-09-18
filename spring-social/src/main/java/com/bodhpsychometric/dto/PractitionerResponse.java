@@ -11,7 +11,10 @@ import com.fasterxml.jackson.annotation.JsonFormat;
 
 /**
  * Flattened User identity + PractitionerUser profile for the dashboard.
- * dob is dd-MM-yyyy on the wire, matching PractitionerRequest.
+ * dob is dd-MM-yyyy on the wire, matching PractitionerRequest. The phone goes
+ * back as the two stored halves rather than joined, because the edit form has
+ * to put each in its own control; anything DISPLAYING a number wants
+ * PractitionerUser#displayPhone() instead.
  */
 public record PractitionerResponse(
         Long practitionerUserId,
@@ -20,6 +23,7 @@ public record PractitionerResponse(
         String name,
         String email,
         @JsonFormat(pattern = "dd-MM-yyyy") LocalDate dob,
+        String phoneCountryCode,
         String phone,
         PractitionerStatus practitionerStatus,
         Vertical vertical,
@@ -37,6 +41,7 @@ public record PractitionerResponse(
                 practitioner.getName(),
                 user.getEmail(),
                 user.getDob(),
+                practitioner.getPhoneCountryCode(),
                 practitioner.getPhone(),
                 practitioner.getPractitionerStatus(),
                 practitioner.getVertical(),
