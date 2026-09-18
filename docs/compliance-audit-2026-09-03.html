@@ -1,0 +1,779 @@
+<title>BodhAssess Security Audit</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Spectral:ital,wght@0,400;0,600;0,700;1,400&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root{
+    --paper:#EFF1F3; --surface:#FBFCFD; --surface-2:#E7EAEE;
+    --ink:#131820; --ink-soft:#59636F; --ink-faint:#7C8794;
+    --rule:#D6DBE0; --rule-soft:#E3E7EB;
+    --accent:#0F4C5C; --accent-soft:#DCE9EC;
+    --crit:#A81E12; --high:#C0620F; --med:#8A7414; --low:#4C5A66; --good:#1F6B45;
+    --crit-bg:#F7E4E2; --high-bg:#F9E9DC; --med-bg:#F5EFD8; --low-bg:#E6E9EC; --good-bg:#DEEDE4;
+    --shadow:0 1px 2px rgba(19,24,32,.06), 0 8px 24px -16px rgba(19,24,32,.28);
+    --measure:68ch;
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --paper:#0F1318; --surface:#161B22; --surface-2:#1D242C;
+      --ink:#E4E9ED; --ink-soft:#98A3AF; --ink-faint:#78838F;
+      --rule:#28313A; --rule-soft:#20272F;
+      --accent:#63C3D1; --accent-soft:#12303A;
+      --crit:#F08A7E; --high:#E8A05C; --med:#D6BE55; --low:#9AA7B4; --good:#6DBF95;
+      --crit-bg:#2E1A18; --high-bg:#2C2015; --med-bg:#282516; --low-bg:#1D242C; --good-bg:#16281F;
+      --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -16px rgba(0,0,0,.7);
+    }
+  }
+  :root[data-theme="dark"]{
+    --paper:#0F1318; --surface:#161B22; --surface-2:#1D242C;
+    --ink:#E4E9ED; --ink-soft:#98A3AF; --ink-faint:#78838F;
+    --rule:#28313A; --rule-soft:#20272F;
+    --accent:#63C3D1; --accent-soft:#12303A;
+    --crit:#F08A7E; --high:#E8A05C; --med:#D6BE55; --low:#9AA7B4; --good:#6DBF95;
+    --crit-bg:#2E1A18; --high-bg:#2C2015; --med-bg:#282516; --low-bg:#1D242C; --good-bg:#16281F;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -16px rgba(0,0,0,.7);
+  }
+
+  *{box-sizing:border-box}
+  body{
+    background:var(--paper); color:var(--ink);
+    font-family:"IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
+    font-size:15.5px; line-height:1.62; -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1040px; margin:0 auto; padding:0 28px 96px}
+
+  /* ── masthead ─────────────────────────────────────────── */
+  .masthead{padding:56px 0 28px; border-bottom:2px solid var(--ink)}
+  .eyebrow{
+    font-family:"IBM Plex Mono", ui-monospace, monospace; font-size:11px;
+    letter-spacing:.14em; text-transform:uppercase; color:var(--accent);
+    display:flex; align-items:center; gap:10px; margin-bottom:18px;
+  }
+  .eyebrow::after{content:""; flex:1; height:1px; background:var(--rule)}
+  h1{
+    font-family:Spectral, Georgia, serif; font-weight:700; font-size:clamp(34px,5.2vw,52px);
+    line-height:1.06; letter-spacing:-.015em; margin:0 0 6px; text-wrap:balance;
+  }
+  .subtitle{
+    font-family:Spectral, Georgia, serif; font-style:italic; font-size:clamp(17px,2.2vw,21px);
+    color:var(--ink-soft); margin:0 0 26px; max-width:46ch;
+  }
+  .facts{
+    display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:2px 28px;
+    font-family:"IBM Plex Mono", ui-monospace, monospace; font-size:12px;
+  }
+  .facts div{display:flex; flex-direction:column; gap:3px; padding:8px 0}
+  .facts dt{color:var(--ink-faint); letter-spacing:.08em; text-transform:uppercase; font-size:10px}
+  .facts dd{margin:0; color:var(--ink)}
+
+  /* ── sections ─────────────────────────────────────────── */
+  section{padding-top:52px}
+  h2{
+    font-family:Spectral, Georgia, serif; font-weight:600; font-size:clamp(23px,3vw,30px);
+    letter-spacing:-.01em; margin:0 0 4px; text-wrap:balance;
+  }
+  .sec-head{margin-bottom:26px; padding-bottom:12px; border-bottom:1px solid var(--rule)}
+  .sec-head p{margin:8px 0 0; color:var(--ink-soft); max-width:var(--measure); font-size:14.5px}
+  h3{font-family:Spectral, Georgia, serif; font-weight:600; font-size:19px; margin:0 0 8px; text-wrap:balance}
+  p{max-width:var(--measure); margin:0 0 14px}
+  a{color:var(--accent)}
+  strong{font-weight:600}
+  code, .mono{font-family:"IBM Plex Mono", ui-monospace, monospace; font-size:.88em}
+  code{background:var(--surface-2); padding:1px 5px; border-radius:3px; word-break:break-word}
+
+  /* ── verdict strip ────────────────────────────────────── */
+  .verdict{
+    display:grid; grid-template-columns:repeat(auto-fit,minmax(132px,1fr)); gap:1px;
+    background:var(--rule); border:1px solid var(--rule); margin:0 0 30px;
+  }
+  .verdict > div{background:var(--surface); padding:15px 16px}
+  .verdict .n{
+    font-family:"IBM Plex Mono", ui-monospace, monospace; font-size:27px; font-weight:500;
+    font-variant-numeric:tabular-nums; line-height:1.1; display:block;
+  }
+  .verdict .k{
+    font-size:10.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-faint);
+    margin-top:5px; display:block;
+  }
+  .n.c{color:var(--crit)} .n.h{color:var(--high)} .n.m{color:var(--med)} .n.l{color:var(--low)}
+
+  .callout{
+    border-left:3px solid var(--crit); background:var(--crit-bg);
+    padding:16px 20px; margin:0 0 26px; max-width:var(--measure);
+  }
+  .callout p{margin:0; font-size:14.5px}
+  .callout p + p{margin-top:10px}
+
+  .readiness{
+    display:flex; flex-wrap:wrap; gap:8px; margin:22px 0 0; padding:0; list-style:none;
+    font-family:"IBM Plex Mono", ui-monospace, monospace; font-size:11.5px;
+  }
+  .readiness li{
+    border:1px solid var(--rule); background:var(--surface); padding:6px 11px;
+    display:flex; gap:8px; align-items:baseline;
+  }
+  .readiness b{font-weight:500; color:var(--ink-soft)}
+  .readiness span{color:var(--crit)}
+
+  /* ── tables ───────────────────────────────────────────── */
+  .tablewrap{overflow-x:auto; border:1px solid var(--rule); background:var(--surface); margin:0 0 8px}
+  table{border-collapse:collapse; width:100%; min-width:640px; font-size:13.5px}
+  th{
+    text-align:left; font-weight:500; font-size:10.5px; letter-spacing:.09em; text-transform:uppercase;
+    color:var(--ink-faint); padding:11px 14px; border-bottom:1px solid var(--rule); white-space:nowrap;
+    background:var(--surface-2);
+  }
+  td{padding:12px 14px; border-bottom:1px solid var(--rule-soft); vertical-align:top}
+  tbody tr:last-child td{border-bottom:0}
+  td.ref{font-family:"IBM Plex Mono", ui-monospace, monospace; white-space:nowrap; font-size:12.5px}
+  td.ctl{font-family:"IBM Plex Mono", ui-monospace, monospace; font-size:12px; color:var(--ink-soft)}
+  caption{caption-side:bottom; text-align:left; font-size:12.5px; color:var(--ink-faint); padding:10px 2px}
+
+  .tag{
+    font-family:"IBM Plex Mono", ui-monospace, monospace; font-size:10.5px; letter-spacing:.06em;
+    text-transform:uppercase; padding:3px 8px; white-space:nowrap; font-weight:500; display:inline-block;
+  }
+  .tag.yes{background:var(--crit-bg); color:var(--crit)}
+  .tag.flow{background:var(--high-bg); color:var(--high)}
+  .tag.no{background:var(--low-bg); color:var(--low)}
+  .tag.ind{background:var(--med-bg); color:var(--med)}
+
+  /* ── findings register ────────────────────────────────── */
+  .band{
+    display:flex; align-items:baseline; gap:14px; margin:44px 0 20px;
+    font-family:"IBM Plex Mono", ui-monospace, monospace; font-size:11.5px;
+    letter-spacing:.14em; text-transform:uppercase;
+  }
+  .band::after{content:""; flex:1; height:2px}
+  .band.c{color:var(--crit)} .band.c::after{background:var(--crit)}
+  .band.h{color:var(--high)} .band.h::after{background:var(--high)}
+  .band.m{color:var(--med)}  .band.m::after{background:var(--med)}
+  .band.l{color:var(--low)}  .band.l::after{background:var(--low)}
+  .band em{font-style:normal; color:var(--ink-faint); letter-spacing:.06em}
+
+  .finding{
+    display:grid; grid-template-columns:76px 1fr; gap:0 22px;
+    background:var(--surface); border:1px solid var(--rule); border-left-width:4px;
+    padding:22px 24px; margin-bottom:18px; box-shadow:var(--shadow);
+  }
+  .finding.c{border-left-color:var(--crit)}
+  .finding.h{border-left-color:var(--high)}
+  .finding.m{border-left-color:var(--med)}
+  .finding.l{border-left-color:var(--low)}
+  .gutter{
+    font-family:"IBM Plex Mono", ui-monospace, monospace; font-size:15px; font-weight:500;
+    letter-spacing:.02em; padding-top:1px;
+  }
+  .finding.c .gutter{color:var(--crit)}
+  .finding.h .gutter{color:var(--high)}
+  .finding.m .gutter{color:var(--med)}
+  .finding.l .gutter{color:var(--low)}
+  .body > *:last-child{margin-bottom:0}
+  .body p{font-size:14.5px}
+  .body ul, .body ol{margin:0 0 14px; padding-left:19px; max-width:var(--measure); font-size:14.5px}
+  .body li{margin-bottom:7px}
+  .body li:last-child{margin-bottom:0}
+
+  .lbl{
+    font-family:"IBM Plex Mono", ui-monospace, monospace; font-size:10.5px; letter-spacing:.11em;
+    text-transform:uppercase; color:var(--ink-faint); margin:18px 0 8px; display:block;
+  }
+  .evidence{
+    border-left:2px solid var(--rule); padding:2px 0 2px 16px; margin:0 0 14px;
+    max-width:var(--measure);
+  }
+  .evidence ul{list-style:none; padding:0; margin:0; font-size:13.5px}
+  .evidence li{margin-bottom:8px; color:var(--ink-soft)}
+  .evidence li:last-child{margin-bottom:0}
+  .evidence .mono{color:var(--ink); font-size:12.5px}
+
+  pre{
+    background:var(--surface-2); border:1px solid var(--rule); padding:13px 15px;
+    overflow-x:auto; font-family:"IBM Plex Mono", ui-monospace, monospace; font-size:12.5px;
+    line-height:1.62; margin:0 0 14px; color:var(--ink);
+  }
+  pre .cm{color:var(--ink-faint)}
+
+  .fix{
+    background:var(--accent-soft); border-left:3px solid var(--accent);
+    padding:14px 18px; margin:16px 0 0; max-width:var(--measure);
+  }
+  .fix p{margin:0; font-size:14px}
+  .fix p + p{margin-top:10px}
+  .fix .lbl{margin:0 0 6px; color:var(--accent)}
+
+  /* ── strengths ────────────────────────────────────────── */
+  .strengths{
+    display:grid; grid-template-columns:repeat(auto-fit,minmax(268px,1fr)); gap:1px;
+    background:var(--rule); border:1px solid var(--rule);
+  }
+  .strengths > div{background:var(--surface); padding:17px 19px}
+  .strengths h4{
+    font-family:"IBM Plex Mono", ui-monospace, monospace; font-size:12.5px; font-weight:500;
+    margin:0 0 7px; color:var(--good); letter-spacing:.01em;
+  }
+  .strengths p{font-size:13.5px; margin:0; color:var(--ink-soft); max-width:none}
+
+  /* ── roadmap ──────────────────────────────────────────── */
+  .phase{
+    display:grid; grid-template-columns:minmax(96px,116px) 1fr; gap:0 26px;
+    padding:22px 0; border-top:1px solid var(--rule);
+  }
+  .phase:last-child{border-bottom:1px solid var(--rule)}
+  .when{
+    font-family:"IBM Plex Mono", ui-monospace, monospace; font-size:12px; letter-spacing:.1em;
+    text-transform:uppercase; color:var(--accent); padding-top:3px;
+  }
+  .phase ol{margin:0; padding-left:19px; font-size:14.5px; max-width:var(--measure)}
+  .phase ol li{margin-bottom:7px}
+  .phase p{font-size:14.5px; margin:0}
+  .phase .note{font-size:13px; color:var(--ink-faint); margin-top:10px; font-style:italic}
+
+  .questions{counter-reset:q; list-style:none; padding:0; margin:0}
+  .questions li{
+    counter-increment:q; display:grid; grid-template-columns:34px 1fr; gap:0 14px;
+    padding:13px 0; border-bottom:1px solid var(--rule-soft); max-width:var(--measure); font-size:14.5px;
+  }
+  .questions li::before{
+    content:counter(q,decimal-leading-zero);
+    font-family:"IBM Plex Mono", ui-monospace, monospace; font-size:12px; color:var(--accent-soft);
+    background:var(--accent); padding:2px 0; text-align:center; height:fit-content; letter-spacing:.04em;
+  }
+  .questions em{color:var(--ink-soft); font-size:13.5px; display:block; margin-top:3px}
+
+  footer{
+    margin-top:64px; padding-top:22px; border-top:2px solid var(--ink);
+    font-size:13px; color:var(--ink-soft); max-width:var(--measure);
+  }
+  footer p{font-size:13px}
+  footer p:last-child{margin-bottom:0}
+
+  @media (max-width:640px){
+    .wrap{padding:0 18px 64px}
+    .finding{grid-template-columns:1fr; gap:10px; padding:19px 18px}
+    .phase{grid-template-columns:1fr; gap:10px}
+    .questions li{grid-template-columns:28px 1fr}
+  }
+  @media (prefers-reduced-motion:reduce){*{animation:none!important; transition:none!important}}
+  :focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <div class="eyebrow">Compliance &amp; Security Audit · 2026-09-03</div>
+    <h1>BodhAssess Security Audit</h1>
+    <p class="subtitle">Static assessment of the assessment platform against DPDP, ISO 27001, SOC 2 and the RBI/SEBI vendor flow-down.</p>
+    <dl class="facts">
+      <div><dt>Commit</dt><dd>b4b335ff · main</dd></div>
+      <div><dt>Scope</dt><dd>API · dashboard · portal · deploy</dd></div>
+      <div><dt>Method</dt><dd>Static source &amp; config review</dd></div>
+      <div><dt>Live testing</dt><dd>None performed</dd></div>
+    </dl>
+  </header>
+
+  <section>
+    <div class="sec-head">
+      <h2>Executive summary</h2>
+      <p>BodhAssess processes sensitive personal data — name, email, date of birth, phone, gender, employer code and psychometric responses — for identified individuals, on behalf of client organizations.</p>
+    </div>
+
+    <div class="verdict">
+      <div><span class="n c">3</span><span class="k">Critical</span></div>
+      <div><span class="n h">4</span><span class="k">High</span></div>
+      <div><span class="n m">5</span><span class="k">Medium</span></div>
+      <div><span class="n l">2</span><span class="k">Low</span></div>
+    </div>
+
+    <div class="callout">
+      <p><strong>The platform has no enforced authentication in either deployment profile, and its sole credential is a date of birth that is itself stored as a visible data field.</strong></p>
+      <p>Together those two facts mean the entire respondent database is reachable, and every account impersonable, by anyone who can reach the API. Everything else in this report is secondary to them.</p>
+    </div>
+
+    <p>The engineering quality of this codebase is high in the places that matter. Schema changes are disciplined (Flyway with <code>ddl-auto: validate</code>), the activity trail is thoughtfully designed, rich-text input is rejected rather than sanitized, and the container port policy is a real control born of a real incident. Those are genuine assets and an auditor will credit them — <a href="#strengths">§5</a> lists them in full.</p>
+
+    <ul class="readiness">
+      <li><b>ISO 27001</b><span>not certifiable</span></li>
+      <li><b>SOC 2 Type I</b><span>would fail</span></li>
+      <li><b>SOC 2 Type II</b><span>no observation period possible</span></li>
+      <li><b>DPDP</b><span>non-compliant §8(5), §8(7), §12</span></li>
+    </ul>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <h2>Applicability</h2>
+      <p>Not all nine frameworks bind BodhAssess. Stating this precisely matters — scoping a programme against frameworks you are not subject to wastes money and dilutes the ones that do apply.</p>
+    </div>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Framework</th><th>Applies</th><th>Basis</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><strong>DPDP Act, 2023</strong></td>
+            <td><span class="tag yes">Yes — primary</span></td>
+            <td>Processes digital personal data of individuals in India. <strong>Data Fiduciary</strong> for its own accounts, <strong>Data Processor</strong> for client-supplied data. Penalties to ₹250 crore for failed security safeguards, ₹200 crore for failure to notify a breach. Confirm commencement dates for each obligation with counsel.</td>
+          </tr>
+          <tr>
+            <td><strong>ISO/IEC 27001</strong></td>
+            <td><span class="tag yes">Yes — voluntary</span></td>
+            <td>Commercially necessary: enterprise and government buyers ask for it in procurement. Nothing prevents certification; there is simply no ISMS yet.</td>
+          </tr>
+          <tr>
+            <td><strong>ISO/IEC 27007</strong></td>
+            <td><span class="tag ind">Indirect</span></td>
+            <td>27007 is the guideline for <em>auditing</em> an ISMS — it governs how your certification auditor works, not what you must build. It is not a control set and cannot be complied with on its own. Relevant the day you have an ISMS to audit.</td>
+          </tr>
+          <tr>
+            <td><strong>SOC 2</strong></td>
+            <td><span class="tag yes">Yes — voluntary</span></td>
+            <td>The natural fit for B2B SaaS handling client-supplied personal data. Scope Security + Confidentiality + Availability; add Privacy if you make representations about it.</td>
+          </tr>
+          <tr>
+            <td><strong>GDPR</strong></td>
+            <td><span class="tag no">Currently no</span></td>
+            <td>Applies only if you offer assessments to individuals in the EU/EEA or monitor their behaviour. No evidence of EU deployment — all origins are <code>.bodh.biz</code>, storage is Singapore. Re-assess before any EU client.</td>
+          </tr>
+          <tr>
+            <td><strong>PCI DSS</strong></td>
+            <td><span class="tag no">Out of scope</span></td>
+            <td><strong>Verified:</strong> no cardholder data is stored, processed or transmitted anywhere. The only "Payment"/"Billing" strings are dead Metronic template menu entries pointing at <code>#</code>. Do not spend money here. If billing is added, use a hosted payment page (SAQ A) and keep card data out of these systems.</td>
+          </tr>
+          <tr>
+            <td><strong>RBI SAR</strong><br><span class="mono" style="font-size:11.5px;color:var(--ink-faint)">data localization</span></td>
+            <td><span class="tag flow">By flow-down</span></td>
+            <td>Not a payment system operator, so the payment-data circular does not bind directly. <strong>But</strong> finding H-1 (full backups in Singapore) fails the vendor-assessment stage of any bank or NBFC client, and is a hard blocker in an SAR-scope engagement.</td>
+          </tr>
+          <tr>
+            <td><strong>IS Audit (RBI)</strong></td>
+            <td><span class="tag flow">By flow-down</span></td>
+            <td>The annual obligation sits on the bank/NBFC. As their service provider you are assessed under RBI's outsourcing guidelines: access control, MFA for privileged access, audit logging, localization, BCP, right-to-audit. C-1, C-2, H-1 and M-3 are what would be raised.</td>
+          </tr>
+          <tr>
+            <td><strong>SEBI</strong></td>
+            <td><span class="tag flow">By flow-down</span></td>
+            <td>SEBI's cyber-security framework binds the regulated entity, which pushes requirements onto vendors. Same findings apply. Financial-reporting and governance aspects of a SEBI audit are not engineering matters.</td>
+          </tr>
+        </tbody>
+        <caption><strong>Recommended posture:</strong> build one control set — an ISO 27001-shaped ISMS with DPDP obligations mapped in — and evidence it once. SOC 2 then reuses roughly 80% of that evidence, and the RBI/SEBI vendor questionnaires become an exercise in pointing at controls you already have.</caption>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <h2>Findings</h2>
+      <p>Fourteen findings, ordered by severity. Each carries the evidence it rests on, the impact, and the fix. Findings marked <em>verify</em> need confirmation on the production host before being treated as confirmed or dismissed.</p>
+    </div>
+
+    <!-- ── CRITICAL ─────────────────────────────────────── -->
+    <div class="band c">Critical <em>— 3 findings</em></div>
+
+    <article class="finding c">
+      <div class="gutter">C-1</div>
+      <div class="body">
+        <h3>Authentication is not enforced in any environment, including production</h3>
+
+        <span class="lbl">Evidence</span>
+        <div class="evidence"><ul>
+          <li><span class="mono">application.yml</span> — <code>app.security.require-auth: ${REQUIRE_AUTH:false}</code> in <strong>both</strong> the development and production profiles.</li>
+          <li><span class="mono">security/ActorFilter.java</span> — with the flag off the filter <em>resolves</em> the bearer token for logging and <em>serves the request either way</em>. Nothing is rejected.</li>
+          <li><span class="mono">docker-compose.yml</span> — the api service passes only the profile and DB credentials. <code>REQUIRE_AUTH</code> is not set.</li>
+          <li><span class="mono">RegistrationTokenController.java:57</span> — states it in a code comment: <em>"nothing in this project has an auth filter yet, so the admin endpoints here are as open as the public one."</em></li>
+        </ul></div>
+
+        <span class="lbl">Impact</span>
+        <p>Every endpoint except Data Studio (which enforces its own check) is reachable without credentials:</p>
+        <ul>
+          <li><code>GET /api/reports/getRespondents</code> — paged name, email, organization and attempt status for <strong>every respondent in the platform</strong>, with a search parameter.</li>
+          <li><code>GET /api/reports/getRespondentDetail/{id}</code> — full profile plus every assessment allotted.</li>
+          <li><code>POST|PUT|DELETE /api/respondents/*</code> — create, modify and delete people.</li>
+          <li><code>POST /api/registration-tokens/create</code> — <strong>mint registration links that create accounts</strong>.</li>
+          <li>All questionnaire, question, assessment, organization and practitioner CRUD.</li>
+        </ul>
+        <p>A complete failure of access control. Under DPDP this is a failure of reasonable security safeguards (§8(5)), and any exploitation is a reportable personal data breach.</p>
+
+        <span class="lbl">Unverified — check before acting</span>
+        <p><code>secrets.env</code> is gitignored and not in the repository. It is possible — not likely, given the comment above and the variable's absence from compose — that this is set on the droplet.</p>
+        <pre><span class="cm"># on the production droplet</span>
+docker exec bodhpsychometric-api env | grep -E 'REQUIRE_AUTH|JWT_SECRET'
+
+<span class="cm"># from anywhere — if this returns data, the API is open</span>
+curl -s https://api.bodh.biz/api/reports/getRespondents | head -c 300</pre>
+
+        <div class="fix">
+          <span class="lbl">Fix</span>
+          <p>Set <code>REQUIRE_AUTH=true</code> and restart. The switch was built to be exactly this cheap, and <code>RequireAuthTest</code> already pins the enforcing behaviour.</p>
+          <p><strong>Do not flip it before C-3.</strong> With the committed signing key still in place an attacker forges a superadmin token and enforcement buys nothing. Order: rotate the JWT secret → flip enforcement → verify every page still works.</p>
+          <p>Then close the remaining gap: <code>require-auth</code> is <em>authentication</em>, not <em>authorization</em>. Once on, every caller is someone — but any authenticated practitioner can still call every admin endpoint. The role and <code>urlPath</code> model exists and is returned to the frontend, yet is enforced <strong>only in the UI</strong>. Server-side authorization is the follow-on work.</p>
+        </div>
+      </div>
+    </article>
+
+    <article class="finding c">
+      <div class="gutter">C-2</div>
+      <div class="body">
+        <h3>Date of birth is the only credential, for every account type</h3>
+
+        <span class="lbl">Evidence</span>
+        <div class="evidence"><ul>
+          <li><span class="mono">model/auth/User.java</span> — "dob is the credential by product decision"; stored as a plain <code>LocalDate</code>, compared directly.</li>
+          <li><span class="mono">DashboardAuthService · PortalAuthService</span> — <code>user.getDob().equals(dob)</code>. No hash, no salt, no KDF, because there is no password.</li>
+          <li>No rate limiting, lockout, throttling or CAPTCHA anywhere — greps for <code>ratelimit</code>, <code>bucket4j</code>, <code>lockout</code>, <code>429</code> return <strong>nothing</strong>.</li>
+          <li>No MFA, no credential rotation, no password-change endpoint, no server-side <code>logout</code>.</li>
+        </ul></div>
+
+        <span class="lbl">Impact — four compounding problems</span>
+        <ol>
+          <li><strong>A date of birth is not a secret.</strong> It is a data field — shown in the dashboard, editable in the respondent form, exported in reports, typed into the bulk XLSX sheet. Every administrator who can see a profile is holding that person's password, and every uploaded spreadsheet is a cleartext credential file.</li>
+          <li><strong>The keyspace is tiny and unthrottled.</strong> A working-age adult's dob is one of roughly 11,000–18,000 dates. With no rate limiting that is minutes of scripted requests per account — and combined with C-1, the attacker doesn't even need the email list, since the reports endpoint hands it over.</li>
+          <li><strong>It applies to superadmins.</strong> The two seeded accounts in <code>application.yml</code> are <code>admin@bodh</code> / 2001-01-01 and <code>superadmin@bodh.biz</code> / 1990-01-01 — a working credential pair, in version control, for the highest-privilege role (see C-3).</li>
+          <li><strong>Tokens cannot be revoked.</strong> Stateless JWTs with a 12-hour expiry, no denylist, no server-side logout. A compromised token is valid for its full lifetime regardless of what you do to the account.</li>
+        </ol>
+
+        <div class="fix">
+          <span class="lbl">Fix — a product decision, so the answer differs by audience</span>
+          <p><strong>Dashboard accounts (do first, not controversial):</strong> real passwords with BCrypt or Argon2id, a length policy, forced rotation of the seeded superadmins, and TOTP MFA for any account with the <code>superAdmin</code> flag. RBI's IS Audit expectations for privileged access make MFA effectively mandatory the moment a bank or NBFC becomes a client.</p>
+          <p><strong>Respondent portal (where the friction argument is real):</strong> dob-only login exists because respondents are one-time users who will not manage a password — a legitimate position. Preserve it without the vulnerability: keep dob as a convenience factor, paired with something the respondent possesses — a one-time link or OTP to the email/phone already on file, or a per-attempt access code issued with the assignment.</p>
+          <p><strong>Immediately, regardless:</strong> rate-limit <code>/api/auth/login</code> and <code>/api/portal/login</code>. A small change that removes most of the practical risk while the larger decision is made.</p>
+        </div>
+      </div>
+    </article>
+
+    <article class="finding c">
+      <div class="gutter">C-3</div>
+      <div class="body">
+        <h3>Working credentials and signing keys are committed to git</h3>
+
+        <span class="lbl">Evidence</span>
+        <div class="tablewrap" style="margin-bottom:14px">
+          <table style="min-width:520px">
+            <thead><tr><th>Secret</th><th>Location</th><th>In history since</th></tr></thead>
+            <tbody>
+              <tr><td>JWT HS256 signing key <code>eb36fabf…6f80</code></td><td class="ctl">application.yml, both profiles</td><td class="ref">be3f0a7e8</td></tr>
+              <tr><td>Superadmin identities + dob credentials</td><td class="ctl">application.yml</td><td class="ref">be3f0a7e8</td></tr>
+              <tr><td>MySQL <strong>root</strong> password <code>Google.com1</code></td><td class="ctl">docker-compose.yml default</td><td class="ref">75d041757</td></tr>
+              <tr><td>DB password <code>bodh</code></td><td class="ctl">application.yml · compose · .env.example</td><td class="ref">multiple</td></tr>
+              <tr><td>Legacy admin password <code>admin123</code></td><td class="ctl">.env.example</td><td class="ref">tracked</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p><code>git ls-files</code> also confirms <code>.env</code>, <code>bodhassess-app/.env</code>, <code>.env.production</code>, <code>.env.staging</code>, <code>.env.local</code> and <code>deploy.production.env</code> are <strong>tracked</strong> despite <code>.gitignore</code> listing several — gitignore does not affect files already added. Their contents today are non-secret, but the pattern is one commit from leaking one. <code>deploy.production.env</code> also publishes the production host as <code>root@168.144.118.157</code>.</p>
+
+        <span class="lbl">Impact</span>
+        <p>If <code>JWT_SECRET</code> is not overridden in production, anyone with repository access — 10 contributors are in the log, plus anyone it has ever been shared with — can <strong>forge a valid superadmin JWT</strong>. That makes C-1's fix ineffective on its own. The MySQL root password is a full-database credential.</p>
+
+        <div class="fix">
+          <span class="lbl">Fix</span>
+          <p>Rotate the JWT secret to a fresh 32+ byte random value supplied only via <code>secrets.env</code> (this invalidates all live sessions — desirable). Rotate the MySQL root and application passwords. Change the seeded superadmin dobs <strong>in the database</strong> — the seeder only ever adds, so editing the YAML changes nothing for an existing account.</p>
+          <p>Remove defaults from source, and make the app <strong>fail to start</strong> when <code>JWT_SECRET</code> is unset in the production profile: a missing secret should be a loud boot failure, never a silent fallback to a public value. <code>git rm --cached</code> the tracked env files. Rewriting history is optional and disruptive — rotation is what removes the risk; treat the historical values as permanently public.</p>
+        </div>
+      </div>
+    </article>
+
+    <!-- ── HIGH ─────────────────────────────────────────── -->
+    <div class="band h">High <em>— 4 findings</em></div>
+
+    <article class="finding h">
+      <div class="gutter">H-1</div>
+      <div class="body">
+        <h3>The entire database is backed up unencrypted to a shared bucket in Singapore</h3>
+
+        <span class="lbl">Evidence — ops/README.md · bodh-db-backup.sh</span>
+        <div class="evidence"><ul>
+          <li>Nightly full <code>mysqldump</code> → gzip → <code>s3://storage-c9/bodhpsychometric/</code> on DigitalOcean Spaces, region <strong>sgp1 (Singapore)</strong>.</li>
+          <li><code>storage-c9</code> is documented as <strong>shared</strong> with another product (~3.4 GB of unrelated reports and logos).</li>
+          <li>The dump is <strong>gzipped only — not encrypted</strong>. Compression is not confidentiality.</li>
+          <li>Retention 10 days. Spaces credentials are correctly kept in a root-only <code>0600</code> file.</li>
+        </ul></div>
+
+        <span class="lbl">Impact — three distinct problems</span>
+        <ol>
+          <li><strong>Data residency.</strong> Every respondent's name, email, dob (which is also their password), phone, gender and complete response history leaves India nightly. A cross-border transfer under DPDP, and a hard blocker for any RBI- or SEBI-regulated client — the flow-down expectation of India-resident storage is where a vendor assessment stops.</li>
+          <li><strong>Tenant segregation.</strong> A shared bucket means one credential compromise, or one over-broad IAM policy, exposes your data alongside another product's. ISO 27001 A.5.14/A.8.12 and SOC 2 CC6.7 ask you to demonstrate segregation you cannot currently demonstrate. The prune logic is carefully confined to your prefix — good discipline, but confinement of <em>writes</em> is not isolation of <em>reads</em>.</li>
+          <li><strong>No encryption at rest.</strong> Anyone who obtains one object obtains the whole database in plaintext.</li>
+        </ol>
+
+        <div class="fix">
+          <span class="lbl">Fix — in priority order</span>
+          <p>Encrypt the dump before upload (AES-256 via gpg or age, key held off the droplet, <strong>restore path tested</strong>) → move to an India region (<code>blr1</code>, or S3 <code>ap-south-1</code>) → dedicated bucket with a scoped-down key → document the retention decision, since 10 days is short for a compliance narrative and auditors will ask what it is based on.</p>
+          <p><strong>Schedule and record a restore test.</strong> The script verifies dump <em>integrity</em> — size and the <code>Dump completed</code> trailer — which is genuinely good practice. But nothing records that a restore has ever been performed, so your RTO and RPO are unproven assertions.</p>
+        </div>
+      </div>
+    </article>
+
+    <article class="finding h">
+      <div class="gutter">H-2</div>
+      <div class="body">
+        <h3>No encryption at rest anywhere in the stack</h3>
+
+        <span class="lbl">Evidence</span>
+        <div class="evidence"><ul>
+          <li>MySQL 8 on a plain Docker volume. No TDE, no encrypted tablespaces, no keyring plugin in compose.</li>
+          <li>JDBC URL sets <code>useSSL=false</code> in both profiles — application-to-database traffic is cleartext on the bridge network.</li>
+          <li>Redis persists to a volume holding partial answers (1-day TTL) and staged submissions (<strong>7-day TTL</strong>) — real response data, unencrypted. <code>requirepass</code> is correctly set and publishing is loopback-only.</li>
+          <li>Application-level encryption: greps for <code>Cipher</code>, <code>AES</code>, <code>encrypt</code> return <strong>nothing</strong>.</li>
+        </ul></div>
+
+        <span class="lbl">Impact</span>
+        <p>Any filesystem-level access — a stolen volume snapshot, a droplet compromise, a mis-scoped API token, a decommissioned disk — yields everything in plaintext. Psychometric response data is behaviourally revealing and, depending on the instrument, may attract heightened treatment under DPDP and would be special-category data under GDPR Art. 9.</p>
+
+        <div class="fix">
+          <span class="lbl">Fix</span>
+          <p>Enable InnoDB tablespace encryption, or move to a managed database with encryption on by default. Turn on TLS for the JDBC connection — <code>useSSL=false</code> is a dev convenience that shipped to production. Consider column-level encryption for dob specifically, since it doubles as a credential.</p>
+        </div>
+      </div>
+    </article>
+
+    <article class="finding h">
+      <div class="gutter">H-3</div>
+      <div class="body">
+        <h3>Session tokens in localStorage, one unguarded HTML sink, no CSP</h3>
+
+        <span class="lbl">Evidence</span>
+        <div class="evidence"><ul>
+          <li>Both frontends store the bearer token in <code>localStorage</code> — readable by any JavaScript on the origin.</li>
+          <li><span class="mono">model/RichTextHtml.java</span> is a <strong>strong</strong> control: a strict tag allowlist that <em>rejects</em> rather than sanitizes, correctly reasoned in its own comments, covering terms, questionnaire and section instructions.</li>
+          <li>The gap is elsewhere — <span class="mono">chat-sheet.tsx:210,248</span> renders <code>message.text</code> through <code>dangerouslySetInnerHTML</code> with <strong>no allowlist and no sanitizer</strong>. No DOMPurify dependency exists in either project.</li>
+          <li>nginx sets no <code>Content-Security-Policy</code>, so nothing contains a slip. No token revocation (C-2), so a stolen token is good for up to 12 hours.</li>
+        </ul></div>
+
+        <div class="fix">
+          <span class="lbl">Fix</span>
+          <p>Add DOMPurify and sanitize every <code>dangerouslySetInnerHTML</code> sink not already covered by <code>RichTextHtml</code>; ship a CSP from nginx; then move tokens to <code>HttpOnly; Secure; SameSite=Strict</code> cookies with CSRF protection. CSP plus sanitization removes most of the practical risk first.</p>
+        </div>
+      </div>
+    </article>
+
+    <article class="finding h">
+      <div class="gutter">H-4</div>
+      <div class="body">
+        <h3>No security headers, no TLS policy, no edge rate limiting; permissive CORS</h3>
+
+        <span class="lbl">Evidence — nginx/conf.d/default.conf</span>
+        <div class="evidence"><ul>
+          <li>Confirmed absent: <code>Strict-Transport-Security</code>, <code>X-Content-Type-Options</code>, <code>X-Frame-Options</code>, <code>Content-Security-Policy</code>, <code>Referrer-Policy</code>, <code>Permissions-Policy</code>. A grep for <code>add_header</code> returns nothing.</li>
+          <li><code>ssl_protocols</code> and <code>ssl_ciphers</code> are unset — whatever the nginx image defaults to <em>is</em> your TLS policy, undocumented and unpinned. An auditor will ask you to state it; today you cannot.</li>
+          <li>No <code>limit_req</code> — no rate limiting at the edge, which is where C-2's brute-force protection most cheaply belongs.</li>
+          <li>Only <code>api.bodh.biz</code> is served here. The <code>portal.bodh.biz</code> block is <strong>commented out</strong> and there is no <code>admin.bodh.biz</code> block at all — so where those two are served, and under what policy, is <strong>not evidenced in this repository</strong>.</li>
+          <li><code>https://*.bodh.biz</code> via <code>allowedOriginPatterns</code> <strong>with <code>allowCredentials(true)</code></strong> — every subdomain is a trusted origin, including any ever mis-provisioned, parked or taken over.</li>
+        </ul></div>
+
+        <div class="fix">
+          <span class="lbl">Fix</span>
+          <p>Add the header set and an explicit modern TLS policy (TLS 1.2+, named cipher suite). Add <code>limit_req</code> zones for the two login endpoints. Replace the CORS wildcard with the explicit list of origins you actually operate, and document the serving path for the dashboard and portal.</p>
+        </div>
+      </div>
+    </article>
+
+    <!-- ── MEDIUM ───────────────────────────────────────── -->
+    <div class="band m">Medium <em>— 5 findings</em></div>
+
+    <article class="finding m">
+      <div class="gutter">M-1</div>
+      <div class="body">
+        <h3>No CI, no dependency scanning, no SAST</h3>
+        <p><code>.github/</code> contains only Claude modernization hooks — <strong>no workflows</strong>. Greps for <code>trivy</code>, <code>snyk</code>, <code>dependency-check</code>, <code>codeql</code>, <code>semgrep</code>, <code>npm audit</code> return nothing anywhere in the repo.</p>
+        <p>Current dependency posture is actually good — Spring Boot 4.1.0, Java 25, jjwt 0.12.6 are all current, with no obvious vulnerable component. The finding is not "you have a vulnerable dependency"; it is that <strong>nothing would tell you when you do</strong>. ISO 27001 A.8.8 and SOC 2 CC7.1 both require a defined, evidenced process.</p>
+        <div class="fix">
+          <span class="lbl">Fix</span>
+          <p>A GitHub Actions workflow running <code>mvn test</code>, <code>npm audit --audit-level=high</code>, Trivy or OWASP Dependency-Check, and secret scanning (gitleaks) on every PR. Enable Dependabot. Half a day of work that produces continuous audit evidence.</p>
+        </div>
+      </div>
+    </article>
+
+    <article class="finding m">
+      <div class="gutter">M-2</div>
+      <div class="body">
+        <h3>Audit trail is well-built but not audit-grade</h3>
+        <p><code>ActivityLog</code> is one of the better pieces of this codebase and deserves credit: every request recorded including reads, actor captured as a <strong>snapshot with no FK</strong> so the row outlives the account, deliberate exclusion of bodies, tokens, dob, answers and demographic values, an async write that drops rather than blocks, and a 365-day retention default.</p>
+        <p>Four gaps stand between it and audit-grade:</p>
+        <ol>
+          <li><strong>No integrity protection.</strong> Rows sit in the same MySQL an administrator can reach. Nothing is append-only, hash-chained, or shipped to write-once storage. An auditor asks: what stops a privileged user editing the log that records what they did?</li>
+          <li><strong>The auditors are not audited.</strong> The filter skips <code>/api/activity</code> by design — reasonable to avoid recursion, but <em>"who read the audit trail"</em> is unanswerable. That is precisely what SOC 2 CC7.2 and RBI IS Audit look for.</li>
+          <li><strong>Attribution is empty while C-1 stands.</strong> With require-auth off, most rows record <code>anonymous</code>. The trail cannot attribute anything, which is the whole point of a trail.</li>
+          <li><strong>No alerting.</strong> Rows are written and viewable; nothing watches them. No SIEM, no anomaly detection, no on-call path.</li>
+        </ol>
+        <div class="fix">
+          <span class="lbl">Fix</span>
+          <p>Ship activity rows to an append-only external store or hash-chain them in place; log audit-viewer reads to a separate stream; alert on the signals that matter — bulk report reads, failed logins, privilege changes.</p>
+        </div>
+      </div>
+    </article>
+
+    <article class="finding m">
+      <div class="gutter">M-3</div>
+      <div class="body">
+        <h3>Data retention and erasure are not implemented</h3>
+        <ul>
+          <li><strong>Erasure.</strong> <code>DELETE /api/respondents/delete/{id}</code> returns <strong>409</strong> whenever the respondent has any attempt. Correct as a <em>data-integrity</em> choice — but it means the people whose data is most sensitive have <strong>no erasure path at all</strong>. DPDP §12 and GDPR Art. 17 both require one.</li>
+          <li><strong>Retention.</strong> No schedule for <code>AssessmentAnswer</code>, <code>DemographicResponse</code> or <code>RespondentUser</code>. DPDP §8(7) requires erasure once the purpose is served. <code>ActivityLog</code> is the only entity with a retention policy — apply the same thinking to personal data.</li>
+          <li><strong>Consent withdrawal has no effect.</strong> The transitions are handled correctly — first grant stamps <code>consentedAt</code>, revoke clears it — but revoking flips a boolean and deletes nothing. Under DPDP, withdrawal must stop processing and trigger erasure absent another lawful basis.</li>
+          <li><strong>No data-subject request process.</strong> No endpoint, runbook or SLA for access, correction, erasure or grievance. DPDP requires a Consent Notice, a published Grievance Officer, and a defined response mechanism.</li>
+        </ul>
+        <p><strong>Credit where due:</strong> consent capture itself is real and better than most — <code>is_consented</code> + <code>consented_at</code>, plus <code>AssessmentTerms</code> showing versioned terms before the first question with a sensible default body. The foundation is there; the lifecycle around it is missing.</p>
+        <div class="fix">
+          <span class="lbl">Fix</span>
+          <p>Define retention periods per data class and implement a purge job. Implement anonymization — sever <code>RespondentUser</code> from <code>User</code>, retain de-identified answers for statistical validity — as the erasure path that survives the FK constraint, and make consent withdrawal trigger it. Publish the Consent Notice and Grievance Officer.</p>
+        </div>
+      </div>
+    </article>
+
+    <article class="finding m">
+      <div class="gutter">M-4</div>
+      <div class="body">
+        <h3>No documented ISMS</h3>
+        <p>The single largest gap for ISO 27001, ISO 27007 and SOC 2 — and not a code problem. <strong>Certification audits assess documented, operating, evidenced processes, not source code.</strong> Currently absent:</p>
+        <ul>
+          <li>Information security policy set; risk assessment and treatment plan; Statement of Applicability</li>
+          <li>Asset inventory and data classification; <strong>Record of Processing Activities</strong></li>
+          <li>Access control policy and <strong>periodic access reviews</strong> — 10 contributors have repository access; who holds droplet, database and Spaces access is recorded nowhere</li>
+          <li>Supplier register and assessments — DigitalOcean (compute, Spaces), Let's Encrypt, any subprocessors</li>
+          <li><strong>Incident response and breach notification</strong> — DPDP requires notifying both the Data Protection Board <em>and every affected Data Principal</em>, on a clock. No plan, no severity model, no comms template, no on-call rotation.</li>
+          <li>Business continuity and disaster recovery with a <strong>tested</strong> restore (see H-1)</li>
+          <li>Secure SDLC, change management, onboarding/offboarding, security awareness training records</li>
+        </ul>
+        <div class="fix">
+          <span class="lbl">Fix</span>
+          <p>Three to six months of deliberate work. Start with asset inventory, Record of Processing Activities, risk register and incident response plan — those four unlock most of the rest, and are what a DPDP regulator would ask for first.</p>
+        </div>
+      </div>
+    </article>
+
+    <article class="finding m">
+      <div class="gutter">M-5</div>
+      <div class="body">
+        <h3>Single-host production with root SSH deployment</h3>
+        <p>One droplet running MySQL, Redis, the API and nginx, deployed to as <strong>root</strong>. No HA, no failover, no documented patch cadence, no host hardening baseline, no log shipping, no IDS. Availability is a SOC 2 criterion and BCP an ISO 27001 requirement; both are currently unevidenced.</p>
+        <p><strong>Credit:</strong> the port-publishing policy in <code>docker-compose.yml</code> is a genuinely good control — everything bound to <code>127.0.0.1</code> except nginx, with <code>DOCKER-USER</code> DROP rules as a second layer, and a correct note that <strong>Docker writes iptables directly and bypasses ufw</strong>. That came from a real Shadowserver notice about exposed Redis and was handled properly. Keep it and document it — it is exactly the evidence an auditor wants.</p>
+        <div class="fix">
+          <span class="lbl">Fix</span>
+          <p>Non-root deploy user with scoped sudo; SSH keys only with root login disabled; documented patching; a managed database (which also solves H-2's encryption and H-1's residency); and eventually a second host.</p>
+        </div>
+      </div>
+    </article>
+
+    <!-- ── LOW ──────────────────────────────────────────── -->
+    <div class="band l">Low <em>— 2 findings</em></div>
+
+    <article class="finding l">
+      <div class="gutter">L-1</div>
+      <div class="body">
+        <h3>Verbose error messages in production</h3>
+        <p><code>spring.web.error.include-message: always</code> in the production profile. Stack traces are correctly suppressed and <code>ApiExceptionHandler</code> is well-built, so exposure is small — but exception <em>messages</em> can leak internal structure. Consider <code>on-param</code> for production.</p>
+      </div>
+    </article>
+
+    <article class="finding l">
+      <div class="gutter">L-2</div>
+      <div class="body">
+        <h3>Employee-ID login can silently fail on collision</h3>
+        <p><code>PortalAuthService.byEmployeeId</code> returns a generic 401 when an employee ID + dob matches more than one person across organizations. The reasoning is documented and correct — rejecting beats guessing, and email login still works — but the affected user gets an unexplainable failure with no signal to support. Log the collision so it is diagnosable.</p>
+      </div>
+    </article>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <h2>Control mapping</h2>
+      <p>Each finding against the clauses an auditor will cite.</p>
+    </div>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Finding</th><th>ISO 27001:2022</th><th>SOC 2 (TSC)</th><th>DPDP 2023</th><th>RBI / SAR flow-down</th></tr></thead>
+        <tbody>
+          <tr><td class="ref">C-1 No auth enforcement</td><td class="ctl">A.5.15, A.5.18, A.8.3</td><td class="ctl">CC6.1, CC6.2, CC6.3</td><td class="ctl">§8(5)</td><td>Access control — critical</td></tr>
+          <tr><td class="ref">C-2 DOB as credential</td><td class="ctl">A.5.17, A.8.5</td><td class="ctl">CC6.1</td><td class="ctl">§8(5)</td><td>MFA for privileged access</td></tr>
+          <tr><td class="ref">C-3 Committed secrets</td><td class="ctl">A.5.17, A.8.24</td><td class="ctl">CC6.1</td><td class="ctl">§8(5)</td><td>Key management</td></tr>
+          <tr><td class="ref">H-1 Offshore shared backups</td><td class="ctl">A.5.14, A.8.12, A.8.13</td><td class="ctl">CC6.7, A1.2</td><td class="ctl">§16 cross-border</td><td><strong>Data localization — blocker</strong></td></tr>
+          <tr><td class="ref">H-2 No encryption at rest</td><td class="ctl">A.8.24</td><td class="ctl">CC6.1, CC6.7</td><td class="ctl">§8(5)</td><td>Encryption standards</td></tr>
+          <tr><td class="ref">H-3 Token storage / XSS</td><td class="ctl">A.8.26, A.8.28</td><td class="ctl">CC6.1, CC6.8</td><td class="ctl">§8(5)</td><td>Application security</td></tr>
+          <tr><td class="ref">H-4 Headers / TLS / CORS</td><td class="ctl">A.8.9, A.8.20, A.8.21, A.8.24</td><td class="ctl">CC6.6, CC6.7</td><td class="ctl">§8(5)</td><td>Network security</td></tr>
+          <tr><td class="ref">M-1 No CI / scanning</td><td class="ctl">A.8.8, A.8.25, A.8.28</td><td class="ctl">CC7.1, CC8.1</td><td class="ctl">§8(5)</td><td>Vulnerability management</td></tr>
+          <tr><td class="ref">M-2 Audit trail gaps</td><td class="ctl">A.8.15, A.8.16</td><td class="ctl">CC7.2, CC7.3</td><td class="ctl">§8(5)</td><td>Audit logging</td></tr>
+          <tr><td class="ref">M-3 Retention / erasure</td><td class="ctl">A.5.34, A.8.10</td><td class="ctl">P4.2, P4.3, C1.2</td><td class="ctl">§8(7), §12, §13</td><td>Data lifecycle</td></tr>
+          <tr><td class="ref">M-4 No ISMS</td><td class="ctl">Clauses 4–10, A.5.1</td><td class="ctl">CC1–CC5, CC9</td><td class="ctl">§8(4), §8(6)</td><td>Governance</td></tr>
+          <tr><td class="ref">M-5 Single host / root deploy</td><td class="ctl">A.5.30, A.8.6, A.8.9</td><td class="ctl">A1.1, A1.2, CC6.1</td><td class="ctl">§8(5)</td><td>BCP / DR</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="strengths">
+    <div class="sec-head">
+      <h2>What is already working</h2>
+      <p>Real controls that will earn credit in an audit. None should be lost during remediation.</p>
+    </div>
+    <div class="strengths">
+      <div><h4>Flyway + ddl-auto: validate</h4><p>Disciplined, reviewable, non-repudiable schema change control. Directly satisfies change-management expectations (ISO A.8.32, SOC 2 CC8.1).</p></div>
+      <div><h4>ActivityLog</h4><p>Every request, actor as an FK-less snapshot, no sensitive payloads, async and non-blocking, bounded queue that drops rather than OOMs, retention policy. A strong foundation.</p></div>
+      <div><h4>RichTextHtml</h4><p>A reject-don't-sanitize allowlist with the reasoning documented in the code. The right call, correctly argued.</p></div>
+      <div><h4>Container port policy</h4><p>Loopback-only binding plus DOCKER-USER DROP rules, with the ufw-bypass trap correctly identified. Incident-driven and well handled.</p></div>
+      <div><h4>Backup integrity discipline</h4><p>Dump verified before upload, upload confirmed before prune — so failures degrade to <em>stale</em> backups, never to <em>no</em> backups. Better reasoning than most production systems have.</p></div>
+      <div><h4>Credential-oblivious responses</h4><p>Identical messages for unknown identifier and wrong dob; workbook strangers get 404 rather than 403. Correct enumeration hygiene.</p></div>
+      <div><h4>DataStudioAccess</h4><p>A proper four-level authorization model with a single enforcement point. <strong>This is the pattern the rest of the API needs.</strong></p></div>
+      <div><h4>RequireAuthTest</h4><p>Enforcing mode is already pinned by tests, so flipping C-1's switch is a known quantity rather than an experiment on staging.</p></div>
+      <div><h4>Validation single-sourcing</h4><p>E.164 phone rules and <code>@BirthDate</code> bounds live in one place each, with the cross-field constraint handled properly.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <h2>Remediation roadmap</h2>
+      <p>Four phases. Within the first, the order matters — rotating the signing key must precede enabling enforcement.</p>
+    </div>
+
+    <div class="phase">
+      <div class="when">This week</div>
+      <div>
+        <ol>
+          <li><strong>Verify</strong> whether <code>REQUIRE_AUTH</code> and <code>JWT_SECRET</code> are overridden in production.</li>
+          <li><strong>Rotate</strong> the JWT secret, MySQL root and app passwords, and the seeded superadmin credentials in the database.</li>
+          <li><strong>Enable <code>REQUIRE_AUTH=true</code></strong> and regression-test both frontends end to end.</li>
+          <li><strong>Rate-limit</strong> both login endpoints — nginx <code>limit_req</code> is the fastest path.</li>
+          <li><strong>Encrypt</strong> the nightly backup before upload, and test a restore.</li>
+          <li><strong>Add security headers and a TLS policy</strong> to nginx; replace the <code>*.bodh.biz</code> CORS wildcard.</li>
+          <li><strong>Sanitize</strong> the <code>chat-sheet.tsx</code> HTML sink.</li>
+        </ol>
+        <p class="note">Steps 2 and 3 are a pair. Enforcement without rotation is defeated by a forged superadmin token.</p>
+      </div>
+    </div>
+
+    <div class="phase">
+      <div class="when">30 days</div>
+      <div><p>Server-side authorization on every admin endpoint, extending the <code>DataStudioAccess</code> pattern · real passwords and MFA for dashboard accounts · CI with dependency, secret and static scanning · backups moved to an India region and a dedicated bucket · MySQL encryption at rest and TLS on the JDBC connection · non-root deploy user.</p></div>
+    </div>
+
+    <div class="phase">
+      <div class="when">90 days</div>
+      <div><p>Decide and implement the portal's second authentication factor · retention schedule and purge job · anonymization-based erasure path · Consent Notice, Grievance Officer and DSR process · incident response and breach notification runbook · asset inventory and Record of Processing Activities · risk register.</p></div>
+    </div>
+
+    <div class="phase">
+      <div class="when">6 months</div>
+      <div><p>ISMS documentation set and internal audit · access reviews and supplier assessments · BCP/DR with tested restore · security awareness training · then engage a certification body for ISO 27001 Stage 1, and a CPA firm for SOC 2 Type I with a Type II observation window to follow.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <h2>Open questions</h2>
+      <p>Answers live outside this repository. The first two determine whether the critical findings are theoretical or live.</p>
+    </div>
+    <ol class="questions">
+      <li><div>Is <code>REQUIRE_AUTH=true</code> set in the production <code>secrets.env</code>?<em>Determines whether C-1 is theoretical or live.</em></div></li>
+      <li><div>Is <code>JWT_SECRET</code> overridden in production?<em>Determines whether every issued token is forgeable.</em></div></li>
+      <li><div>Where are <code>admin.bodh.biz</code> and <code>portal.bodh.biz</code> served from?<em>No nginx block exists for either — their TLS and header posture is unknown.</em></div></li>
+      <li><div>Has a backup restore ever been tested end to end?<em>RTO and RPO are unproven without it.</em></div></li>
+      <li><div>Who currently holds droplet, database and DigitalOcean Spaces access?<em>Needed for the access review; no record exists.</em></div></li>
+      <li><div>Do any current or prospective clients fall under RBI, SEBI or EU jurisdiction?<em>Determines whether the flow-down and GDPR rows become live obligations.</em></div></li>
+      <li><div>Is there an existing DPA or security schedule with client organizations?<em>Determines your controller/processor position under DPDP.</em></div></li>
+    </ol>
+  </section>
+
+  <footer>
+    <p>Prepared from static analysis of commit <code>b4b335ff</code>. Findings marked <em>verify</em> require confirmation on the production host before being treated as confirmed or dismissed.</p>
+    <p>This report covers technical and organizational security controls. It is not legal advice — confirm DPDP obligations and commencement dates with counsel.</p>
+  </footer>
+
+</div>

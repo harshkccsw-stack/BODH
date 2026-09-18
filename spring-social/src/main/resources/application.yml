@@ -36,7 +36,7 @@ spring:
       on-profile: development
 
   datasource:
-    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3310}/${DB_NAME:bodhpsychometric}?createDatabaseIfNotExist=true&allowPublicKeyRetrieval=true&useSSL=false&serverTimezone=UTC
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:bodhpsychometric}?createDatabaseIfNotExist=true&allowPublicKeyRetrieval=true&useSSL=false&serverTimezone=UTC
     username: ${DB_USERNAME:bodh}
     password: ${DB_PASSWORD:bodh}
     driver-class-name: com.mysql.cj.jdbc.Driver
@@ -141,6 +141,12 @@ app:
     # A property, not a code change, so switching it on — and rolling it back
     # — is a restart. Flip with REQUIRE_AUTH=true.
     require-auth: ${REQUIRE_AUTH:false}
+  sync:
+    # The shared secret MemoryMesh presents in X-Sync-Key when it mirrors a
+    # respondent it has just created (POST /api/sync/memorymesh/respondents).
+    # BLANK means the endpoint answers 403 to everyone — mirroring is opt-in
+    # per environment, and the same value goes in MemoryMesh's BODH_SYNC_KEY.
+    memorymesh-key: ${MEMORYMESH_SYNC_KEY:}
   activity:
     # The activity trail records EVERY request, reads included, so three knobs
     # matter operationally:
@@ -225,7 +231,7 @@ spring:
       port: ${REDIS_PORT:6379}
       password: ${REDIS_PASSWORD:}
       timeout: 2s
-      connect-timeout: 2s
+      connect-timeout: 2s 
 
   # ── Schema changes ──────────────────────────────────────────────────────
   # V1 is the current model's full schema. An empty database is built by it;
@@ -299,6 +305,12 @@ app:
     # A property, not a code change, so switching it on — and rolling it back
     # — is a restart. Flip with REQUIRE_AUTH=true.
     require-auth: ${REQUIRE_AUTH:false}
+  sync:
+    # The shared secret MemoryMesh presents in X-Sync-Key when it mirrors a
+    # respondent it has just created (POST /api/sync/memorymesh/respondents).
+    # BLANK means the endpoint answers 403 to everyone — mirroring is opt-in
+    # per environment, and the same value goes in MemoryMesh's BODH_SYNC_KEY.
+    memorymesh-key: ${MEMORYMESH_SYNC_KEY:}
   activity:
     # The activity trail records EVERY request, reads included, so three knobs
     # matter operationally:

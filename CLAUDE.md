@@ -72,6 +72,32 @@ re-read a file before editing; expect it to have changed):
   mid-loop still COMMITS what was saved).
 - No security on new endpoints yet (manual JWT in DashboardAuthController;
   no Spring Security filter). Remember when adding sensitive endpoints.
+- MemoryMesh mirror (2026-09-15): `POST /api/sync/memorymesh/respondents`
+  (`MemoryMeshSyncController` → `MemoryMeshSyncService`) creates a User +
+  RespondentUser for a respondent MemoryMesh has just created. Server-to-server:
+  on `ActorFilter`'s public list, locked by the `X-Sync-Key` header against
+  `app.sync.memorymesh-key` (`MEMORYMESH_SYNC_KEY`); blank key = 403 for all.
+  Same rules as `PortalRegistrationService` — fill blanks, never overwrite,
+  dob mismatch is a 409 — and the same identity minimum (gender required).
+  dob is ISO on this wire, deliberately, unlike the dd-MM-yyyy forms.
+- `V26__baseline_questions.sql` (2026-09-15) created `baseline_question` /
+  `baseline_answer` for a MemoryMesh feature that was removed the same day. The
+  migration is applied and must stay; the empty tables remain until a drop
+  migration is decided; the code is under `deleted/`.
+- Two more doors (2026-09-15), same lock: `POST /api/sync/memorymesh/auth/verify`
+  (`MemoryMeshAuthController`) checks email / employee id / phone pair + dob the
+  way the portal login does and returns the PROFILE, no token — MemoryMesh's
+  sign-in falls back to it and creates its own copy; and
+  `GET /api/sync/memorymesh/assessments[/{id}]` (`MemoryMeshAssessmentController`)
+  lists assessments and flattens one via `PortalContentService.contentOf` for
+  MemoryMesh's "import from BodhAssess" — read-only.
+- Attempts back (2026-09-15): `POST /api/sync/memorymesh/attempts`
+  (`MemoryMeshAttemptController` → `MemoryMeshAttemptSyncService`) stores a
+  completed attempt of an assessment MemoryMesh imported from here: person
+  find-or-create, one allotment per (respondent, assessment), answers
+  replace-all like `AssessmentSubmissionWriter`, COMPLETED + persisted — so the
+  Reports pages show it. Questions arrive by our id; options and rows by
+  POSITION in our sorted list (what the import copied), ids also accepted.
 
 ## Domain decisions (locked)
 

@@ -10,7 +10,19 @@
             "request": "launch",
             "mainClass": "com.bodhpsychometric.BodhpsychometricApplication",
             "projectName": "bodhpsychometric",
+<<<<<<< HEAD
+            // Carries MEMORYMESH_SYNC_KEY, which SyncKeyGuard compares against
+            // the X-Sync-Key header MemoryMesh presents. Blank or unset means
+            // 403 for every /api/sync/memorymesh/** call — an environment that
+            // never set it up has nothing listening, rather than a door with no
+            // lock. It must equal MemoryMesh's BODH_SYNC_KEY.
+            //
+            // An envFile, not an "env" block: this file is tracked in git and a
+            // shared secret does not belong in it. secrets.env is gitignored.
+            "envFile": "${workspaceFolder}/secrets.env"
+=======
             "cwd": "${workspaceFolder}/spring-social"
+>>>>>>> ca21611118bb2e2277170dba9c725a1719fcfabe
         },
         {
             "type": "java",
