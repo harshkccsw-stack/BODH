@@ -1,0 +1,196 @@
+<html>
+<head>
+<meta charset="utf-8"/>
+<style>
+  /* CSS 2.1 only — OpenHTMLtoPDF has no flexbox, no grid and no JavaScript.
+     Everything here is tables, deliberately: this layout is a grid of boxes
+     and a table is the only construct the renderer draws one with. */
+
+  @page {
+    size: A4;
+    margin: 18mm 15mm 20mm 15mm;
+    /* A margin box does NOT inherit body's font. Without this the page number
+       renders in an unembedded fallback and any non-Latin glyph becomes a box. */
+    @bottom-center {
+      content: "Page " counter(page) " of " counter(pages);
+      font-family: "Noto Sans Devanagari", sans-serif;
+      font-size: 8pt;
+      color: #6b7280;
+    }
+  }
+
+  body {
+    font-family: "Noto Sans Devanagari", sans-serif;
+    font-size: 10pt;
+    line-height: 1.45;
+    color: #111827;
+    margin: 0;
+  }
+
+  h1 { font-size: 16pt; margin: 0 0 2pt 0; }
+  .subtitle { color: #6b7280; font-size: 9pt; margin: 0 0 12pt 0; }
+
+  /* One shared grid look for every table on the page. */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0 0 14pt 0;
+    font-size: 9.5pt;
+  }
+  td, th { border: 1px solid #9ca3af; padding: 4pt 7pt; vertical-align: top; }
+
+  /* The banner row that names a table (RESULTS, VALIDITY, ...). */
+  .caption td {
+    font-weight: bold;
+    background: #eef2f7;
+    letter-spacing: 0.03em;
+  }
+
+  .label { width: 62%; }
+  .value { width: 38%; text-align: right; }
+
+  /* The composite line is the one number a reader looks for first. */
+  .total td { font-weight: bold; background: #f9fafb; }
+
+  /* Validity verdicts read left-aligned — they are words, not quantities. */
+  .validity .value { text-align: left; }
+
+  /* Step 4 bands: three columns, so the cutoff is visible beside the label. */
+  .bands .band-name { width: 28%; font-weight: bold; }
+  .bands .band-range { width: 24%; }
+  .bands th {
+    background: #eef2f7;
+    font-weight: bold;
+    text-align: left;
+    font-size: 9pt;
+  }
+
+  .band-line {
+    border: 1px solid #9ca3af;
+    background: #f3f4f6;
+    padding: 8pt 10pt;
+    margin: 0 0 14pt 0;
+    font-size: 11pt;
+  }
+  .band-line .band-value { font-weight: bold; }
+
+  .footnote {
+    margin-top: 16pt;
+    padding-top: 6pt;
+    border-top: 1px solid #e5e7eb;
+    font-size: 7.5pt;
+    color: #9ca3af;
+  }
+</style>
+</head>
+<body>
+
+  <h1>Academic Drive &#8212; Individual Report</h1>
+  <p class="subtitle">${assessment_name} &#183; prepared ${report_date}</p>
+
+  <!-- 1. Respondent and organization. -->
+  <table class="identity">
+    <tr class="caption"><td colspan="2">RESPONDENT</td></tr>
+    <tr>
+      <td class="label">Name</td>
+      <td class="value">${respondent_name}</td>
+    </tr>
+    <tr>
+      <td class="label">Organization</td>
+      <td class="value">${organization}</td>
+    </tr>
+  </table>
+
+  <!-- 2. Factor scores and the composite, laid out as in the scoring sheet:
+       the printed range is part of the label so a score is never read without
+       the scale it sits on. -->
+  <table class="scores">
+    <tr class="caption"><td colspan="2">RESULTS</td></tr>
+    <tr>
+      <td class="label">Internal Drive (4&#8211;20)</td>
+      <td class="value">${internal_drive}</td>
+    </tr>
+    <tr>
+      <td class="label">Sustained Tenacity (4&#8211;20)</td>
+      <td class="value">${sustained_tenacity}</td>
+    </tr>
+    <tr>
+      <td class="label">Adaptive Execution (4&#8211;20)</td>
+      <td class="value">${adaptive_execution}</td>
+    </tr>
+    <tr class="total">
+      <td class="label">COMPOSITE Academic Drive (12&#8211;60)</td>
+      <td class="value">${composite_score}</td>
+    </tr>
+  </table>
+
+  <!-- 4. Validity checks 1.1 to 1.4, below the results table. Each prints its
+       own verdict (OK / INVALID / NONE / SOFT / STRONG); a valid protocol
+       still prints the row, so a missing check is visible as a blank cell
+       rather than as silence. -->
+  <table class="validity">
+    <tr class="caption"><td colspan="2">VALIDITY</td></tr>
+    <tr>
+      <td class="label">Validity: Infrequency</td>
+      <td class="value">${validity_infrequency}</td>
+    </tr>
+    <tr>
+      <td class="label">Validity: Straight-lining</td>
+      <td class="value">${validity_straight_lining}</td>
+    </tr>
+    <tr>
+      <td class="label">Validity: Speed check</td>
+      <td class="value">${validity_speed_check}</td>
+    </tr>
+    <tr>
+      <td class="label">Validity: Social Desirability</td>
+      <td class="value">${validity_social_desirability}</td>
+    </tr>
+  </table>
+
+  <!-- 5. The four Step-4 outcomes as a table. All four rows always print —
+       this is the interpretation key. The rules behind the Reading cells fill
+       in only on the row the respondent landed in and render empty on the
+       others, so the matched band is visible without a separate marker
+       column. The low-factor callout is independent of the band, so it is a
+       row here rather than part of the ladder above it. -->
+  <table class="bands">
+    <tr>
+      <th class="band-name">Band</th>
+      <th class="band-range">Composite</th>
+      <th>Reading</th>
+    </tr>
+    <tr>
+      <td class="band-name">High Drive</td>
+      <td class="band-range">48&#8211;60</td>
+      <td>${band_high_drive}</td>
+    </tr>
+    <tr>
+      <td class="band-name">Moderate Drive</td>
+      <td class="band-range">34&#8211;47</td>
+      <td>${band_moderate_drive}</td>
+    </tr>
+    <tr>
+      <td class="band-name">Developing Drive</td>
+      <td class="band-range">12&#8211;33</td>
+      <td>${band_developing_drive}</td>
+    </tr>
+    <tr>
+      <td class="band-name">Low-factor callout</td>
+      <td class="band-range">any factor &#8804; 9</td>
+      <td>${band_low_factor_callout}</td>
+    </tr>
+  </table>
+
+  <!-- 3. The band itself, as text, at the bottom of all the tables. -->
+  <p class="band-line">Band: <span class="band-value">${drive_band}</span></p>
+
+  <p class="footnote">
+    Interpretation bands are provisional and will be replaced with percentile
+    norms once 150&#8211;200 valid pilot responses are collected. Scores are
+    computed from the responses given on ${report_date} and describe this
+    assessment only.
+  </p>
+
+</body>
+</html>

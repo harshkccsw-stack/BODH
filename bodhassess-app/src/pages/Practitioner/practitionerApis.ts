@@ -22,7 +22,10 @@ export interface PractitionerPayload {
   email: string;
   /** dd-MM-yyyy (wire format everywhere) — doubles as the login password. */
   dob: string;
-  phone: string | null;
+  /** Dial code with the '+', e.g. "+91". Required, like a respondent's. */
+  phoneCountryCode: string;
+  /** National number, digits only — no country code, no leading 0. */
+  phone: string;
   /** Null defaults to ACTIVE on the backend. */
   practitionerStatus: PractitionerStatus | null;
   vertical: Vertical | null;
@@ -38,6 +41,8 @@ export interface PractitionerResponse {
   email: string;
   /** dd-MM-yyyy, same format the payload sends. */
   dob: string;
+  /** Null on any row written before the phone split — see splitStoredPhone. */
+  phoneCountryCode: string | null;
   phone: string | null;
   practitionerStatus: PractitionerStatus;
   vertical: Vertical | null;

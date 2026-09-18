@@ -298,10 +298,9 @@ export default function RegisterTokenPage() {
 
                 {/* The one hint that has to stay: the dob is the password. */}
                 <Field label="Date of Birth *" hint="Also your sign-in password — keep it safe.">
-                  {/* Typed or picked — see DobInput. Typing stays the fast
-                      path for a birthday; the calendar is there for anyone who
-                      would rather point at one, and it cannot offer a future
-                      date. */}
+                  {/* Typed or picked — see DobInput. Typing is the route
+                      that works on every browser, which matters more here than
+                      anywhere: this date is the sign-in password. */}
                   <DobInput
                     value={form.dob}
                     onChange={(dob) => setForm({ ...form, dob })}

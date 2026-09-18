@@ -4,20 +4,27 @@ import { useRef } from 'react';
 /**
  * Date-of-birth field that can be TYPED or PICKED.
  *
- * The visible control stays a plain text input, auto-formatting digits into
+ * The visible control is a plain text input, auto-formatting digits into
  * DD/MM/YYYY as they are entered — for a birthday, typing is nearly always
  * faster than paging a calendar back thirty years, and this is the field most
  * respondents fill in on a phone. The calendar button beside it opens the
  * browser's own date picker for anyone who would rather point at a date, and
  * writes the result back into the same text.
  *
+ * It was briefly picker-only. That was reverted on purpose: on a browser
+ * without `showPicker()` (Chrome/Edge < 99, Firefox < 101, Safari < 16) the
+ * calendar may not open at all, and with typing disabled the field then could
+ * not be filled by any means — a registration link that simply does not work,
+ * on exactly the old phones a respondent is most likely to be holding. Typing
+ * is the route that always works, so it stays.
+ *
  * Both routes end at one string in one piece of state, so validation has a
  * single thing to check and the parent form is unchanged either way.
  *
- * The native picker carries `min`/`max`, so the calendar cannot even offer a
- * date the rule would reject. That is a convenience, not the enforcement —
- * typing bypasses it entirely, which is why the form still validates and the
- * server still validates after that.
+ * The picker carries `min`/`max` — 1900-01-01 to ten years before today — so
+ * the calendar cannot offer a date outside the range. That is a convenience,
+ * not the enforcement: typing bypasses it, which is why the form still
+ * validates and the server still validates after that.
  *
  * Duplicated verbatim between bodhassess-app and bodhassess-portal (separate
  * packages, no shared module) — the only difference between the two is the
@@ -26,11 +33,36 @@ import { useRef } from 'react';
 
 const EARLIEST_ISO = '1900-01-01';
 
-const todayIso = () => {
+/**
+ * Nobody younger than this may be registered, so the calendar stops ten years
+ * short of today rather than at today.
+ *
+ * This is the PICKER's bound, not the system's: the server's `@BirthDate` still
+ * accepts anything from 1900 up to today, deliberately — it has to keep taking
+ * the dates of respondents saved before this rule, and of the XLSX sheet, which
+ * never passes through this control.
+ */
+const MIN_AGE_YEARS = 10;
+
+const iso = (year: number, month: number, day: number) =>
+  `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+
+/**
+ * Today minus {@link MIN_AGE_YEARS}. Computed on each render rather than at
+ * module load: a tab left open across midnight would otherwise keep offering
+ * yesterday's bound.
+ *
+ * The day is clamped to the target month's length, which matters exactly once
+ * every four years — on 29 February the naive answer is 29 February of a
+ * non-leap year, and the Date constructor silently rolls that forward to 1
+ * March, widening the bound by a day instead of narrowing it.
+ */
+const latestIso = () => {
   const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(
-    now.getDate(),
-  ).padStart(2, '0')}`;
+  const year = now.getFullYear() - MIN_AGE_YEARS;
+  const month = now.getMonth() + 1;
+  const daysInMonth = new Date(year, month, 0).getDate();
+  return iso(year, month, Math.min(now.getDate(), daysInMonth));
 };
 
 export interface DobInputProps {
@@ -79,7 +111,7 @@ export function DobInput({
 
   const openPicker = () => {
     const el = pickerRef.current;
-    if (!el) return;
+    if (!el || disabled) return;
     // showPicker is the supported way to open a date picker from another
     // control. Where it is missing or refuses (older browsers, or a call the
     // engine does not count as user-initiated), .click() still opens it in
@@ -125,7 +157,7 @@ export function DobInput({
         aria-hidden="true"
         value={toIso(value)}
         min={EARLIEST_ISO}
-        max={todayIso()}
+        max={latestIso()}
         onChange={(e) => {
           const iso = e.target.value;
           if (!iso) return;

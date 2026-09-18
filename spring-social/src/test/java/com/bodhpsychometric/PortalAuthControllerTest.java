@@ -84,7 +84,8 @@ class PortalAuthControllerTest {
         mvc.perform(post("/api/practitioners/create")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"Portal Pract\",\"email\":\"portal.pract@test.local\",\"dob\":\"01-02-1980\","
-                                + "\"phone\":\"+91 90000 00000\",\"practitionerStatus\":null,\"vertical\":null,\"organizationId\":null}"))
+                                + "\"phoneCountryCode\":\"+91\",\"phone\":\"9000000000\","
+                                + "\"practitionerStatus\":null,\"vertical\":null,\"organizationId\":null}"))
                 .andExpect(status().isCreated());
 
         mvc.perform(post("/api/portal/login")

@@ -442,9 +442,9 @@ export default function RespondentsPage() {
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-sm font-medium">Date of Birth *</label>
-                  {/* Typed or picked. Typing stays the fast path for a
-                      birthday; the calendar is for anyone who would rather
-                      point at one, and it cannot offer a future date. */}
+                  {/* Typed or picked — see DobInput. Typing stays the fast
+                      path for a birthday; the calendar is for anyone who would
+                      rather point at one, and stops ten years short of today. */}
                   <DobInput
                     value={form.dob}
                     onChange={(dob) => setForm({ ...form, dob })}

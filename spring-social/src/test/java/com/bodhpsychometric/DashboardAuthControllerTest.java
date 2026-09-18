@@ -77,7 +77,8 @@ class DashboardAuthControllerTest {
         mvc.perform(post("/api/practitioners/create")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"Pract\",\"email\":\"pract@test.local\",\"dob\":\"05-06-1985\","
-                                + "\"phone\":\"+91 90000 00000\",\"practitionerStatus\":null,\"vertical\":null,\"organizationId\":null}"))
+                                + "\"phoneCountryCode\":\"+91\",\"phone\":\"9000000000\","
+                                + "\"practitionerStatus\":null,\"vertical\":null,\"organizationId\":null}"))
                 .andExpect(status().isCreated());
 
         mvc.perform(post("/api/auth/login")
