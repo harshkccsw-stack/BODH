@@ -1413,6 +1413,13 @@ export default function CreateAssessmentPage() {
                     ...prev,
                     ...created.filter((c) => !prev.some((p) => p.sectionId === c.sectionId)),
                   ]),
+                // An upload can discover that the sheet is sectioned when the
+                // questionnaire is not. Same switch as the Add Section button
+                // makes, minus the first section: the import creates those.
+                enableSections: async () => {
+                  await questionnairesApi.updateQuestionnaire(backendQid, questionnairePayload(true));
+                  setUseSections(true);
+                },
               }}
             />
           )}

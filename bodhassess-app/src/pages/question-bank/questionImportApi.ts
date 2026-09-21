@@ -66,6 +66,15 @@ export interface DuplicateStem {
   method: 'EXACT' | 'NORMALISED';
 }
 
+/**
+ * Matches SheetMappingResponse.SkippedRow — a row that was read but could not
+ * become a question. Not a failure: the rest of the sheet still imports.
+ */
+export interface SkippedRow {
+  row: number;
+  why: string;
+}
+
 /** Matches SheetMappingResponse. `rows` are rows of the ordinary questions template. */
 export interface SheetMappingResponse {
   ok: boolean;
@@ -78,6 +87,10 @@ export interface SheetMappingResponse {
   duplicates: DuplicateStem[];
   warnings: string[];
   blockers: string[];
+  /** Rows left out of the import, with the reason for each. */
+  skipped: SkippedRow[];
+  /** Headers of the question sheet that the reading never used. */
+  unusedColumns: string[];
   confident: boolean;
   questions: string[];
   model: string;

@@ -265,6 +265,12 @@ export interface QuestionnaireUploadTarget {
   onCreated: (created: QuestionResponse[], sectionIds: (number | null)[]) => Promise<void> | void;
   /** Sections the AI route created on its way in, so the page can show them. */
   onSectionsCreated?: (created: SectionResponse[]) => void;
+  /**
+   * Turn sections ON for this questionnaire. Offered when a foreign sheet
+   * turns out to name sections and the questionnaire does not have them —
+   * the alternative is dropping that part of the author's work in silence.
+   */
+  enableSections?: () => Promise<void>;
 }
 
 export function BulkUploadModal({
@@ -530,13 +536,17 @@ export function BulkUploadModal({
               onBusyChange={setAiBusy}
               onBack={() => setStep('fork')}
               notes={aiNotes.trim() || undefined}
-              // Only a SECTIONED target gets the section step — the bank page
-              // and flat questionnaires take questions with no section at all.
-              questionnaire={sectioned && questionnaire
+              // Every questionnaire target goes through, sectioned or not: a
+              // flat one still has to be TOLD that its sheet names sections,
+              // and offered the switch, rather than dropping them quietly.
+              // Only the bank page (no questionnaire at all) opts out.
+              questionnaire={questionnaire
                 ? {
                   questionnaireId: questionnaire.questionnaireId,
+                  hasSections: questionnaire.hasSections,
                   sections: questionnaire.sections,
                   onSectionsCreated: questionnaire.onSectionsCreated,
+                  enableSections: questionnaire.enableSections,
                 }
                 : undefined}
               onImported={async (created, sectionIds) => {

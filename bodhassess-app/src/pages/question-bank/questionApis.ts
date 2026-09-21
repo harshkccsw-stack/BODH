@@ -265,6 +265,21 @@ function deleteQuestion(id: number) {
   return api.delete<void>(`/questions/delete/${id}`);
 }
 
+/** Matches the 409 body of bulk-delete — which questions stopped the call. */
+export interface BlockedQuestion {
+  questionId: number;
+  message: string;
+}
+
+/**
+ * Delete several at once. All-or-nothing: if any of them has responses or
+ * sits in a questionnaire the server deletes nothing and the 409 body names
+ * them in `blocked`.
+ */
+function bulkDeleteQuestions(questionIds: number[]) {
+  return api.post<{ deleted: number }>('/questions/bulk-delete', { questionIds });
+}
+
 //question wrt questionnaire apis
 function getQuestionsByQuestionnaireId(questionnaireId: number) {
   return api.get<QuestionResponse[]>(`/questions/getByQuestionnaireId/${questionnaireId}`);
@@ -278,5 +293,6 @@ export const questionApis = {
   bulkCreateQuestions,
   updateQuestion,
   deleteQuestion,
+  bulkDeleteQuestions,
   getQuestionsByQuestionnaireId,
 };

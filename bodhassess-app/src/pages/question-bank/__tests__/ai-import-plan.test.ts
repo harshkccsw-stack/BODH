@@ -2,10 +2,13 @@ import { describe, expect, it } from 'vitest';
 import {
   buildImportPlan,
   defaultDecision,
+  diffFacts,
+  readingFacts,
   groupPathsByRoot,
   groupSheetSections,
   renameKeys,
   sectionIdsForRows,
+  sectionInstructions,
   needsAttention,
   pathResolver,
   reanchoredKey,
@@ -233,5 +236,86 @@ describe('renameKeys', () => {
     expect(renameKeys(paths, `Tenacity${SEP}Self-Efficacy`, 0, '   ')).toEqual([]);
     expect(renameKeys(paths, `Tenacity${SEP}Self-Efficacy`, 0, 'Tenacity')).toEqual([]);
     expect(renameKeys(paths, `Tenacity${SEP}Self-Efficacy`, 5, 'Whatever')).toEqual([]);
+  });
+});
+
+describe('readingFacts / diffFacts', () => {
+  const reading = (over: Record<string, unknown> = {}) => ({
+    ok: true,
+    sheet: 'Items',
+    summary: '',
+    spec: {
+      columns: { stem: 'Statement', path: ['Factor'], section: null },
+      options: { mode: 'COLUMNS', columns: [1, 2, 3] },
+      scoring: { mode: 'OPTION_VALUE_TO_ROW_MQT' },
+    },
+    rows: [{ stem: 'a' }, { stem: 'b' }],
+    sources: [],
+    paths: [],
+    duplicates: [],
+    warnings: [],
+    blockers: [],
+    confident: true,
+    questions: [],
+    model: 'x',
+    ...over,
+  }) as any;
+
+  it('reads the handful of facts a person checks', () => {
+    expect(readingFacts(reading())).toMatchObject({
+      Sheet: 'Items',
+      Questions: '2',
+      'Question text': 'Statement',
+      Options: 'COLUMNS (3)',
+      Quality: 'Factor',
+      Section: '—',
+      Problems: '0',
+    });
+  });
+
+  it('names only what a correction actually changed', () => {
+    const before = readingFacts(reading({ rows: [], blockers: ['nope'] }));
+    const after = readingFacts(reading({
+      spec: {
+        columns: { stem: 'Question Text', path: ['Factor'], section: null },
+        options: { mode: 'COLUMNS', columns: [1, 2, 3] },
+        scoring: { mode: 'OPTION_VALUE_TO_ROW_MQT' },
+      },
+    }));
+    expect(diffFacts(before, after)).toEqual([
+      { label: 'Questions', from: '0', to: '2' },
+      { label: 'Question text', from: 'Statement', to: 'Question Text' },
+      { label: 'Problems', from: '1', to: '0' },
+    ]);
+  });
+
+  it('says nothing when the reading came back the same', () => {
+    expect(diffFacts(readingFacts(reading()), readingFacts(reading()))).toEqual([]);
+  });
+});
+
+describe('sectionInstructions', () => {
+  const spec = {
+    sections: {
+      55: { name: 'Welcome & Consent', instruction: 'Navigator Pro is a guidance tool.' },
+      56: { name: 'Evolution', instruction: '  ' },
+      57: { name: '', instruction: 'orphan' },
+    },
+  };
+
+  it('re-keys the sheet ids by section name, which is what the rows carry', () => {
+    const out = sectionInstructions(spec);
+    expect(out.get('welcome & consent')).toBe('Navigator Pro is a guidance tool.');
+  });
+
+  it('keeps out entries with nothing to say', () => {
+    const out = sectionInstructions(spec);
+    expect(out.has('evolution')).toBe(false);
+    expect(out.size).toBe(1);
+  });
+
+  it('is empty for a sheet that named no sections', () => {
+    expect(sectionInstructions(undefined).size).toBe(0);
+    expect(sectionInstructions({}).size).toBe(0);
   });
 });

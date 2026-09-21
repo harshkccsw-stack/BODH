@@ -199,6 +199,10 @@ public class SheetMappingService {
                 duplicates(expansion),
                 expansion.warnings(),
                 expansion.blockers(),
+                expansion.skipped().stream()
+                        .map(s -> new SheetMappingResponse.SkippedRow(s.row(), s.why()))
+                        .toList(),
+                expansion.unusedColumns(),
                 spec != null && spec.isConfident(),
                 spec == null || spec.questions() == null ? List.of() : spec.questions(),
                 openAi.model());
@@ -342,7 +346,7 @@ public class SheetMappingService {
     private Run runAgainstSheet(SheetMappingSpec spec, SheetMappingRequest request) {
         if (spec == null) {
             return new Run(new Expansion(List.of(), new LinkedHashMap<>(), List.of(),
-                    List.of("The mapping could not be read.")), null);
+                    List.of("The mapping could not be read."), List.of(), List.of()), null);
         }
         String wanted = CanonicalRowExpander.normalise(spec.sheet());
         SheetMappingRequest.SheetCsv chosen = request.sheets().stream()
@@ -352,7 +356,7 @@ public class SheetMappingService {
         if (chosen == null) {
             return new Run(new Expansion(List.of(), new LinkedHashMap<>(), List.of(),
                     List.of("The mapping describes a sheet called \"" + spec.sheet()
-                            + "\", which is not in this workbook.")), spec.sheet());
+                            + "\", which is not in this workbook."), List.of(), List.of()), spec.sheet());
         }
         return new Run(CanonicalRowExpander.expand(spec, ScoringSheetParser.readCsv(
                 chosen.csv() == null ? "" : chosen.csv())), chosen.name());
@@ -420,8 +424,10 @@ public class SheetMappingService {
                     "reverse": "<reverse-scoring flag column, if any>",
                     "excludeFromComposite": null,
                     "risk": null,
-                    "section": null
+                    "section": "<the column saying which section/part the question is in, if any>"
                   },
+                  "sections": {"55": {"name": "Welcome & Consent", "instruction": "<what the \
+                  student is told before this section, if the workbook says>"}},
                   "options": {
                     "mode": "COLUMNS | SHARED_SCALE | SCALE_COLUMN | PER_ROW_TEXT",
                     "evidence": "<where you found the options, e.g. 'the note on row 20'>",
@@ -440,6 +446,11 @@ public class SheetMappingService {
                   "confident": true,
                   "questions": []
                 }
+
+                columns.section and sections
+                - A workbook that groups its questions into parts usually has a column for it.                 Name that column in columns.section.
+                - When that column holds an ID or a code rather than a name, look for the tab                 that maps the codes to names — it is usually called something like "Section                 Instructions" — and fill "sections" with one entry per code. The KEY is the                 value exactly as it appears in the question rows ("55"), the name is what a                 student would see, and the instruction is that section's own preamble if the                 workbook has one.
+                - Leave "sections" null when the section column already holds names, and leave                 both null when the sheet has no sections at all. Never invent sections that the                 workbook does not name.
 
                 options.mode
                 - COLUMNS: each answer option has its own column.

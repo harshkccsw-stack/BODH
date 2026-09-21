@@ -1,6 +1,11 @@
 import type { MqtChoice } from './question-form-modal';
 import type { MqtKeyResolver } from './question-sheet-rules';
-import type { NewQuality, NewQualityType, PathProposal } from './questionImportApi';
+import type {
+  NewQuality,
+  NewQualityType,
+  PathProposal,
+  SheetMappingResponse,
+} from './questionImportApi';
 
 // ── From the reviewer's decisions to an import payload, with NO runtime
 // imports ───────────────────────────────────────────────────────────────────
@@ -300,6 +305,74 @@ export function renameKeys(
     const next = [...parts];
     next[segmentIndex] = name;
     out.push({ from: path.pathKey, to: next.join(SEP) });
+  }
+  return out;
+}
+
+/* ===================== what a re-read changed ===================== */
+
+/**
+ * The handful of facts that say how a sheet was read, in the order a person
+ * checks them. Derived from the response rather than asked of the model, for
+ * the same reason the summary paragraph is: a model describing its own answer
+ * describes what it meant to do.
+ */
+export type ReadingFacts = Record<string, string>;
+
+export interface FactChange {
+  label: string;
+  from: string;
+  to: string;
+}
+
+export function readingFacts(res: SheetMappingResponse): ReadingFacts {
+  const spec = (res.spec ?? {}) as {
+    columns?: { stem?: string | null; path?: string[] | null; section?: string | null };
+    options?: { mode?: string | null; columns?: unknown[] | null };
+    scoring?: { mode?: string | null };
+  };
+  const mode = spec.options?.mode ?? null;
+  const optionColumns = spec.options?.columns?.length ?? 0;
+  return {
+    Sheet: res.sheet || '—',
+    Questions: String(res.rows?.length ?? 0),
+    'Question text': spec.columns?.stem || '—',
+    Options: mode
+      ? mode === 'COLUMNS' ? `${mode} (${optionColumns})` : mode
+      : '—',
+    Quality: spec.columns?.path?.length ? spec.columns.path.join(SEP) : '—',
+    Section: spec.columns?.section || '—',
+    Scoring: spec.scoring?.mode || '—',
+    'Rows left out': String(res.skipped?.length ?? 0),
+    Problems: String(res.blockers?.length ?? 0),
+  };
+}
+
+/** Every fact that reads differently after a correction. Empty means it came back the same. */
+export function diffFacts(before: ReadingFacts, after: ReadingFacts): FactChange[] {
+  const labels = [...new Set([...Object.keys(before), ...Object.keys(after)])];
+  return labels
+    .filter((label) => (before[label] ?? '—') !== (after[label] ?? '—'))
+    .map((label) => ({ label, from: before[label] ?? '—', to: after[label] ?? '—' }));
+}
+
+/**
+ * Section instructions the sheet carried, by section NAME (lowercased, the
+ * key `groupSheetSections` produces).
+ *
+ * <p>The spec's dictionary is keyed by the sheet's own section ID, because
+ * that is what the question rows hold; by the time a section is being created
+ * the rows carry names, so it is re-keyed by name here. A section created
+ * from a workbook that stated its preamble should arrive with it.
+ */
+export function sectionInstructions(spec: unknown): Map<string, string> {
+  const out = new Map<string, string>();
+  const dictionary = (spec as { sections?: Record<string, { name?: string; instruction?: string }> })?.sections;
+  if (!dictionary) return out;
+  for (const entry of Object.values(dictionary)) {
+    const name = (entry?.name ?? '').trim().toLowerCase();
+    const instruction = (entry?.instruction ?? '').trim();
+    if (name && instruction && !out.has(name)) out.set(name, instruction);
   }
   return out;
 }

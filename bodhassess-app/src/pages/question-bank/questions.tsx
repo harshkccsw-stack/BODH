@@ -41,6 +41,7 @@ import {
 // question-bulk-upload.tsx for the same reason — Step 2 uploads with the
 // SAME template, additionally consuming the section column ignored here.
 import { BulkUploadModal } from './question-bulk-upload';
+import type { BlockedQuestion } from './questionApis';
 
 export default function QuestionsPage() {
   const [questions, setQuestions] = useState<QuestionResponse[]>([]);
@@ -58,6 +59,18 @@ export default function QuestionsPage() {
   const [confirmDelete, setConfirmDelete] = useState<QuestionResponse | null>(null);
   const [deleteError, setDeleteError] = useState('');
   const [uploadOpen, setUploadOpen] = useState(false);
+
+  /*
+   * Multi-select. Ids, not rows: the list is re-fetched after every write and
+   * re-filtered as you type, and a selection of objects would quietly go
+   * stale against both. Ids that leave the list stay selected but count for
+   * nothing — `selectedHere` is what the toolbar acts on.
+   */
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [confirmBulk, setConfirmBulk] = useState(false);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkError, setBulkError] = useState('');
+  const [bulkBlocked, setBulkBlocked] = useState<BlockedQuestion[]>([]);
 
   const refresh = async (showLoading = false) => {
     setLoadError('');
@@ -95,6 +108,58 @@ export default function QuestionsPage() {
   }, [questions, search]);
 
   const totalOptions = useMemo(() => questions.reduce((a, q) => a + q.options.length, 0), [questions]);
+
+  /** The selection as it applies to what is on screen right now. */
+  const selectedHere = useMemo(
+    () => filtered.filter((q) => selected.has(q.questionId)),
+    [filtered, selected],
+  );
+  const allShownSelected = filtered.length > 0 && selectedHere.length === filtered.length;
+
+  const toggleOne = (id: number) => setSelected((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    return next;
+  });
+
+  const toggleAllShown = () => setSelected((prev) => {
+    const next = new Set(prev);
+    if (allShownSelected) filtered.forEach((q) => next.delete(q.questionId));
+    else filtered.forEach((q) => next.add(q.questionId));
+    return next;
+  });
+
+  const clearSelection = () => setSelected(new Set());
+
+  /** Drop the ones the server refused, so the rest can go in one more click. */
+  const dropBlockedFromSelection = () => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      bulkBlocked.forEach((b) => next.delete(b.questionId));
+      return next;
+    });
+    setBulkBlocked([]);
+    setBulkError('');
+  };
+
+  const doBulkDelete = async () => {
+    if (selectedHere.length === 0) return;
+    setBulkBusy(true);
+    setBulkError('');
+    setBulkBlocked([]);
+    try {
+      await questionApis.bulkDeleteQuestions(selectedHere.map((q) => q.questionId));
+      setConfirmBulk(false);
+      clearSelection();
+      await refresh();
+    } catch (e: any) {
+      setBulkBlocked(e?.response?.data?.blocked ?? []);
+      setBulkError(e?.response?.data?.message || e?.message || 'Failed to delete');
+    } finally {
+      setBulkBusy(false);
+    }
+  };
 
   const openCreate = () => setEditing(null);
   const openEdit = (q: QuestionResponse) => setEditing(q);
@@ -215,6 +280,41 @@ export default function QuestionsPage() {
         </Card>
       ) : (
         <Card className="overflow-hidden">
+          {/* Select-all sits in the same column as the row checkboxes, and
+              turns into the bulk bar once anything is picked. */}
+          <div className="flex flex-wrap items-center gap-3 border-b border-border bg-muted/30 px-4 py-2">
+            <input
+              type="checkbox"
+              checked={allShownSelected}
+              ref={(el) => { if (el) el.indeterminate = selectedHere.length > 0 && !allShownSelected; }}
+              onChange={toggleAllShown}
+              className="h-4 w-4 shrink-0 rounded"
+              aria-label="Select every question shown"
+            />
+            <span className="text-xs text-muted-foreground">
+              {selectedHere.length > 0
+                ? `${selectedHere.length} selected`
+                : `${filtered.length} question${filtered.length === 1 ? '' : 's'}`}
+            </span>
+            {selectedHere.length > 0 && (
+              <div className="ml-auto flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={clearSelection}
+                  className="text-[0.6875rem] font-medium text-muted-foreground hover:text-foreground"
+                >
+                  Clear
+                </button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => { setBulkError(''); setBulkBlocked([]); setConfirmBulk(true); }}
+                >
+                  <Trash2 className="h-3.5 w-3.5 text-red-600" /> Delete {selectedHere.length}
+                </Button>
+              </div>
+            )}
+          </div>
           <ul className="divide-y divide-border">
             {filtered.map((q) => {
               const meta = contentMeta(q.contentType);
@@ -224,10 +324,25 @@ export default function QuestionsPage() {
               return (
                 <li
                   key={q.questionId}
-                  className="flex items-center justify-between gap-4 px-4 py-3 hover:bg-muted/40 transition-colors cursor-pointer"
+                  className={cn(
+                    'flex items-center gap-3 px-4 py-3 transition-colors cursor-pointer',
+                    selected.has(q.questionId) ? 'bg-primary/5' : 'hover:bg-muted/40',
+                  )}
                   onClick={() => openEdit(q)}
                 >
-                  <div className="min-w-0">
+                  <input
+                    type="checkbox"
+                    checked={selected.has(q.questionId)}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={() => toggleOne(q.questionId)}
+                    className="h-4 w-4 shrink-0 rounded"
+                    aria-label={`Select "${q.stem}"`}
+                  />
+                  {/* flex-1 is what stops the row spreading: without it the
+                      stem claims only its own width, justify-between pushes
+                      the badges to the far edge, and a question with six of
+                      them takes the buttons off the screen. */}
+                  <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium truncate">{q.stem}</p>
                     <div className="flex items-center gap-3 mt-0.5 text-xs text-muted-foreground">
                       <span className="shrink-0">
@@ -244,7 +359,9 @@ export default function QuestionsPage() {
                       )}
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
+                  {/* Badges give way — they wrap, then truncate — so the two
+                      actions on the right are always reachable. */}
+                  <div className="flex min-w-0 flex-wrap items-center justify-end gap-1.5">
                     {/* A scale's options are the points 1—5, so the list line
                         above reads "5 options · 1 · 2 · 3 · 4 …" — true, but
                         it takes a badge to recognise it as a scale. */}
@@ -312,6 +429,8 @@ export default function QuestionsPage() {
                       <Icon className="h-3 w-3" />
                       {meta.label}
                     </span>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1">
                     <Button
                       variant="ghost"
                       size="sm"
@@ -346,6 +465,67 @@ export default function QuestionsPage() {
           onClose={() => setEditing(undefined)}
           onSaved={async () => { await refresh(); setEditing(undefined); }}
         />
+      )}
+
+      {/* Bulk delete confirmation. All-or-nothing, so the interesting screen
+          is the second one: which questions stopped it, and one click to drop
+          them from the selection and delete the rest. */}
+      {confirmBulk && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={() => !bulkBusy && setConfirmBulk(false)}>
+          <Card className="w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+            <CardHeader className="flex flex-row items-center justify-between pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 text-red-500" />
+                Delete {selectedHere.length} question{selectedHere.length === 1 ? '' : 's'}
+              </CardTitle>
+              <button onClick={() => setConfirmBulk(false)} disabled={bulkBusy} className="text-muted-foreground hover:text-foreground disabled:opacity-40"><X className="h-4 w-4" /></button>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {bulkError && (
+                <div className="rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-3 py-2 text-xs text-red-700 dark:text-red-400 flex items-start gap-2">
+                  <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  <span>{bulkError}</span>
+                </div>
+              )}
+              {bulkBlocked.length > 0 && (
+                <div className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-border p-2">
+                  {bulkBlocked.map((b) => {
+                    const q = questions.find((x) => x.questionId === b.questionId);
+                    return (
+                      <p key={b.questionId} className="text-xs">
+                        <span className="font-medium">{q ? q.stem : `Question ${b.questionId}`}</span>
+                        <span className="text-muted-foreground"> — {b.message}</span>
+                      </p>
+                    );
+                  })}
+                </div>
+              )}
+              <p className="text-sm">
+                {bulkBlocked.length > 0 ? (
+                  <>Nothing was deleted. Drop those {bulkBlocked.length} from the selection to
+                    delete the remaining {Math.max(0, selectedHere.length - bulkBlocked.length)}.</>
+                ) : (
+                  <>Remove {selectedHere.length} question{selectedHere.length === 1 ? '' : 's'} and
+                    their options and MQT scores from the bank? A question that has responses, or
+                    that sits in a questionnaire, cannot be deleted — if any of these do, none of
+                    them are deleted and you will be told which.</>
+                )}
+              </p>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setConfirmBulk(false)} disabled={bulkBusy}>Cancel</Button>
+                {bulkBlocked.length > 0 ? (
+                  <Button variant="primary" onClick={dropBlockedFromSelection} disabled={bulkBusy}>
+                    Drop {bulkBlocked.length} and keep the rest selected
+                  </Button>
+                ) : (
+                  <Button variant="primary" onClick={doBulkDelete} disabled={bulkBusy} className="bg-red-600 hover:bg-red-700 text-white">
+                    <Trash2 className="h-3.5 w-3.5" /> {bulkBusy ? 'Deleting…' : `Delete ${selectedHere.length}`}
+                  </Button>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       )}
 
       {/* Delete confirmation */}

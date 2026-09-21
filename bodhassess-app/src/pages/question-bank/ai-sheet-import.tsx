@@ -21,11 +21,16 @@ import { parseQuestionRows, QuestionPreview } from './question-bulk-upload';
 import {
   buildImportPlan,
   defaultDecision,
+  diffFacts,
   groupPathsByRoot,
   groupSheetSections,
+  readingFacts,
   renameKeys,
+  sectionInstructions,
   sectionIdsForRows,
+  type FactChange,
   type PathGroup,
+  type ReadingFacts,
   needsAttention,
   pathResolver,
   reanchoredKey,
@@ -56,9 +61,13 @@ import {
  */
 export interface AiSectionTarget {
   questionnaireId: number;
+  /** Whether the questionnaire groups its questions at all. */
+  hasSections: boolean;
   sections: { sectionId: number; name: string }[];
   /** Sections created here, so the page behind the modal can show them. */
   onSectionsCreated?: (created: SectionResponse[]) => void;
+  /** Turn sections on for a flat questionnaire whose sheet names some. */
+  enableSections?: () => Promise<void>;
 }
 
 /** What a sheet section name was pointed at. 'new' creates it, 'none' leaves the rows unplaced. */
@@ -91,7 +100,7 @@ export function AiSheetImport({
   onImported: (created: QuestionResponse[], sectionIds: (number | null)[]) => void | Promise<void>;
   /** True while the import transaction is in flight — the host disables its own escape hatch. */
   onBusyChange?: (busy: boolean) => void;
-  /** Set only when the target questionnaire uses sections. */
+  /** The questionnaire being imported into, sectioned or not. Absent on the bank page. */
   questionnaire?: AiSectionTarget;
   /** What the uploader said about their sheet before it was read. */
   notes?: string;
@@ -134,11 +143,23 @@ export function AiSheetImport({
    * holds the stem should not cost the author the choices they made about
    * their taxonomy.
    */
+  /**
+   * How the sheet is being read right now, and what the last correction
+   * changed about it. Without this a re-read is a wall of text that may or
+   * may not differ from the wall before it — the one question worth
+   * answering is "did that do anything?".
+   */
+  const [facts, setFacts] = useState<ReadingFacts | null>(null);
+  const [changes, setChanges] = useState<FactChange[] | null>(null);
+
   const applyMapping = (
     res: SheetMappingResponse,
     grids: Record<string, string[][]>,
     keep: boolean,
   ) => {
+    const next = readingFacts(res);
+    setChanges(keep && facts ? diffFacts(facts, next) : null);
+    setFacts(next);
     setMapping(res);
     setRows(res.rows.map((r) => ({ ...r })));
     setSources(res.sources ?? []);
@@ -267,7 +288,28 @@ export function AiSheetImport({
    */
   const sheetSections = useMemo(() => groupSheetSections(parsed.sections), [parsed]);
 
+  /*
+   * A flat questionnaire whose sheet names sections is the case that used to
+   * fail silently: the step never appeared and every section value was
+   * dropped on the floor. It appears now, says so, and offers the switch.
+   */
+  const [sectionsOn, setSectionsOn] = useState(questionnaire?.hasSections ?? false);
+  const [enabling, setEnabling] = useState(false);
   const sectionStep = questionnaire != null && sheetSections.length > 0;
+
+  const enableSections = async () => {
+    if (!questionnaire?.enableSections) return;
+    setEnabling(true);
+    setError('');
+    try {
+      await questionnaire.enableSections();
+      setSectionsOn(true);
+    } catch (e: any) {
+      setError(e?.response?.data?.message || e?.message || 'Could not turn sections on');
+    } finally {
+      setEnabling(false);
+    }
+  };
   const existingByName = useMemo(() => {
     const m = new Map<string, { sectionId: number; name: string }>();
     for (const sec of questionnaire?.sections ?? []) {
@@ -295,13 +337,38 @@ export function AiSheetImport({
     });
   }, [sectionStep, sheetSections, existingByName]);
 
+  /**
+   * How many rows the reading covered — what the three tallies reconcile.
+   * Taken from the spec's own range so it is the sheet's arithmetic, not
+   * ours; falls back to what came out when the range is missing.
+   */
+  const rowsRead = useMemo(() => {
+    const range = (mapping?.spec as { dataRows?: { from?: number; to?: number } } | undefined)?.dataRows;
+    if (range?.from != null && range?.to != null) return Math.max(0, range.to - range.from + 1);
+    return (mapping?.rows.length ?? 0) + (mapping?.skipped?.length ?? 0);
+  }, [mapping]);
+
+  const unusedColumns = mapping?.unusedColumns ?? [];
+  /** Unused columns whose NAME suggests they carry the section — worth singling out. */
+  const sectionLikeUnused = useMemo(
+    () => unusedColumns.filter((c) => /\b(section|part|module|block)\b/i.test(c)),
+    [unusedColumns],
+  );
+  /** Tabs of the workbook the reading never opened. The question sheet is the one it did. */
+  const unusedSheets = useMemo(
+    () => (workbook?.sheets ?? [])
+      .map((sheet) => sheet.name)
+      .filter((name) => name !== (mapping?.sheet ?? '')),
+    [workbook, mapping],
+  );
+
   /** Rows the sheet said nothing about — they land unassigned either way. */
-  const unplacedRows = questionnaire == null
+  const unplacedRows = !sectionsOn
     ? 0
     : parsed.sections.filter((cell) => !(cell || '').trim()).length;
 
   /** Rows that will arrive in a section, for the line above the Create button. */
-  const placedRows = questionnaire == null ? 0 : parsed.sections.filter((cell) => {
+  const placedRows = !sectionsOn ? 0 : parsed.sections.filter((cell) => {
     const key = (cell || '').trim().toLowerCase();
     return key !== '' && (sectionChoice[key] ?? 'new') !== 'none';
   }).length;
@@ -321,9 +388,12 @@ export function AiSheetImport({
    * case-insensitive.
    */
   const resolveSectionIds = async (): Promise<(number | null)[]> => {
-    if (!questionnaire) return parsed.payloads.map(() => null);
+    if (!questionnaire || !sectionsOn) return parsed.payloads.map(() => null);
     const idByKey = new Map<string, number>();
     const created: SectionResponse[] = [];
+    // A workbook that keeps its section names on another tab usually keeps
+    // their preambles there too — carry them onto the sections being created.
+    const preambles = sectionInstructions(mapping?.spec);
     for (const s of sheetSections) {
       const choice = sectionChoice[s.key] ?? 'new';
       if (choice === 'none') continue;
@@ -333,7 +403,7 @@ export function AiSheetImport({
       }
       const res = await questionnairesApi.createQuestionnaireSection(
         questionnaire.questionnaireId,
-        { name: s.value, instruction: null },
+        { name: s.value, instruction: preambles.get(s.key) ?? null },
       );
       created.push(res.data);
       idByKey.set(s.key, res.data.sectionId);
@@ -488,16 +558,73 @@ export function AiSheetImport({
           <p>{mapping.summary}</p>
         </Box>
 
-        {mapping.questions.length > 0 && (
-          <Box tone="amber" icon={CircleHelp}>
-            <p className="font-medium mb-1">Worth confirming:</p>
-            {mapping.questions.map((q, i) => <p key={i}>• {q}</p>)}
-          </Box>
-        )}
+        {/* The arithmetic, before the prose. A wrong reading shows up in these
+            three numbers long before anybody reads a stem. */}
+        <div className="grid grid-cols-3 gap-2">
+          <Tally n={rowsRead} label={rowsRead === 1 ? 'row read' : 'rows read'} />
+          <Tally n={mapping.rows.length} label="questions made" tone="primary" />
+          <Tally
+            n={mapping.skipped?.length ?? 0}
+            label="rows left out"
+            tone={(mapping.skipped?.length ?? 0) > 0 ? 'amber' : 'muted'}
+          />
+        </div>
+
         {mapping.blockers.length > 0 && (
           <Box tone="red" icon={AlertTriangle}>
             <p className="font-medium mb-1">This sheet could not be read:</p>
             {mapping.blockers.slice(0, 10).map((b, i) => <p key={i}>• {b}</p>)}
+          </Box>
+        )}
+
+        {(mapping.skipped?.length ?? 0) > 0 && (
+          <Box tone="amber" icon={TriangleAlert}>
+            <p className="font-medium mb-1">
+              {mapping.skipped.length} row{mapping.skipped.length === 1 ? '' : 's'} could not
+              become a question — everything else still imports
+            </p>
+            {mapping.skipped.slice(0, 8).map((sk) => (
+              <p key={sk.row}>• Row {sk.row}: {sk.why.replace(/^Row \d+[:.]?\s*/, '')}</p>
+            ))}
+            {mapping.skipped.length > 8 && <p>…and {mapping.skipped.length - 8} more.</p>}
+          </Box>
+        )}
+
+        {/* The specific miss worth naming: a column that looks like it says
+            which section a question is in, which the reading did not use. It
+            is the difference between a questionnaire with six parts and one
+            long list, and it is fixable from the box below. */}
+        {sectionLikeUnused.length > 0 && (
+          <Box tone="amber" icon={TriangleAlert}>
+            <p>
+              <strong>{sectionLikeUnused.join(' · ')}</strong>{' '}
+              {sectionLikeUnused.length === 1 ? 'was' : 'were'} not used. If that column says which
+              section each question belongs to, say so below and read the sheet again — otherwise
+              every question arrives in one flat list.
+            </p>
+          </Box>
+        )}
+
+        {(unusedColumns.length > 0 || unusedSheets.length > 0) && (
+          <Box tone="muted" icon={CircleHelp}>
+            <p className="font-medium mb-1 text-foreground">Not used by this import</p>
+            {unusedColumns.length > 0 && (
+              <p>Columns: {unusedColumns.join(' · ')}</p>
+            )}
+            {unusedSheets.length > 0 && (
+              <p>Other tabs: {unusedSheets.join(' · ')}</p>
+            )}
+            <p className="opacity-80">
+              Nothing from these reaches the question bank. If something there matters, say so
+              below and read the sheet again — or put it in the template by hand.
+            </p>
+          </Box>
+        )}
+
+        {mapping.questions.length > 0 && (
+          <Box tone="amber" icon={CircleHelp}>
+            <p className="font-medium mb-1">Worth confirming:</p>
+            {mapping.questions.map((q, i) => <p key={i}>• {q}</p>)}
           </Box>
         )}
         {mapping.warnings.length > 0 && (
@@ -546,6 +673,26 @@ export function AiSheetImport({
           </div>
         )}
 
+        {changes != null && (
+          changes.length === 0 ? (
+            <Box tone="amber" icon={TriangleAlert}>
+              <p>
+                That correction changed nothing about how the sheet is read. Try naming the
+                column or the rows outright — or use the template, which always works.
+              </p>
+            </Box>
+          ) : (
+            <Box tone="primary" icon={Check}>
+              <p className="font-medium mb-1">What that changed</p>
+              {changes.map((c) => (
+                <p key={c.label}>
+                  {c.label}: <span className="line-through opacity-70">{c.from}</span> → <strong>{c.to}</strong>
+                </p>
+              ))}
+            </Box>
+          )
+        )}
+
         <div className="space-y-2 rounded-lg border border-border p-3">
           <p className="text-[0.6875rem] font-medium uppercase tracking-wider text-muted-foreground">
             Not quite right? Say what to change
@@ -581,6 +728,16 @@ export function AiSheetImport({
         </div>
 
         {error && <Box tone="red" icon={AlertTriangle}>{error}</Box>}
+
+        {/* Why the forward button is dead. It was disabled on an empty batch
+            long before corrections existed, but a reader looking at a list of
+            blockers should not have to infer the connection. */}
+        {rows.length === 0 && (
+          <p className="text-[0.6875rem] text-amber-600 dark:text-amber-500">
+            This reading produced no questions, so there is nothing to continue with. Correct it
+            above, or use the template.
+          </p>
+        )}
 
         <Footer
           onBack={onBack}
@@ -677,15 +834,34 @@ export function AiSheetImport({
     return (
       <div className="space-y-4">
         <StepBack label="Qualities" onClick={() => setStep('qualities')} />
-        <Box tone="primary" icon={Layers}>
-          <p className="font-medium mb-1">This sheet names its own sections</p>
-          <p>
-            Say where each one belongs. A section you create here is added to the
-            questionnaire straight away, before any question is imported.
-          </p>
-        </Box>
+        {sectionsOn ? (
+          <Box tone="primary" icon={Layers}>
+            <p className="font-medium mb-1">This sheet names its own sections</p>
+            <p>
+              Say where each one belongs. A section you create here is added to the
+              questionnaire straight away, before any question is imported.
+            </p>
+          </Box>
+        ) : (
+          <Box tone="amber" icon={TriangleAlert}>
+            <p className="font-medium mb-1">
+              This sheet groups its questions into {sheetSections.length} section
+              {sheetSections.length === 1 ? '' : 's'} — this questionnaire does not use sections
+            </p>
+            <p>
+              Turn them on and each group becomes a section of this questionnaire. Leave them off
+              and the grouping is dropped: the questions still import, in one flat list.
+            </p>
+            {questionnaire.enableSections && (
+              <Button variant="primary" className="mt-1" onClick={enableSections} disabled={enabling}>
+                {enabling ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Layers className="h-3.5 w-3.5" />}
+                Turn sections on
+              </Button>
+            )}
+          </Box>
+        )}
 
-        <div className="rounded-lg border border-border divide-y divide-border">
+        <div className={`rounded-lg border border-border divide-y divide-border ${sectionsOn ? '' : 'opacity-60'}`}>
           {sheetSections.map((s) => {
             const choice = sectionChoice[s.key] ?? 'new';
             const exists = existingByName.get(s.key);
@@ -698,14 +874,20 @@ export function AiSheetImport({
                   </p>
                 </div>
                 <select
-                  value={choice}
+                  value={sectionsOn ? choice : 'none'}
+                  disabled={!sectionsOn}
                   onChange={(e) => setSectionChoice((prev) => ({ ...prev, [s.key]: e.target.value }))}
-                  className="h-8 max-w-[15rem] rounded-md border border-border bg-background px-2 text-xs outline-none focus:border-primary"
+                  className="h-8 max-w-[15rem] rounded-md border border-border bg-background px-2 text-xs outline-none focus:border-primary disabled:opacity-60"
                 >
                   {/* Only offered when nothing here already carries the name —
                       two sections with one name would break the template
                       upload's by-name matching from then on. */}
-                  {!exists && <option value="new">Create section “{s.value}”</option>}
+                  {!exists && (
+                    <option value="new">
+                      Create section “{s.value}”
+                      {sectionInstructions(mapping?.spec).has(s.key) ? ' (with its instruction)' : ''}
+                    </option>
+                  )}
                   {(questionnaire.sections ?? []).map((sec) => (
                     <option key={sec.sectionId} value={`id:${sec.sectionId}`}>{sec.name}</option>
                   ))}
@@ -716,7 +898,7 @@ export function AiSheetImport({
           })}
         </div>
 
-        {unplacedRows > 0 && (
+        {sectionsOn && unplacedRows > 0 && (
           <Box tone="amber" icon={TriangleAlert}>
             {unplacedRows} question{unplacedRows === 1 ? '' : 's'} name no section in the sheet.
             They arrive unassigned — place them in Step 2 before saving.
@@ -796,7 +978,7 @@ export function AiSheetImport({
         </>
       )}
 
-      {questionnaire && (
+      {questionnaire && sectionsOn && (
         <Box tone="muted" icon={Layers}>
           <p>
             {placedRows > 0 && `${placedRows} of these go straight into their section. `}
@@ -871,6 +1053,19 @@ function StepBack({ label, onClick }: { label: string; onClick: () => void }) {
       >
         <ArrowLeft className="h-3.5 w-3.5" /> {label}
       </button>
+    </div>
+  );
+}
+
+/** One number of the reconciliation, big enough to read at a glance. */
+function Tally({ n, label, tone = 'muted' }: { n: number; label: string; tone?: 'muted' | 'primary' | 'amber' }) {
+  const colour = tone === 'primary' ? 'text-primary'
+    : tone === 'amber' ? 'text-amber-600 dark:text-amber-500'
+      : 'text-foreground';
+  return (
+    <div className="rounded-lg border border-border px-3 py-2 text-center">
+      <p className={`text-lg font-semibold leading-tight ${colour}`}>{n}</p>
+      <p className="text-[0.625rem] uppercase tracking-wider text-muted-foreground">{label}</p>
     </div>
   );
 }

@@ -70,7 +70,7 @@ class CanonicalRowExpanderTest {
                         agreeScale(), null, null, null),
                 new ScoringSpec(ScoringMode.OPTION_VALUE_TO_ROW_MQT,
                         new ReverseSpec("Reverse_Scored", List.of("Y"), List.of("N"))),
-                null, List.of(), List.of(), true, List.of());
+                null, List.of(), List.of(), true, List.of(), null);
     }
 
     /* ===================== the real sheet ===================== */
@@ -183,7 +183,7 @@ class CanonicalRowExpanderTest {
                 new OptionSpec(OptionMode.SHARED_SCALE, null, zeroToFour, null, null, null),
                 new ScoringSpec(ScoringMode.OPTION_VALUE_TO_ROW_MQT,
                         new ReverseSpec("Rev", List.of("Y"), List.of("N"))),
-                null, List.of(), List.of(), true, List.of());
+                null, List.of(), List.of(), true, List.of(), null);
 
         Expansion out = CanonicalRowExpander.expand(spec, List.of(
                 List.of("Statement", "Factor", "Rev"),
@@ -203,7 +203,7 @@ class CanonicalRowExpanderTest {
                 new ColumnMap("Question Text", null, null, null, List.of("Factor"), null, null, null, null),
                 new OptionSpec(OptionMode.SHARED_SCALE, null, agreeScale(), null, null, null),
                 new ScoringSpec(ScoringMode.OPTION_VALUE_TO_ROW_MQT, null),
-                null, List.of(), List.of(), true, List.of());
+                null, List.of(), List.of(), true, List.of(), null);
 
         Expansion out = CanonicalRowExpander.expand(spec, realSheet());
 
@@ -220,7 +220,7 @@ class CanonicalRowExpanderTest {
                 new OptionSpec(OptionMode.SHARED_SCALE, null, agreeScale(), null, null, null),
                 new ScoringSpec(ScoringMode.OPTION_VALUE_TO_ROW_MQT,
                         new ReverseSpec("Rev", List.of("Y"), List.of("N"))),
-                null, List.of(), List.of(), true, List.of());
+                null, List.of(), List.of(), true, List.of(), null);
 
         Expansion out = CanonicalRowExpander.expand(spec, List.of(
                 List.of("Statement", "Factor", "Rev"),
@@ -229,7 +229,7 @@ class CanonicalRowExpanderTest {
         // Reading "R" as "not reversed" would invert nothing, say nothing, and
         // be wrong in a way no later screen could show.
         assertFalse(out.ok());
-        assertTrue(out.blockers().get(0).contains("neither yes nor no"), out.blockers().toString());
+        assertTrue(out.skipped().get(0).why().contains("neither yes nor no"), out.skipped().toString());
     }
 
     @Test
@@ -243,21 +243,24 @@ class CanonicalRowExpanderTest {
     }
 
     @Test
-    void aRowWithNoQuestionTextIsABlockerNamingTheRow() {
+    void aRowWithNoQuestionTextIsSkippedByName_andTheRestImport() {
         SheetMappingSpec spec = new SheetMappingSpec(
                 "s", 1, new RowRange(2, 3), List.of(),
                 new ColumnMap("Statement", null, null, null, List.of("Factor"), null, null, null, null),
                 new OptionSpec(OptionMode.SHARED_SCALE, null, agreeScale(), null, null, null),
                 new ScoringSpec(ScoringMode.OPTION_VALUE_TO_ROW_MQT, null),
-                null, List.of(), List.of(), true, List.of());
+                null, List.of(), List.of(), true, List.of(), null);
 
         Expansion out = CanonicalRowExpander.expand(spec, List.of(
                 List.of("Statement", "Factor"),
                 List.of("I put things off.", "Focus"),
                 List.of("", "Focus")));
 
-        assertFalse(out.ok());
-        assertTrue(out.blockers().get(0).startsWith("Row 3"), out.blockers().toString());
+        // One unusable row used to cost the whole import. It is now left out
+        // by name, and the row above it still becomes a question.
+        assertTrue(out.ok(), "blockers: " + out.blockers());
+        assertEquals(1, out.rows().size());
+        assertEquals(3, out.skipped().get(0).row());
     }
 
     @Test
@@ -267,7 +270,7 @@ class CanonicalRowExpanderTest {
                 new ColumnMap("Statement", null, null, null, List.of("Factor"), null, null, null, null),
                 new OptionSpec(OptionMode.SHARED_SCALE, null, agreeScale(), null, null, null),
                 new ScoringSpec(ScoringMode.OPTION_VALUE_TO_ROW_MQT, null),
-                null, List.of(), List.of(), true, List.of());
+                null, List.of(), List.of(), true, List.of(), null);
 
         // "Focus: Deep" would produce the cell "Focus: Deep:3", which the
         // template parser splits at the LAST colon and reads as a quality
@@ -278,7 +281,7 @@ class CanonicalRowExpanderTest {
                 List.of("I put things off.", "Focus: Deep")));
 
         assertFalse(out.ok());
-        assertTrue(out.blockers().get(0).contains("separators"), out.blockers().toString());
+        assertTrue(out.skipped().get(0).why().contains("separators"), out.skipped().toString());
     }
 
     @Test
@@ -288,7 +291,7 @@ class CanonicalRowExpanderTest {
                 new ColumnMap("Statement", null, null, null, List.of("Factor"), null, null, null, null),
                 new OptionSpec(OptionMode.PER_ROW_TEXT, null, null, null, null, null),
                 new ScoringSpec(ScoringMode.OPTION_VALUE_TO_ROW_MQT, null),
-                null, List.of(), List.of(), true, List.of());
+                null, List.of(), List.of(), true, List.of(), null);
 
         Expansion out = CanonicalRowExpander.expand(spec, List.of(
                 List.of("Statement", "Factor"),
@@ -306,7 +309,7 @@ class CanonicalRowExpanderTest {
                 new ColumnMap("Statement", null, null, null, List.of("Factor"), null, null, null, null),
                 new OptionSpec(OptionMode.SHARED_SCALE, null, agreeScale(), null, null, null),
                 new ScoringSpec(ScoringMode.OPTION_VALUE_TO_ROW_MQT, null),
-                new SheetMappingSpec.SelectionSpec(rule, count), List.of(), List.of(), true, List.of());
+                new SheetMappingSpec.SelectionSpec(rule, count), List.of(), List.of(), true, List.of(), null);
     }
 
     private static List<List<String>> oneRow() {
@@ -381,7 +384,7 @@ class CanonicalRowExpanderTest {
                         null, null),
                 new ScoringSpec(ScoringMode.OPTION_VALUE_TO_ROW_MQT,
                         new ReverseSpec("Rev", List.of("Y"), List.of("N"))),
-                null, List.of(), List.of(), true, List.of());
+                null, List.of(), List.of(), true, List.of(), null);
 
         Expansion out = CanonicalRowExpander.expand(spec, List.of(
                 List.of("Question", "Trait", "Rev", "A", "A Score", "B", "B Score", "C", "C Score"),
@@ -404,7 +407,7 @@ class CanonicalRowExpanderTest {
                 new ColumnMap("Statement", null, null, null, List.of("Factor"), null, null, null, null),
                 new OptionSpec(OptionMode.SHARED_SCALE, null, halfValued, null, null, null),
                 new ScoringSpec(ScoringMode.OPTION_VALUE_TO_ROW_MQT, null),
-                null, List.of(), List.of(), true, List.of());
+                null, List.of(), List.of(), true, List.of(), null);
 
         Expansion out = CanonicalRowExpander.expand(spec, oneRow());
 
@@ -422,7 +425,7 @@ class CanonicalRowExpanderTest {
                 new ColumnMap("Statement", null, null, "Pos", List.of("Factor"), null, "InComp", null, null),
                 new OptionSpec(OptionMode.SHARED_SCALE, null, agreeScale(), null, null, null),
                 new ScoringSpec(ScoringMode.OPTION_VALUE_TO_ROW_MQT, null),
-                null, List.of(), List.of(), true, List.of());
+                null, List.of(), List.of(), true, List.of(), null);
     }
 
     @Test
@@ -469,7 +472,7 @@ class CanonicalRowExpanderTest {
                         new SheetMappingSpec.OptionColumn("Option C", "C Score", null)),
                         null, null),
                 new ScoringSpec(ScoringMode.OPTION_VALUE_TO_ROW_MQT, null),
-                null, List.of(), List.of(), true, List.of());
+                null, List.of(), List.of(), true, List.of(), null);
 
         Expansion out = CanonicalRowExpander.expand(spec, List.of(
                 List.of("Question", "Trait", "Option A", "A Score", "Option B", "B Score", "Option C", "C Score"),
@@ -493,7 +496,7 @@ class CanonicalRowExpanderTest {
                 new ColumnMap("Question", null, null, null, List.of("Trait"), null, null, null, null),
                 new OptionSpec(OptionMode.SCALE_COLUMN, null, null, null, "Scale", scales),
                 new ScoringSpec(ScoringMode.OPTION_VALUE_TO_ROW_MQT, null),
-                null, List.of(), List.of(), true, List.of());
+                null, List.of(), List.of(), true, List.of(), null);
 
         Expansion out = CanonicalRowExpander.expand(spec, List.of(
                 List.of("Question", "Trait", "Scale"),
@@ -514,14 +517,16 @@ class CanonicalRowExpanderTest {
                 new OptionSpec(OptionMode.SCALE_COLUMN, null, null, null, "Scale",
                         Map.of("agree5", agreeScale())),
                 new ScoringSpec(ScoringMode.OPTION_VALUE_TO_ROW_MQT, null),
-                null, List.of(), List.of(), true, List.of());
+                null, List.of(), List.of(), true, List.of(), null);
 
         Expansion out = CanonicalRowExpander.expand(spec, List.of(
                 List.of("Question", "Trait", "Scale"),
                 List.of("How much?", "Drive", "Frequency7")));
 
+        // The only row is unusable, so nothing imports — but the reason is
+        // still the specific one, not "no questions were found".
         assertFalse(out.ok());
-        assertTrue(out.blockers().get(0).contains("Frequency7"), out.blockers().toString());
+        assertTrue(out.skipped().get(0).why().contains("Frequency7"), out.skipped().toString());
     }
 
     private static int countOptions(ExpandedRow row) {
@@ -532,5 +537,200 @@ class CanonicalRowExpanderTest {
             }
         }
         return found.size();
+    }
+
+    /* ===================== score cells that name their own quality ========= */
+
+    /**
+     * A real workbook (an "Upload (MQ MQT)" tab) put "Consent:1" in the score
+     * column beside each option — our own template's syntax for an option
+     * score, and a flat refusal before this. The whole sheet imported as zero
+     * questions, which is also why the review panel could not continue.
+     */
+    private static SheetMappingSpec namedScoreSpec() {
+        return new SheetMappingSpec(
+                "s", 1, new RowRange(2, 2), List.of(),
+                new ColumnMap("Question Text", null, null, null, List.of(), null, null, null, null),
+                new OptionSpec(OptionMode.COLUMNS, null, null,
+                        List.of(new SheetMappingSpec.OptionColumn("Opt1", "Opt1 Score", null),
+                                new SheetMappingSpec.OptionColumn("Opt2", "Opt2 Score", null)),
+                        null, null),
+                new ScoringSpec(ScoringMode.OPTION_VALUE_TO_ROW_MQT, null),
+                null, List.of(), List.of(), true, List.of(), null);
+    }
+
+    private static List<List<String>> namedScoreGrid(String first, String second) {
+        return List.of(
+                List.of("Question Text", "Opt1", "Opt1 Score", "Opt2", "Opt2 Score"),
+                List.of("I finish what I start", "Strongly disagree", first, "Strongly agree", second));
+    }
+
+    @Test
+    void aScoreCellMayNameTheQualityItScores() {
+        Expansion out = CanonicalRowExpander.expand(
+                namedScoreSpec(), namedScoreGrid("Self-Efficacy:1", "Self-Efficacy:5"));
+
+        assertTrue(out.ok(), "blockers: " + out.blockers());
+        assertEquals(1, out.rows().size());
+        Map<String, String> cells = out.rows().get(0).cells();
+        assertEquals("Self-Efficacy:1", cells.get("option1Scores"));
+        assertEquals("Self-Efficacy:5", cells.get("option2Scores"));
+        // The named quality is what the review panel offers to create or map,
+        // so it has to be counted even though no column named a path.
+        assertEquals(Map.of("Self-Efficacy", 1), out.pathCounts());
+    }
+
+    @Test
+    void severalQualitiesInOneCellAllSurvive() {
+        Expansion out = CanonicalRowExpander.expand(
+                namedScoreSpec(), namedScoreGrid("Focus:2 | Drive:0.5", "Focus:4"));
+
+        assertTrue(out.ok(), "blockers: " + out.blockers());
+        assertEquals("Focus:2 | Drive:0.5", out.rows().get(0).cells().get("option1Scores"));
+        assertTrue(out.pathCounts().containsKey("Focus"));
+        assertTrue(out.pathCounts().containsKey("Drive"));
+    }
+
+    @Test
+    void aScoreCellThatNamesNothingIsStillARefusal() {
+        Expansion out = CanonicalRowExpander.expand(
+                namedScoreSpec(), namedScoreGrid("mostly agree", "5"));
+
+        assertFalse(out.ok());
+        assertTrue(out.skipped().get(0).why().contains("neither a number nor"), out.skipped().toString());
+    }
+
+    /* ===================== sections named on another tab ================== */
+
+    /**
+     * The real "Assessment_questionnaire_FINAL" workbook: every question row
+     * carries a Section ID (55, 56, …) and the names live on a separate
+     * "Section Instructions" tab. Before the dictionary, the questionnaire
+     * would have ended up with sections called "55".
+     */
+    private static SheetMappingSpec sectionIdSpec(Map<String, SheetMappingSpec.SectionInfo> sections) {
+        return new SheetMappingSpec(
+                "s", 1, new RowRange(2, 3), List.of(),
+                new ColumnMap("Question Text", null, null, null, List.of(), null, null, null,
+                        "Section ID"),
+                new OptionSpec(OptionMode.COLUMNS, null, null,
+                        List.of(new SheetMappingSpec.OptionColumn("Opt1", null, null),
+                                new SheetMappingSpec.OptionColumn("Opt2", null, null)),
+                        null, null),
+                new ScoringSpec(ScoringMode.NONE, null),
+                null, List.of(), List.of(), true, List.of(), sections);
+    }
+
+    private static List<List<String>> sectionIdGrid(String firstId) {
+        return List.of(
+                List.of("Question Text", "Section ID", "Opt1", "Opt2"),
+                List.of("Do you agree?", firstId, "Yes", "No"),
+                List.of("And this one?", "56", "Yes", "No"));
+    }
+
+    @Test
+    void aSectionIdBecomesTheNameTheOtherTabGivesIt() {
+        Expansion out = CanonicalRowExpander.expand(
+                sectionIdSpec(Map.of(
+                        "55", new SheetMappingSpec.SectionInfo("Welcome & Consent", "Please read."),
+                        "56", new SheetMappingSpec.SectionInfo("Evolution", null))),
+                sectionIdGrid("55"));
+
+        assertTrue(out.ok(), "blockers: " + out.blockers());
+        assertEquals("Welcome & Consent", out.rows().get(0).cells().get("section"));
+        assertEquals("Evolution", out.rows().get(1).cells().get("section"));
+    }
+
+    @Test
+    void anIdTheSpreadsheetWroteAsANumberStillMatches() {
+        Expansion out = CanonicalRowExpander.expand(
+                sectionIdSpec(Map.of("55", new SheetMappingSpec.SectionInfo("Welcome & Consent", null))),
+                sectionIdGrid("55.0"));
+
+        assertEquals("Welcome & Consent", out.rows().get(0).cells().get("section"));
+    }
+
+    @Test
+    void anIdWithNoEntryIsLeftAsItWasFound() {
+        Expansion out = CanonicalRowExpander.expand(
+                sectionIdSpec(Map.of("56", new SheetMappingSpec.SectionInfo("Evolution", null))),
+                sectionIdGrid("55"));
+
+        // Visible and wrong beats invented — the reviewer sees "55" and can say so.
+        assertEquals("55", out.rows().get(0).cells().get("section"));
+    }
+
+    @Test
+    void aSheetWhoseSectionColumnAlreadyHoldsNamesIsUntouched() {
+        Expansion out = CanonicalRowExpander.expand(sectionIdSpec(null), sectionIdGrid("Part A"));
+
+        assertEquals("Part A", out.rows().get(0).cells().get("section"));
+    }
+
+    /* ============ one odd row is not a broken workbook ==================== */
+
+    /**
+     * The "Assessment_questionnaire_FINAL" workbook again: five of its 98 rows
+     * are section preambles sitting in the question table, each with a single
+     * "I understand, continue" option. Every one of them used to be a blocker,
+     * so a 93-question import produced nothing at all.
+     */
+    private static SheetMappingSpec plainSpec(int lastRow) {
+        return new SheetMappingSpec(
+                "s", 1, new RowRange(2, lastRow), List.of(),
+                new ColumnMap("Question Text", null, null, null, List.of(), null, null, null, null),
+                new OptionSpec(OptionMode.COLUMNS, null, null,
+                        List.of(new SheetMappingSpec.OptionColumn("Opt1", null, null),
+                                new SheetMappingSpec.OptionColumn("Opt2", null, null)),
+                        null, null),
+                new ScoringSpec(ScoringMode.NONE, null),
+                null, List.of(), List.of(), true, List.of(), null);
+    }
+
+    @Test
+    void aRowWithOneOptionIsSkipped_andTheRestStillImport() {
+        List<List<String>> grid = List.of(
+                List.of("Question Text", "Opt1", "Opt2", "Notes"),
+                List.of("Do you agree?", "Yes", "No", ""),
+                List.of("How you actually behave these days.", "I understand, continue", "", ""),
+                List.of("And this one?", "Yes", "No", ""));
+
+        Expansion out = CanonicalRowExpander.expand(plainSpec(4), grid);
+
+        assertTrue(out.ok(), "blockers: " + out.blockers());
+        assertEquals(2, out.rows().size());
+        assertEquals(1, out.skipped().size());
+        assertEquals(3, out.skipped().get(0).row());
+        assertTrue(out.skipped().get(0).why().contains("one option"), out.skipped().get(0).why());
+    }
+
+    @Test
+    void aSheetWhereMostRowsAreSkippedIsAMisreading() {
+        List<List<String>> grid = List.of(
+                List.of("Question Text", "Opt1", "Opt2"),
+                List.of("Do you agree?", "Yes", "No"),
+                List.of("A preamble.", "continue", ""),
+                List.of("Another preamble.", "continue", ""),
+                List.of("A third.", "continue", ""));
+
+        Expansion out = CanonicalRowExpander.expand(plainSpec(5), grid);
+
+        assertFalse(out.ok());
+        assertTrue(out.blockers().get(0).contains("probably wrong rather than the sheet"),
+                out.blockers().toString());
+    }
+
+    @Test
+    void headersTheReadingNeverTouchedAreReported() {
+        List<List<String>> grid = List.of(
+                List.of("Question Text", "Opt1", "Opt2", "Question Type", "Max Options Allowed"),
+                List.of("Do you agree?", "Yes", "No", "single-choice", "1"));
+
+        Expansion out = CanonicalRowExpander.expand(plainSpec(2), grid);
+
+        assertTrue(out.ok(), "blockers: " + out.blockers());
+        // Both are real columns of the workbook that nothing reads yet — the
+        // author must be told they are being dropped, not left to find out.
+        assertEquals(List.of("Question Type", "Max Options Allowed"), out.unusedColumns());
     }
 }

@@ -1,5 +1,6 @@
 package com.bodhpsychometric.controller.question;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -26,6 +27,7 @@ import com.bodhpsychometric.dto.MqtScoreResponse;
 import com.bodhpsychometric.dto.QuestionOptionRequest;
 import com.bodhpsychometric.dto.QuestionOptionResponse;
 import com.bodhpsychometric.dto.QuestionImportRequest;
+import com.bodhpsychometric.dto.QuestionBulkDeleteRequest;
 import com.bodhpsychometric.dto.QuestionRequest;
 import com.bodhpsychometric.dto.QuestionResponse;
 import com.bodhpsychometric.dto.QuestionRowRequest;
@@ -551,6 +553,56 @@ public class QuestionController {
         questionRowMqtRepository.flush();
         questionRepository.deleteById(id);
         return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Delete several questions at once. Same two refusals as the single
+     * delete, checked for EVERY id before anything is removed: a selection
+     * that contains one frozen question deletes nothing and says which, so
+     * the author can drop it and repeat. Unknown ids are refused the same
+     * way rather than ignored — a selection referring to something that is
+     * already gone is a stale page, worth knowing about.
+     */
+    @PostMapping("/bulk-delete")
+    public ResponseEntity<?> bulkDeleteQuestions(@Valid @RequestBody QuestionBulkDeleteRequest request) {
+        List<Long> ids = request.questionIds().stream().filter(Objects::nonNull).distinct().toList();
+        if (ids.isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("message", "select at least one question"));
+        }
+
+        // Pass 1 — nothing is written until every id has been checked.
+        List<Map<String, Object>> blocked = new ArrayList<>();
+        for (Long id : ids) {
+            String reason = null;
+            if (!questionRepository.existsById(id)) {
+                reason = "This question no longer exists — refresh the page";
+            } else if (assessmentAnswerRepository.existsByQuestionQuestionId(id)) {
+                reason = "This question has responses and cannot be deleted";
+            } else if (questionnaireQuestionRepository.existsByQuestionQuestionId(id)) {
+                reason = "This question is used in a questionnaire — remove it there first";
+            }
+            if (reason != null) {
+                blocked.add(Map.of("questionId", id, "message", reason));
+            }
+        }
+        if (!blocked.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                    "message", blocked.size() + " of the " + ids.size()
+                            + " selected questions cannot be deleted — nothing was deleted",
+                    "blocked", blocked));
+        }
+
+        // Pass 2 — scoring rows first, then the questions take their options
+        // and rows with them by cascade, exactly as the single delete does.
+        for (Long id : ids) {
+            optionMqtScoreRepository.deleteByOptionQuestionQuestionId(id);
+            questionMqtScoreRepository.deleteByQuestionQuestionId(id);
+            questionRowMqtRepository.deleteByQuestionRowQuestionQuestionId(id);
+        }
+        optionMqtScoreRepository.flush();
+        questionRowMqtRepository.flush();
+        questionRepository.deleteAllById(ids);
+        return ResponseEntity.ok(Map.of("deleted", ids.size()));
     }
 
     // ── Response assembly ─────────────────────────────────────────────────
