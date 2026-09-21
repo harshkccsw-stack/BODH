@@ -36,3 +36,7 @@ docker-compose.override.yml
 # Filled-in backup config / Spaces credentials live only on the droplet.
 ops/bodh-backup.env
 ops/.s3cfg*
+
+# Deploy receiver state on the droplet: pushed jars, current/previous
+# markers, deploy.log (deploy/README.md).
+releases/

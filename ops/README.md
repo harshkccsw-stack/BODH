@@ -12,8 +12,9 @@ keeping 10 days of history both on the droplet and in the Space.
 > that property if you touch the pruning code.
 
 Everything runs **on the production droplet** (`root@168.144.118.157` —
-`REMOTE_HOST` in `deploy.production.env`), where the `bodhpsychometric-mysql`
-container lives. Nothing here runs on a developer machine.
+`DEPLOY_HOST` in `deploy/targets/production.env`), where the
+`bodhpsychometric-mysql` container lives. Nothing here runs on a developer
+machine.
 
 | File in this directory | Installed as |
 | --- | --- |

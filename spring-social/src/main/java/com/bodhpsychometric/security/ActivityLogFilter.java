@@ -63,12 +63,15 @@ public class ActivityLogFilter extends OncePerRequestFilter {
         // live-tracking poll are excluded for the load half of the same
         // reasoning: machine chatter every few seconds per respondent/viewer
         // would write thousands of MySQL rows a minute about nothing a human
-        // did — and the heartbeat path is deliberately MySQL-free.
+        // did — and the heartbeat path is deliberately MySQL-free. Actuator
+        // is the deploy health gate and the compose healthcheck: machine
+        // polls every 30 s, never a person.
         String uri = request.getRequestURI();
         return !enabled
                 || uri.startsWith("/api/activity")
                 || uri.startsWith("/api/portal/assessments/heartbeat/")
-                || uri.startsWith("/api/reports/liveTracking");
+                || uri.startsWith("/api/reports/liveTracking")
+                || uri.startsWith("/actuator");
     }
 
     @Override

@@ -1,3 +1,13 @@
+# The ONE edge for the droplet (2026-09-17): fronts BodhAssess (api.bodh.biz,
+# conf.d/default.conf) AND MemoryMesh (memorymesh.bodh.biz — its vhost lives
+# in the MemoryMesh repo and is pulled in through conf.d/memorymesh.conf).
+# Both stacks share the bodhpsychometric bridge, so every upstream resolves
+# by container name from here. The static SPA builds MemoryMesh publishes
+# into /var/www/memorymesh are served straight from this container.
+#
+# After editing any conf, in either repo:
+#   docker compose exec nginx nginx -t && docker compose exec nginx nginx -s reload
+# A recreate (`up -d`) is only needed when the mounts below change.
 services:
   nginx:
     image: nginx:latest
@@ -8,6 +18,12 @@ services:
       - "443:443"
     volumes:
       - ./conf.d:/etc/nginx/conf.d:ro
+      # MemoryMesh: its vhost DIRECTORY (a directory, not the file, so edits
+      # over there survive a reload — a single-file bind keeps the old inode
+      # once git or an editor replaces the file) and the static roots its
+      # builders publish. MEMORYMESH_DIR overrides the checkout location.
+      - ${MEMORYMESH_DIR:-/root/memoryMesh/MemoryMesh}/nginx/conf.d:/etc/nginx/memorymesh.d:ro
+      - /var/www/memorymesh:/var/www/memorymesh:ro
       - /etc/letsencrypt:/etc/letsencrypt:ro
       - /var/www/certbot:/var/www/certbot:ro
     networks:
