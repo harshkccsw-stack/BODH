@@ -38,6 +38,7 @@ export {
 } from './question-sheet-rules';
 export type { MqtKeyResolver, ParsedQuestions } from './question-sheet-rules';
 import { AiSheetImport } from './ai-sheet-import';
+import type { SectionResponse } from '@/pages/questionnaires/questionnairesApi';
 import { questionImportApi, workbookHasRows } from './questionImportApi';
 
 // ── Bulk XLSX upload — shared by the Questions page and the questionnaire
@@ -258,9 +259,12 @@ export function QuestionPreview({
  * page) so the wizard can auto-select them into the mapping.
  */
 export interface QuestionnaireUploadTarget {
+  questionnaireId: number;
   hasSections: boolean;
   sections: { sectionId: number; name: string }[];
   onCreated: (created: QuestionResponse[], sectionIds: (number | null)[]) => Promise<void> | void;
+  /** Sections the AI route created on its way in, so the page can show them. */
+  onSectionsCreated?: (created: SectionResponse[]) => void;
 }
 
 export function BulkUploadModal({
@@ -286,6 +290,10 @@ export function BulkUploadModal({
   // available then: abandoning a transaction mid-flight is fine for the
   // server, but the user would never see whether it landed.
   const [aiBusy, setAiBusy] = useState(false);
+  // What the uploader tells the model about their own sheet, before it reads.
+  // Typed on the fork screen and kept for the whole conversation — every
+  // correction the panel sends carries it too.
+  const [aiNotes, setAiNotes] = useState('');
   const [idx, setIdx] = useState(0);
   const [fileName, setFileName] = useState('');
   const [parsing, setParsing] = useState(false);
@@ -309,11 +317,13 @@ export function BulkUploadModal({
     return () => { live = false; };
   }, []);
 
-  // A sectioned questionnaire needs every row to name an existing section, and
-  // a foreign sheet has no section column to map. Rather than invent one, the
-  // route is withheld here and said so — the bank import still works, and the
-  // questions can be placed afterwards.
-  const aiOffered = aiAvailable && !sectioned;
+  // Sections are no longer a reason to withhold the route. The mapper has a
+  // `section` slot of its own, so a foreign sheet that names its parts gets
+  // them mapped onto this questionnaire's sections (creating the missing ones)
+  // in a step of the AI panel; a sheet that names none imports unassigned and
+  // the author places the questions in Step 2. What a sectioned upload must
+  // never do is guess.
+  const aiOffered = aiAvailable;
 
   /**
    * Trim + case-insensitive match against the questionnaire's sections.
@@ -473,13 +483,30 @@ export function BulkUploadModal({
                     <p className="text-xs text-muted-foreground">
                       Your sheet is read into the template for you. You see how it was read,
                       can edit it, and can download it before anything is created.
+                      {sectioned && ' If it names sections of its own, you say where each one goes; '
+                        + 'anything it does not place arrives unassigned.'}
                     </p>
+                    <label className="block space-y-1 pt-1">
+                      <span className="text-[0.6875rem] font-medium text-foreground">
+                        Anything that would help it read the sheet? (optional)
+                      </span>
+                      <textarea
+                        value={aiNotes}
+                        onChange={(e) => setAiNotes(e.target.value.slice(0, 2000))}
+                        rows={2}
+                        placeholder={'e.g. the answer scale is in the note under the table · '
+                          + 'column D is the reverse-scoring flag · ignore the first three rows · '
+                          + '"Domain" is the quality and "Construct" its type'}
+                        className="w-full rounded-lg border border-border bg-background px-2.5 py-2 text-xs outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                      />
+                    </label>
                     {/* Consent happens HERE and nowhere else — this screen is the
                         only point at which anything leaves the building, so it
                         says what would, before the button is pressed. */}
                     <p className="text-[0.6875rem] text-muted-foreground">
-                      This sends a sample of your sheet — its column names, about ten rows and any
-                      notes — to OpenAI. No respondent data is involved.
+                      This sends a sample of your sheet — its column names, about ten rows, any
+                      notes in it and whatever you typed above — to OpenAI. No respondent data is
+                      involved.
                     </p>
                     <Button
                       variant="primary"
@@ -490,11 +517,7 @@ export function BulkUploadModal({
                     </Button>
                   </>
                 ) : (
-                  <p className="text-xs text-muted-foreground">
-                    {sectioned
-                      ? 'Not available while uploading into a questionnaire with sections — a foreign sheet has no section column to match. Upload to the question bank instead, then place the questions here.'
-                      : 'Not configured on this server.'}
-                  </p>
+                  <p className="text-xs text-muted-foreground">Not configured on this server.</p>
                 )}
               </div>
             </div>
@@ -506,8 +529,18 @@ export function BulkUploadModal({
               choices={choices}
               onBusyChange={setAiBusy}
               onBack={() => setStep('fork')}
-              onImported={async (created) => {
-                if (questionnaire) await questionnaire.onCreated(created, created.map(() => null));
+              notes={aiNotes.trim() || undefined}
+              // Only a SECTIONED target gets the section step — the bank page
+              // and flat questionnaires take questions with no section at all.
+              questionnaire={sectioned && questionnaire
+                ? {
+                  questionnaireId: questionnaire.questionnaireId,
+                  sections: questionnaire.sections,
+                  onSectionsCreated: questionnaire.onSectionsCreated,
+                }
+                : undefined}
+              onImported={async (created, sectionIds) => {
+                if (questionnaire) await questionnaire.onCreated(created, sectionIds);
                 else await onDone?.();
               }}
             />
@@ -592,7 +625,7 @@ export function BulkUploadModal({
                     {payloads.reduce((a, p) => a + p.mqtScores.length + p.options.reduce((b, o) => b + o.mqtScores.length, 0), 0)} MQT scores
                     {sectioned && `, across ${new Set(sectionIds).size} section${new Set(sectionIds).size !== 1 ? 's' : ''}`}.
                     {ignoredSections && ' The section column was ignored — this questionnaire has no sections.'}
-                    {' '}Review each one before creating.
+                    {' '}Review them one by one, or import the lot.
                   </span>
                 </div>
               )}
@@ -640,9 +673,20 @@ export function BulkUploadModal({
           ) : step === 'pick' ? (
             <>
               <Button variant="outline" onClick={onClose}>Cancel</Button>
-              <Button variant="primary" onClick={() => { setIdx(0); setStep('review'); }} disabled={!ready}>
-                Review {payloads.length > 0 ? payloads.length : ''} question{payloads.length !== 1 ? 's' : ''}
-              </Button>
+              <div className="flex gap-2">
+                {/* A sheet that parsed clean needs no card-by-card walk unless
+                    its author wants one — every row error already blocked the
+                    upload before this point. */}
+                {ready && (
+                  <Button variant="outline" onClick={submit} disabled={uploading}>
+                    {uploading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                    Import All Questions
+                  </Button>
+                )}
+                <Button variant="primary" onClick={() => { setIdx(0); setStep('review'); }} disabled={!ready}>
+                  Review {payloads.length > 0 ? payloads.length : ''} question{payloads.length !== 1 ? 's' : ''}
+                </Button>
+              </div>
             </>
           ) : (
             <>
@@ -653,16 +697,24 @@ export function BulkUploadModal({
               >
                 {idx === 0 ? 'Back to file' : 'Back'}
               </Button>
-              {last ? (
-                <Button variant="primary" onClick={submit} disabled={uploading}>
-                  {uploading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                  Create {payloads.length} question{payloads.length !== 1 ? 's' : ''}
-                </Button>
-              ) : (
-                <Button variant="primary" onClick={() => setIdx(idx + 1)}>
-                  Next
-                </Button>
-              )}
+              <div className="flex gap-2">
+                {!last && (
+                  <Button variant="outline" onClick={submit} disabled={uploading}>
+                    {uploading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                    Import All Questions
+                  </Button>
+                )}
+                {last ? (
+                  <Button variant="primary" onClick={submit} disabled={uploading}>
+                    {uploading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                    Import {payloads.length} question{payloads.length !== 1 ? 's' : ''}
+                  </Button>
+                ) : (
+                  <Button variant="primary" onClick={() => setIdx(idx + 1)} disabled={uploading}>
+                    Next
+                  </Button>
+                )}
+              </div>
             </>
           )}
         </div>

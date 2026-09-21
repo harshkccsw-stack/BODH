@@ -17,6 +17,7 @@ import java.util.List;
 import com.bodhpsychometric.dto.PathResolveRequest;
 import com.bodhpsychometric.dto.SheetMappingRequest;
 import com.bodhpsychometric.dto.SheetMappingResponse;
+import com.bodhpsychometric.dto.SheetRefineRequest;
 import com.bodhpsychometric.dto.SheetMappingResponse.PathProposal;
 import com.bodhpsychometric.security.ActorFilter;
 import com.bodhpsychometric.service.question.sheet.SheetMappingService;
@@ -72,13 +73,44 @@ public class QuestionSheetController {
      */
     @PostMapping("/map-sheet")
     public ResponseEntity<?> mapSheet(@Valid @RequestBody SheetMappingRequest request) {
+        ResponseEntity<?> refusal = refuse(request.sheets());
+        if (refusal != null) {
+            return refusal;
+        }
+        return ResponseEntity.ok(mapping.map(request));
+    }
+
+    /**
+     * The same workbook, read again with corrections. <b>Writes nothing.</b>
+     *
+     * <p>Costs one more call, not a fresh start: what goes to the model is the
+     * reading it already produced plus what the reviewer says is wrong with
+     * it, and everything after the answer — expanding the rows, resolving the
+     * paths, the duplicate check — runs again on this side either way.
+     */
+    @PostMapping("/refine-sheet")
+    public ResponseEntity<?> refineSheet(@Valid @RequestBody SheetRefineRequest request) {
+        ResponseEntity<?> refusal = refuse(request.sheets());
+        if (refusal != null) {
+            return refusal;
+        }
+        return ResponseEntity.ok(mapping.refine(request));
+    }
+
+    /**
+     * The three reasons a sheet call is turned away, in the order they must be
+     * asked: who, how big, and whether this is configured at all. Size before
+     * availability so an oversized body is refused whatever the configuration
+     * — which also keeps the cap testable without a key.
+     *
+     * @return the refusal, or null when the call may go ahead
+     */
+    private ResponseEntity<?> refuse(List<SheetMappingRequest.SheetCsv> sheets) {
         if (!ActorFilter.current().isAuthenticated()) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(Map.of("message", "Sign in to map a sheet"));
         }
-        // Before the availability check: a body this size is refused whatever
-        // the configuration, which also keeps the cap testable without a key.
-        long chars = request.sheets().stream()
+        long chars = sheets.stream()
                 .mapToLong(s -> s.csv() == null ? 0 : s.csv().length()).sum();
         if (chars > MAX_CSV_CHARS) {
             return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE).body(Map.of("message",
@@ -90,8 +122,7 @@ public class QuestionSheetController {
                     "AI sheet mapping is not configured. Use the template instead, "
                             + "or set OPENAI_API_KEY on the server."));
         }
-        SheetMappingResponse response = mapping.map(request);
-        return ResponseEntity.ok(response);
+        return null;
     }
 
     /**

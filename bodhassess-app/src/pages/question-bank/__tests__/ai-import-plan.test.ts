@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   buildImportPlan,
   defaultDecision,
+  groupPathsByRoot,
+  groupSheetSections,
+  renameKeys,
+  sectionIdsForRows,
   needsAttention,
   pathResolver,
   reanchoredKey,
@@ -139,5 +143,95 @@ describe('re-anchoring', () => {
     expect(out.scores).toBe(`${neu}:2 | Other${SEP}Thing:1`);
     expect(out.option1Scores).toBe(`${neu}:5`);
     expect(out.option2Scores).toBe(`Other${SEP}Thing:3`);
+  });
+});
+
+describe('groupSheetSections', () => {
+  it('lists each distinct name once, in first-seen order, with its row count', () => {
+    const groups = groupSheetSections(['Part 2', 'Part 1', 'Part 2', 'Part 1', 'Part 2']);
+    expect(groups.map((g) => g.value)).toEqual(['Part 2', 'Part 1']);
+    expect(groups.map((g) => g.count)).toEqual([3, 2]);
+  });
+
+  it('folds case and surrounding space together, keeping the first spelling', () => {
+    const groups = groupSheetSections(['Part A', ' part a ', 'PART A']);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]).toMatchObject({ value: 'Part A', key: 'part a', count: 3 });
+  });
+
+  it('ignores blank and missing cells rather than inventing a section for them', () => {
+    expect(groupSheetSections([null, '', '   '])).toEqual([]);
+    expect(groupSheetSections(['Part A', null, ''])).toEqual([
+      { value: 'Part A', key: 'part a', count: 1 },
+    ]);
+  });
+});
+
+describe('sectionIdsForRows', () => {
+  const ids = new Map([['part a', 7], ['part b', 9]]);
+
+  it('places each row by its name, however it was typed', () => {
+    expect(sectionIdsForRows(['Part A', ' PART B ', 'Part A'], ids)).toEqual([7, 9, 7]);
+  });
+
+  it('leaves a row unplaced when the sheet named nothing or the name was not mapped', () => {
+    expect(sectionIdsForRows(['', null, 'Part C'], ids)).toEqual([null, null, null]);
+  });
+});
+
+describe('groupPathsByRoot', () => {
+  const p = (names: string[], count: number) =>
+    path(names.map((n) => seg(n, 'CREATE')), { questionCount: count });
+
+  it('gathers every path of one root into a single block, in first-seen order', () => {
+    const groups = groupPathsByRoot([
+      p(['Adaptability', 'Self-Efficacy'], 2),
+      p(['Tenacity', 'Perseverance'], 1),
+      p(['Adaptability', 'Growth Mindset'], 3),
+    ]);
+    expect(groups.map((g) => g.key)).toEqual(['Adaptability', 'Tenacity']);
+    expect(groups[0].paths).toHaveLength(2);
+    expect(groups[0].questionCount).toBe(5);
+    expect(groups[1].questionCount).toBe(1);
+  });
+
+  it('keeps a root that names no type as a block of its own', () => {
+    const groups = groupPathsByRoot([p(['Adaptability'], 4)]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].paths[0].pathKey).toBe('Adaptability');
+  });
+});
+
+describe('renameKeys', () => {
+  const paths = [
+    path([seg('Adaptability (v2)', 'CREATE'), seg('Self-Efficacy', 'CREATE')]),
+    path([seg('Adaptability (v2)', 'CREATE'), seg('Growth Mindset', 'CREATE')]),
+    path([seg('Tenacity', 'CREATE'), seg('Self-Efficacy', 'CREATE')]),
+  ];
+
+  it('rewrites every path under a renamed root, and nothing else', () => {
+    expect(renameKeys(paths, `Adaptability (v2)${SEP}Self-Efficacy`, 0, 'Adaptability')).toEqual([
+      { from: `Adaptability (v2)${SEP}Self-Efficacy`, to: `Adaptability${SEP}Self-Efficacy` },
+      { from: `Adaptability (v2)${SEP}Growth Mindset`, to: `Adaptability${SEP}Growth Mindset` },
+    ]);
+  });
+
+  it('rewrites only the path that passes through a renamed type', () => {
+    expect(renameKeys(paths, `Adaptability (v2)${SEP}Self-Efficacy`, 1, 'Self Efficacy')).toEqual([
+      { from: `Adaptability (v2)${SEP}Self-Efficacy`, to: `Adaptability (v2)${SEP}Self Efficacy` },
+    ]);
+  });
+
+  it('can land two paths on one key — the caller merges them', () => {
+    expect(renameKeys(paths, `Adaptability (v2)${SEP}Self-Efficacy`, 0, 'Tenacity')).toEqual([
+      { from: `Adaptability (v2)${SEP}Self-Efficacy`, to: `Tenacity${SEP}Self-Efficacy` },
+      { from: `Adaptability (v2)${SEP}Growth Mindset`, to: `Tenacity${SEP}Growth Mindset` },
+    ]);
+  });
+
+  it('does nothing for a blank, unchanged or out-of-range name', () => {
+    expect(renameKeys(paths, `Tenacity${SEP}Self-Efficacy`, 0, '   ')).toEqual([]);
+    expect(renameKeys(paths, `Tenacity${SEP}Self-Efficacy`, 0, 'Tenacity')).toEqual([]);
+    expect(renameKeys(paths, `Tenacity${SEP}Self-Efficacy`, 5, 'Whatever')).toEqual([]);
   });
 });

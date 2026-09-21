@@ -189,3 +189,117 @@ export function rewriteScoreCells(
 export function reanchoredKey(path: PathProposal, suggestedPath: string): string {
   return [suggestedPath, ...path.segments.slice(1).map((s) => s.name)].join(SEP);
 }
+
+/* ===================== the sheet's own sections ===================== */
+
+/**
+ * One distinct section name the mapped sheet used, with how many of its rows
+ * carried it. `key` is the comparison form — trimmed and lowercased, matching
+ * how the template upload's section matcher compares names, so the AI route
+ * and the template route cannot disagree about what counts as the same
+ * section. Blank cells are not a group: the sheet said nothing about those
+ * rows, and inventing a section for them would be a guess.
+ */
+export interface SheetSectionGroup {
+  value: string;
+  key: string;
+  count: number;
+}
+
+/** The distinct section names of a mapped sheet, in the order they first appear. */
+export function groupSheetSections(cells: (string | null)[]): SheetSectionGroup[] {
+  const out: SheetSectionGroup[] = [];
+  const at = new Map<string, number>();
+  for (const cell of cells) {
+    const value = (cell || '').trim();
+    if (!value) continue;
+    const key = value.toLowerCase();
+    const seen = at.get(key);
+    if (seen == null) {
+      at.set(key, out.length);
+      out.push({ value, key, count: 1 });
+    } else {
+      out[seen].count += 1;
+    }
+  }
+  return out;
+}
+
+/**
+ * Per-row section ids, once the author has said where each of the sheet's
+ * names goes. A row whose name was left unassigned — or that never carried
+ * one — comes back null and is placed by hand afterwards.
+ */
+export function sectionIdsForRows(
+  cells: (string | null)[],
+  idByKey: Map<string, number>,
+): (number | null)[] {
+  return cells.map((cell) => idByKey.get((cell || '').trim().toLowerCase()) ?? null);
+}
+
+/* ===================== grouping and renaming paths ===================== */
+
+/**
+ * The proposed paths of ONE root quality, so the qualities step can show a
+ * measured quality once with its types beneath it instead of reprinting the
+ * root on every row. Grouped by the root's name — a sheet that named the same
+ * root twice meant the same quality both times, which is exactly what the
+ * resolver will do with it.
+ */
+export interface PathGroup {
+  /** The root segment's name; also the group's react key. */
+  key: string;
+  paths: PathProposal[];
+  questionCount: number;
+}
+
+export function groupPathsByRoot(paths: PathProposal[]): PathGroup[] {
+  const out: PathGroup[] = [];
+  const at = new Map<string, number>();
+  for (const path of paths) {
+    const key = path.segments[0]?.name ?? path.pathKey;
+    const seen = at.get(key);
+    if (seen == null) {
+      at.set(key, out.length);
+      out.push({ key, paths: [path], questionCount: path.questionCount });
+    } else {
+      out[seen].paths.push(path);
+      out[seen].questionCount += path.questionCount;
+    }
+  }
+  return out;
+}
+
+/**
+ * The key rewrites a rename implies: every path that carries the segment
+ * being renamed, in the same position and under the same ancestors, gets its
+ * own key rewritten. Renaming a root therefore moves the whole group in one
+ * go, and renaming a type moves only the paths that actually pass through it.
+ *
+ * Returns nothing for a blank or unchanged name. Two paths can be rewritten
+ * onto the SAME key (renaming "Drive (v2)" to "Drive" when a "Drive" already
+ * exists) — the caller merges them; that is the author saying they were one
+ * quality all along.
+ */
+export function renameKeys(
+  paths: PathProposal[],
+  anchorKey: string,
+  segmentIndex: number,
+  newName: string,
+): { from: string; to: string }[] {
+  const name = newName.trim();
+  const anchor = anchorKey.split(SEP);
+  if (!name || segmentIndex < 0 || segmentIndex >= anchor.length) return [];
+  if (anchor[segmentIndex] === name) return [];
+  const prefix = anchor.slice(0, segmentIndex + 1);
+  const out: { from: string; to: string }[] = [];
+  for (const path of paths) {
+    const parts = path.pathKey.split(SEP);
+    if (parts.length <= segmentIndex) continue;
+    if (prefix.some((p, i) => parts[i] !== p)) continue;
+    const next = [...parts];
+    next[segmentIndex] = name;
+    out.push({ from: path.pathKey, to: next.join(SEP) });
+  }
+  return out;
+}
