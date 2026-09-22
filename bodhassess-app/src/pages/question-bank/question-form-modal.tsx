@@ -31,7 +31,7 @@ import {
   type QuestionType,
   type SelectionRule,
 } from './questionApis';
-import { type MQ, type MQT, type MeasuredQualityResponse } from '../MeasuredQuality/qualitiesApi';
+import { qualitiesApi, type MQ, type MQT, type MeasuredQualityResponse } from '../MeasuredQuality/qualitiesApi';
 
 // The ONE create/edit form for bank questions. The Questions page renders it
 // as a modal; the questionnaire wizard's Step 2 renders the same fields
@@ -118,12 +118,23 @@ export function ScoreEditor({
   rows,
   choices,
   onChange,
+  onCreateChoice,
   hideScore = false,
 }: {
   title: string;
   rows: ScoreRow[];
   choices: MqtChoice[];
   onChange: (rows: ScoreRow[]) => void;
+  /**
+   * Somewhere to put a measured quality type that does not exist yet.
+   *
+   * <p>Authoring a question is exactly when the gap is noticed, and leaving
+   * the form to add one node on the Qualities page loses whatever has been
+   * typed. Given a handler, the editor offers to create it here and hands
+   * the new node back so the page's picker knows it too. Without one the
+   * button is not shown — a preview has no business writing to the taxonomy.
+   */
+  onCreateChoice?: (choice: MqtChoice) => void;
   /**
    * Drops the number input, leaving a pure MQT nomination. Used by the linear
    * scale, where the point the respondent picks is the score and a number
@@ -133,6 +144,99 @@ export function ScoreEditor({
 }) {
   const mapped = new Set(rows.filter((r) => r.mqtId).map((r) => r.mqtId));
   const remaining = choices.filter((c) => !mapped.has(String(c.id)));
+
+  /*
+   * The inline creator. `under` is where the new type hangs: an existing
+   * measured quality, an existing type (making it a child), or a quality
+   * created in the same breath. The qualities are fetched when the panel
+   * opens rather than passed in — choices carry paths, not the ids of the
+   * qualities at the top of them.
+   */
+  const [creating, setCreating] = useState(false);
+  const [parents, setParents] = useState<MeasuredQualityResponse[]>([]);
+  const [under, setUnder] = useState('');
+  const [newName, setNewName] = useState('');
+  const [newQualityName, setNewQualityName] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [createError, setCreateError] = useState('');
+  /** Which score row the creator was opened from — where the new node lands. */
+  const [rowForNew, setRowForNew] = useState(0);
+
+  const openCreator = async () => {
+    setCreating(true);
+    setCreateError('');
+    setNewName('');
+    setNewQualityName('');
+    try {
+      const res = await qualitiesApi.getQualities();
+      setParents(res.data);
+      setUnder(res.data.length > 0 ? `mq:${res.data[0].measuredQualityId}` : 'new-mq');
+    } catch (e: any) {
+      setParents([]);
+      setUnder('new-mq');
+      setCreateError(e?.response?.data?.message || e?.message || 'Could not load the taxonomy');
+    }
+  };
+
+  /** The label a new node will carry — the parent's path, then its own name. */
+  const parentLabel = (): string => {
+    if (under === 'new-mq') return newQualityName.trim();
+    if (under.startsWith('mq:')) {
+      const mq = parents.find((m) => String(m.measuredQualityId) === under.slice(3));
+      return mq?.name ?? '';
+    }
+    const hit = choices.find((c) => String(c.id) === under.slice(4));
+    return hit?.label ?? '';
+  };
+
+  const createNode = async (rowIndex: number) => {
+    const name = newName.trim();
+    if (!name) return;
+    setBusy(true);
+    setCreateError('');
+    try {
+      let measuredQualityId: number | undefined;
+      let parentTypeId: number | undefined;
+      // Two calls, no transaction across them: if the quality lands and the
+      // type does not, say which, so nobody hunts for a quality they think
+      // failed to appear.
+      let qualityMade = '';
+      if (under === 'new-mq') {
+        const quality = newQualityName.trim();
+        if (!quality) { setCreateError('Name the measured quality too'); return; }
+        const made = await qualitiesApi.createQuality({ name: quality, description: '' });
+        measuredQualityId = made.data.measuredQualityId;
+        qualityMade = quality;
+      } else if (under.startsWith('mq:')) {
+        measuredQualityId = Number(under.slice(3));
+      } else {
+        parentTypeId = Number(under.slice(4));
+      }
+      const label = `${parentLabel()} › ${name}`;
+      const made = await qualitiesApi.createQualityType({ name, measuredQualityId, parentTypeId });
+      const choice: MqtChoice = { id: Number(made.data.measuredQualityTypeId), name, label };
+      onCreateChoice?.(choice);
+      // Straight into the row that asked for it — the reason for creating it.
+      onChange(rows.map((r, j) => (j === rowIndex ? { ...r, mqtId: String(choice.id) } : r)));
+      setCreating(false);
+    } catch (e: any) {
+      const said = e?.response?.data?.message || e?.message || 'Could not create it';
+      setCreateError(qualityMade
+        ? `${said} — "${qualityMade}" was created, the type was not. Pick it under "Under" and try the name again.`
+        : said);
+      // The quality exists now, so the next attempt must hang off it rather
+      // than making a second one of the same name.
+      if (qualityMade && measuredQualityId != null) {
+        setUnder(`mq:${measuredQualityId}`);
+        setParents((prev) => (prev.some((m) => m.measuredQualityId === measuredQualityId)
+          ? prev
+          : [...prev, { measuredQualityId, name: qualityMade, description: '', mqts: [] } as MeasuredQualityResponse]));
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between">
@@ -143,9 +247,20 @@ export function ScoreEditor({
             — {mapped.size} of {choices.length} MQT{choices.length !== 1 ? 's' : ''} mapped
           </span>
         </span>
-        <Button variant="outline" size="sm" onClick={() => onChange([...rows, { mqtId: '', score: '1' }])}>
-          <Plus className="h-3 w-3" /> Map MQT
-        </Button>
+        <div className="flex items-center gap-1.5">
+          {onCreateChoice && rows.length === 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => { onChange([...rows, { mqtId: '', score: '1' }]); setRowForNew(rows.length); openCreator(); }}
+            >
+              <Plus className="h-3 w-3" /> New MQT
+            </Button>
+          )}
+          <Button variant="outline" size="sm" onClick={() => onChange([...rows, { mqtId: '', score: '1' }])}>
+            <Plus className="h-3 w-3" /> Map MQT
+          </Button>
+        </div>
       </div>
       {rows.length > 0 && (
         <div className="space-y-1">
@@ -177,6 +292,16 @@ export function ScoreEditor({
                   className="w-20 h-8 rounded-md border border-border bg-background px-2 text-xs focus:outline-none focus:border-primary"
                 />
               )}
+              {onCreateChoice && (
+                <button
+                  type="button"
+                  onClick={() => { setRowForNew(i); openCreator(); }}
+                  className="rounded-md border border-border px-1.5 py-1 text-[0.6875rem] font-medium text-muted-foreground hover:border-primary/40 hover:text-foreground"
+                  title="Create a measured quality type and map this row to it"
+                >
+                  + New
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => onChange(rows.filter((_, j) => j !== i))}
@@ -187,6 +312,71 @@ export function ScoreEditor({
               </button>
             </div>
           ))}
+        </div>
+      )}
+
+      {creating && (
+        <div className="space-y-2 rounded-lg border border-primary/30 bg-primary/5 p-2.5">
+          <p className="text-[0.6875rem] font-medium">
+            New measured quality type
+            <span className="ml-1 font-normal text-muted-foreground">
+              — added to the taxonomy as soon as you create it, for every question to use
+            </span>
+          </p>
+          {createError && (
+            <p className="text-[0.6875rem] text-red-600 dark:text-red-400">{createError}</p>
+          )}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <label className="text-[0.6875rem] text-muted-foreground">Under</label>
+            <select
+              value={under}
+              onChange={(e) => setUnder(e.target.value)}
+              className="h-8 min-w-0 flex-1 rounded-md border border-border bg-background px-2 text-xs focus:border-primary focus:outline-none"
+            >
+              <optgroup label="Measured quality">
+                {parents.map((mq) => (
+                  <option key={mq.measuredQualityId} value={`mq:${mq.measuredQualityId}`}>{mq.name}</option>
+                ))}
+              </optgroup>
+              {choices.length > 0 && (
+                <optgroup label="Inside an existing type">
+                  {choices.map((c) => (
+                    <option key={c.id} value={`mqt:${c.id}`}>{c.label}</option>
+                  ))}
+                </optgroup>
+              )}
+              <optgroup label="New">
+                <option value="new-mq">+ a new measured quality…</option>
+              </optgroup>
+            </select>
+          </div>
+          {under === 'new-mq' && (
+            <input
+              value={newQualityName}
+              onChange={(e) => setNewQualityName(e.target.value)}
+              placeholder="New measured quality name"
+              className="h-8 w-full rounded-md border border-border bg-background px-2 text-xs focus:border-primary focus:outline-none"
+            />
+          )}
+          <input
+            autoFocus
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') createNode(rowForNew); }}
+            placeholder="New type name — e.g. Self-Efficacy"
+            className="h-8 w-full rounded-md border border-border bg-background px-2 text-xs focus:border-primary focus:outline-none"
+          />
+          <div className="flex items-center justify-between gap-2">
+            <p className="min-w-0 truncate text-[0.6875rem] text-muted-foreground">
+              {newName.trim() ? `${parentLabel()} › ${newName.trim()}` : 'Pick where it belongs and name it.'}
+            </p>
+            <div className="flex shrink-0 gap-1.5">
+              <Button variant="outline" size="sm" onClick={() => setCreating(false)} disabled={busy}>Cancel</Button>
+              <Button variant="primary" size="sm" onClick={() => createNode(rowForNew)} disabled={busy || !newName.trim()}>
+                {busy ? 'Creating…' : 'Create & map'}
+              </Button>
+            </div>
+          </div>
         </div>
       )}
       {remaining.length > 0 && (
@@ -532,10 +722,13 @@ export function QuestionFormFields({
   form,
   onChange,
   choices,
+  onCreateChoice,
 }: {
   form: QuestionForm;
   onChange: (next: QuestionForm) => void;
   choices: MqtChoice[];
+  /** Passed on to every ScoreEditor — see there. Absent hides the offer. */
+  onCreateChoice?: (choice: MqtChoice) => void;
 }) {
   const set = (patch: Partial<QuestionForm>) => onChange({ ...form, ...patch });
   const isScale = form.questionType === 'LINEAR_SCALE';
@@ -708,6 +901,7 @@ export function QuestionFormFields({
           title={isScale ? 'Question → MQT mapping' : 'Question → MQT scores'}
           rows={form.mqtScores}
           choices={choices}
+          onCreateChoice={onCreateChoice}
           onChange={(rows) => set({ mqtScores: rows })}
           hideScore={isScale}
         />
@@ -844,6 +1038,7 @@ export function QuestionFormFields({
                     title={`Row ${i + 1} measures`}
                     rows={row.mqts}
                     choices={choices}
+                    onCreateChoice={onCreateChoice}
                     onChange={(mqts) => patchRow(i, { mqts })}
                     hideScore
                   />
@@ -1052,6 +1247,7 @@ export function QuestionFormFields({
                   title={`${isGrid ? 'Column' : 'Option'} ${i + 1} → MQT scores`}
                   rows={opt.mqtScores}
                   choices={choices}
+                  onCreateChoice={onCreateChoice}
                   onChange={(rows) => patchOption(i, { mqtScores: rows })}
                 />
               </div>
@@ -1075,12 +1271,15 @@ export function QuestionFormModal({
   choices,
   onClose,
   onSaved,
+  onCreateChoice,
 }: {
   /** null = create a new bank question; an existing question = edit it. */
   initial: QuestionResponse | null;
   choices: MqtChoice[];
   onClose: () => void;
   onSaved: (saved: QuestionResponse) => void | Promise<void>;
+  /** Lets the form add a measured quality type the bank lacks — see ScoreEditor. */
+  onCreateChoice?: (choice: MqtChoice) => void;
 }) {
   const [form, setForm] = useState<QuestionForm>(() => formFrom(initial));
   const [formError, setFormError] = useState('');
@@ -1117,7 +1316,7 @@ export function QuestionFormModal({
               <span>{formError}</span>
             </div>
           )}
-          <QuestionFormFields form={form} onChange={setForm} choices={choices} />
+          <QuestionFormFields form={form} onChange={setForm} choices={choices} onCreateChoice={onCreateChoice} />
         </CardContent>
         <div className="flex justify-end gap-2 p-4 border-t border-border shrink-0">
           <Button variant="outline" onClick={onClose}>Cancel</Button>

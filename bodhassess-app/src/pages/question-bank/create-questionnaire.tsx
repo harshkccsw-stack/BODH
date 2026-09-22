@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -11,6 +11,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Eye,
+  GripVertical,
   Layers,
   Library,
   Loader2,
@@ -21,6 +22,24 @@ import {
   Upload as UploadIcon,
   X,
 } from 'lucide-react';
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifiers';
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import {
   questionnairesApi,
   type QuestionnaireResponse,
@@ -125,6 +144,45 @@ const draftFromQuestion = (
     expanded: false,
   };
 };
+
+/**
+ * One draggable question row. The listeners live on the GRIP alone, not on the
+ * row — the header is a click target (expand, section select, arrows, delete)
+ * and a whole-row drag would swallow those. `useSortable` is a hook, so this
+ * has to be a component rather than a branch of `renderDraftCard`: that runs in
+ * a `.map`, where the hook order would change with the list.
+ */
+function SortableDraftRow({
+  id,
+  children,
+}: {
+  id: string;
+  children: (grip: ReactNode) => ReactNode;
+}) {
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } =
+    useSortable({ id });
+  const grip = (
+    <button
+      type="button"
+      ref={setActivatorNodeRef}
+      {...attributes}
+      {...listeners}
+      className="mt-0.5 shrink-0 cursor-grab touch-none p-1 text-muted-foreground hover:text-foreground active:cursor-grabbing"
+      title="Drag to reorder — or pick up with Space and move with the arrow keys"
+    >
+      <GripVertical className="h-3.5 w-3.5" />
+    </button>
+  );
+  return (
+    <div
+      ref={setNodeRef}
+      style={{ transform: CSS.Translate.toString(transform), transition }}
+      className={cn(isDragging && 'relative z-10 opacity-60')}
+    >
+      {children(grip)}
+    </div>
+  );
+}
 
 // --- Component ---
 
@@ -241,6 +299,56 @@ export default function CreateAssessmentPage() {
       return next;
     });
   };
+
+  /**
+   * Drag-drop equivalent of `moveDraft`, for the whole jump at once. Only the
+   * positions this scope occupies in the flat `drafts` array are rewritten, so
+   * every other section's questions stay exactly where they were — the same
+   * invariant the arrow swap keeps.
+   */
+  const reorderScope = (sectionId: number | null, activeKey: string, overKey: string) => {
+    if (activeKey === overKey) return;
+    setDrafts((prev) => {
+      const slots = prev.reduce<number[]>((acc, d, i) => {
+        if (!useSections || d.sectionId === sectionId) acc.push(i);
+        return acc;
+      }, []);
+      const from = slots.findIndex((i) => prev[i].key === activeKey);
+      const to = slots.findIndex((i) => prev[i].key === overKey);
+      if (from < 0 || to < 0) return prev;
+      const moved = arrayMove(slots.map((i) => prev[i]), from, to);
+      const next = [...prev];
+      slots.forEach((slot, k) => { next[slot] = moved[k]; });
+      return next;
+    });
+  };
+
+  // A pointer drag only starts after 6px, so a click on the grip is still a
+  // click; Space picks the row up for keyboard users.
+  const dragSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  /**
+   * One DndContext per scope — a row can only be dropped among its own
+   * section's questions. Moving a question to a DIFFERENT section stays the
+   * section dropdown's job, so a long drag can never silently re-file it.
+   */
+  const sortableList = (sectionId: number | null, list: DraftQuestion[]) => (
+    <DndContext
+      sensors={dragSensors}
+      collisionDetection={closestCenter}
+      modifiers={[restrictToVerticalAxis, restrictToParentElement]}
+      onDragEnd={({ active, over }: DragEndEvent) => {
+        if (over) reorderScope(sectionId, String(active.id), String(over.id));
+      }}
+    >
+      <SortableContext items={list.map((d) => d.key)} strategy={verticalListSortingStrategy}>
+        {list.map((d, i) => renderDraftCard(d, i))}
+      </SortableContext>
+    </DndContext>
+  );
 
   const setExpandedAll = (expanded: boolean) =>
     setDrafts((prev) => prev.map((d) => ({ ...d, expanded })));
@@ -801,101 +909,107 @@ export default function CreateAssessmentPage() {
     const typeLabel = QUESTION_TYPES.find((t) => t.value === d.form.questionType)?.label;
     const sharedWith = d.usedIn.filter((u) => u.questionnaireId !== backendQid);
     return (
-      <Card key={d.key} className="overflow-hidden">
-        <div className="flex items-start gap-2 border-b border-border bg-muted/30 px-3 py-2">
-          <button
-            type="button"
-            onClick={() => patchDraft(d.key, { expanded: !d.expanded })}
-            className="mt-0.5 shrink-0 text-muted-foreground hover:text-foreground"
-            title={d.expanded ? 'Collapse question' : 'Expand question'}
-          >
-            <ChevronRight className={cn('h-4 w-4 transition-transform', d.expanded && 'rotate-90')} />
-          </button>
-          <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
-            {position + 1}
-          </span>
-          <button
-            type="button"
-            onClick={() => patchDraft(d.key, { expanded: !d.expanded })}
-            className="min-w-0 flex-1 text-left"
-          >
-            <p className="truncate text-sm font-medium">
-              {stem || <span className="italic text-muted-foreground">Untitled question</span>}
-            </p>
-            <p className="truncate text-[0.6875rem] text-muted-foreground">
-              <span className="font-mono" title="Auto-generated report tag — saved with the questionnaire">
-                {tagPreview(d.sectionId, position)}
+      <SortableDraftRow key={d.key} id={d.key}>
+        {(grip) => (
+          <Card className="overflow-hidden">
+            <div className="flex items-start gap-2 border-b border-border bg-muted/30 px-3 py-2">
+              <button
+                type="button"
+                onClick={() => patchDraft(d.key, { expanded: !d.expanded })}
+                className="mt-0.5 shrink-0 text-muted-foreground hover:text-foreground"
+                title={d.expanded ? 'Collapse question' : 'Expand question'}
+              >
+                <ChevronRight className={cn('h-4 w-4 transition-transform', d.expanded && 'rotate-90')} />
+              </button>
+              <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                {position + 1}
               </span>
-              {d.form.questionType !== 'MCQ' && <>{' · '}{typeLabel}</>}
-              {d.form.questionType === 'LIKERT_GRID'
-                ? <>{' · '}{rowCount} row{rowCount !== 1 ? 's' : ''} × {optionCount} column{optionCount !== 1 ? 's' : ''}</>
-                : d.form.questionType === 'SHORT_ANSWER'
-                  ? <>{' · '}typed answer</>
-                  : <>{' · '}{optionCount} option{optionCount !== 1 ? 's' : ''}</>}
-              {d.questionId == null
-                ? ' · new — added to the question bank when you save'
-                : ` · bank question #${d.questionId}`}
-              {sharedWith.length > 0 && ` · shared with ${sharedWith.length} other questionnaire${sharedWith.length !== 1 ? 's' : ''} — edits apply there too`}
-            </p>
-          </button>
-          {useSections && qSections.length > 0 && (
-            <select
-              value={d.sectionId ?? ''}
-              onChange={(e) => patchDraft(d.key, { sectionId: e.target.value ? Number(e.target.value) : null })}
-              className="h-7 shrink-0 rounded-md border border-border bg-background px-1.5 text-xs outline-none focus:border-primary"
-              title="Section"
-            >
-              <option value="">— no section —</option>
-              {qSections.map((s) => (
-                <option key={s.sectionId} value={s.sectionId}>{s.name}</option>
-              ))}
-            </select>
-          )}
-          <button
-            type="button"
-            onClick={() => moveDraft(d.key, -1)}
-            className="mt-0.5 shrink-0 p-1 text-muted-foreground hover:text-foreground"
-            title="Move up"
-          >
-            <ArrowUp className="h-3.5 w-3.5" />
-          </button>
-          <button
-            type="button"
-            onClick={() => moveDraft(d.key, 1)}
-            className="mt-0.5 shrink-0 p-1 text-muted-foreground hover:text-foreground"
-            title="Move down"
-          >
-            <ArrowDown className="h-3.5 w-3.5" />
-          </button>
-          <button
-            type="button"
-            onClick={() => removeDraft(d.key)}
-            className="mt-0.5 shrink-0 p-1 text-muted-foreground hover:text-red-500"
-            title={d.questionId == null ? 'Discard this question' : 'Remove from this questionnaire (stays in the bank)'}
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
-        </div>
-        {d.expanded && (
-          <CardContent className="p-4">
-            {sharedWith.length > 0 && (
-              <div className="mb-3 flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-[0.6875rem] text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
-                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                <span>
-                  This is a shared bank question — editing it also changes{' '}
-                  {sharedWith.map((u) => u.name).join(', ')}. Import it as a copy instead if you need
-                  an independent version.
-                </span>
-              </div>
+              <button
+                type="button"
+                onClick={() => patchDraft(d.key, { expanded: !d.expanded })}
+                className="min-w-0 flex-1 text-left"
+              >
+                <p className="truncate text-sm font-medium">
+                  {stem || <span className="italic text-muted-foreground">Untitled question</span>}
+                </p>
+                <p className="truncate text-[0.6875rem] text-muted-foreground">
+                  <span className="font-mono" title="Auto-generated report tag — saved with the questionnaire">
+                    {tagPreview(d.sectionId, position)}
+                  </span>
+                  {d.form.questionType !== 'MCQ' && <>{' · '}{typeLabel}</>}
+                  {d.form.questionType === 'LIKERT_GRID'
+                    ? <>{' · '}{rowCount} row{rowCount !== 1 ? 's' : ''} × {optionCount} column{optionCount !== 1 ? 's' : ''}</>
+                    : d.form.questionType === 'SHORT_ANSWER'
+                      ? <>{' · '}typed answer</>
+                      : <>{' · '}{optionCount} option{optionCount !== 1 ? 's' : ''}</>}
+                  {d.questionId == null
+                    ? ' · new — added to the question bank when you save'
+                    : ` · bank question #${d.questionId}`}
+                  {sharedWith.length > 0 && ` · shared with ${sharedWith.length} other questionnaire${sharedWith.length !== 1 ? 's' : ''} — edits apply there too`}
+                </p>
+              </button>
+              {useSections && qSections.length > 0 && (
+                <select
+                  value={d.sectionId ?? ''}
+                  onChange={(e) => patchDraft(d.key, { sectionId: e.target.value ? Number(e.target.value) : null })}
+                  className="h-7 shrink-0 rounded-md border border-border bg-background px-1.5 text-xs outline-none focus:border-primary"
+                  title="Section"
+                >
+                  <option value="">— no section —</option>
+                  {qSections.map((s) => (
+                    <option key={s.sectionId} value={s.sectionId}>{s.name}</option>
+                  ))}
+                </select>
+              )}
+              {grip}
+              <button
+                type="button"
+                onClick={() => moveDraft(d.key, -1)}
+                className="mt-0.5 shrink-0 p-1 text-muted-foreground hover:text-foreground"
+                title="Move up"
+              >
+                <ArrowUp className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => moveDraft(d.key, 1)}
+                className="mt-0.5 shrink-0 p-1 text-muted-foreground hover:text-foreground"
+                title="Move down"
+              >
+                <ArrowDown className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => removeDraft(d.key)}
+                className="mt-0.5 shrink-0 p-1 text-muted-foreground hover:text-red-500"
+                title={d.questionId == null ? 'Discard this question' : 'Remove from this questionnaire (stays in the bank)'}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            {d.expanded && (
+              <CardContent className="p-4">
+                {sharedWith.length > 0 && (
+                  <div className="mb-3 flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-[0.6875rem] text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
+                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <span>
+                      This is a shared bank question — editing it also changes{' '}
+                      {sharedWith.map((u) => u.name).join(', ')}. Import it as a copy instead if you need
+                      an independent version.
+                    </span>
+                  </div>
+                )}
+                <QuestionFormFields
+                  form={d.form}
+                  onChange={(form) => setDraftForm(d.key, form)}
+                  choices={mqtChoices}
+                  onCreateChoice={(c) => setMqtChoices((prev) => (prev.some((x) => x.id === c.id) ? prev : [...prev, c]))}
+                />
+              </CardContent>
             )}
-            <QuestionFormFields
-              form={d.form}
-              onChange={(form) => setDraftForm(d.key, form)}
-              choices={mqtChoices}
-            />
-          </CardContent>
+          </Card>
         )}
-      </Card>
+      </SortableDraftRow>
     );
   };
 
@@ -1222,7 +1336,7 @@ export default function CreateAssessmentPage() {
                     </div>
                   ) : (
                     <>
-                      {drafts.map((d, i) => renderDraftCard(d, i))}
+                      {sortableList(null, drafts)}
                       <div className="flex justify-center pt-1">{addQuestionButton(null)}</div>
                     </>
                   )}
@@ -1354,7 +1468,7 @@ export default function CreateAssessmentPage() {
                                 No questions in this section yet.
                               </p>
                             ) : (
-                              list.map((d, i) => renderDraftCard(d, i))
+                              sortableList(sec.sectionId, list)
                             )}
                           </div>
                         </div>
@@ -1370,7 +1484,7 @@ export default function CreateAssessmentPage() {
                         </span>
                       </div>
                       <div className="space-y-3 p-3">
-                        {unassigned.map((d, i) => renderDraftCard(d, i))}
+                        {sortableList(null, unassigned)}
                       </div>
                     </div>
                   )}

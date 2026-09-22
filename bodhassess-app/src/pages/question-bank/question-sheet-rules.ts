@@ -98,30 +98,113 @@ function normalisePath(value: string): string {
  * having to look an id up. It is also what an AI-mapped sheet writes, which is
  * what makes that sheet re-uploadable here unchanged.
  */
+/** What a score-cell key turns out to be, before deciding what to say about it. */
+type KeyLookup =
+  | { kind: 'found'; id: number }
+  | { kind: 'unknown-id'; id: number }
+  | { kind: 'unknown'; form: 'path' | 'name' }
+  | { kind: 'ambiguous'; form: 'path' | 'name'; count: number };
+
+/** The matching itself, with no opinion about what an unknown key means. */
+function lookupKey(key: string, choices: MqtChoice[]): KeyLookup {
+  if (/^\d+$/.test(key)) {
+    const id = Number(key);
+    return choices.some((c) => c.id === id) ? { kind: 'found', id } : { kind: 'unknown-id', id };
+  }
+  if (key.includes(PATH_MARK)) {
+    const want = normalisePath(key);
+    const hits = choices.filter((c) => normalisePath(c.label) === want);
+    if (hits.length === 0) return { kind: 'unknown', form: 'path' };
+    if (hits.length > 1) return { kind: 'ambiguous', form: 'path', count: hits.length };
+    return { kind: 'found', id: hits[0].id };
+  }
+  const matches = choices.filter((c) => c.name.toLowerCase() === key.toLowerCase());
+  if (matches.length === 0) return { kind: 'unknown', form: 'name' };
+  if (matches.length > 1) return { kind: 'ambiguous', form: 'name', count: matches.length };
+  return { kind: 'found', id: matches[0].id };
+}
+
+/** The wording each miss has always had — unchanged, and stated in one place. */
+function keyProblem(where: string, key: string, hit: KeyLookup): string {
+  switch (hit.kind) {
+    case 'unknown-id': return `${where}: no MQT with id ${hit.id}`;
+    case 'unknown': return hit.form === 'path'
+      ? `${where}: no measured quality type at "${key}"`
+      : `${where}: no MQT named "${key}"`;
+    case 'ambiguous': return `${where}: "${key}" matches ${hit.count} MQTs — use the id instead`;
+    default: return '';
+  }
+}
+
 export function mqtKeyResolver(choices: MqtChoice[]): MqtKeyResolver {
   return (key, where, errors) => {
-    if (/^\d+$/.test(key)) {
-      const id = Number(key);
-      if (!choices.some((c) => c.id === id)) { errors.push(`${where}: no MQT with id ${id}`); return null; }
-      return id;
+    const hit = lookupKey(key, choices);
+    if (hit.kind === 'found') return hit.id;
+    errors.push(keyProblem(where, key, hit));
+    return null;
+  };
+}
+
+/**
+ * The upload's FIRST pass: resolve what exists, and collect what does not
+ * instead of refusing the sheet over it.
+ *
+ * <p>A name the bank has never heard of used to end the upload, which meant
+ * a sheet bringing its own constructs could not be imported at all until
+ * somebody typed the taxonomy in by hand. Collected here, the same names
+ * become proposals the reviewer accepts or rejects — and only then are they
+ * created, together with the questions.
+ *
+ * <p>Two misses are NOT collected, because neither can be created: an id
+ * that does not exist (nothing says what to call it) and a name that matches
+ * several MQTs (nothing says which was meant). Those stay errors, as before.
+ *
+ * @param unresolved filled in as a side effect: key → the sheet rows using it
+ */
+export function collectingResolver(
+  choices: MqtChoice[],
+  unresolved: Map<string, Set<number>>,
+): MqtKeyResolver {
+  return (key, where, errors) => {
+    const hit = lookupKey(key, choices);
+    if (hit.kind === 'found') return hit.id;
+    if (hit.kind === 'unknown') {
+      // "Row 7 option3Scores" — the row is what makes this a question count
+      // rather than a cell count.
+      const row = Number(/^Row (\d+)/.exec(where)?.[1] ?? 0);
+      const rows = unresolved.get(key) ?? new Set<number>();
+      rows.add(row);
+      unresolved.set(key, rows);
+      return null;
     }
-    if (key.includes(PATH_MARK)) {
-      const want = normalisePath(key);
-      const hits = choices.filter((c) => normalisePath(c.label) === want);
-      if (hits.length === 0) {
-        errors.push(`${where}: no measured quality type at "${key}"`);
-        return null;
-      }
-      if (hits.length > 1) {
-        errors.push(`${where}: "${key}" matches ${hits.length} MQTs — use the id instead`);
-        return null;
-      }
-      return hits[0].id;
-    }
-    const matches = choices.filter((c) => c.name.toLowerCase() === key.toLowerCase());
-    if (matches.length === 0) { errors.push(`${where}: no MQT named "${key}"`); return null; }
-    if (matches.length > 1) { errors.push(`${where}: "${key}" matches ${matches.length} MQTs — use the id instead`); return null; }
-    return matches[0].id;
+    errors.push(keyProblem(where, key, hit));
+    return null;
+  };
+}
+
+/** Collected keys, as the path resolver endpoint wants them. */
+export function unresolvedCounts(
+  unresolved: Map<string, Set<number>>,
+): { pathKey: string; questionCount: number }[] {
+  return [...unresolved.entries()].map(([pathKey, rows]) => ({ pathKey, questionCount: rows.size }));
+}
+
+/**
+ * The SECOND pass, once the reviewer has said what the unknown names are:
+ * what exists still resolves as it always did, and what does not comes from
+ * the plan — an id to use, a negative ref for something about to be created,
+ * or null for a name deliberately left unmapped.
+ */
+export function planAwareResolver(
+  choices: MqtChoice[],
+  keyToId: Map<string, number | null>,
+): MqtKeyResolver {
+  return (key, where, errors) => {
+    const hit = lookupKey(key, choices);
+    if (hit.kind === 'found') return hit.id;
+    if (keyToId.has(key)) return keyToId.get(key) ?? null;
+    errors.push(keyProblem(where, key, hit));
+    return null;
   };
 }
 

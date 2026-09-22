@@ -1178,7 +1178,7 @@ const MARKERS: Record<string, { mark: string; className: string }> = {
  * question count, the re-anchor that would move all of it, and the two bulk
  * answers — and each row below answers for one type.
  */
-function PathGroupBlock({
+export function PathGroupBlock({
   group,
   choices,
   decisions,
@@ -1191,11 +1191,16 @@ function PathGroupBlock({
   group: PathGroup;
   choices: MqtChoice[];
   decisions: Record<string, PathDecision>;
-  busy: boolean;
+  busy?: boolean;
   onChange: (pathKey: string, d: PathDecision) => void;
   onBulk: (mode: PathDecision['mode']) => void;
-  onReanchor: (root: PathSegment) => void;
-  onRename: (anchorKey: string, segmentIndex: number, name: string) => void;
+  /** Absent where there is nothing to re-anchor — the template upload. */
+  onReanchor?: (root: PathSegment) => void;
+  /**
+   * Absent where the names are the author's own rather than the model's: on
+   * the template path a wrong name is fixed in the sheet, not here.
+   */
+  onRename?: (anchorKey: string, segmentIndex: number, name: string) => void;
 }) {
   const root = group.paths[0]?.segments[0];
   const marker = MARKERS[root?.status ?? 'CREATE'] ?? MARKERS.CREATE;
@@ -1215,20 +1220,24 @@ function PathGroupBlock({
         <div className="min-w-0 space-y-1">
           <div className="flex items-center gap-1.5 text-sm">
             <span className={`font-mono font-bold ${marker.className}`}>{marker.mark}</span>
-            <EditableName
-              value={root?.name ?? ''}
-              disabled={busy}
-              title="Rename this measured quality"
-              className="font-medium"
-              onSave={(name) => onRename(anchorKey, 0, name)}
-            />
+            {onRename ? (
+              <EditableName
+                value={root?.name ?? ''}
+                disabled={busy}
+                title="Rename this measured quality"
+                className="font-medium"
+                onSave={(name) => onRename(anchorKey, 0, name)}
+              />
+            ) : (
+              <span className="font-medium break-words">{root?.name ?? ''}</span>
+            )}
           </div>
           <p className="text-[0.6875rem] text-muted-foreground">
             {status} · {group.questionCount} question{group.questionCount === 1 ? '' : 's'}
             {typed > 0 && ` · ${typed} type${typed === 1 ? '' : 's'}`}
           </p>
           {root?.note && <p className="text-[0.6875rem] text-muted-foreground">{root.note}</p>}
-          {root?.status === 'CREATE' && root.suggestedMqtId != null && root.suggestedPath && (
+          {onReanchor && root?.status === 'CREATE' && root.suggestedMqtId != null && root.suggestedPath && (
             <button
               type="button"
               disabled={busy}
@@ -1271,10 +1280,10 @@ function PathGroupBlock({
             key={path.pathKey}
             path={path}
             choices={choices}
-            busy={busy}
+            busy={!!busy}
             decision={decisions[path.pathKey] ?? defaultDecision(path)}
             onChange={(d) => onChange(path.pathKey, d)}
-            onRename={(segmentIndex, name) => onRename(path.pathKey, segmentIndex, name)}
+            onRename={onRename && ((segmentIndex, name) => onRename(path.pathKey, segmentIndex, name))}
           />
         ))}
       </div>
@@ -1378,7 +1387,7 @@ function PathRow({
   decision: PathDecision;
   onChange: (d: PathDecision) => void;
   /** Rename segment i of this path. The block owns the root, so i is never 0 here. */
-  onRename: (segmentIndex: number, name: string) => void;
+  onRename?: (segmentIndex: number, name: string) => void;
   busy: boolean;
 }) {
   const attention = needsAttention(path, decision);
@@ -1406,13 +1415,17 @@ function PathRow({
             return (
               <div key={i} className="text-xs" style={{ paddingLeft: `${offset * 14}px` }}>
                 <span className={`font-mono font-bold mr-1.5 ${marker.className}`}>{marker.mark}</span>
-                <EditableName
-                  value={segment.name}
-                  disabled={busy}
-                  title="Rename this type"
-                  className="font-medium"
-                  onSave={(name) => onRename(i, name)}
-                />
+                {onRename ? (
+                  <EditableName
+                    value={segment.name}
+                    disabled={busy}
+                    title="Rename this type"
+                    className="font-medium"
+                    onSave={(name) => onRename(i, name)}
+                  />
+                ) : (
+                  <span className="font-medium break-words">{segment.name}</span>
+                )}
                 {segment.status === 'CREATE' && decision.mode === 'create' && (
                   <span className="ml-1.5 text-[0.6875rem] text-primary">will be created</span>
                 )}

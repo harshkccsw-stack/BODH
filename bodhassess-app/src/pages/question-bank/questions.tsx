@@ -464,6 +464,9 @@ export default function QuestionsPage() {
           choices={mqtChoices}
           onClose={() => setEditing(undefined)}
           onSaved={async () => { await refresh(); setEditing(undefined); }}
+          // A type created inside the form exists from that moment; the
+          // picker has to know it without waiting for the next refresh.
+          onCreateChoice={(c) => setMqtChoices((prev) => (prev.some((x) => x.id === c.id) ? prev : [...prev, c]))}
         />
       )}
 
