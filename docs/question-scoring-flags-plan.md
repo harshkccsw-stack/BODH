@@ -31,7 +31,7 @@
 | The raw sheet? | Own columns show every item's value including excluded ones; the `(total)` columns exclude them; the Scoring Key shows scores **as scored** and marks reversed items. §8 |
 | The AI importer? | Switches to **ascending scores + the flag** — the pivot arithmetic moves out of the expander and into the engine, where every path shares it. §9 |
 | `ReportItemBinding.reverseScored / inComposite`? | **Kept.** The binding records what the SHEET claims; the question records what the PLATFORM does; the unbuilt §7 lint becomes "do they agree". §10 |
-| Migration? | `V32`, two columns, defaults false / true, no backfill — and the defaults are correct for every existing row, which is argued rather than assumed. §11 |
+| Migration? | `V35`, two columns, defaults false / true, no backfill — and the defaults are correct for every existing row, which is argued rather than assumed. §11 |
 
 ## 1. What the workbook says — all three tabs
 
@@ -207,7 +207,7 @@ read separately."*
 
 This is the section that could go wrong, so it is spelt out.
 
-**State on the day `V32` lands.** Every question has `reverse_scored = false`,
+**State on the day `V35` lands.** Every question has `reverse_scored = false`,
 `in_composite = true`. The engine's new branches are never taken. Every number
 is what it was yesterday. The three locally imported reversed items keep their
 5,4,3,2,1 scores and keep scoring correctly — they are reversed *by data*, as
@@ -321,10 +321,10 @@ Both are trivial once the flags exist, and for an instrument brought in
 through the AI importer they agree by construction, because the importer sets
 both from the same cells the binding was read from.
 
-## 11. Migration — `V32`
+## 11. Migration — `V35`
 
 ```sql
--- V32__question_scoring_flags.sql
+-- V35__question_scoring_flags.sql
 -- reverse_scored: the engine inverts this question's option contributions.
 -- in_composite:   false = the item's value lands on its MQT but joins no total.
 -- Both defaults are CORRECT for every existing row, not merely safe: nothing
@@ -342,12 +342,25 @@ V11's header comment explains the logical/physical split). CLAUDE.md's
 rows; here the defaults are the truth, which is the argument for `NOT NULL`
 straight away.
 
-**Before this file is written: confirm which database is live.** The memory
-note says a `V<n>.sql` lands on the IDE's database within seconds of being
-saved, and this branch has pointed at both a local container and shared
-staging in the last month.
+**The number moved, and may again.** This plan said `V32` when it was written
+on 2026-09-16; `V32`, `V33` and `V34` were taken since by the report engine's
+approval provenance, the tag-answer move and the practitioner phone column.
+**`V35` is the next free number as of 2026-09-22** — check once more before
+writing the file.
+
+**Before this file is written: confirm which database is live.** Writing a
+`V<n>.sql` lands the DDL on whatever database the IDE points at within seconds
+of the file being saved, before anything is deliberately booted. Port 3310 has
+been a local container AND an SSH tunnel to a remote database within the last
+month, so check what is actually listening (`ss -ltnp`) rather than trusting
+this document or the port number.
 
 ## 12. Open questions — the four that need you
+
+> Three of these are really questions for the practitioner, restated in their
+> own language as Q1–Q3 of
+> [practitioner-questions.md](practitioner-questions.md) §1. Question 1 below
+> is ours to decide, not theirs.
 
 1. **Engine-applied (this document) or informational-plus-lint?** The
    informational version costs nothing and changes nothing: a checkbox, a
@@ -371,7 +384,7 @@ staging in the last month.
 
 | Layer | Change |
 |---|---|
-| **Migration** | `V32` — §11 |
+| **Migration** | `V35` — §11 |
 | **Entity** | `Question.reverseScored` (false), `Question.inComposite` (true), beside `riskFlag` |
 | **DTOs** | `QuestionRequest` + `Boolean reverseScored`, `Boolean inComposite` (null → default); `QuestionResponse` + both |
 | **`QuestionController`** | `applyFields` sets both; `firstProblem` gains §6's refusal and §7's type rules — one method, so `/create`, `/update`, `/bulk-create`, `/import` cannot drift |
@@ -394,7 +407,7 @@ Each step is useful shipped alone, and after step 1 the flags are as inert as
 `riskFlag` — so the order is safe in the sense that matters: nothing changes a
 number until step 3, and step 2 is in place before it.
 
-1. **Flags exist and do nothing.** `V32`, entity, DTOs, `applyFields`, the two
+1. **Flags exist and do nothing.** `V35`, entity, DTOs, `applyFields`, the two
    checkboxes, badges, template columns. Ships like the risk flag did.
 2. **Refusals.** §6's double-reversal check and §7's type rules in
    `firstProblem`. Before the engine, so no reversed-twice item can be saved

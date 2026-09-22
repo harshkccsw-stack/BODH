@@ -15,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.bodhpsychometric.dto.DsDatasetResponse;
 import com.bodhpsychometric.dto.DsDatasetResponse.Column;
+import com.bodhpsychometric.dto.DsDatasetResponse.ScoreRef;
 import com.bodhpsychometric.model.assessment.Assessment;
 import com.bodhpsychometric.model.assessment.AssessmentAnswer;
 import com.bodhpsychometric.model.assessment.RespondentAssessmentMapping;
@@ -209,17 +210,27 @@ public class DataStudioDatasetService {
         // ── Score columns (one plan for the whole sheet) ──────────────────
         MqtScoringService.ScoringPlan plan = scoring.planFor(questionnaireId);
         for (MqtScoringService.MqtRef mqt : plan.mqts()) {
-            columns.add(new Column(MQT + mqt.measuredQualityTypeId(), mqt.path(), "number", "scores"));
+            // The path stays the label, and the same structure travels beside
+            // it as a ScoreRef so a picker can draw the tree instead of
+            // repeating (and then truncating away) the ancestors on every row.
+            String parentKey = mqt.parentTypeId() == null ? null : MQT + mqt.parentTypeId();
+            columns.add(new Column(MQT + mqt.measuredQualityTypeId(), mqt.path(), "number", "scores",
+                    null, new ScoreRef("own", mqt.depth(), mqt.name(),
+                            mqt.measuredQualityId(), mqt.mqName(), parentKey)));
             if (mqt.hasChildren()) {
                 // On a leaf the subtree total IS the own score, so a second
                 // identical column would only be a trap to average twice.
                 columns.add(new Column(MQT_TOTAL + mqt.measuredQualityTypeId(),
-                        mqt.path() + " (subtree total)", "number", "scores"));
+                        mqt.path() + " (subtree total)", "number", "scores",
+                        null, new ScoreRef("subtree", mqt.depth(), mqt.name(),
+                                mqt.measuredQualityId(), mqt.mqName(), parentKey)));
             }
         }
         for (MqtScoringService.MqRef mq : plan.mqs()) {
             columns.add(new Column(MQ + mq.measuredQualityId(), mq.name() + " (MQ total)",
-                    "number", "scores"));
+                    "number", "scores",
+                    null, new ScoreRef("mqTotal", 0, mq.name(), mq.measuredQualityId(),
+                            mq.name(), null)));
         }
         return Optional.of(new Layout(columns, fields, tagByKey, plan));
     }

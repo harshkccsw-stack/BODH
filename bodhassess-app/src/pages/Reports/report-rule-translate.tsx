@@ -12,7 +12,6 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import {
-  COLUMN_GROUPS,
   hasStatementHistory,
   reportRulesApi,
   type DraftExpression,
@@ -23,6 +22,7 @@ import {
   type TranslationProposal,
   type TranslationResult,
 } from './reportRulesApi';
+import { ColumnCatalogButton } from './column-catalog';
 
 /**
  * Turn imported plain-language rules into formulae, with a human deciding.
@@ -650,36 +650,29 @@ function DraftCard({
               placeholder="No formula proposed — write one, or re-ask with a hint."
               aria-label={`Formula for ${d.name}`}
             />
-            <select
-              className="h-8 max-w-[14rem] rounded-md border border-input bg-background px-2 text-xs"
-              value=""
-              onChange={(e) => { if (e.target.value) insert(e.target.value); }}
-              aria-label="Insert a column or rule"
-              title="Insert a column or another rule at the cursor"
-            >
-              <option value="">Insert…</option>
-              {(others.length > 0 || savedFormulae.length > 0) && (
-                <optgroup label="Other rules">
-                  {others.map((o) => (
-                    <option key={o.slug} value={`[rule:${o.slug}]`}>{o.name} (draft)</option>
-                  ))}
-                  {savedFormulae.map((r) => (
-                    <option key={r.slug} value={`[rule:${r.slug}]`}>{r.name}</option>
-                  ))}
-                </optgroup>
-              )}
-              {COLUMN_GROUPS.map((g) => {
-                const items = columns.filter((c) => c.group === g.key);
-                if (!items.length) return null;
-                return (
-                  <optgroup key={g.key} label={g.label}>
-                    {items.map((c) => (
-                      <option key={c.key} value={`[${c.key}]`}>{c.label}</option>
-                    ))}
-                  </optgroup>
-                );
-              })}
-            </select>
+            {/* The same catalog the Rules step inserts from — a tree, not a
+                list of truncated paths. See column-catalog.tsx. */}
+            <ColumnCatalogButton
+              columns={columns}
+              onInsert={insert}
+              sections={others.length > 0 || savedFormulae.length > 0 ? [{
+                label: 'Other rules',
+                items: [
+                  ...others.map((o) => ({
+                    key: `draft:${o.slug}`,
+                    label: `${o.name} (draft)`,
+                    token: `[rule:${o.slug}]`,
+                    code: `rule:${o.slug}`,
+                  })),
+                  ...savedFormulae.map((r) => ({
+                    key: `saved:${r.slug}`,
+                    label: r.name,
+                    token: `[rule:${r.slug}]`,
+                    code: `rule:${r.slug}`,
+                  })),
+                ],
+              }] : []}
+            />
           </div>
 
           {d.note && (

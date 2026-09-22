@@ -25,6 +25,32 @@ export interface ReportColumn {
   label: string;
   type: string;
   group: 'core' | 'demographics' | 'answers' | 'scores' | string;
+  /** Present on score columns only. See ScoreRef. */
+  score?: ScoreRef | null;
+}
+
+/**
+ * Matches DsDatasetResponse.ScoreRef on the backend — where a score column
+ * sits in the MQ/MQT taxonomy.
+ *
+ * The label is a full path, which is the only honest identity but is unusable
+ * in a narrow picker: truncation eats the tail, and the tail is the part that
+ * distinguishes two columns. This carries the same structure as fields so the
+ * picker can draw a tree — short node names, ancestors shown once — instead of
+ * repeating and then cutting the path on every row. Never parse the label to
+ * recover any of this.
+ */
+export interface ScoreRef {
+  /** 'own' | 'subtree' (that MQT plus its descendants) | 'mqTotal'. */
+  role: string;
+  /** 0 at the top of an MQ, +1 per level. */
+  depth: number;
+  /** The node's own name, without ancestors. */
+  nodeName: string;
+  mqId: number | null;
+  mqName: string | null;
+  /** The parent MQT's column key, or null at the top of an MQ. */
+  parentKey: string | null;
 }
 
 /** Matches DsExprResponse on the backend. Never an error status. */

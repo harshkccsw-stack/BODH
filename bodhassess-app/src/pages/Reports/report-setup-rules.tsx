@@ -9,7 +9,6 @@ import {
   Pencil,
   Play,
   Plus,
-  Sigma,
   Sparkles,
   Trash2,
   Upload,
@@ -19,7 +18,6 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import {
-  COLUMN_GROUPS,
   RULE_STAGES,
   hasStatementHistory,
   reportRulesApi,
@@ -31,6 +29,7 @@ import {
   type RulePortability,
   type RuleStage,
 } from './reportRulesApi';
+import { ColumnCatalog } from './column-catalog';
 import { ReportRuleImport } from './report-rule-import';
 import { ReportRuleTranslate } from './report-rule-translate';
 
@@ -206,15 +205,6 @@ export function ReportRulesStep({
       .sort((a, b) => a.verdict.localeCompare(b.verdict) || a.name.localeCompare(b.name)),
     [portability, assessmentId],
   );
-
-  const groupedColumns = useMemo(() => {
-    const out: Array<{ key: string; label: string; hint: string; items: ReportColumn[] }> = [];
-    COLUMN_GROUPS.forEach((g) => {
-      const items = columns.filter((c) => c.group === g.key);
-      if (items.length) out.push({ ...g, items });
-    });
-    return out;
-  }, [columns]);
 
   // Live formula checking, debounced. 200 with errors[] is the normal answer,
   // so a half-typed formula never flashes an error status.
@@ -916,55 +906,30 @@ export function ReportRulesStep({
 
                   {/* Columns are inserted by click, never typed from memory —
                       MQT names are not unique, so the key is the only identity. */}
-                  <div className="max-h-72 space-y-3 overflow-y-auto rounded-md border p-2">
-                    {byStage && (
-                      <div>
-                        <div className="text-[11px] font-medium text-muted-foreground">
-                          Other rules
-                        </div>
-                        <p className="mb-1 text-[10px] text-muted-foreground">
-                          This is how a step reads the step before it.
-                        </p>
-                        {rules
-                          .filter((r) => r.assessmentId === assessmentId
-                            && r.status === 'ACTIVE'
-                            && r.reportRuleId !== form.id
-                            && r.latest?.definitionKind === 'EXPRESSION')
-                          .map((r) => (
-                            <button
-                              key={r.reportRuleId}
-                              className="block w-full truncate rounded px-1.5 py-1 text-left text-[11px] hover:bg-muted"
-                              // The slug, not the name, is what a formula reads,
-                              // and the two differ often enough that guessing it
-                              // from the name is how an author ends up with an
-                              // unresolvable reference. Clicking inserts it;
-                              // hovering shows it.
-                              title={`[rule:${r.slug}]`}
-                              onClick={() => insert(`[rule:${r.slug}]`)}
-                            >
-                              <Sigma className="mr-1 inline h-3 w-3" />{r.name}
-                            </button>
-                          ))}
-                      </div>
-                    )}
-                    {groupedColumns.map((g) => (
-                      <div key={g.key}>
-                        <div className="text-[11px] font-medium text-muted-foreground">
-                          {g.label}
-                        </div>
-                        {g.items.map((c) => (
-                          <button
-                            key={c.key}
-                            className="block w-full truncate rounded px-1.5 py-1 text-left text-[11px] hover:bg-muted"
-                            title={c.key}
-                            onClick={() => insert(`[${c.key}]`)}
-                          >
-                            {c.label}
-                          </button>
-                        ))}
-                      </div>
-                    ))}
-                  </div>
+                  <ColumnCatalog
+                    columns={columns}
+                    onInsert={insert}
+                    className="max-h-80"
+                    sections={byStage ? [{
+                      label: 'Other rules',
+                      hint: 'This is how a step reads the step before it.',
+                      items: rules
+                        .filter((r) => r.assessmentId === assessmentId
+                          && r.status === 'ACTIVE'
+                          && r.reportRuleId !== form.id
+                          && r.latest?.definitionKind === 'EXPRESSION')
+                        // The slug, not the name, is what a formula reads, and
+                        // the two differ often enough that guessing it from the
+                        // name is how an author ends up with an unresolvable
+                        // reference. Clicking inserts it; the code shows it.
+                        .map((r) => ({
+                          key: String(r.reportRuleId),
+                          label: r.name,
+                          token: `[rule:${r.slug}]`,
+                          code: `rule:${r.slug}`,
+                        })),
+                    }] : []}
+                  />
                 </div>
               ) : (
                 <textarea

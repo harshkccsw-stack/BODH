@@ -6,6 +6,7 @@ import java.util.Set;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.bodhpsychometric.dto.DsDatasetResponse;
 import com.bodhpsychometric.service.datastudio.DataStudioDatasetService;
 
 /**
@@ -50,8 +51,18 @@ public class ReportColumnCatalog {
      *              a path and the key is the only safe identity.
      * @param type  number / string / enum
      * @param group core | demographics | answers | scores
+     * @param score where a score column sits in the taxonomy — null on every
+     *              other group. The picker draws its tree from this rather
+     *              than from the label, which truncates to nothing useful in a
+     *              narrow column and cannot distinguish an own score from its
+     *              subtree total once the suffix is cut.
      */
-    public record ReportColumn(String key, String label, String type, String group) {
+    public record ReportColumn(String key, String label, String type, String group,
+            DsDatasetResponse.ScoreRef score) {
+
+        public ReportColumn(String key, String label, String type, String group) {
+            this(key, label, type, group, null);
+        }
     }
 
     private final DataStudioDatasetService datasets;
@@ -78,7 +89,7 @@ public class ReportColumnCatalog {
         return datasets.columns(assessmentId)
                 .orElseGet(List::of)
                 .stream()
-                .map(c -> new ReportColumn(c.key(), c.label(), c.type(), c.group()))
+                .map(c -> new ReportColumn(c.key(), c.label(), c.type(), c.group(), c.score()))
                 .toList();
     }
 
