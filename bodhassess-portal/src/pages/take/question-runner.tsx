@@ -615,7 +615,13 @@ export function QuestionRunner({
   // section 1, then every question of section 2 — so each group's indices are
   // one contiguous run.
   const sectionById = new Map(detail.sections.map((s) => [s.sectionId, s]));
-  const sections: { key: string; title: string | null; instruction: string | null; indices: number[] }[] = [];
+  const sections: {
+    key: string;
+    title: string | null;
+    instruction: string | null;
+    repeatInstruction: boolean;
+    indices: number[];
+  }[] = [];
   const sectionByKey = new Map<string, number>();
   questions.forEach((qq, qi) => {
     const key = qq.sectionId !== null ? String(qq.sectionId) : '__none__';
@@ -630,6 +636,7 @@ export function QuestionRunner({
         // isBlankRichText, not trim(): an author who emptied the editor left
         // "<p><br></p>" behind, which would draw an empty section banner.
         instruction: isBlankRichText(section?.instruction) ? null : (section?.instruction ?? null),
+        repeatInstruction: section?.showInstructionOnEachQuestion ?? false,
         indices: [],
       });
     }
@@ -647,9 +654,12 @@ export function QuestionRunner({
       placeOf.set(qi, {
         pos,
         title: sec.title,
-        // Only the section's first question carries it — this is the banner
-        // shown when the respondent crosses into a new section.
-        instruction: pos === 0 ? sec.instruction : null,
+        // The section's first question always carries it — that banner is the
+        // respondent's signal that they have crossed into a new section. With
+        // "Show instruction on each question" on, every question of the
+        // section carries it too: a standing rule ("rate each statement as it
+        // applies to you at work") has to still be on screen at question nine.
+        instruction: pos === 0 || sec.repeatInstruction ? sec.instruction : null,
       });
     });
   });
@@ -889,10 +899,12 @@ export function QuestionRunner({
         )}
 
         <main>
-          {/* The section's own instruction, on the question that opens it —
-              the respondent's only signal that they have crossed from one
-              section into the next. Authored per section in the wizard;
-              sections without one show nothing. */}
+          {/* The section's own instruction: on the question that opens the
+              section — the respondent's signal that they have crossed from
+              one section into the next — and, when the author turned on
+              "Show instruction on each question", above every question of
+              that section. Same banner either way. Authored per section in
+              the wizard; sections without one show nothing. */}
           {here?.instruction && (
             <div className="mb-5 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3">
               {here.title && (

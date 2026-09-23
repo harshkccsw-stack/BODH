@@ -19,5 +19,4 @@ public class BodhpsychometricApplication {
 	public static void main(String[] args) {
 		SpringApplication.run(BodhpsychometricApplication.class, args);
 	}
-
 }

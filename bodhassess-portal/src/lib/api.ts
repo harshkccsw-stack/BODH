@@ -200,6 +200,14 @@ export interface PortalSection {
   sectionId: number;
   name: string;
   instruction: string | null;
+  /**
+   * Repeat the instruction above EVERY question of the section instead of
+   * only the one that opens it. Authored per section in the dashboard;
+   * false on everything written before the flag existed, and false is also
+   * what an older cached payload deserialises to — which is the behaviour
+   * the portal had all along.
+   */
+  showInstructionOnEachQuestion: boolean;
 }
 // Matches PortalAssessmentDetailResponse.PortalDemographicField on the backend.
 export interface PortalDemographicField {

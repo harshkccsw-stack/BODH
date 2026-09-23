@@ -80,7 +80,13 @@ public record PortalAssessmentDetailResponse(
      * The list arrives already sorted by sortOrder — the author's arrangement,
      * which is also what the Section_A/B/C report tags follow.
      */
-    public record PortalSection(Long sectionId, String name, String instruction, int sortOrder) {
+    /**
+     * {@code showInstructionOnEachQuestion} repeats {@code instruction} above
+     * every question of the section rather than only the one that opens it —
+     * authored per section in the wizard, consumed by the question runner.
+     */
+    public record PortalSection(Long sectionId, String name, String instruction,
+            boolean showInstructionOnEachQuestion, int sortOrder) {
     }
 
     /**

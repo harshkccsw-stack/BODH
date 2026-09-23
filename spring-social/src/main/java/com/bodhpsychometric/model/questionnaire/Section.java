@@ -44,6 +44,16 @@ public class Section implements java.io.Serializable {
     private String instruction;
 
     /**
+     * Repeat {@link #instruction} above EVERY question of this section rather
+     * than only the one that opens it (V35). Off is what every section did
+     * before the flag existed, so it is the default and no row needed a
+     * backfill. Meaningless on its own: a section with no instruction renders
+     * nothing either way.
+     */
+    @Column(name = "showInstructionOnEachQuestion", nullable = false)
+    private boolean showInstructionOnEachQuestion;
+
+    /**
      * Display order within the questionnaire, 0-based and dense. The
      * controller owns it end to end — create appends, reorder renumbers,
      * delete compacts — so the sequence never gains a hole a client would
@@ -82,6 +92,14 @@ public class Section implements java.io.Serializable {
 
     public void setInstruction(String instruction) {
         this.instruction = instruction;
+    }
+
+    public boolean isShowInstructionOnEachQuestion() {
+        return showInstructionOnEachQuestion;
+    }
+
+    public void setShowInstructionOnEachQuestion(boolean showInstructionOnEachQuestion) {
+        this.showInstructionOnEachQuestion = showInstructionOnEachQuestion;
     }
 
     public int getSortOrder() {

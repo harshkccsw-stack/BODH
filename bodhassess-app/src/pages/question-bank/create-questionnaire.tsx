@@ -226,6 +226,9 @@ export default function CreateAssessmentPage() {
   const [newSectionName, setNewSectionName] = useState('');
   // Optional per-section instruction, shown above the section's questions.
   const [newSectionInstruction, setNewSectionInstruction] = useState('');
+  // Off by default: the instruction opens the section and then gets out of
+  // the way, which is what every section did before this switch existed.
+  const [newSectionRepeat, setNewSectionRepeat] = useState(false);
   const [bulkUploadOpen, setBulkUploadOpen] = useState(false);
   // Which questionnaire's questions are already loaded — going back to Step 1
   // and forward again must NOT wipe unsaved authoring.
@@ -388,10 +391,15 @@ export default function CreateAssessmentPage() {
     // typed in and cleared leaves "<p><br></p>" behind.
     const instruction = instructionPayload(newSectionInstruction);
     try {
-      const res = await questionnairesApi.createQuestionnaireSection(backendQid, { name, instruction });
+      const res = await questionnairesApi.createQuestionnaireSection(backendQid, {
+        name,
+        instruction,
+        showInstructionOnEachQuestion: newSectionRepeat,
+      });
       setQSections((prev) => [...prev, res.data]);
       setNewSectionName('');
       setNewSectionInstruction('');
+      setNewSectionRepeat(false);
     } catch (e: any) {
       setStep2Error(e?.response?.data?.message || e?.message || 'Failed to create section');
     }
@@ -405,6 +413,7 @@ export default function CreateAssessmentPage() {
   const [editingSection, setEditingSection] = useState<number | null>(null);
   const [editSectionName, setEditSectionName] = useState('');
   const [editSectionInstruction, setEditSectionInstruction] = useState('');
+  const [editSectionRepeat, setEditSectionRepeat] = useState(false);
   const [sectionBusy, setSectionBusy] = useState(false);
 
   /*
@@ -425,6 +434,7 @@ export default function CreateAssessmentPage() {
     setEditingSection(sec.sectionId);
     setEditSectionName(sec.name);
     setEditSectionInstruction(sec.instruction || '');
+    setEditSectionRepeat(sec.showInstructionOnEachQuestion);
     setStep2Error('');
   };
 
@@ -436,6 +446,7 @@ export default function CreateAssessmentPage() {
       const res = await questionnairesApi.updateQuestionnaireSection(backendQid, editingSection, {
         name,
         instruction: instructionPayload(editSectionInstruction),
+        showInstructionOnEachQuestion: editSectionRepeat,
       });
       setQSections((prev) => prev.map((s) => (s.sectionId === res.data.sectionId ? res.data : s)));
       setEditingSection(null);
@@ -766,7 +777,11 @@ export default function CreateAssessmentPage() {
     setConvertError('');
     try {
       await questionnairesApi.updateQuestionnaire(backendQid, questionnairePayload(true));
-      const res = await questionnairesApi.createQuestionnaireSection(backendQid, { name, instruction: null });
+      const res = await questionnairesApi.createQuestionnaireSection(backendQid, {
+        name,
+        instruction: null,
+        showInstructionOnEachQuestion: false,
+      });
       setQSections((prev) => [...prev, res.data]);
       setDrafts((prev) => prev.map((d) => ({ ...d, sectionId: res.data.sectionId })));
       setUseSections(true);
@@ -1366,6 +1381,24 @@ export default function CreateAssessmentPage() {
                     <p className="text-xs text-muted-foreground">
                       Section instruction (optional) — shown above this section's questions.
                     </p>
+                    {/* Off shows the instruction once, on the question that
+                        opens the section; on repeats it above every question
+                        of the section. Left enabled with no instruction
+                        written — the author usually ticks it before typing —
+                        and a section with no instruction renders nothing
+                        either way. */}
+                    <label
+                      className="flex items-center gap-2 text-sm"
+                      title="Repeat this section's instruction above every question in it, instead of only the first"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={newSectionRepeat}
+                        onChange={(e) => setNewSectionRepeat(e.target.checked)}
+                        className="rounded"
+                      />{' '}
+                      Show instruction on each question
+                    </label>
                   </div>
                   {qSections.length === 0 ? (
                     <p className="py-6 text-center text-sm text-muted-foreground">
@@ -1397,6 +1430,18 @@ export default function CreateAssessmentPage() {
                                 onChange={setEditSectionInstruction}
                                 contentClassName="min-h-[5rem] max-h-[16rem]"
                               />
+                              <label
+                                className="flex items-center gap-2 text-sm"
+                                title="Repeat this section's instruction above every question in it, instead of only the first"
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={editSectionRepeat}
+                                  onChange={(e) => setEditSectionRepeat(e.target.checked)}
+                                  className="rounded"
+                                />{' '}
+                                Show instruction on each question
+                              </label>
                               <div className="flex justify-end gap-2">
                                 <Button variant="outline" size="sm" onClick={() => setEditingSection(null)} disabled={sectionBusy}>
                                   Cancel
@@ -1418,6 +1463,14 @@ export default function CreateAssessmentPage() {
                                   <p className="truncate text-xs text-muted-foreground">
                                     {toPlainText(sec.instruction)}
                                   </p>
+                                )}
+                                {/* Only worth saying when it changes what the
+                                    respondent sees — an instruction repeated
+                                    on every question is a decision the author
+                                    should be able to spot without opening the
+                                    editor. */}
+                                {sec.instruction && sec.showInstructionOnEachQuestion && (
+                                  <p className="text-[0.6875rem] text-primary">Shown on each question</p>
                                 )}
                               </div>
                               <div className="flex items-center gap-2 shrink-0">
