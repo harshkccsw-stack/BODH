@@ -305,10 +305,11 @@ export function parseQuestionRows(
       .map((m) => Number(m[1]))
       .sort((a, b) => a - b);
     const options: QuestionOptionPayload[] = [];
+    const optionByNumber = new Map<number, QuestionOptionPayload>();
     for (const n of optionNums) {
       const text = row[`option${n}`] || '';
       if (!text) continue; // empty option cell — fine, sheet just has spare columns
-      options.push({
+      const option: QuestionOptionPayload = {
         optionText: text,
         // optionNDescription, beside optionNScores. Blank = none, so every
         // sheet written before the column existed imports unchanged.
@@ -316,7 +317,24 @@ export function parseQuestionRows(
         contentType: 'TEXT',
         mediaUrl: null,
         mqtScores: parseScoreCell(row[`option${n}scores`] || '', `Row ${rowNo} option${n}Scores`, resolveMqt, errors),
-      });
+      };
+      options.push(option);
+      optionByNumber.set(n, option);
+    }
+    // otherOption = the NUMBER of the option that is the "Other…" row — the
+    // one respondents type into. Its label, description and scores are that
+    // optionN's own columns, so the sheet stays optionN-shaped and "at most
+    // one per question" is what a single cell can say. Blank = none, which is
+    // what every sheet written before the column existed means.
+    const otherRaw = row.otheroption || '';
+    if (otherRaw) {
+      const n = Number(otherRaw);
+      const other = Number.isInteger(n) ? optionByNumber.get(n) : undefined;
+      if (!other) {
+        errors.push(`Row ${rowNo}: otherOption "${otherRaw}" must be the number of a filled option column (option1…N)`);
+      } else {
+        other.contentType = 'FREE_TEXT';
+      }
     }
 
     // After the option loop on purpose: the count is validated against the

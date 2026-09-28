@@ -391,6 +391,14 @@ export default function QuestionsPage() {
                         <PenLine className="h-3 w-3" /> text
                       </span>
                     )}
+                    {q.options.some((o) => o.contentType === 'FREE_TEXT') && (
+                      <span
+                        className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-2.5 py-0.5 text-xs font-medium text-primary"
+                        title={`Has an "${q.options.find((o) => o.contentType === 'FREE_TEXT')?.optionText ?? 'Other'}" option — respondents who pick it type their own answer`}
+                      >
+                        <PenLine className="h-3 w-3" /> other
+                      </span>
+                    )}
                     {q.selectionRule && (
                       <span
                         className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-2.5 py-0.5 text-xs font-medium text-primary"

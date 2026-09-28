@@ -97,6 +97,24 @@ describe('parseQuestionRows — the template upload', () => {
     expect(q.options.map((o) => o.mqtScores[0]?.measuredQualityTypeId ?? null)).toEqual([42, 42, null]);
   });
 
+  it('marks the option otherOption names as the "Other…" row, by its number', () => {
+    const out = parseQuestionRows([{
+      stem: 'How do you commute?', option1: 'Bus', option2: 'Cycle', option3: 'Other', otherOption: '3',
+    }], choices);
+    expect(out.errors).toEqual([]);
+    expect(out.payloads[0].options.map((o) => o.contentType)).toEqual(['TEXT', 'TEXT', 'FREE_TEXT']);
+    expect(out.payloads[0].options[2].optionText).toBe('Other');
+  });
+
+  it('refuses an otherOption that names no filled option column', () => {
+    const out = parseQuestionRows([
+      { stem: 'a', option1: 'x', option2: 'y', otherOption: '9' },
+      { stem: 'b', option1: 'x', option2: '', otherOption: '2' },
+      { stem: 'c', option1: 'x', otherOption: 'yes' },
+    ], choices);
+    expect(out.errors.filter((e) => e.includes('otherOption'))).toHaveLength(3);
+  });
+
   it('refuses a selection rule it does not understand rather than dropping it', () => {
     const out = parseQuestionRows([{
       stem: 's', selectRule: 'Admin_Position order', selectCount: '15', option1: 'a', option2: 'b',

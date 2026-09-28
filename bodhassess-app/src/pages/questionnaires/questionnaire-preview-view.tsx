@@ -201,7 +201,16 @@ export function QuestionView({ q, number }: { q: PreviewQuestion; number: number
                 {o.description && (
                   <p className="text-xs text-muted-foreground leading-relaxed">{o.description}</p>
                 )}
-                <MediaView contentType={o.contentType} mediaUrl={o.mediaUrl} compact />
+                {/* The "Other…" row: the portal shows an always-visible
+                    underline box beside the label, Google-Forms style, so the
+                    preview draws the same line. */}
+                {o.contentType === 'FREE_TEXT' ? (
+                  <div className="border-b border-border px-1 pb-1 text-xs text-muted-foreground/70">
+                    Type your answer…
+                  </div>
+                ) : (
+                  <MediaView contentType={o.contentType} mediaUrl={o.mediaUrl} compact />
+                )}
               </div>
             </div>
           ))}

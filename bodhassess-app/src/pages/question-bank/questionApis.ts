@@ -1,6 +1,9 @@
 import { api } from '@/lib/apiClient';
 
-export type QuestionContentType = 'TEXT' | 'IMAGE' | 'VIDEO' | 'URL';
+// FREE_TEXT is OPTIONS only — the "Other…" row: a labelled option that opens a
+// text box when picked. Refused on a stem by the backend and hidden from the
+// stem toggle here.
+export type QuestionContentType = 'TEXT' | 'IMAGE' | 'VIDEO' | 'URL' | 'FREE_TEXT';
 
 /**
  * What SHAPE a question is — the type dropdown on the form. MCQ is the

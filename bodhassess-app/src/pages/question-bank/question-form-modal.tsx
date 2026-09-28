@@ -7,6 +7,7 @@ import {
   Image as ImageIcon,
   Link2,
   Loader2,
+  PenLine,
   Plus,
   Shuffle,
   Target,
@@ -42,12 +43,27 @@ import { qualitiesApi, type MQ, type MQT, type MeasuredQualityResponse } from '.
 // is no place for videos, and base64 images are not worth it either) — both
 // stay disabled until object storage lands. URL covers externally hosted
 // media meanwhile.
-export const CONTENT_TYPES: Array<{ value: QuestionContentType; label: string; icon: typeof Type; disabled?: boolean }> = [
+//
+// FREE_TEXT is the "Other…" row — an option the respondent picks and then
+// types into. OPTIONS ONLY (optionsOnly): the stem toggle skips it, the
+// backend refuses it there, and an MCQ may carry at most one.
+export const CONTENT_TYPES: Array<{
+  value: QuestionContentType;
+  label: string;
+  icon: typeof Type;
+  disabled?: boolean;
+  optionsOnly?: boolean;
+}> = [
   { value: 'TEXT', label: 'Text', icon: Type },
   { value: 'IMAGE', label: 'Image', icon: ImageIcon, disabled: true },
   { value: 'VIDEO', label: 'Video', icon: Video, disabled: true },
   { value: 'URL', label: 'URL', icon: Link2 },
+  { value: 'FREE_TEXT', label: 'Short answer', icon: PenLine, optionsOnly: true },
 ];
+
+/** The option types a question of this shape may use — a grid's columns are a shared scale, never a text box. */
+export const optionContentTypesFor = (questionType: QuestionType) =>
+  CONTENT_TYPES.filter((t) => !t.optionsOnly || questionType === 'MCQ');
 
 export const contentMeta = (t: QuestionContentType) => CONTENT_TYPES.find((c) => c.value === t) ?? CONTENT_TYPES[0];
 
@@ -194,13 +210,15 @@ export function ScoreEditor({
     if (!name) return;
     setBusy(true);
     setCreateError('');
+    // Declared OUTSIDE the try: the catch below reads all three to say which
+    // of the two calls landed, and a `let` inside the try is out of scope there.
+    let measuredQualityId: number | undefined;
+    let parentTypeId: number | undefined;
+    // Two calls, no transaction across them: if the quality lands and the
+    // type does not, say which, so nobody hunts for a quality they think
+    // failed to appear.
+    let qualityMade = '';
     try {
-      let measuredQualityId: number | undefined;
-      let parentTypeId: number | undefined;
-      // Two calls, no transaction across them: if the quality lands and the
-      // type does not, say which, so nobody hunts for a quality they think
-      // failed to appear.
-      let qualityMade = '';
       if (under === 'new-mq') {
         const quality = newQualityName.trim();
         if (!quality) { setCreateError('Name the measured quality too'); return; }
@@ -608,6 +626,7 @@ export function gridScoringGaps(form: QuestionForm): number {
 /** null when the form can be saved, otherwise the first problem found. */
 export function validateQuestionForm(form: QuestionForm): string | null {
   if (!form.stem.trim()) return 'Question text is required';
+  if (form.contentType === 'FREE_TEXT') return 'The question stem cannot be a short-answer box';
   if (form.contentType !== 'TEXT' && !form.mediaUrl.trim()) {
     return `A ${form.contentType.toLowerCase()} question needs a media URL`;
   }
@@ -635,11 +654,25 @@ export function validateQuestionForm(form: QuestionForm): string | null {
   if (form.questionType === 'SHORT_ANSWER') return null;
   const rows = liveOptions(form);
   const noun = form.questionType === 'LIKERT_GRID' ? 'Column' : 'Option';
+  // Mirrors QuestionController.validateFreeTextOptions: the "Other…" row is
+  // MCQ only, at most one, and its text is the label on the button.
+  let freeText = 0;
   for (let i = 0; i < rows.length; i++) {
+    if (rows[i].contentType === 'FREE_TEXT') {
+      freeText++;
+      if (form.questionType === 'LIKERT_GRID') {
+        return `${noun} ${i + 1} is a short-answer box — a grid's columns are a shared rating scale`;
+      }
+      if (!rows[i].optionText) {
+        return `${noun} ${i + 1} is a short-answer option — it needs a label (e.g. "Other")`;
+      }
+      continue;
+    }
     if (rows[i].contentType !== 'TEXT' && !rows[i].mediaUrl) {
       return `${noun} ${i + 1} is ${rows[i].contentType.toLowerCase()} — it needs a media URL`;
     }
   }
+  if (freeText > 1) return 'A question can have only one short-answer option';
   // Mirrors validateType on the backend, so a grid's shape problems show
   // inline instead of coming back as a 400.
   if (form.questionType === 'LIKERT_GRID') {
@@ -701,7 +734,9 @@ export function questionPayloadFrom(form: QuestionForm): QuestionPayload {
       optionText: o.optionText || null,
       description: o.showDescription ? o.description.trim() || null : null,
       contentType: o.contentType,
-      mediaUrl: o.contentType === 'TEXT' ? null : o.mediaUrl,
+      // A short-answer option is a box, not media — the backend refuses a
+      // URL on it, so a stale one from a type switch must not travel.
+      mediaUrl: o.contentType === 'TEXT' || o.contentType === 'FREE_TEXT' ? null : o.mediaUrl,
       mqtScores: rowsToPayload(o.mqtScores),
     })),
     // Ids only: a row nominates its MQTs, the columns carry the numbers.
@@ -769,7 +804,7 @@ export function QuestionFormFields({
       <div className="space-y-1.5">
         <label className="text-sm font-medium">Stem type *</label>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          {CONTENT_TYPES.map((t) => {
+          {CONTENT_TYPES.filter((t) => !t.optionsOnly).map((t) => {
             const Icon = t.icon;
             return (
               <button
@@ -1182,7 +1217,7 @@ export function QuestionFormFields({
                     className="h-8 rounded-md border border-border bg-background px-1.5 text-xs focus:outline-none focus:border-primary"
                     title="Option type"
                   >
-                    {CONTENT_TYPES.map((t) => (
+                    {optionContentTypesFor(form.questionType).map((t) => (
                       <option key={t.value} value={t.value} disabled={t.disabled && opt.contentType !== t.value}>
                         {t.label}{t.disabled ? ' (soon)' : ''}
                       </option>
@@ -1191,7 +1226,11 @@ export function QuestionFormFields({
                   <input
                     value={opt.optionText}
                     onChange={(e) => patchOption(i, { optionText: e.target.value })}
-                    placeholder={`${isGrid ? 'Column' : 'Option'} ${i + 1} text${opt.contentType !== 'TEXT' ? ' (caption, optional)' : ''}`}
+                    placeholder={
+                      opt.contentType === 'FREE_TEXT'
+                        ? 'Label on the button, e.g. Other'
+                        : `${isGrid ? 'Column' : 'Option'} ${i + 1} text${opt.contentType !== 'TEXT' ? ' (caption, optional)' : ''}`
+                    }
                     className="flex-1 rounded-lg border border-border bg-background px-3 py-1.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
                   />
                   <button type="button" onClick={() => moveOption(i, -1)} disabled={i === 0} className="text-muted-foreground hover:text-foreground disabled:opacity-30 p-1" title="Move up">
@@ -1204,13 +1243,20 @@ export function QuestionFormFields({
                     <X className="h-3.5 w-3.5" />
                   </button>
                 </div>
-                {opt.contentType !== 'TEXT' && (
+                {opt.contentType !== 'TEXT' && opt.contentType !== 'FREE_TEXT' && (
                   <input
                     value={opt.mediaUrl}
                     onChange={(e) => patchOption(i, { mediaUrl: e.target.value })}
                     placeholder="https://… (link to an image or video)"
                     className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
                   />
+                )}
+                {opt.contentType === 'FREE_TEXT' && (
+                  <p className="text-[0.6875rem] text-muted-foreground">
+                    Picking this option opens a box the respondent types into. The scores below are
+                    earned for choosing it — what they write is stored with the answer but never scored.
+                    Auto-next does not fire on this pick; Next (or Enter in the box) does.
+                  </p>
                 )}
                 {/* Per-option help text, same checkbox rule as the question's.
                     Smaller type than the question-level one: with four or five

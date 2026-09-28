@@ -120,6 +120,28 @@ re-read a file before editing; expect it to have changed):
   (no engine yet): a question contributes the SUM of every selected option's
   MQT scores; only EQUALS keeps that count constant across respondents.
   Full write-up: `docs/multi-select-questions-plan.md`.
+- "Other…" option (2026-09-28, `V36`, `docs/free-text-option-plan.md`):
+  `ContentType.FREE_TEXT` is an OPTION kind, never a stem — the Google-Forms
+  "Other" row. NOT the `SHORT_ANSWER` question type: that is a whole question
+  with no options. The answer row carries `optionId` AND `answerText` together
+  (the V17 key already allows it; no answer-table change). Rules, enforced in
+  `QuestionController.validateFreeTextOptions` and mirrored in the form: MCQ
+  only, at most ONE per question, label required, no mediaUrl; the stem is
+  refused and `question.content_type` was deliberately NOT widened (Hibernate
+  validate compares type names, not enum members). Delivered LAST under
+  shuffle. Submit: a picked FREE_TEXT option with blank text is a 400 named by
+  the navigator label; text on any other option is still refused; same 64 KB
+  byte cap as a short answer. Scoring: the OPTION's MQT scores count, the text
+  never does. Portal: the Other row is Google-Forms style — label and an
+  ALWAYS-VISIBLE underline box on one line, the row a `<div>` whose
+  marker+label is the button and whose input selects the option on focus (an
+  input inside a button toggles the tick), `optionTexts` is keyed `slot|optionId`,
+  "answered" requires the text (`freeTextFilled`), the tap that picks it NEVER
+  auto-advances, Enter in the box = Next, and the resume backfill files an
+  entry by its optionId FIRST (text-first would drop the tick). The XLSX sheet
+  marks it with `otherOption` = the option NUMBER. Export sheet and Data
+  Studio print the cell as `AssessmentAnswer.displayText()` — `Other: what
+  they typed` — so the text is visible and the choice stays countable.
 - Taxonomy: `MeasuredQuality` (MQ) → tree of `MeasuredQualityType` (MQT,
   self-referencing parent, any depth). MQT names deliberately NOT unique —
   resolve by id when ambiguous.

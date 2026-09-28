@@ -8,6 +8,9 @@ import {
   portalAssessmentsApi,
   ApiError,
   answerKey,
+  freeTextFilled,
+  isFreeTextOption,
+  optionTextKey,
   parseAnswerKey,
   type PortalAnswerEntry,
   type PortalAssessmentDetail,
@@ -29,18 +32,26 @@ type GateStep = 'terms' | 'demographics' | 'instructions' | 'questions';
 function seedAnswerMaps(saved: PortalAnswerEntry[]): {
   answers: Record<string, number[]>;
   textAnswers: Record<string, string>;
+  optionTexts: Record<string, string>;
 } {
   const answers: Record<string, number[]> = {};
   const textAnswers: Record<string, string> = {};
+  const optionTexts: Record<string, string> = {};
   for (const e of saved) {
-    if (e.answerText != null && e.answerText.trim() !== '') {
-      textAnswers[answerKey(e.questionId)] = e.answerText;
-    } else if (e.optionId != null) {
+    // The SELECTION comes first: an "Other…" (FREE_TEXT) entry carries BOTH an
+    // optionId and its text, and filing it by the text alone would drop the
+    // tick it rides on. Only an entry with no option is a SHORT_ANSWER.
+    if (e.optionId != null) {
       const key = answerKey(e.questionId, e.questionRowId);
       (answers[key] ??= []).push(e.optionId);
+      if (e.answerText != null && e.answerText.trim() !== '') {
+        optionTexts[optionTextKey(key, e.optionId)] = e.answerText;
+      }
+    } else if (e.answerText != null && e.answerText.trim() !== '') {
+      textAnswers[answerKey(e.questionId)] = e.answerText;
     }
   }
-  return { answers, textAnswers };
+  return { answers, textAnswers, optionTexts };
 }
 
 // Mirrors the runner's slotSatisfied gates so "first unanswered" agrees with
@@ -49,6 +60,7 @@ function questionSatisfied(
   q: PortalQuestion,
   answers: Record<string, number[]>,
   textAnswers: Record<string, string>,
+  optionTexts: Record<string, string>,
 ): boolean {
   if (q.questionType === 'SHORT_ANSWER') {
     return (textAnswers[answerKey(q.questionId)] ?? '').trim().length > 0;
@@ -59,7 +71,8 @@ function questionSatisfied(
       : [answerKey(q.questionId)];
   return slots.every((slot) => {
     const n = (answers[slot] ?? []).length;
-    return n >= q.minSelections && n <= q.maxSelections;
+    return n >= q.minSelections && n <= q.maxSelections
+      && freeTextFilled(q, slot, answers, optionTexts);
   });
 }
 
@@ -67,8 +80,9 @@ function firstUnansweredIndex(
   questions: PortalQuestion[],
   answers: Record<string, number[]>,
   textAnswers: Record<string, string>,
+  optionTexts: Record<string, string>,
 ): number {
-  const idx = questions.findIndex((q) => !questionSatisfied(q, answers, textAnswers));
+  const idx = questions.findIndex((q) => !questionSatisfied(q, answers, textAnswers, optionTexts));
   // Everything answered (they quit right before submitting): land on the last
   // question, where the Submit button lives.
   return idx === -1 ? Math.max(0, questions.length - 1) : idx;
@@ -101,6 +115,12 @@ export default function TakePage() {
   // SHORT_ANSWER has no optionIds to hold, and one map of two shapes would
   // need unwrapping at every read.
   const [textAnswers, setTextAnswers] = useState<Record<string, string>>({});
+  // What was typed into an "Other…" (FREE_TEXT) option, keyed by
+  // optionTextKey(slot, optionId) — per OPTION, not per slot, because it is
+  // submitted on the same entry as that option's tick. Text for an option
+  // that is not selected is kept here (a mis-tap should not eat a sentence)
+  // but never sent: buildEntries only reads it for selected options.
+  const [optionTexts, setOptionTexts] = useState<Record<string, string>>({});
   const [loadError, setLoadError] = useState('');
   // Applicable steps, frozen at load so mid-flow state changes can never
   // resync stepIndex to a now-shorter list.
@@ -150,7 +170,8 @@ export default function TakePage() {
           const seeded = seedAnswerMaps(d.savedAnswers ?? []);
           setAnswers(seeded.answers);
           setTextAnswers(seeded.textAnswers);
-          setStartIndex(firstUnansweredIndex(d.questions, seeded.answers, seeded.textAnswers));
+          setOptionTexts(seeded.optionTexts);
+          setStartIndex(firstUnansweredIndex(d.questions, seeded.answers, seeded.textAnswers, seeded.optionTexts));
           setBegun(true);
           setDetail(d);
           setSteps(['questions']);
@@ -273,7 +294,17 @@ export default function TakePage() {
   const buildEntries = (): PortalAnswerEntry[] => {
     const entries: PortalAnswerEntry[] = Object.entries(answers).flatMap(([key, optionIds]) => {
       const { questionId, questionRowId } = parseAnswerKey(key);
-      return optionIds.map((optionId) => ({ questionId, optionId, questionRowId }));
+      return optionIds.map((optionId) => {
+        // Only a FREE_TEXT option may carry text — the server refuses it on
+        // any other — so the text is attached by the option's TYPE, not by
+        // whether something happens to sit in the map for that pair.
+        const text = isFreeTextOption(detail, questionId, optionId)
+          ? (optionTexts[optionTextKey(key, optionId)] ?? '').trim()
+          : '';
+        return text
+          ? { questionId, optionId, questionRowId, answerText: text }
+          : { questionId, optionId, questionRowId };
+      });
     });
     for (const [key, text] of Object.entries(textAnswers)) {
       if (!text.trim()) continue;
@@ -356,6 +387,8 @@ export default function TakePage() {
           setAnswers={setAnswers}
           textAnswers={textAnswers}
           setTextAnswers={setTextAnswers}
+          optionTexts={optionTexts}
+          setOptionTexts={setOptionTexts}
           initialIndex={startIndex}
           onPartialSave={detail.savePartialAnswers ? savePartialAnswers : undefined}
           onSubmit={submit}

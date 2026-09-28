@@ -251,8 +251,19 @@ public record PortalAssessmentDetailResponse(
         if (!question.shuffleOptions() || question.questionType() != QuestionType.MCQ) {
             return question.options();
         }
-        List<PortalOption> shuffled = new ArrayList<>(question.options());
+        // The FREE_TEXT ("Other…") option is not one of the alternatives, it
+        // is the escape hatch after them — so it stays LAST whatever the
+        // shuffle does to the rest, exactly as Google Forms keeps "Other" at
+        // the bottom of a shuffled list. Only the ordinary options are drawn
+        // from the seeded Random, so the order of those is unchanged by the
+        // presence of an Other row.
+        List<PortalOption> shuffled = new ArrayList<>();
+        List<PortalOption> tail = new ArrayList<>();
+        for (PortalOption o : question.options()) {
+            (o.contentType() == ContentType.FREE_TEXT ? tail : shuffled).add(o);
+        }
         Collections.shuffle(shuffled, new Random(31L * mappingId + question.questionId()));
+        shuffled.addAll(tail);
         List<PortalOption> delivered = new ArrayList<>(shuffled.size());
         for (int i = 0; i < shuffled.size(); i++) {
             PortalOption o = shuffled.get(i);

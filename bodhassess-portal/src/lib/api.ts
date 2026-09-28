@@ -123,7 +123,9 @@ export const portalAuthApi = {
 
 // ---------- Portal assessment delivery (take-flow read side) ----------
 // What a stem or option is made of. Matches ContentType on the backend.
-export type PortalContentType = 'TEXT' | 'IMAGE' | 'VIDEO' | 'URL';
+// FREE_TEXT is OPTIONS only — the "Other…" row: picked like any option, and
+// then typed into. Its text is submitted on the SAME entry as its optionId.
+export type PortalContentType = 'TEXT' | 'IMAGE' | 'VIDEO' | 'URL' | 'FREE_TEXT';
 
 // Matches PortalAssessmentDetailResponse.PortalOption on the backend.
 export interface PortalOption {
@@ -276,7 +278,11 @@ export interface PortalAnswerEntry {
   questionId: number;
   /** Null on a SHORT_ANSWER, which is answered by answerText instead. */
   optionId: number | null;
-  /** SHORT_ANSWER only — the mirror image of optionId. */
+  /**
+   * The typed text: on a SHORT_ANSWER the whole answer (optionId null), and
+   * on a FREE_TEXT ("Other…") option what they wrote, beside its optionId.
+   * Refused on any other option.
+   */
   answerText?: string;
   /**
    * Which grid ROW this rating answers. Null on every other question type —
@@ -294,6 +300,43 @@ export interface PortalAnswerEntry {
  */
 export const answerKey = (questionId: number, questionRowId?: number | null): string =>
   questionRowId == null ? String(questionId) : `${questionId}:${questionRowId}`;
+
+/**
+ * Where the text typed into an "Other…" (FREE_TEXT) option lives: keyed by
+ * the slot AND the option, because it is submitted on the same entry as that
+ * option's tick — one shape for the runner, the payload builder and the
+ * resume backfill.
+ */
+export const optionTextKey = (slot: string, optionId: number): string => `${slot}|${optionId}`;
+
+/**
+ * True when every SELECTED FREE_TEXT option of the slot has something typed.
+ * Part of what "answered" means, beside the selection count: the server
+ * refuses a picked "Other" with nothing written in, so the navigator's tick,
+ * Next and Submit must all wait for the text too. Vacuously true for a slot
+ * with no free-text option selected.
+ */
+export const freeTextFilled = (
+  q: PortalQuestion,
+  slot: string,
+  answers: Record<string, number[]>,
+  optionTexts: Record<string, string>,
+): boolean =>
+  (answers[slot] ?? []).every((optionId) => {
+    const option = q.options.find((o) => o.optionId === optionId);
+    return option?.contentType !== 'FREE_TEXT'
+      || (optionTexts[optionTextKey(slot, optionId)] ?? '').trim().length > 0;
+  });
+
+/** Whether this option of this question is the "Other…" row. */
+export const isFreeTextOption = (
+  detail: PortalAssessmentDetail,
+  questionId: number,
+  optionId: number,
+): boolean =>
+  detail.questions
+    .find((q) => q.questionId === questionId)
+    ?.options.some((o) => o.optionId === optionId && o.contentType === 'FREE_TEXT') ?? false;
 
 /** Splits an answerKey back into the ids the submit payload needs. */
 export const parseAnswerKey = (key: string): { questionId: number; questionRowId: number | null } => {

@@ -309,8 +309,7 @@ public class AssessmentReportService {
                 rawAnswersByRespondent
                         .computeIfAbsent(a.getRespondent().getId(), k -> new ArrayList<>())
                         .add(a);
-                Option option = a.getOption();
-                String cell = option != null ? option.getOptionText() : a.getAnswerText();
+                String cell = a.displayText();
                 if (cell == null) {
                     continue;
                 }

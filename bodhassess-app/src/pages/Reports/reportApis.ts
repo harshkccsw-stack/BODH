@@ -273,7 +273,7 @@ const scoreOf = (map: Record<string, number>, id: number): number => map?.[Strin
  *
  * Sheets 1-3 and 5 are skipped entirely when the questionnaire scores nothing.
  */
-export async function downloadExportSheet(sheet: ExportSheet): Promise<void> {
+export async function downloadExportSheet(sheet: ExportSheet, fileName?: string): Promise<void> {
   const XLSX = await import('xlsx');
 
   const mqts = sheet.mqtColumns ?? [];
@@ -354,8 +354,22 @@ export async function downloadExportSheet(sheet: ExportSheet): Promise<void> {
     ]), 'Scoring Key');
   }
 
-  const safeName = (sheet.assessment.name || 'assessment').replace(/[^\w-]+/g, '_').slice(0, 60);
-  XLSX.writeFile(wb, `${safeName}_raw_data.xlsx`);
+  XLSX.writeFile(wb, fileName ?? rawDataFileName([sheet.assessment.name || 'assessment']));
+}
+
+/**
+ * "<part>-<part>-data-<yyyy-mm-dd>.xlsx". Blank parts are dropped. Each part
+ * keeps its spaces, hyphens (serial ids are "USR-000042") and non-English
+ * letters; only characters a filesystem rejects become a space, and each is
+ * capped so a long org + assessment pair stays a legal name.
+ */
+export function rawDataFileName(parts: Array<string | null | undefined>): string {
+  const clean = (s: string) => s.replace(/[\\/:*?"<>|\x00-\x1f]+/g, ' ')
+    .replace(/\s+/g, ' ').trim().slice(0, 60).trim();
+  const d = new Date();
+  const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const kept = parts.map((p) => clean(p ?? '')).filter(Boolean);
+  return `${[...kept, 'data', date].join('-')}.xlsx`;
 }
 
 export const reportApis = {

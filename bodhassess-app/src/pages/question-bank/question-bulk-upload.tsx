@@ -106,7 +106,7 @@ export async function downloadTemplate(choices: MqtChoice[]) {
       stem: 'I enjoy meeting new people.',
       description: 'Answer for how things have been over the last two weeks.',
       type: 'TEXT', mediaUrl: '', risk: 'no', shuffle: 'no',
-      selectRule: '', selectCount: '',
+      selectRule: '', selectCount: '', otherOption: '',
       section: 'Part A',
       scores: 'MqtNameOrId:2 | MqtNameOrId:0.5',
       option1: 'Agree', option1Description: '', option1Scores: 'MqtNameOrId:5',
@@ -116,7 +116,7 @@ export async function downloadTemplate(choices: MqtChoice[]) {
     {
       stem: 'Which diagram shows the correct flow?', description: '', type: 'URL',
       mediaUrl: 'https://example.com/diagram.png', risk: 'yes', shuffle: 'no',
-      selectRule: '', selectCount: '',
+      selectRule: '', selectCount: '', otherOption: '',
       section: 'Part B', scores: '',
       option1: 'The first one', option1Description: '', option1Scores: 'MqtNameOrId:3',
       option2: 'The second one', option2Description: '', option2Scores: '',
@@ -127,11 +127,14 @@ export async function downloadTemplate(choices: MqtChoice[]) {
       type: 'TEXT', mediaUrl: '', risk: 'no',
       shuffle: 'yes',
       selectRule: 'max', selectCount: 2,
+      // option3 is the "Other…" row: respondents who pick it type their own
+      // answer. Its label and scores are option3's own cells.
+      otherOption: 3,
       section: 'Part B', scores: '',
       option1: 'I plan ahead', option1Description: 'Lists, calendars, that sort of thing.',
       option1Scores: 'MqtNameOrId:1',
       option2: 'I improvise', option2Description: '', option2Scores: 'MqtNameOrId:2',
-      option3: 'I do both', option3Description: '', option3Scores: 'MqtNameOrId:3',
+      option3: 'Other', option3Description: 'Tell us in your own words.', option3Scores: 'MqtNameOrId:0',
     },
   ]);
   const wb = XLSX.utils.book_new();
@@ -251,7 +254,14 @@ export function QuestionPreview({
               <li key={i} className="flex items-start gap-2 rounded-md border border-border/60 bg-muted/20 px-2 py-1.5">
                 <span className="text-xs font-medium text-muted-foreground shrink-0 mt-0.5">{i + 1}.</span>
                 <div className="min-w-0 space-y-0.5">
-                  <p className="text-xs">{o.optionText || <span className="italic text-muted-foreground">[{o.contentType.toLowerCase()} only]</span>}</p>
+                  <p className="text-xs">
+                    {o.optionText || <span className="italic text-muted-foreground">[{o.contentType.toLowerCase()} only]</span>}
+                    {o.contentType === 'FREE_TEXT' && (
+                      <span className="ml-1.5 rounded-full border border-primary/30 bg-primary/5 px-1.5 text-[0.625rem] font-medium text-primary">
+                        types own answer
+                      </span>
+                    )}
+                  </p>
                   {o.description && (
                     <p className="text-[0.6875rem] text-muted-foreground">{o.description}</p>
                   )}
@@ -712,6 +722,7 @@ export function BulkUploadModal({
                   <code className="text-foreground">risk</code> (yes/no) ·{' '}
                   <code className="text-foreground">selectRule</code> ·{' '}
                   <code className="text-foreground">selectCount</code> ·{' '}
+                  <code className="text-foreground">otherOption</code> ·{' '}
                   <code className="text-foreground">section</code> ·{' '}
                   <code className="text-foreground">scores</code> ·{' '}
                   <code className="text-foreground">option1…N</code> ·{' '}
@@ -725,6 +736,9 @@ export function BulkUploadModal({
                   <code className="text-foreground">max</code> or <code className="text-foreground">equals</code>{' '}
                   with a <code className="text-foreground">selectCount</code> — how many of that row&apos;s
                   options the respondent picks. The count cannot exceed the options on the row.</p>
+                <p><code className="text-foreground">otherOption</code> is the number of the option that is the
+                  &ldquo;Other&rdquo; row — respondents who pick it type their own answer. Leave it blank for
+                  none; at most one per question. Its label and scores are that option&apos;s own cells.</p>
                 {sectioned ? (
                   <p><code className="text-foreground">section</code> must name an existing section of THIS
                     questionnaire (matched by name, case-insensitive) — create the sections in Step 2 first;

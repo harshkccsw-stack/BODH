@@ -25,7 +25,6 @@ import com.bodhpsychometric.model.demographics.DemographicResponse;
 import com.bodhpsychometric.model.demographics.QuestionnaireDemographicField;
 import com.bodhpsychometric.model.demographics.enums.DemographicFieldType;
 import com.bodhpsychometric.model.organization.Organization;
-import com.bodhpsychometric.model.question.Option;
 import com.bodhpsychometric.model.question.Question;
 import com.bodhpsychometric.model.question.QuestionRow;
 import com.bodhpsychometric.model.question.enums.QuestionType;
@@ -252,8 +251,7 @@ public class DataStudioDatasetService {
             for (AssessmentAnswer answer : answers.findForExport(assessmentId, respondentIds)) {
                 Long respondentId = answer.getRespondent().getId();
                 rawByRespondent.computeIfAbsent(respondentId, k -> new ArrayList<>()).add(answer);
-                Option option = answer.getOption();
-                String cell = option != null ? option.getOptionText() : answer.getAnswerText();
+                String cell = answer.displayText();
                 if (cell == null) {
                     continue;
                 }

@@ -101,6 +101,23 @@ public class AssessmentAnswer implements java.io.Serializable {
     @Column(name = "rankOrder")
     private Integer rankOrder;
 
+    /**
+     * The answer as ONE readable cell — what the export sheet, Data Studio and
+     * every other "print the answer" path show. An ordinary option is its
+     * label; a short answer is its text; an "Other…" (FREE_TEXT) option is
+     * {@code label: text}, so the sheet shows what the respondent WROTE while
+     * the choice stays countable. Null when there is nothing to print.
+     */
+    public String displayText() {
+        if (option == null) {
+            return answerText;
+        }
+        if (answerText == null || answerText.isBlank()) {
+            return option.getOptionText();
+        }
+        return (option.getOptionText() == null ? "" : option.getOptionText() + ": ") + answerText;
+    }
+
     public Long getAssessmentAnswerId() {
         return assessmentAnswerId;
     }

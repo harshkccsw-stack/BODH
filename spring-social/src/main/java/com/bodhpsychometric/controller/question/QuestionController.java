@@ -984,6 +984,12 @@ public class QuestionController {
      */
     private String validateType(QuestionRequest request) {
         QuestionType type = typeOf(request);
+        // FREE_TEXT is an OPTION kind — the "Other…" row. A stem "made of" a
+        // text box means nothing, and `question.content_type` in MySQL was
+        // deliberately not widened for it (V36), so this is the guard.
+        if (request.contentType() == ContentType.FREE_TEXT) {
+            return "a question stem cannot be a short-answer box — FREE_TEXT is an option type";
+        }
         if (type == QuestionType.LINEAR_SCALE) {
             // A scale is one pick by definition: "choose 2 points on a 1—5
             // scale" has no meaning, and allowing it would hand the portal a
@@ -1064,9 +1070,39 @@ public class QuestionController {
             if (desiredOptions(request).size() < 2) {
                 return "a grid needs at least two columns";
             }
+            // The columns are one shared scale for every row — an "Other…"
+            // column would mean a text box per row, which no screen draws.
+            if (desiredOptions(request).stream().anyMatch(o -> contentTypeOf(o) == ContentType.FREE_TEXT)) {
+                return "a grid's columns are a shared rating scale — none of them can be a short-answer box";
+            }
             return null;
         }
-        return null;
+        // MCQ — the only type that may carry an "Other…" option.
+        return validateFreeTextOptions(desiredOptions(request));
+    }
+
+    /**
+     * The "Other…" option's rules, MCQ only — null when fine, else the
+     * message. At most ONE per question (two "Other" rows is a design nobody
+     * wants and one is what every downstream screen assumes), its text is
+     * the LABEL on the button so it is required, and it has no media: the
+     * box is what it is made of.
+     */
+    private String validateFreeTextOptions(List<QuestionOptionRequest> options) {
+        int freeText = 0;
+        for (QuestionOptionRequest o : options) {
+            if (contentTypeOf(o) != ContentType.FREE_TEXT) {
+                continue;
+            }
+            freeText++;
+            if (o.optionText() == null) {
+                return "the short-answer option needs a label (e.g. \"Other\")";
+            }
+            if (o.mediaUrl() != null) {
+                return "the short-answer option is a text box — it cannot carry a media URL";
+            }
+        }
+        return freeText > 1 ? "a question can have only one short-answer option" : null;
     }
 
     /**
