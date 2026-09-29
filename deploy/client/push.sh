@@ -74,7 +74,32 @@ say "preflight ($TARGET: $REMOTE:$REMOTE_DIR)"
 need ssh; need git; need tar
 case " $ARTIFACTS " in *" api "*)
   if [ -z "$JAR" ] && [ "$SKIP_BUILD" = 0 ]; then
-    java -version 2>&1 | grep -q '"25' || die "java 25 is required to build the jar ($(java -version 2>&1 | head -1))"
+    # The jar has to run on the runtime image's JRE (deploy/server/Dockerfile.runtime
+    # is eclipse-temurin:<JAVA_VERSION>-jre), so the BUILD jdk is pinned rather than
+    # inherited from whatever `java` happens to be first on PATH. A package manager
+    # or an IDE raising the default JDK must not silently change what ships.
+    #
+    # A wrong major is not fatal on its own: macOS keeps every installed JDK and
+    # java_home finds the right one even when it is not first on PATH, so the
+    # common case (default moved to 26, 25 still installed) self-heals instead of
+    # making the operator export JAVA_HOME by hand. Only a genuinely absent JDK
+    # stops the push.
+    REQ_JAVA="${JAVA_VERSION:-25}"
+    FOUND_JAVA="$(java -version 2>&1 | head -1)"
+    case "$FOUND_JAVA" in
+      *"\"$REQ_JAVA"*) ;;
+      *)
+        JH=""
+        [ -x /usr/libexec/java_home ] && JH="$(/usr/libexec/java_home -v "$REQ_JAVA" 2>/dev/null || true)"
+        if [ -n "$JH" ] && [ -x "$JH/bin/java" ]; then
+          export JAVA_HOME="$JH"
+          PATH="$JAVA_HOME/bin:$PATH"; export PATH
+          echo "   java: shell default is $FOUND_JAVA — building with JDK $REQ_JAVA at $JAVA_HOME"
+        else
+          die "java $REQ_JAVA is required to build the jar (found $FOUND_JAVA, and no JDK $REQ_JAVA installed) — install it, or set JAVA_HOME to one"
+        fi ;;
+    esac
+    echo "   java: $(java -version 2>&1 | head -1)"
   fi ;;
 esac
 for a in $ARTIFACTS; do
