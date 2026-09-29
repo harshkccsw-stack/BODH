@@ -255,6 +255,7 @@ public class QuestionnaireController {
         section.setQuestionnaire(questionnaire);
         section.setName(request.name().trim());
         section.setInstruction(instructionOrNull(request.instruction()));
+        section.setShowInstructionOnEachQuestion(request.repeatsInstruction());
         // Appended last. sortOrder is kept dense by reorder/delete, so the
         // count IS the next free position — no MAX(sortOrder) + 1 needed.
         section.setSortOrder(
@@ -269,6 +270,10 @@ public class QuestionnaireController {
      * touched — that is what the order endpoint is for — so the report tag
      * letters, which follow position rather than name, cannot move here.
      * A blank instruction comes back as null rather than "".
+     *
+     * <p>Every field is REPLACED, the repeat-instruction flag included: a body
+     * that omits it turns it off, the same way an omitted instruction clears
+     * one.
      */
     @PutMapping("/{id}/sections/{sectionId}")
     public ResponseEntity<?> updateSection(@PathVariable Long id, @PathVariable Long sectionId,
@@ -284,6 +289,7 @@ public class QuestionnaireController {
         }
         section.setName(request.name().trim());
         section.setInstruction(instructionOrNull(request.instruction()));
+        section.setShowInstructionOnEachQuestion(request.repeatsInstruction());
         portalContentService.evict(id);
         return ResponseEntity.ok(SectionResponse.from(sectionRepository.save(section)));
     }

@@ -73,6 +73,8 @@ export interface PreviewSection {
   sectionId: number;
   name: string;
   instruction: string | null;
+  /** Optional: callers that predate the flag simply do not pass it. */
+  showInstructionOnEachQuestion?: boolean;
 }
 
 export interface PreviewDemographicField {
@@ -199,7 +201,16 @@ export function QuestionView({ q, number }: { q: PreviewQuestion; number: number
                 {o.description && (
                   <p className="text-xs text-muted-foreground leading-relaxed">{o.description}</p>
                 )}
-                <MediaView contentType={o.contentType} mediaUrl={o.mediaUrl} compact />
+                {/* The "Other…" row: the portal shows an always-visible
+                    underline box beside the label, Google-Forms style, so the
+                    preview draws the same line. */}
+                {o.contentType === 'FREE_TEXT' ? (
+                  <div className="border-b border-border px-1 pb-1 text-xs text-muted-foreground/70">
+                    Type your answer…
+                  </div>
+                ) : (
+                  <MediaView contentType={o.contentType} mediaUrl={o.mediaUrl} compact />
+                )}
               </div>
             </div>
           ))}
@@ -326,6 +337,11 @@ export function QuestionnairePreviewView({
                     value={group.section.instruction}
                     className="text-sm text-muted-foreground"
                   />
+                )}
+                {/* The preview stacks a whole section into one card, so it
+                    cannot show the repetition itself — it says so instead. */}
+                {group.section?.instruction && group.section.showInstructionOnEachQuestion && (
+                  <p className="text-xs text-primary">Repeated above every question of this section.</p>
                 )}
               </CardHeader>
             )}

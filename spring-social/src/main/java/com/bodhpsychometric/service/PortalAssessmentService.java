@@ -18,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import com.bodhpsychometric.dto.PortalAssessmentDetailResponse;
+import com.bodhpsychometric.dto.PortalAssessmentDetailResponse.PortalOption;
 import com.bodhpsychometric.dto.PortalAttemptStatusResponse;
 import com.bodhpsychometric.dto.PortalBeginRequest;
 import com.bodhpsychometric.dto.PortalPartialAnswers;
@@ -35,6 +36,7 @@ import com.bodhpsychometric.model.auth.RespondentUser;
 import com.bodhpsychometric.model.demographics.DemographicField;
 import com.bodhpsychometric.model.demographics.DemographicResponse;
 import com.bodhpsychometric.model.demographics.QuestionnaireDemographicField;
+import com.bodhpsychometric.model.question.enums.ContentType;
 import com.bodhpsychometric.model.question.enums.QuestionType;
 import com.bodhpsychometric.model.question.enums.SelectionRule;
 import com.bodhpsychometric.repository.assessment.RespondentAssessmentMappingRepository;
@@ -370,6 +372,12 @@ public class PortalAssessmentService {
         // whole answer.
         Map<AnswerSlot, Set<Long>> chosen = new LinkedHashMap<>();
         Map<Long, String> typed = new LinkedHashMap<>();
+        // What was typed into an "Other…" (FREE_TEXT) option, keyed by the
+        // (slot, option) it rides on — it is stored on the SAME answer row as
+        // the optionId, so it travels beside the selection, never instead of
+        // it. A selected FREE_TEXT option with nothing typed is refused, and
+        // text on any other option still is.
+        Map<AnswerSlot, Map<Long, String>> otherText = new LinkedHashMap<>();
         for (AnswerEntry entry : entries) {
             if (entry.questionId() == null) {
                 throw badRequest("Each answer needs a questionId");
@@ -401,18 +409,36 @@ public class PortalAssessmentService {
                 }
                 continue;
             }
-            if (entry.answerText() != null) {
-                throw badRequest("Question " + entry.questionId()
-                        + " is answered by picking an option, not by typing");
-            }
             if (entry.optionId() == null) {
                 throw badRequest("Each answer needs a questionId and an optionId");
             }
-            boolean optionBelongs = question.options().stream()
-                    .anyMatch(o -> o.optionId().equals(entry.optionId()));
-            if (!optionBelongs) {
+            PortalOption option = question.options().stream()
+                    .filter(o -> o.optionId().equals(entry.optionId()))
+                    .findFirst().orElse(null);
+            if (option == null) {
                 throw badRequest("Option " + entry.optionId() + " does not belong to question "
                         + entry.questionId());
+            }
+            boolean freeText = option.contentType() == ContentType.FREE_TEXT;
+            String typedHere = entry.answerText() == null || entry.answerText().isBlank()
+                    ? null : entry.answerText().trim();
+            if (!freeText && entry.answerText() != null) {
+                throw badRequest("Question " + entry.questionId()
+                        + " is answered by picking an option, not by typing");
+            }
+            if (freeText) {
+                // Picking "Other" and writing nothing is not an answer — the
+                // label is what they picked, the text is what they meant.
+                if (typedHere == null) {
+                    throw badRequest(labels.get(entry.questionId()) + " needs the \""
+                            + option.optionText() + "\" answer written in");
+                }
+                // Same byte cap as a short answer, same reasoning: refused,
+                // never silently truncated.
+                if (typedHere.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > MAX_ANSWER_TEXT_BYTES) {
+                    throw badRequest("The \"" + option.optionText() + "\" answer to "
+                            + labels.get(entry.questionId()) + " is too long");
+                }
             }
             boolean isGrid = question.questionType() == QuestionType.LIKERT_GRID;
             if (isGrid && entry.questionRowId() == null) {
@@ -428,8 +454,14 @@ public class PortalAssessmentService {
                 throw badRequest("Row " + entry.questionRowId() + " does not belong to question "
                         + entry.questionId());
             }
-            chosen.computeIfAbsent(new AnswerSlot(entry.questionId(), entry.questionRowId()),
-                    k -> new LinkedHashSet<>()).add(entry.optionId());
+            AnswerSlot slot = new AnswerSlot(entry.questionId(), entry.questionRowId());
+            chosen.computeIfAbsent(slot, k -> new LinkedHashSet<>()).add(entry.optionId());
+            if (freeText) {
+                // A repeated (slot, option) pair is deduped like the selection
+                // itself — the first text wins, as the first tick did.
+                otherText.computeIfAbsent(slot, k -> new LinkedHashMap<>())
+                        .putIfAbsent(entry.optionId(), typedHere);
+            }
         }
 
         // Every placed question still has to be answered — and every ROW of
@@ -475,9 +507,10 @@ public class PortalAssessmentService {
 
         List<AnswerEntry> normalized = new ArrayList<>();
         for (Map.Entry<AnswerSlot, Set<Long>> e : chosen.entrySet()) {
+            Map<Long, String> textsHere = otherText.getOrDefault(e.getKey(), Map.of());
             for (Long optionId : e.getValue()) {
                 normalized.add(new AnswerEntry(e.getKey().questionId(), optionId,
-                        e.getKey().questionRowId(), null));
+                        e.getKey().questionRowId(), textsHere.get(optionId)));
             }
         }
         for (Map.Entry<Long, String> e : typed.entrySet()) {

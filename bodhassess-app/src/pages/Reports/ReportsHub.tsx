@@ -24,6 +24,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import {
   downloadExportSheet,
+  rawDataFileName,
   reportApis,
   type AttemptStatus,
   type ReportPage,
@@ -447,7 +448,9 @@ export default function ReportsHubPage() {
         setExportError('No completed respondents to export for this selection.');
         return;
       }
-      await downloadExportSheet(res.data);
+      // "<Org>-<Assessment>-data-<date>", or without the org when none is picked.
+      await downloadExportSheet(res.data,
+        rawDataFileName([selectedOrg?.label, res.data.assessment.name || selectedAsmt.label]));
     } catch (e: any) {
       setExportError(e?.response?.data?.message || e?.message || 'Failed to export raw data');
     } finally {
@@ -464,7 +467,12 @@ export default function ReportsHubPage() {
     setRowExportError('');
     try {
       const res = await reportApis.exportRespondent(row.assessmentId, detailFor.respondentUserId);
-      await downloadExportSheet(res.data);
+      // "<Name>-<Serial ID>-<Assessment>-<their Org>-data-<date>" — the org is
+      // the respondent's own, not the header filter; dropped when they have none.
+      const person = res.data.rows[0];
+      await downloadExportSheet(res.data, rawDataFileName([
+        person?.name, person?.serialId, res.data.assessment.name, person?.organizationName,
+      ]));
     } catch (e: any) {
       setRowExportError(e?.response?.data?.message || e?.message || 'Failed to export this respondent');
     } finally {

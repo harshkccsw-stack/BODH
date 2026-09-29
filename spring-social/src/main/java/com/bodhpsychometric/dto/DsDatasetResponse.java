@@ -36,10 +36,45 @@ public record DsDatasetResponse(
      * <p>{@code group} drives grouping in the grid header: core | demographics
      * | answers | scores | derived | dimension | measure.
      */
-    public record Column(String key, String label, String type, String group, List<String> options) {
+    public record Column(String key, String label, String type, String group, List<String> options,
+            ScoreRef score) {
 
         public Column(String key, String label, String type, String group) {
-            this(key, label, type, group, null);
+            this(key, label, type, group, null, null);
         }
+
+        public Column(String key, String label, String type, String group, List<String> options) {
+            this(key, label, type, group, options, null);
+        }
+    }
+
+    /**
+     * Where a score column sits in the MQ/MQT taxonomy — structure the label
+     * used to be the only carrier of.
+     *
+     * <p>{@code label} is a full path ("Fundamental Skillset &rsaquo; Cognitive
+     * check &rsaquo; Verbal"), which is unambiguous and unreadable in a narrow
+     * picker: truncation eats the tail, and the tail is the only part that
+     * distinguishes two columns. Worse, an own score and its subtree total
+     * differ ONLY by a suffix, so they truncate to the same string and picking
+     * the wrong one produces a quietly wrong report rather than an error.
+     *
+     * <p>So the distinctions are carried as fields instead of baked into a
+     * string a renderer has to parse back out. {@code label} is deliberately
+     * unchanged — export sheets, Data Studio headers and the AI column catalog
+     * all read it, and this is a presentation fix, not a rename.
+     *
+     * @param role      {@code own} (an MQT's own score), {@code subtree} (that
+     *                  MQT plus its descendants) or {@code mqTotal}
+     * @param depth     0 for an MQ root MQT, +1 per level; 0 for an MQ total
+     * @param nodeName  the node's OWN name, without its ancestors
+     * @param mqId      the measured quality this column belongs to
+     * @param mqName    that quality's name — the root a tree renders under
+     * @param parentKey the {@code mqt:} key of the parent MQT, or null at the
+     *                  top of an MQ. Every ancestor of a scored node is itself
+     *                  a column, so this never dangles.
+     */
+    public record ScoreRef(String role, int depth, String nodeName, Long mqId, String mqName,
+            String parentKey) {
     }
 }

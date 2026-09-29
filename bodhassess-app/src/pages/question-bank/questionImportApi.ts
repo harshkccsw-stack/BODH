@@ -66,6 +66,15 @@ export interface DuplicateStem {
   method: 'EXACT' | 'NORMALISED';
 }
 
+/**
+ * Matches SheetMappingResponse.SkippedRow — a row that was read but could not
+ * become a question. Not a failure: the rest of the sheet still imports.
+ */
+export interface SkippedRow {
+  row: number;
+  why: string;
+}
+
 /** Matches SheetMappingResponse. `rows` are rows of the ordinary questions template. */
 export interface SheetMappingResponse {
   ok: boolean;
@@ -78,6 +87,10 @@ export interface SheetMappingResponse {
   duplicates: DuplicateStem[];
   warnings: string[];
   blockers: string[];
+  /** Rows left out of the import, with the reason for each. */
+  skipped: SkippedRow[];
+  /** Headers of the question sheet that the reading never used. */
+  unusedColumns: string[];
   confident: boolean;
   questions: string[];
   model: string;
@@ -133,8 +146,26 @@ export const questionImportApi = {
     }
   },
 
-  mapSheet: (sheets: SheetCsv[], fileName: string) =>
-    api.post<SheetMappingResponse>('/questions/ai/map-sheet', { sheets, fileName }),
+  /** `notes` is what the uploader typed about their own sheet — optional. */
+  mapSheet: (sheets: SheetCsv[], fileName: string, notes?: string) =>
+    api.post<SheetMappingResponse>('/questions/ai/map-sheet', { sheets, fileName, notes: notes || null }),
+
+  /**
+   * The same read, corrected. Sends the spec that came back last time plus
+   * every correction so far, so the model revises a reading instead of
+   * starting over — the rows, paths and duplicate check are recomputed from
+   * the sheet on the server either way.
+   */
+  refineSheet: (
+    sheets: SheetCsv[],
+    fileName: string,
+    notes: string | undefined,
+    spec: unknown,
+    instructions: string[],
+  ) =>
+    api.post<SheetMappingResponse>('/questions/ai/refine-sheet', {
+      sheets, fileName, notes: notes || null, spec, instructions,
+    }),
 
   importQuestions: (payload: QuestionImportPayload) =>
     api.post<QuestionImportResult>('/questions/import', payload),

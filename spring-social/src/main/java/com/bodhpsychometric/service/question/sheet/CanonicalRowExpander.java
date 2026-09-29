@@ -67,12 +67,29 @@ public final class CanonicalRowExpander {
             + "with \"confident\": false and say so in \"questions\" — do NOT substitute a scale "
             + "the sheet does not state. (Reading options out of free text is not supported yet.)";
 
+    /**
+     * A row that could not become a question, and why.
+     *
+     * <p>Separate from {@link Expansion#blockers} on purpose. A blocker says
+     * the READING is wrong and nothing should be imported; a skip says this
+     * one row does not fit — a section preamble sitting in the question
+     * table, an item with a single answer — and the other ninety-seven are
+     * still good. Refusing the whole workbook over five odd rows is how a
+     * correct import becomes no import.
+     */
+    public record SkippedRow(int row, String why) {
+    }
+
     public record Expansion(
             List<ExpandedRow> rows,
             /** Distinct taxonomy paths, in first-seen order, with how many questions use each. */
             LinkedHashMap<String, Integer> pathCounts,
             List<String> warnings,
-            List<String> blockers) {
+            List<String> blockers,
+            /** Rows left out, with the reason for each. Not a failure by itself. */
+            List<SkippedRow> skipped,
+            /** Headers the mapping never referred to — what this import is dropping. */
+            List<String> unusedColumns) {
 
         public boolean ok() {
             return blockers.isEmpty();
@@ -85,37 +102,38 @@ public final class CanonicalRowExpander {
         List<String> warnings = new ArrayList<>();
         List<String> blockers = new ArrayList<>();
         List<ExpandedRow> rows = new ArrayList<>();
+        List<SkippedRow> skipped = new ArrayList<>();
         LinkedHashMap<String, Integer> pathCounts = new LinkedHashMap<>();
 
         if (spec == null) {
             blockers.add("The mapping could not be read.");
-            return new Expansion(rows, pathCounts, warnings, blockers);
+            return new Expansion(rows, pathCounts, warnings, blockers, skipped, List.of());
         }
         if (grid == null || grid.isEmpty()) {
             blockers.add("The sheet is empty.");
-            return new Expansion(rows, pathCounts, warnings, blockers);
+            return new Expansion(rows, pathCounts, warnings, blockers, skipped, List.of());
         }
         if (spec.columns() == null || isBlank(spec.columns().stem())) {
             blockers.add("The mapping does not say which column holds the question text.");
-            return new Expansion(rows, pathCounts, warnings, blockers);
+            return new Expansion(rows, pathCounts, warnings, blockers, skipped, List.of());
         }
 
         int headerRow = spec.headerRow() == null ? 1 : spec.headerRow();
         if (headerRow < 1 || headerRow > grid.size()) {
             blockers.add("The mapping points at header row " + headerRow
                     + ", but the sheet has " + grid.size() + " rows.");
-            return new Expansion(rows, pathCounts, warnings, blockers);
+            return new Expansion(rows, pathCounts, warnings, blockers, skipped, List.of());
         }
 
         Map<String, Integer> headers = headerIndex(grid.get(headerRow - 1), blockers);
         if (!blockers.isEmpty()) {
-            return new Expansion(rows, pathCounts, warnings, blockers);
+            return new Expansion(rows, pathCounts, warnings, blockers, skipped, List.of());
         }
 
         SheetMappingSpec.RowRange range = spec.dataRows();
         if (range == null || range.from() == null || range.to() == null) {
             blockers.add("The mapping does not say which rows hold the questions.");
-            return new Expansion(rows, pathCounts, warnings, blockers);
+            return new Expansion(rows, pathCounts, warnings, blockers, skipped, List.of());
         }
         if (range.from() <= headerRow) {
             blockers.add("The mapping says the questions start on row " + range.from()
@@ -126,7 +144,7 @@ public final class CanonicalRowExpander {
                     + ", but the sheet has " + grid.size() + " rows.");
         }
         if (!blockers.isEmpty()) {
-            return new Expansion(rows, pathCounts, warnings, blockers);
+            return new Expansion(rows, pathCounts, warnings, blockers, skipped, List.of());
         }
 
         // Columns are resolved ONCE, up front: a spec naming a header the sheet
@@ -139,7 +157,7 @@ public final class CanonicalRowExpander {
         Options optionPlan = resolveOptions(spec, headers, scoringOn, blockers);
         Selection selection = resolveSelection(spec, blockers);
         if (!blockers.isEmpty()) {
-            return new Expansion(rows, pathCounts, warnings, blockers);
+            return new Expansion(rows, pathCounts, warnings, blockers, skipped, List.of());
         }
 
         for (int rowNo = range.from(); rowNo <= range.to(); rowNo++) {
@@ -148,12 +166,21 @@ public final class CanonicalRowExpander {
                 warnings.add("Row " + rowNo + " is blank and was skipped.");
                 continue;
             }
-            expandOne(spec, cols, optionPlan, selection, raw, rowNo, rows, pathCounts, warnings, blockers);
+            expandOne(spec, cols, optionPlan, selection, raw, rowNo,
+                    rows, pathCounts, warnings, blockers, skipped);
         }
 
         if (rows.isEmpty() && blockers.isEmpty()) {
             blockers.add("No questions were found in rows "
                     + range.from() + "–" + range.to() + ".");
+        }
+        // Odd rows are skipped; a sheet where MOST rows are odd is not a sheet
+        // with odd rows, it is a mapping read against the wrong columns — and
+        // importing the minority that happened to fit would be the worst
+        // outcome of the three.
+        if (!rows.isEmpty() && skipped.size() > rows.size()) {
+            blockers.add("More rows were left out (" + skipped.size() + ") than imported ("
+                    + rows.size() + "), so this reading is probably wrong rather than the sheet.");
         }
         if (cols.order >= 0) {
             checkPresentationOrder(rows, warnings);
@@ -161,7 +188,8 @@ public final class CanonicalRowExpander {
         if (cols.excludeFromComposite >= 0) {
             checkCompositeFlags(rows, warnings);
         }
-        return new Expansion(rows, pathCounts, warnings, blockers);
+        return new Expansion(rows, pathCounts, warnings, blockers, skipped,
+                unusedColumns(grid.get(headerRow - 1), cols, optionPlan));
     }
 
     /* ===================== sheet-level consistency ===================== */
@@ -233,11 +261,30 @@ public final class CanonicalRowExpander {
             SheetMappingSpec spec, Columns cols, Options optionPlan, Selection selection,
             List<String> raw, int rowNo,
             List<ExpandedRow> rows, LinkedHashMap<String, Integer> pathCounts,
-            List<String> warnings, List<String> blockers) {
+            List<String> warnings, List<String> blockers, List<SkippedRow> skipped) {
+        List<String> problems = new ArrayList<>();
+        expandRow(spec, cols, optionPlan, selection, raw, rowNo, rows, pathCounts, warnings, problems);
+        if (problems.isEmpty()) {
+            return;
+        }
+        // PER_ROW_TEXT is a property of the whole sheet, not of this row, and
+        // the service reads it to decide not to retry. It stays a blocker.
+        if (problems.contains(PER_ROW_TEXT_BLOCKER)) {
+            blockers.addAll(problems);
+            return;
+        }
+        skipped.add(new SkippedRow(rowNo, problems.get(0)));
+    }
+
+    private static void expandRow(
+            SheetMappingSpec spec, Columns cols, Options optionPlan, Selection selection,
+            List<String> raw, int rowNo,
+            List<ExpandedRow> rows, LinkedHashMap<String, Integer> pathCounts,
+            List<String> warnings, List<String> problems) {
 
         String stem = cell(raw, cols.stem);
         if (isBlank(stem)) {
-            blockers.add("Row " + rowNo + " has no question text in the \""
+            problems.add("Row " + rowNo + " has no question text in the \""
                     + cols.stemHeader + "\" column.");
             return;
         }
@@ -252,29 +299,30 @@ public final class CanonicalRowExpander {
             path.remove(path.size() - 1);
         }
         if (path.stream().anyMatch(CanonicalRowExpander::isBlank)) {
-            blockers.add("Row " + rowNo + " has a gap in its quality path ("
+            problems.add("Row " + rowNo + " has a gap in its quality path ("
                     + String.join(" / ", path) + ") — a level cannot be skipped.");
             return;
         }
         for (String segment : path) {
             if (segment.contains(":") || segment.contains("|")) {
-                blockers.add("Row " + rowNo + ": the quality name \"" + segment
+                problems.add("Row " + rowNo + ": the quality name \"" + segment
                         + "\" contains ':' or '|', which the score column uses as separators.");
                 return;
             }
         }
 
-        Boolean reverse = reverseFlag(spec, cols, raw, rowNo, blockers);
+        Boolean reverse = reverseFlag(spec, cols, raw, rowNo, problems);
         if (reverse == null) {
             return;
         }
 
-        List<ScalePoint> scale = optionPlan.pointsFor(raw, rowNo, blockers);
-        if (scale == null) {
+        Scale found = optionPlan.pointsFor(raw, rowNo, problems);
+        if (found == null) {
             return;
         }
+        List<ScalePoint> scale = found.points();
         if (scale.size() < 2) {
-            blockers.add("Row " + rowNo + " would import with "
+            problems.add("Row " + rowNo + " would import with "
                     + (scale.isEmpty() ? "no options" : "one option") + ".");
             return;
         }
@@ -283,7 +331,9 @@ public final class CanonicalRowExpander {
                 && spec.scoring().mode() != null
                 && spec.scoring().mode() != ScoringMode.NONE;
         String pathKey = String.join(PATH_SEPARATOR, path);
-        if (scoring && path.isEmpty()) {
+        // A sheet whose score cells name their own quality ("Self-Efficacy:1")
+        // needs no path column: the cell says what the row would have said.
+        if (scoring && path.isEmpty() && !found.hasNamed()) {
             warnings.add("Row " + rowNo + " names no measured quality, so it imports unscored.");
             scoring = false;
         }
@@ -317,26 +367,41 @@ public final class CanonicalRowExpander {
         cells.put("shuffle", "");
         cells.put("selectRule", selection.rule());
         cells.put("selectCount", selection.count() == null ? "" : String.valueOf(selection.count()));
-        cells.put("section", cell(raw, cols.section));
+        cells.put("section", sectionName(spec, cell(raw, cols.section)));
         // Question-level scores stay empty: a scored item's numbers live on its
         // options, which is what reverse scoring needs and what the
         // item-binding lint expects to find.
         cells.put("scores", "");
 
+        // Counted per QUESTION, not per option: pathCounts is what the review
+        // panel prints as "n questions", and a five-option item naming one
+        // quality five times is one question, not five.
+        Set<String> namedHere = new LinkedHashSet<>();
         for (int i = 0; i < scale.size(); i++) {
             ScalePoint point = scale.get(i);
             int n = i + 1;
             cells.put("option" + n, point.text() == null ? "" : point.text().trim());
             cells.put("option" + n + "Description", "");
             String scoreCell = "";
-            if (scoring && !path.isEmpty() && point.value() != null) {
+            String named = found.namedAt(i);
+            if (scoring && named != null) {
+                // The cell already says quality AND score; only reverse
+                // scoring has anything left to do to it.
+                scoreCell = reverse ? reverseNamed(named, pivot) : normaliseNamed(named);
+                for (NamedScore pair : namedScores(named)) {
+                    namedHere.add(pair.name());
+                }
+            } else if (scoring && !path.isEmpty() && point.value() != null) {
                 double v = reverse ? pivot - point.value() : point.value();
                 scoreCell = pathKey + ":" + trimNumber(v);
             }
             cells.put("option" + n + "Scores", scoreCell);
         }
+        for (String name : namedHere) {
+            pathCounts.merge(name, 1, Integer::sum);
+        }
 
-        if (scoring && !path.isEmpty()) {
+        if (scoring && !path.isEmpty() && !found.hasNamed()) {
             pathCounts.merge(pathKey, 1, Integer::sum);
         }
         rows.add(new ExpandedRow(cells, rowNo, List.copyOf(path),
@@ -400,7 +465,7 @@ public final class CanonicalRowExpander {
 
     /** Null means "stop" — a blocker has been recorded. */
     private static Boolean reverseFlag(SheetMappingSpec spec, Columns cols, List<String> raw,
-            int rowNo, List<String> blockers) {
+            int rowNo, List<String> problems) {
         if (cols.reverse < 0) {
             return Boolean.FALSE;
         }
@@ -421,7 +486,7 @@ public final class CanonicalRowExpander {
         // Deliberately fatal. Reading an unrecognised flag as "not reversed"
         // would invert nothing and say nothing, and the resulting scores are
         // wrong in a way no later screen can show.
-        blockers.add("Row " + rowNo + ": the reverse-scoring column says \"" + cellValue
+        problems.add("Row " + rowNo + ": the reverse-scoring column says \"" + cellValue
                 + "\", which is neither yes nor no.");
         return null;
     }
@@ -509,33 +574,193 @@ public final class CanonicalRowExpander {
 
     /* ===================== options ===================== */
 
+    /**
+     * A row's options: the points, and — for a sheet that scores each option
+     * against a quality it NAMES ("Self-Efficacy:1") — the cell to carry
+     * through for each of them. `named` is null for every other sheet, which
+     * is all of them until one does this.
+     */
+    private record Scale(List<ScalePoint> points, List<String> named) {
+
+        static Scale of(List<ScalePoint> points) {
+            return new Scale(points, null);
+        }
+
+        String namedAt(int i) {
+            String at = named == null || i >= named.size() ? null : named.get(i);
+            return at == null || at.isBlank() ? null : at;
+        }
+
+        boolean hasNamed() {
+            return named != null && named.stream().anyMatch(n -> n != null && !n.isBlank());
+        }
+    }
+
+    /**
+     * Headers the mapping never referred to.
+     *
+     * <p>Computed from the resolved indices rather than asked of the model,
+     * because "what did you ignore?" is exactly the question a model answers
+     * optimistically. Every column the sheet has and the reading does not use
+     * is a piece of the author's work being dropped — a question type, a
+     * selection limit, an option's help text — and the only general defence
+     * against dropping it silently is to say so before anything is created.
+     */
+    private static List<String> unusedColumns(List<String> headerRow, Columns cols, Options options) {
+        Set<Integer> used = new LinkedHashSet<>();
+        used.add(cols.stem);
+        used.add(cols.description);
+        used.add(cols.externalId);
+        used.add(cols.order);
+        used.add(cols.reverse);
+        used.add(cols.excludeFromComposite);
+        used.add(cols.risk);
+        used.add(cols.section);
+        used.addAll(cols.path);
+        used.addAll(options.columnIdx());
+        used.addAll(options.columnScoreIdx());
+        used.add(options.scaleColumnIdx());
+
+        List<String> out = new ArrayList<>();
+        for (int i = 0; i < headerRow.size(); i++) {
+            String header = headerRow.get(i);
+            if (!used.contains(i) && !isBlank(header)) {
+                out.add(header.trim());
+            }
+        }
+        return out;
+    }
+
+    /**
+     * The section this row belongs to, by NAME.
+     *
+     * <p>A sheet that carries a section ID and keeps the names on another tab
+     * is the ordinary case, not an exotic one — so when the spec brought a
+     * dictionary back, the id is translated here, once, and everything
+     * downstream sees a real name. An id the dictionary does not cover is
+     * left exactly as it was found: visible and wrong beats invented.
+     */
+    private static String sectionName(SheetMappingSpec spec, String raw) {
+        String value = raw == null ? "" : raw.trim();
+        if (value.isEmpty() || spec.sections() == null || spec.sections().isEmpty()) {
+            return value;
+        }
+        for (Map.Entry<String, SheetMappingSpec.SectionInfo> entry : spec.sections().entrySet()) {
+            if (sameKey(entry.getKey(), value)
+                    && entry.getValue() != null && !isBlank(entry.getValue().name())) {
+                return entry.getValue().name().trim();
+            }
+        }
+        return value;
+    }
+
+    /**
+     * Section ids compared the way a spreadsheet forces: "55" from the model
+     * against "55.0" out of a numeric cell, either of them padded.
+     */
+    private static boolean sameKey(String a, String b) {
+        return normaliseLoose(dropTrailingZero(a)).equals(normaliseLoose(dropTrailingZero(b)));
+    }
+
+    private static String dropTrailingZero(String s) {
+        String t = s == null ? "" : s.trim();
+        return t.matches("-?\\d+\\.0+") ? t.substring(0, t.indexOf('.')) : t;
+    }
+
+    /** One "quality:score" pair out of a score cell. */
+    private record NamedScore(String name, double score) {
+    }
+
+    /**
+     * "Self-Efficacy:1", or "Focus:2 | Drive:0.5" — the syntax our own
+     * template uses for option scores, which sheets written against it (and
+     * sheets exported from this platform) naturally carry.
+     *
+     * @return the pairs, or null when the cell is not that shape at all —
+     *         which is a blocker, exactly as a non-numeric score always was
+     */
+    private static List<NamedScore> namedScores(String cell) {
+        List<NamedScore> out = new ArrayList<>();
+        for (String part : cell.split("\\|")) {
+            String piece = part.trim();
+            if (piece.isEmpty()) {
+                continue;
+            }
+            int at = piece.lastIndexOf(':');
+            if (at <= 0 || at == piece.length() - 1) {
+                return null;
+            }
+            String name = piece.substring(0, at).trim();
+            try {
+                if (name.isEmpty()) {
+                    return null;
+                }
+                out.add(new NamedScore(name, Double.parseDouble(piece.substring(at + 1).trim())));
+            } catch (NumberFormatException e) {
+                return null;
+            }
+        }
+        return out.isEmpty() ? null : out;
+    }
+
+    /** The same pairs, spaced the way the template writes them. */
+    private static String normaliseNamed(String cell) {
+        List<NamedScore> pairs = namedScores(cell);
+        if (pairs == null) {
+            return cell;
+        }
+        return pairs.stream()
+                .map(p -> p.name() + ":" + trimNumber(p.score()))
+                .reduce((a, b) -> a + " | " + b)
+                .orElse("");
+    }
+
+    /**
+     * Reverse scoring, applied to a cell that names its own qualities. The
+     * pivot is the row's own scale (min + max of its valued points), exactly
+     * as for a numeric score — with several pairs in one cell every number is
+     * a point on that same scale, so they all reverse against it.
+     */
+    private static String reverseNamed(String cell, double pivot) {
+        List<NamedScore> pairs = namedScores(cell);
+        if (pairs == null) {
+            return cell;
+        }
+        return pairs.stream()
+                .map(p -> p.name() + ":" + trimNumber(pivot - p.score()))
+                .reduce((a, b) -> a + " | " + b)
+                .orElse("");
+    }
+
     private record Options(OptionMode mode, List<ScalePoint> shared, List<OptionColumn> columns,
             List<Integer> columnIdx, List<Integer> columnScoreIdx, int scaleColumnIdx,
             Map<String, List<ScalePoint>> scales) {
 
         /** Null means "stop" — a blocker has been recorded. */
-        List<ScalePoint> pointsFor(List<String> raw, int rowNo, List<String> blockers) {
+        Scale pointsFor(List<String> raw, int rowNo, List<String> problems) {
             switch (mode) {
                 case SHARED_SCALE:
-                    return shared;
+                    return Scale.of(shared);
                 case SCALE_COLUMN: {
                     String key = cell(raw, scaleColumnIdx).trim();
                     List<ScalePoint> found = scales.get(normaliseLoose(key));
                     if (found == null) {
-                        blockers.add("Row " + rowNo + " uses a scale called \"" + key
+                        problems.add("Row " + rowNo + " uses a scale called \"" + key
                                 + "\", which the mapping does not define.");
                         return null;
                     }
-                    return found;
+                    return Scale.of(found);
                 }
                 case COLUMNS: {
                     List<ScalePoint> out = new ArrayList<>();
+                    List<String> named = new ArrayList<>();
                     for (int i = 0; i < columnIdx.size(); i++) {
                         String text = cell(raw, columnIdx.get(i));
                         if (isBlank(text)) {
                             continue; // a spare option column, which is ordinary
                         }
                         Double v = null;
+                        String namedScore = null;
                         int scoreIdx = columnScoreIdx.get(i);
                         if (scoreIdx >= 0) {
                             String rawScore = cell(raw, scoreIdx).trim();
@@ -543,18 +768,31 @@ public final class CanonicalRowExpander {
                                 try {
                                     v = Double.valueOf(rawScore);
                                 } catch (NumberFormatException e) {
-                                    blockers.add("Row " + rowNo + ": the score for option \""
-                                            + text.trim() + "\" is \"" + rawScore + "\", not a number.");
-                                    return null;
+                                    // Not a bare number — but "Self-Efficacy:1"
+                                    // is not a broken cell, it is a sheet that
+                                    // says which quality each option scores.
+                                    // Sheets written that way are common enough
+                                    // (it is our own template's syntax) that
+                                    // refusing them cost a whole import.
+                                    List<NamedScore> pairs = namedScores(rawScore);
+                                    if (pairs == null) {
+                                        problems.add("Row " + rowNo + ": the score for option \""
+                                                + text.trim() + "\" is \"" + rawScore
+                                                + "\", which is neither a number nor \"quality:number\".");
+                                        return null;
+                                    }
+                                    namedScore = rawScore;
+                                    v = pairs.get(0).score();
                                 }
                             }
                         }
                         out.add(new ScalePoint(text, v));
+                        named.add(namedScore);
                     }
-                    return out;
+                    return new Scale(out, named);
                 }
                 default:
-                    blockers.add("Row " + rowNo + ": options embedded in free text are not supported yet.");
+                    problems.add("Row " + rowNo + ": options embedded in free text are not supported yet.");
                     return null;
             }
         }

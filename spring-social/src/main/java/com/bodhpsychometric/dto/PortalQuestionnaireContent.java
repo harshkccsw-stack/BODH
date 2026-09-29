@@ -125,7 +125,7 @@ public record PortalQuestionnaireContent(
             if (section != null) {
                 sections.putIfAbsent(section.getSectionId(),
                         new PortalSection(section.getSectionId(), section.getName(), section.getInstruction(),
-                                section.getSortOrder()));
+                                section.isShowInstructionOnEachQuestion(), section.getSortOrder()));
             }
             Question question = placement.getQuestion();
             SelectionBounds bounds = SelectionBounds.of(question);

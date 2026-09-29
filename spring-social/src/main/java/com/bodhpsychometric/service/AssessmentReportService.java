@@ -309,8 +309,7 @@ public class AssessmentReportService {
                 rawAnswersByRespondent
                         .computeIfAbsent(a.getRespondent().getId(), k -> new ArrayList<>())
                         .add(a);
-                Option option = a.getOption();
-                String cell = option != null ? option.getOptionText() : a.getAnswerText();
+                String cell = a.displayText();
                 if (cell == null) {
                     continue;
                 }
@@ -424,7 +423,18 @@ public class AssessmentReportService {
                 QuestionRow row = gridRows.get(i);
                 String rowTag = tagByKey.getOrDefault(new ExportKey(questionId, row.getQuestionRowId()),
                         tag + "_R" + (i + 1));
-                Set<Long> nominated = plan.rowNominations().getOrDefault(row.getQuestionRowId(), Set.of());
+                Map<Long, Double> rowScores = plan.rowScores().getOrDefault(row.getQuestionRowId(), Map.of());
+                // The row's own edges first — earned by answering the row,
+                // whatever column is picked, so they name no option, exactly
+                // like a question-level flat score. A 0 is listed too: it is
+                // the nomination that filters the column entries below.
+                rowScores.forEach((mqtId, score) -> {
+                    if (pathByMqt.containsKey(mqtId)) {
+                        entries.add(new ScoringKeyEntry(rowTag, stem, row.getRowText(), null,
+                                mqtId, pathByMqt.get(mqtId), score));
+                    }
+                });
+                Set<Long> nominated = rowScores.keySet();
                 for (Option option : options) {
                     addOptionEntries(entries, rowTag, stem, row.getRowText(), option, nominated, plan, pathByMqt);
                 }

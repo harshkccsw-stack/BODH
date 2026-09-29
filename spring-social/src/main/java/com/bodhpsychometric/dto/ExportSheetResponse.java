@@ -87,10 +87,11 @@ public record ExportSheetResponse(
      * back to the editor that set it.
      *
      * {@code optionText} is null for a question-level flat score (the one that
-     * lands once the question is answered at all, whatever was picked), and
-     * {@code rowText} is null outside a grid. A grid's edges are already
-     * filtered by the row's nomination, so what is listed is what can be
-     * earned on that row.
+     * lands once the question is answered at all, whatever was picked) and
+     * for a grid ROW's own score (rowText set, optionText null — earned once
+     * the row is answered, whatever column was picked). {@code rowText} is
+     * null outside a grid. A grid's column edges are already filtered by the
+     * row's nomination, so what is listed is what can be earned on that row.
      */
     public record ScoringKeyEntry(
             String questionTag,

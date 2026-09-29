@@ -1,6 +1,11 @@
 # Question types — MCQ, Linear scale, Likert grid
 
-**STATUS (2026-08-13): BOTH PARTS BUILT AND VERIFIED.**
+**STATUS (2026-08-13): BOTH PARTS BUILT AND VERIFIED.** Grid scoring was
+revised on 2026-09-29 (`V37`): rows now carry the MQ/MQT scores like MCQ
+options and the column picked is the answer only — see
+[likert-grid-row-scoring-plan.md](likert-grid-row-scoring-plan.md). §3.1's
+"rows nominate, columns score" is the pre-V37 rule, kept as an optional
+second part.
 - **Part 1 — type dropdown + LINEAR_SCALE.** `V14` on staging at 14:57 IST.
 - **Part 2 — LIKERT_GRID.** `V15` on staging at 16:0x IST: two new tables and
   the unique-key swap, applied with the old key dropped only after the new

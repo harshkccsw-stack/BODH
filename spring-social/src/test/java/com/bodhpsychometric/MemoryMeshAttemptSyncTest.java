@@ -59,6 +59,12 @@ class MemoryMeshAttemptSyncTest {
                 o.setSortOrder(i);
                 q.addOption(o);
             }
+            // Position 2: the "Other…" row, which carries typed text.
+            Option otherRow = new Option();
+            otherRow.setOptionText("Other");
+            otherRow.setContentType(ContentType.FREE_TEXT);
+            otherRow.setSortOrder(2);
+            q.addOption(otherRow);
             q = questions.save(q);
             Question other = new Question();
             other.setQuestionTexString("Unrelated");
@@ -83,6 +89,36 @@ class MemoryMeshAttemptSyncTest {
             a = assessments.save(a);
             return new Seed(a.getAssessmentId(), q.getQuestionId(), other.getQuestionId());
         });
+    }
+
+    @Test
+    void anOtherOptionNeedsItsTextAndAnOrdinaryOneRefusesIt() throws Exception {
+        Seed s = seed();
+        String person = """
+                "respondent":{"name":"Other Person","email":"mm.other@test.local",\
+                "phoneCountryCode":"+91","phone":"9700000042","dob":"1994-04-04","gender":"FEMALE"}""";
+
+        mvc.perform(post("/api/sync/memorymesh/attempts")
+                .header(KEY, "test-sync-key")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(("{" + person + ",\"assessmentId\":%d,\"answers\":[{\"questionId\":%d,\"optionPosition\":2}]}")
+                        .formatted(s.assessmentId(), s.questionId())))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value(Matchers.containsString("needs its typed answer")));
+        mvc.perform(post("/api/sync/memorymesh/attempts")
+                .header(KEY, "test-sync-key")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(("{" + person + ",\"assessmentId\":%d,\"answers\":[{\"questionId\":%d,\"optionPosition\":0,"
+                        + "\"answerText\":\"stray\"}]}").formatted(s.assessmentId(), s.questionId())))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value(Matchers.containsString("not by typing")));
+        mvc.perform(post("/api/sync/memorymesh/attempts")
+                .header(KEY, "test-sync-key")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(("{" + person + ",\"assessmentId\":%d,\"answers\":[{\"questionId\":%d,\"optionPosition\":2,"
+                        + "\"answerText\":\"Depends on the day\"}]}").formatted(s.assessmentId(), s.questionId())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.stored").value(1));
     }
 
     @Test

@@ -84,6 +84,12 @@ export interface SectionResponse {
   sectionId: number;
   name: string;
   instruction: string | null;
+  /**
+   * Repeat the instruction above every question of the section instead of
+   * only the one that opens it. Off on every section authored before the
+   * flag existed.
+   */
+  showInstructionOnEachQuestion: boolean;
   /** Display position, 0-based and dense. The list arrives sorted by it. */
   sortOrder: number;
 }
@@ -91,6 +97,7 @@ export interface SectionResponse {
 export interface SectionPayload {
   name: string;
   instruction: string | null;
+  showInstructionOnEachQuestion: boolean;
 }
 
 function getQuestionnaireSections(questionnaireId: number) {

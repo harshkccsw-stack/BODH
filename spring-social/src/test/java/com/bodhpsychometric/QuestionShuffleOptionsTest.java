@@ -88,7 +88,7 @@ class QuestionShuffleOptionsTest {
                                 + "\"options\":["
                                 + "{\"optionText\":\"C1\",\"contentType\":\"TEXT\",\"mediaUrl\":null,\"mqtScores\":[]},"
                                 + "{\"optionText\":\"C2\",\"contentType\":\"TEXT\",\"mediaUrl\":null,\"mqtScores\":[]}],"
-                                + "\"rows\":[{\"rowText\":\"Row one\",\"measuredQualityTypeIds\":[]}],"
+                                + "\"rows\":[{\"rowText\":\"Row one\",\"mqtScores\":[]}],"
                                 + "\"mqtScores\":[]}"))
                 .andExpect(status().isBadRequest());
 

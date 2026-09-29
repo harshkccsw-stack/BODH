@@ -54,7 +54,7 @@ erDiagram
     question ||--o{ question_mqt_score : "flat score"
 
     question_option ||--o{ option_mqt_score : "answer-dependent score"
-    question_row    ||--o{ question_row_mqt : "nominates (no score)"
+    question_row    ||--o{ question_row_mqt : "scores (V37) + nominates"
 
     measured_quality      ||--o{ measured_quality_type : "tree of"
     measured_quality_type ||--o{ measured_quality_type : "parent of"
@@ -75,7 +75,7 @@ question(
 
 question_option(option_id, question_id, option_text, content_type, media_url, sort_order)
 question_row(question_row_id, question_id, row_text, sort_order)
-question_row_mqt(question_row_mqt_id, question_row_id, measured_quality_type_id)
+question_row_mqt(question_row_mqt_id, question_row_id, measured_quality_type_id, score)
 question_mqt_score(question_mqt_score_id, question_id, measured_quality_type_id, score)
 option_mqt_score(option_mqt_score_id, option_id, measured_quality_type_id, score)
 ```
@@ -117,7 +117,7 @@ because widening a MySQL enum rebuilds the table and doing it once is cheaper.
 | `shuffle_options` | optional | false | false | false |
 | `question_option` rows | authored | **generated** points | the shared columns | **none** |
 | `question_row` rows | none | none | the items | none |
-| `question_row_mqt` rows | none | none | per row | none |
+| `question_row_mqt` rows | none | none | per row, **scored** (V37) | none |
 | `question_mqt_score` | flat score | **forced to 0** | flat score | flat score |
 | `option_mqt_score` | authored per option | **derived** = the point's own number | authored per column | none |
 | `assessment_answer.option_id` | set | set | set | **NULL** |
@@ -191,21 +191,27 @@ that number — so submission is an ordinary single-choice pick.
 Rows are the items; options are the **shared columns**. The split of
 responsibility is the thing to remember:
 
-- a **row** names the MQTs it measures — `question_row_mqt`, no score;
-- a **column** carries the numbers — `option_mqt_score`, exactly as an MCQ's
-  options do.
+- a **row** SCORES the MQTs it measures — `question_row_mqt.score` (V37,
+  2026-09-29), exactly as an MCQ's options do. The score is earned when the
+  row is **answered, whatever column is picked**: the column is the answer,
+  recorded and exported per row, not the number;
+- a **column** MAY also carry numbers — `option_mqt_score` — the original
+  V15 rule, kept for label grids and folded away in the editor by default.
 
-A pick on row *R* of column *C* therefore credits **only R's MQTs**, each with
-the score *C* holds for that MQT. Because the columns are shared, every MQT
-any row names must be scored on every column (the form warns about the gaps).
+A pick on row *R* of column *C* therefore credits R's MQTs with R's own
+score, plus — only if the columns are scored — the score *C* holds for each
+MQT R names (the row's edges are the filter). A grid with unscored columns is
+scored by its rows alone, so every respondent who completes it earns the same
+MQ/MQT numbers from it; the rating itself is in the `_R<n>` answer column,
+which Data Studio and the report formulas read as a number.
 
 ```
 question(23, LIKERT_GRID)
 
 question_row(1, q=23, 'Plan my week ahead',       sort=0)
 question_row(2, q=23, 'Enjoy meeting new people', sort=1)
-question_row_mqt(…, row=1, mqt=7)     -- Conscientiousness
-question_row_mqt(…, row=2, mqt=8)     -- Extraversion
+question_row_mqt(…, row=1, mqt=7, score=3)   -- Conscientiousness: 3 for answering
+question_row_mqt(…, row=2, mqt=8, score=2)   -- Extraversion: 2 for answering
 
 question_option(160, q=23, 'Never',     sort=0)
 question_option(161, q=23, 'Sometimes', sort=1)
@@ -289,7 +295,7 @@ Per type that comes out as:
 | --- | --- | --- |
 | MCQ | the selected options' scores | the question's score |
 | LINEAR_SCALE | the point's own number | 0 — stored that way on purpose |
-| LIKERT_GRID | the column's score, **filtered to the MQTs its row nominates** | the question's score |
+| LIKERT_GRID | the column's score (if any), **filtered to the MQTs its row names** | the question's score, plus **each answered row's own score** (once per row) |
 | SHORT_ANSWER | none (no options) | the question's score — earned for answering |
 
 Rollups: MQT is a tree of any depth and a score may attach at any node, so
@@ -359,8 +365,8 @@ Cells are keyed by `(questionId, questionRowId)`, which is the same key
 - `uqAaRespondentAssessmentQuestionRowOptionV2` — §6.
 - `uqQqQuestionnaireQuestion` — a question is placed at most once per
   questionnaire.
-- `uqQmsQuestionMqt`, `uqOmsOptionMqt`, `uqQrmRowMqt` — one score/nomination
-  per pair.
+- `uqQmsQuestionMqt`, `uqOmsOptionMqt`, `uqQrmRowMqt` — one score per pair,
+  at all three levels.
 - `ckQuestionSelection` — `selection_rule` and `selection_count` are set or
   cleared together, count ≥ 1.
 
@@ -388,6 +394,7 @@ Cells are keyed by `(questionId, questionRowId)`, which is the same key
 | `V15` | `question_row`, `question_row_mqt`, `assessment_answer.question_row_id`, first unique-key swap |
 | `V16` | `shuffle_options` |
 | `V17` | `scale_from` / `scale_to` (backfilled 1—5), `SHORT_ANSWER` + `PARAGRAPH` in the enum, second unique-key swap |
+| `V37` | `question_row_mqt.score` (DOUBLE, default 0) — grid rows score like options; the column is the answer |
 
 ---
 

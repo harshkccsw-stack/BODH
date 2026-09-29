@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -11,6 +11,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Eye,
+  GripVertical,
+  Layers,
   Library,
   Loader2,
   Pencil,
@@ -20,6 +22,24 @@ import {
   Upload as UploadIcon,
   X,
 } from 'lucide-react';
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifiers';
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import {
   questionnairesApi,
   type QuestionnaireResponse,
@@ -125,6 +145,45 @@ const draftFromQuestion = (
   };
 };
 
+/**
+ * One draggable question row. The listeners live on the GRIP alone, not on the
+ * row — the header is a click target (expand, section select, arrows, delete)
+ * and a whole-row drag would swallow those. `useSortable` is a hook, so this
+ * has to be a component rather than a branch of `renderDraftCard`: that runs in
+ * a `.map`, where the hook order would change with the list.
+ */
+function SortableDraftRow({
+  id,
+  children,
+}: {
+  id: string;
+  children: (grip: ReactNode) => ReactNode;
+}) {
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } =
+    useSortable({ id });
+  const grip = (
+    <button
+      type="button"
+      ref={setActivatorNodeRef}
+      {...attributes}
+      {...listeners}
+      className="mt-0.5 shrink-0 cursor-grab touch-none p-1 text-muted-foreground hover:text-foreground active:cursor-grabbing"
+      title="Drag to reorder — or pick up with Space and move with the arrow keys"
+    >
+      <GripVertical className="h-3.5 w-3.5" />
+    </button>
+  );
+  return (
+    <div
+      ref={setNodeRef}
+      style={{ transform: CSS.Translate.toString(transform), transition }}
+      className={cn(isDragging && 'relative z-10 opacity-60')}
+    >
+      {children(grip)}
+    </div>
+  );
+}
+
 // --- Component ---
 
 export default function CreateAssessmentPage() {
@@ -167,6 +226,9 @@ export default function CreateAssessmentPage() {
   const [newSectionName, setNewSectionName] = useState('');
   // Optional per-section instruction, shown above the section's questions.
   const [newSectionInstruction, setNewSectionInstruction] = useState('');
+  // Off by default: the instruction opens the section and then gets out of
+  // the way, which is what every section did before this switch existed.
+  const [newSectionRepeat, setNewSectionRepeat] = useState(false);
   const [bulkUploadOpen, setBulkUploadOpen] = useState(false);
   // Which questionnaire's questions are already loaded — going back to Step 1
   // and forward again must NOT wipe unsaved authoring.
@@ -241,6 +303,56 @@ export default function CreateAssessmentPage() {
     });
   };
 
+  /**
+   * Drag-drop equivalent of `moveDraft`, for the whole jump at once. Only the
+   * positions this scope occupies in the flat `drafts` array are rewritten, so
+   * every other section's questions stay exactly where they were — the same
+   * invariant the arrow swap keeps.
+   */
+  const reorderScope = (sectionId: number | null, activeKey: string, overKey: string) => {
+    if (activeKey === overKey) return;
+    setDrafts((prev) => {
+      const slots = prev.reduce<number[]>((acc, d, i) => {
+        if (!useSections || d.sectionId === sectionId) acc.push(i);
+        return acc;
+      }, []);
+      const from = slots.findIndex((i) => prev[i].key === activeKey);
+      const to = slots.findIndex((i) => prev[i].key === overKey);
+      if (from < 0 || to < 0) return prev;
+      const moved = arrayMove(slots.map((i) => prev[i]), from, to);
+      const next = [...prev];
+      slots.forEach((slot, k) => { next[slot] = moved[k]; });
+      return next;
+    });
+  };
+
+  // A pointer drag only starts after 6px, so a click on the grip is still a
+  // click; Space picks the row up for keyboard users.
+  const dragSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  /**
+   * One DndContext per scope — a row can only be dropped among its own
+   * section's questions. Moving a question to a DIFFERENT section stays the
+   * section dropdown's job, so a long drag can never silently re-file it.
+   */
+  const sortableList = (sectionId: number | null, list: DraftQuestion[]) => (
+    <DndContext
+      sensors={dragSensors}
+      collisionDetection={closestCenter}
+      modifiers={[restrictToVerticalAxis, restrictToParentElement]}
+      onDragEnd={({ active, over }: DragEndEvent) => {
+        if (over) reorderScope(sectionId, String(active.id), String(over.id));
+      }}
+    >
+      <SortableContext items={list.map((d) => d.key)} strategy={verticalListSortingStrategy}>
+        {list.map((d, i) => renderDraftCard(d, i))}
+      </SortableContext>
+    </DndContext>
+  );
+
   const setExpandedAll = (expanded: boolean) =>
     setDrafts((prev) => prev.map((d) => ({ ...d, expanded })));
 
@@ -279,10 +391,15 @@ export default function CreateAssessmentPage() {
     // typed in and cleared leaves "<p><br></p>" behind.
     const instruction = instructionPayload(newSectionInstruction);
     try {
-      const res = await questionnairesApi.createQuestionnaireSection(backendQid, { name, instruction });
+      const res = await questionnairesApi.createQuestionnaireSection(backendQid, {
+        name,
+        instruction,
+        showInstructionOnEachQuestion: newSectionRepeat,
+      });
       setQSections((prev) => [...prev, res.data]);
       setNewSectionName('');
       setNewSectionInstruction('');
+      setNewSectionRepeat(false);
     } catch (e: any) {
       setStep2Error(e?.response?.data?.message || e?.message || 'Failed to create section');
     }
@@ -296,12 +413,28 @@ export default function CreateAssessmentPage() {
   const [editingSection, setEditingSection] = useState<number | null>(null);
   const [editSectionName, setEditSectionName] = useState('');
   const [editSectionInstruction, setEditSectionInstruction] = useState('');
+  const [editSectionRepeat, setEditSectionRepeat] = useState(false);
   const [sectionBusy, setSectionBusy] = useState(false);
+
+  /*
+   * Flat → sectioned from Step 2. Step 1's checkbox remains the only switch
+   * that turns sections OFF; this one only turns them on, so an author who
+   * decides mid-writing that the questionnaire wants parts does not have to
+   * walk back a step to say so.
+   */
+  const [convertOpen, setConvertOpen] = useState(false);
+  const [convertName, setConvertName] = useState('Section 1');
+  const [convertBusy, setConvertBusy] = useState(false);
+  const [convertError, setConvertError] = useState('');
+  // Focused by the header's Add Section button once sections are already on —
+  // the box under the header is the one place a section is named.
+  const newSectionInputRef = useRef<HTMLInputElement | null>(null);
 
   const startEditSection = (sec: SectionResponse) => {
     setEditingSection(sec.sectionId);
     setEditSectionName(sec.name);
     setEditSectionInstruction(sec.instruction || '');
+    setEditSectionRepeat(sec.showInstructionOnEachQuestion);
     setStep2Error('');
   };
 
@@ -313,6 +446,7 @@ export default function CreateAssessmentPage() {
       const res = await questionnairesApi.updateQuestionnaireSection(backendQid, editingSection, {
         name,
         instruction: instructionPayload(editSectionInstruction),
+        showInstructionOnEachQuestion: editSectionRepeat,
       });
       setQSections((prev) => prev.map((s) => (s.sectionId === res.data.sectionId ? res.data : s)));
       setEditingSection(null);
@@ -607,23 +741,67 @@ export default function CreateAssessmentPage() {
 
   // ---- Create/Save ----
 
+  /**
+   * The catalog body, mirroring QuestionnaireRequest 1:1. Shared by Step 1's
+   * save and Step 2's flat → sectioned switch: that PUT has to carry the
+   * WHOLE row, because a partial body would blank the description, the
+   * general instruction and the duration it left out.
+   */
+  const questionnairePayload = (hasSections: boolean) => ({
+    name: instName.trim(),
+    shortName: instShortName.trim() || null,
+    category: instCategory.trim() || null,
+    vertical: instVertical,
+    description: instDescription.trim() || null,
+    durationMinutes: Number.isFinite(instDuration) ? instDuration : null,
+    generalInstruction: instructionPayload(instInstructions),
+    hasSections,
+  });
+
+  /**
+   * Turn a flat questionnaire into a sectioned one without going back to
+   * Step 1, then create its first section.
+   *
+   * Order matters: the flag lives on the catalog row, so it is PUT first and
+   * the local view only flips once the server has taken it — a failed PUT
+   * leaves the page exactly as it was. Every draft already on the page moves
+   * into the new section, because the placement PUT refuses a null sectionId
+   * on a sectioned questionnaire: left unassigned they would all land in the
+   * amber block and block Save until each one was re-picked by hand. Each
+   * card's own section dropdown splits them up afterwards.
+   */
+  const convertToSections = async () => {
+    const name = convertName.trim();
+    if (!name || backendQid == null) return;
+    setConvertBusy(true);
+    setConvertError('');
+    try {
+      await questionnairesApi.updateQuestionnaire(backendQid, questionnairePayload(true));
+      const res = await questionnairesApi.createQuestionnaireSection(backendQid, {
+        name,
+        instruction: null,
+        showInstructionOnEachQuestion: false,
+      });
+      setQSections((prev) => [...prev, res.data]);
+      setDrafts((prev) => prev.map((d) => ({ ...d, sectionId: res.data.sectionId })));
+      setUseSections(true);
+      setConvertOpen(false);
+      setStep2Error('');
+    } catch (e: any) {
+      setConvertError(e?.response?.data?.message || e?.message || 'Failed to switch to sections');
+    } finally {
+      setConvertBusy(false);
+    }
+  };
+
   const handleCreateQuestionnaire = async () => {
     if (!instName.trim() || !instVertical) {
       setError('Name and vertical are required');
       return;
     }
-    // Step 1 persists the catalog entry (payload mirrors QuestionnaireRequest
-    // 1:1); Steps 2-3 attach questions and scoring to it.
-    const payload = {
-      name: instName.trim(),
-      shortName: instShortName.trim() || null,
-      category: instCategory.trim() || null,
-      vertical: instVertical,
-      description: instDescription.trim() || null,
-      durationMinutes: Number.isFinite(instDuration) ? instDuration : null,
-      generalInstruction: instructionPayload(instInstructions),
-      hasSections: useSections,
-    };
+    // Step 1 persists the catalog entry; Steps 2-3 attach questions and
+    // scoring to it.
+    const payload = questionnairePayload(useSections);
     setSaving(true);
     try {
       let qid = backendQid;
@@ -746,107 +924,137 @@ export default function CreateAssessmentPage() {
     const typeLabel = QUESTION_TYPES.find((t) => t.value === d.form.questionType)?.label;
     const sharedWith = d.usedIn.filter((u) => u.questionnaireId !== backendQid);
     return (
-      <Card key={d.key} className="overflow-hidden">
-        <div className="flex items-start gap-2 border-b border-border bg-muted/30 px-3 py-2">
-          <button
-            type="button"
-            onClick={() => patchDraft(d.key, { expanded: !d.expanded })}
-            className="mt-0.5 shrink-0 text-muted-foreground hover:text-foreground"
-            title={d.expanded ? 'Collapse question' : 'Expand question'}
-          >
-            <ChevronRight className={cn('h-4 w-4 transition-transform', d.expanded && 'rotate-90')} />
-          </button>
-          <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
-            {position + 1}
-          </span>
-          <button
-            type="button"
-            onClick={() => patchDraft(d.key, { expanded: !d.expanded })}
-            className="min-w-0 flex-1 text-left"
-          >
-            <p className="truncate text-sm font-medium">
-              {stem || <span className="italic text-muted-foreground">Untitled question</span>}
-            </p>
-            <p className="truncate text-[0.6875rem] text-muted-foreground">
-              <span className="font-mono" title="Auto-generated report tag — saved with the questionnaire">
-                {tagPreview(d.sectionId, position)}
+      <SortableDraftRow key={d.key} id={d.key}>
+        {(grip) => (
+          <Card className="overflow-hidden">
+            <div className="flex items-start gap-2 border-b border-border bg-muted/30 px-3 py-2">
+              <button
+                type="button"
+                onClick={() => patchDraft(d.key, { expanded: !d.expanded })}
+                className="mt-0.5 shrink-0 text-muted-foreground hover:text-foreground"
+                title={d.expanded ? 'Collapse question' : 'Expand question'}
+              >
+                <ChevronRight className={cn('h-4 w-4 transition-transform', d.expanded && 'rotate-90')} />
+              </button>
+              <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                {position + 1}
               </span>
-              {d.form.questionType !== 'MCQ' && <>{' · '}{typeLabel}</>}
-              {d.form.questionType === 'LIKERT_GRID'
-                ? <>{' · '}{rowCount} row{rowCount !== 1 ? 's' : ''} × {optionCount} column{optionCount !== 1 ? 's' : ''}</>
-                : d.form.questionType === 'SHORT_ANSWER'
-                  ? <>{' · '}typed answer</>
-                  : <>{' · '}{optionCount} option{optionCount !== 1 ? 's' : ''}</>}
-              {d.questionId == null
-                ? ' · new — added to the question bank when you save'
-                : ` · bank question #${d.questionId}`}
-              {sharedWith.length > 0 && ` · shared with ${sharedWith.length} other questionnaire${sharedWith.length !== 1 ? 's' : ''} — edits apply there too`}
-            </p>
-          </button>
-          {useSections && qSections.length > 0 && (
-            <select
-              value={d.sectionId ?? ''}
-              onChange={(e) => patchDraft(d.key, { sectionId: e.target.value ? Number(e.target.value) : null })}
-              className="h-7 shrink-0 rounded-md border border-border bg-background px-1.5 text-xs outline-none focus:border-primary"
-              title="Section"
-            >
-              <option value="">— no section —</option>
-              {qSections.map((s) => (
-                <option key={s.sectionId} value={s.sectionId}>{s.name}</option>
-              ))}
-            </select>
-          )}
-          <button
-            type="button"
-            onClick={() => moveDraft(d.key, -1)}
-            className="mt-0.5 shrink-0 p-1 text-muted-foreground hover:text-foreground"
-            title="Move up"
-          >
-            <ArrowUp className="h-3.5 w-3.5" />
-          </button>
-          <button
-            type="button"
-            onClick={() => moveDraft(d.key, 1)}
-            className="mt-0.5 shrink-0 p-1 text-muted-foreground hover:text-foreground"
-            title="Move down"
-          >
-            <ArrowDown className="h-3.5 w-3.5" />
-          </button>
-          <button
-            type="button"
-            onClick={() => removeDraft(d.key)}
-            className="mt-0.5 shrink-0 p-1 text-muted-foreground hover:text-red-500"
-            title={d.questionId == null ? 'Discard this question' : 'Remove from this questionnaire (stays in the bank)'}
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
-        </div>
-        {d.expanded && (
-          <CardContent className="p-4">
-            {sharedWith.length > 0 && (
-              <div className="mb-3 flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-[0.6875rem] text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
-                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                <span>
-                  This is a shared bank question — editing it also changes{' '}
-                  {sharedWith.map((u) => u.name).join(', ')}. Import it as a copy instead if you need
-                  an independent version.
-                </span>
-              </div>
+              <button
+                type="button"
+                onClick={() => patchDraft(d.key, { expanded: !d.expanded })}
+                className="min-w-0 flex-1 text-left"
+              >
+                <p className="truncate text-sm font-medium">
+                  {stem || <span className="italic text-muted-foreground">Untitled question</span>}
+                </p>
+                <p className="truncate text-[0.6875rem] text-muted-foreground">
+                  <span className="font-mono" title="Auto-generated report tag — saved with the questionnaire">
+                    {tagPreview(d.sectionId, position)}
+                  </span>
+                  {d.form.questionType !== 'MCQ' && <>{' · '}{typeLabel}</>}
+                  {d.form.questionType === 'LIKERT_GRID'
+                    ? <>{' · '}{rowCount} row{rowCount !== 1 ? 's' : ''} × {optionCount} column{optionCount !== 1 ? 's' : ''}</>
+                    : d.form.questionType === 'SHORT_ANSWER'
+                      ? <>{' · '}typed answer</>
+                      : <>{' · '}{optionCount} option{optionCount !== 1 ? 's' : ''}</>}
+                  {d.questionId == null
+                    ? ' · new — added to the question bank when you save'
+                    : ` · bank question #${d.questionId}`}
+                  {sharedWith.length > 0 && ` · shared with ${sharedWith.length} other questionnaire${sharedWith.length !== 1 ? 's' : ''} — edits apply there too`}
+                </p>
+              </button>
+              {useSections && qSections.length > 0 && (
+                <select
+                  value={d.sectionId ?? ''}
+                  onChange={(e) => patchDraft(d.key, { sectionId: e.target.value ? Number(e.target.value) : null })}
+                  className="h-7 shrink-0 rounded-md border border-border bg-background px-1.5 text-xs outline-none focus:border-primary"
+                  title="Section"
+                >
+                  <option value="">— no section —</option>
+                  {qSections.map((s) => (
+                    <option key={s.sectionId} value={s.sectionId}>{s.name}</option>
+                  ))}
+                </select>
+              )}
+              {grip}
+              <button
+                type="button"
+                onClick={() => moveDraft(d.key, -1)}
+                className="mt-0.5 shrink-0 p-1 text-muted-foreground hover:text-foreground"
+                title="Move up"
+              >
+                <ArrowUp className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => moveDraft(d.key, 1)}
+                className="mt-0.5 shrink-0 p-1 text-muted-foreground hover:text-foreground"
+                title="Move down"
+              >
+                <ArrowDown className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => removeDraft(d.key)}
+                className="mt-0.5 shrink-0 p-1 text-muted-foreground hover:text-red-500"
+                title={d.questionId == null ? 'Discard this question' : 'Remove from this questionnaire (stays in the bank)'}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            {d.expanded && (
+              <CardContent className="p-4">
+                {sharedWith.length > 0 && (
+                  <div className="mb-3 flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-[0.6875rem] text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
+                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <span>
+                      This is a shared bank question — editing it also changes{' '}
+                      {sharedWith.map((u) => u.name).join(', ')}. Import it as a copy instead if you need
+                      an independent version.
+                    </span>
+                  </div>
+                )}
+                <QuestionFormFields
+                  form={d.form}
+                  onChange={(form) => setDraftForm(d.key, form)}
+                  choices={mqtChoices}
+                  onCreateChoice={(c) => setMqtChoices((prev) => (prev.some((x) => x.id === c.id) ? prev : [...prev, c]))}
+                />
+              </CardContent>
             )}
-            <QuestionFormFields
-              form={d.form}
-              onChange={(form) => setDraftForm(d.key, form)}
-              choices={mqtChoices}
-            />
-          </CardContent>
+          </Card>
         )}
-      </Card>
+      </SortableDraftRow>
     );
   };
 
   const addQuestionButton = (sectionId: number | null) => (
     <Button variant="outline" size="sm" onClick={() => addDraft(sectionId)}>
       <Plus className="h-3.5 w-3.5" /> Add Question
+    </Button>
+  );
+
+  /*
+   * One button, two jobs. Sections already on: jump to the naming box that
+   * is right below the header rather than grow a second control that does
+   * the same thing. Still flat: open the switch-over dialog.
+   */
+  const addSectionButton = (
+    <Button
+      variant="outline"
+      size="sm"
+      onClick={() => {
+        if (useSections) {
+          newSectionInputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          newSectionInputRef.current?.focus();
+          return;
+        }
+        setConvertName(qSections.length > 0 ? `Section ${qSections.length + 1}` : 'Section 1');
+        setConvertError('');
+        setConvertOpen(true);
+      }}
+    >
+      <Layers className="h-3.5 w-3.5" /> Add Section
     </Button>
   );
 
@@ -1104,6 +1312,7 @@ export default function CreateAssessmentPage() {
                     </button>
                   </>
                 )}
+                {addSectionButton}
                 <Button variant="outline" size="sm" onClick={openImport}>
                   <Library className="h-3.5 w-3.5" /> Import from Questionnaire
                 </Button>
@@ -1132,16 +1341,17 @@ export default function CreateAssessmentPage() {
                       <p className="mt-1 text-xs text-muted-foreground">
                         Write one here, import from another questionnaire, or upload an XLSX.
                       </p>
-                      <div className="mt-4 flex justify-center gap-2">
+                      <div className="mt-4 flex flex-wrap justify-center gap-2">
                         {addQuestionButton(null)}
                         <Button variant="outline" size="sm" onClick={openImport}>
                           <Library className="h-3.5 w-3.5" /> Import from Questionnaire
                         </Button>
+                        {addSectionButton}
                       </div>
                     </div>
                   ) : (
                     <>
-                      {drafts.map((d, i) => renderDraftCard(d, i))}
+                      {sortableList(null, drafts)}
                       <div className="flex justify-center pt-1">{addQuestionButton(null)}</div>
                     </>
                   )}
@@ -1151,6 +1361,7 @@ export default function CreateAssessmentPage() {
                   <div className="space-y-2 rounded-lg border border-border bg-muted/20 p-3">
                     <div className="flex gap-2">
                       <input
+                        ref={newSectionInputRef}
                         value={newSectionName}
                         onChange={(e) => setNewSectionName(e.target.value)}
                         onKeyDown={(e) => { if (e.key === 'Enter') addQSection(); }}
@@ -1170,6 +1381,24 @@ export default function CreateAssessmentPage() {
                     <p className="text-xs text-muted-foreground">
                       Section instruction (optional) — shown above this section's questions.
                     </p>
+                    {/* Off shows the instruction once, on the question that
+                        opens the section; on repeats it above every question
+                        of the section. Left enabled with no instruction
+                        written — the author usually ticks it before typing —
+                        and a section with no instruction renders nothing
+                        either way. */}
+                    <label
+                      className="flex items-center gap-2 text-sm"
+                      title="Repeat this section's instruction above every question in it, instead of only the first"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={newSectionRepeat}
+                        onChange={(e) => setNewSectionRepeat(e.target.checked)}
+                        className="rounded"
+                      />{' '}
+                      Show instruction on each question
+                    </label>
                   </div>
                   {qSections.length === 0 ? (
                     <p className="py-6 text-center text-sm text-muted-foreground">
@@ -1201,6 +1430,18 @@ export default function CreateAssessmentPage() {
                                 onChange={setEditSectionInstruction}
                                 contentClassName="min-h-[5rem] max-h-[16rem]"
                               />
+                              <label
+                                className="flex items-center gap-2 text-sm"
+                                title="Repeat this section's instruction above every question in it, instead of only the first"
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={editSectionRepeat}
+                                  onChange={(e) => setEditSectionRepeat(e.target.checked)}
+                                  className="rounded"
+                                />{' '}
+                                Show instruction on each question
+                              </label>
                               <div className="flex justify-end gap-2">
                                 <Button variant="outline" size="sm" onClick={() => setEditingSection(null)} disabled={sectionBusy}>
                                   Cancel
@@ -1222,6 +1463,14 @@ export default function CreateAssessmentPage() {
                                   <p className="truncate text-xs text-muted-foreground">
                                     {toPlainText(sec.instruction)}
                                   </p>
+                                )}
+                                {/* Only worth saying when it changes what the
+                                    respondent sees — an instruction repeated
+                                    on every question is a decision the author
+                                    should be able to spot without opening the
+                                    editor. */}
+                                {sec.instruction && sec.showInstructionOnEachQuestion && (
+                                  <p className="text-[0.6875rem] text-primary">Shown on each question</p>
                                 )}
                               </div>
                               <div className="flex items-center gap-2 shrink-0">
@@ -1272,7 +1521,7 @@ export default function CreateAssessmentPage() {
                                 No questions in this section yet.
                               </p>
                             ) : (
-                              list.map((d, i) => renderDraftCard(d, i))
+                              sortableList(sec.sectionId, list)
                             )}
                           </div>
                         </div>
@@ -1288,7 +1537,7 @@ export default function CreateAssessmentPage() {
                         </span>
                       </div>
                       <div className="space-y-3 p-3">
-                        {unassigned.map((d, i) => renderDraftCard(d, i))}
+                        {sortableList(null, unassigned)}
                       </div>
                     </div>
                   )}
@@ -1314,14 +1563,30 @@ export default function CreateAssessmentPage() {
 
           {/* Bulk XLSX upload — same modal/template as the Questions page,
               plus section matching. Unmounts on close so its state resets. */}
-          {bulkUploadOpen && (
+          {bulkUploadOpen && backendQid != null && (
             <BulkUploadModal
               choices={mqtChoices}
               onClose={() => setBulkUploadOpen(false)}
               questionnaire={{
+                questionnaireId: backendQid,
                 hasSections: useSections,
                 sections: qSections.map((s) => ({ sectionId: s.sectionId, name: s.name })),
                 onCreated: handleBulkCreated,
+                // The AI route can create sections on its way in — take them
+                // now rather than re-fetching, so the list behind the modal
+                // already holds them when the drafts land in them.
+                onSectionsCreated: (created) =>
+                  setQSections((prev) => [
+                    ...prev,
+                    ...created.filter((c) => !prev.some((p) => p.sectionId === c.sectionId)),
+                  ]),
+                // An upload can discover that the sheet is sectioned when the
+                // questionnaire is not. Same switch as the Add Section button
+                // makes, minus the first section: the import creates those.
+                enableSections: async () => {
+                  await questionnairesApi.updateQuestionnaire(backendQid, questionnairePayload(true));
+                  setUseSections(true);
+                },
               }}
             />
           )}
@@ -1619,6 +1884,70 @@ export default function CreateAssessmentPage() {
                 </div>
               </div>
             )}
+          </Card>
+        </div>
+      )}
+
+      {/* ===== Step 2's Add Section on a flat questionnaire ===== */}
+      {convertOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4"
+          onClick={() => { if (!convertBusy) setConvertOpen(false); }}
+        >
+          <Card className="w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+            <CardHeader className="flex flex-row items-start justify-between pb-3">
+              <div className="min-w-0">
+                <CardTitle className="text-base">Organize into sections</CardTitle>
+                <p className="text-[0.6875rem] text-muted-foreground">
+                  This questionnaire is flat — adding a section switches it over.
+                </p>
+              </div>
+              <button
+                onClick={() => setConvertOpen(false)}
+                disabled={convertBusy}
+                className="text-muted-foreground hover:text-foreground disabled:opacity-40"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {convertError && (
+                <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-400">
+                  {convertError}
+                </div>
+              )}
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Section name *</label>
+                <input
+                  autoFocus
+                  value={convertName}
+                  onChange={(e) => setConvertName(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') convertToSections(); }}
+                  placeholder="e.g., Part A"
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                />
+              </div>
+              <div className="space-y-1 rounded-lg border border-border bg-muted/30 px-3 py-2.5 text-xs text-muted-foreground">
+                <p>
+                  {drafts.length > 0
+                    ? `The ${drafts.length} question${drafts.length !== 1 ? 's' : ''} already here move into this section — each card's section picker splits them up afterwards.`
+                    : 'Questions you add next go into this section.'}
+                </p>
+                <p>
+                  Report tags become <span className="font-mono">Section_A_Q_1</span> instead
+                  of <span className="font-mono">Q_1</span> when you save.
+                </p>
+                <p>Step 1's "Organize into sections" tick box turns this back off.</p>
+              </div>
+            </CardContent>
+            <div className="flex justify-end gap-2 border-t border-border px-5 py-3">
+              <Button variant="outline" onClick={() => setConvertOpen(false)} disabled={convertBusy}>
+                Cancel
+              </Button>
+              <Button variant="primary" onClick={convertToSections} disabled={convertBusy || !convertName.trim()}>
+                {convertBusy ? 'Switching…' : 'Add Section'}
+              </Button>
+            </div>
           </Card>
         </div>
       )}

@@ -3,16 +3,18 @@ package com.bodhpsychometric.dto;
 import java.util.List;
 
 /**
- * One row of a LIKERT_GRID question: the item's text, and the MQTs it
- * measures. Rows are the full desired state, like options — the backend
- * replaces what is stored to match, and list order becomes sortOrder.
+ * One row of a LIKERT_GRID question: the item's text, and what answering it
+ * scores on each MQT. Rows are the full desired state, like options — the
+ * backend replaces what is stored to match, and list order becomes sortOrder.
  *
- * measuredQualityTypeIds is a NOMINATION, deliberately without scores: the
- * number a rating is worth comes from the column, which is scored exactly the
- * way an MCQ's options are. Rows with neither text nor MQTs are dropped, so a
- * form with trailing blank row inputs behaves like the option editor.
+ * mqtScores has the SAME shape as an option's (2026-09-29): the row carries
+ * the number, earned when the row is answered whatever column is picked —
+ * the column is the answer, not the score. A score of 0 is a pure
+ * nomination, which still filters any scores the columns carry. Rows with
+ * neither text nor a mapping are dropped, so a form with trailing blank row
+ * inputs behaves like the option editor.
  */
 public record QuestionRowRequest(
         String rowText,
-        List<Long> measuredQualityTypeIds) {
+        List<MqtScoreRequest> mqtScores) {
 }

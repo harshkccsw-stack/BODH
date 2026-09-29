@@ -30,7 +30,23 @@ public record SheetMappingSpec(
         List<String> unmapped,
         List<String> notes,
         Boolean confident,
-        List<String> questions) {
+        List<String> questions,
+        /**
+         * Section names by the value in the section column — for the common
+         * workbook whose question rows carry a section ID and whose section
+         * names and instructions live on another tab. Without it the id is
+         * all that survives, and a questionnaire ends up with a section
+         * called "55".
+         *
+         * <p>The same idea as {@code options.scales}: a column names the
+         * thing, a dictionary says what the name means. Null for a sheet
+         * whose section column already holds the names.
+         */
+        Map<String, SectionInfo> sections) {
+
+    /** A section as another tab of the workbook describes it. */
+    public record SectionInfo(String name, String instruction) {
+    }
 
     /** Inclusive, 1-based, as read in the spreadsheet. */
     public record RowRange(Integer from, Integer to) {

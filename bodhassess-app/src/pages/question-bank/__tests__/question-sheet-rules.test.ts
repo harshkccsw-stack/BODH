@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  collectingResolver,
   looksLikeOurTemplate,
   mqtKeyResolver,
   parseQuestionRows,
+  planAwareResolver,
+  unresolvedCounts,
 } from '../question-sheet-rules';
 import type { MqtChoice } from '../question-form-modal';
 
@@ -94,6 +97,24 @@ describe('parseQuestionRows — the template upload', () => {
     expect(q.options.map((o) => o.mqtScores[0]?.measuredQualityTypeId ?? null)).toEqual([42, 42, null]);
   });
 
+  it('marks the option otherOption names as the "Other…" row, by its number', () => {
+    const out = parseQuestionRows([{
+      stem: 'How do you commute?', option1: 'Bus', option2: 'Cycle', option3: 'Other', otherOption: '3',
+    }], choices);
+    expect(out.errors).toEqual([]);
+    expect(out.payloads[0].options.map((o) => o.contentType)).toEqual(['TEXT', 'TEXT', 'FREE_TEXT']);
+    expect(out.payloads[0].options[2].optionText).toBe('Other');
+  });
+
+  it('refuses an otherOption that names no filled option column', () => {
+    const out = parseQuestionRows([
+      { stem: 'a', option1: 'x', option2: 'y', otherOption: '9' },
+      { stem: 'b', option1: 'x', option2: '', otherOption: '2' },
+      { stem: 'c', option1: 'x', otherOption: 'yes' },
+    ], choices);
+    expect(out.errors.filter((e) => e.includes('otherOption'))).toHaveLength(3);
+  });
+
   it('refuses a selection rule it does not understand rather than dropping it', () => {
     const out = parseQuestionRows([{
       stem: 's', selectRule: 'Admin_Position order', selectCount: '15', option1: 'a', option2: 'b',
@@ -133,5 +154,79 @@ describe('parseQuestionRows — the round trip', () => {
     expect(scores(2).map((s) => s.score)).toEqual([5, 4, 3, 2, 1]);
     // Single choice: both selection cells blank, exactly as the mapper writes them.
     expect(out.payloads[0].selectionRule).toBeNull();
+  });
+});
+
+describe('collectingResolver', () => {
+  it('resolves what exists and says nothing about it', () => {
+    const unresolved = new Map<string, Set<number>>();
+    const errors: string[] = [];
+    const resolve = collectingResolver(choices, unresolved);
+
+    expect(resolve('Growth Mindset', 'Row 2 scores', errors)).toBe(42);
+    expect(unresolved.size).toBe(0);
+    expect(errors).toEqual([]);
+  });
+
+  it('collects an unknown name instead of refusing the sheet', () => {
+    const unresolved = new Map<string, Set<number>>();
+    const errors: string[] = [];
+    const resolve = collectingResolver(choices, unresolved);
+
+    expect(resolve('Curiosity', 'Row 2 option1Scores', errors)).toBeNull();
+    resolve('Curiosity', 'Row 2 option2Scores', errors);
+    resolve('Curiosity', 'Row 7 option1Scores', errors);
+
+    expect(errors).toEqual([]);
+    // Two rows, five cells: the review screen counts questions.
+    expect(unresolvedCounts(unresolved)).toEqual([{ pathKey: 'Curiosity', questionCount: 2 }]);
+  });
+
+  it('still refuses the two misses nothing could create', () => {
+    const unresolved = new Map<string, Set<number>>();
+    const errors: string[] = [];
+    const resolve = collectingResolver(choices, unresolved);
+
+    // An id that is not there names nothing to create...
+    expect(resolve('999', 'Row 2 scores', errors)).toBeNull();
+    // ...and a name matching two MQTs does not say which was meant.
+    expect(resolve('Self-Efficacy', 'Row 3 scores', errors)).toBeNull();
+
+    expect(unresolved.size).toBe(0);
+    expect(errors).toEqual([
+      'Row 2 scores: no MQT with id 999',
+      'Row 3 scores: "Self-Efficacy" matches 2 MQTs — use the id instead',
+    ]);
+  });
+});
+
+describe('planAwareResolver', () => {
+  const plan = new Map<string, number | null>([
+    ['Curiosity', -2],
+    ['Left alone', null],
+  ]);
+
+  it('prefers what the bank already has', () => {
+    const errors: string[] = [];
+    expect(planAwareResolver(choices, plan)('Growth Mindset', 'Row 2 scores', errors)).toBe(42);
+    expect(errors).toEqual([]);
+  });
+
+  it('hands back the pending ref for something about to be created', () => {
+    const errors: string[] = [];
+    expect(planAwareResolver(choices, plan)('Curiosity', 'Row 2 scores', errors)).toBe(-2);
+    expect(errors).toEqual([]);
+  });
+
+  it('drops a score the reviewer left unmapped, without an error', () => {
+    const errors: string[] = [];
+    expect(planAwareResolver(choices, plan)('Left alone', 'Row 2 scores', errors)).toBeNull();
+    expect(errors).toEqual([]);
+  });
+
+  it('still complains about a name nobody decided on', () => {
+    const errors: string[] = [];
+    expect(planAwareResolver(choices, plan)('Never seen', 'Row 9 scores', errors)).toBeNull();
+    expect(errors).toEqual(['Row 9 scores: no MQT named "Never seen"']);
   });
 });

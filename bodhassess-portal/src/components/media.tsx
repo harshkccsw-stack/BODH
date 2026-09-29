@@ -10,9 +10,10 @@ function extractYoutubeId(url: string): string | null {
 
 // Map the backend's ContentType (TEXT/IMAGE/VIDEO/URL) + url onto the Media
 // component's type prop. URL renders as an embedded YouTube player when it
-// looks like one, otherwise as a plain outbound link.
+// looks like one, otherwise as a plain outbound link. FREE_TEXT (the
+// "Other…" option) has no media — the runner draws its text box itself.
 export function mediaTypeFor(contentType?: string, url?: string | null): string | undefined {
-  if (!url || !contentType || contentType === 'TEXT') return undefined;
+  if (!url || !contentType || contentType === 'TEXT' || contentType === 'FREE_TEXT') return undefined;
   if (contentType === 'IMAGE') return 'image';
   if (contentType === 'VIDEO') return 'video';
   if (contentType === 'URL') return extractYoutubeId(url) ? 'youtube' : 'link';

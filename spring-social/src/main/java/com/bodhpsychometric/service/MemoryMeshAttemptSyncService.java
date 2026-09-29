@@ -18,6 +18,7 @@ import com.bodhpsychometric.model.assessment.RespondentAssessmentMapping;
 import com.bodhpsychometric.model.assessment.enums.RespondentAssessmentStatus;
 import com.bodhpsychometric.model.auth.RespondentUser;
 import com.bodhpsychometric.model.question.Option;
+import com.bodhpsychometric.model.question.enums.ContentType;
 import com.bodhpsychometric.model.question.Question;
 import com.bodhpsychometric.model.question.QuestionRow;
 import com.bodhpsychometric.repository.assessment.AssessmentAnswerRepository;
@@ -108,6 +109,20 @@ public class MemoryMeshAttemptSyncService {
             String text = a.answerText() == null || a.answerText().isBlank() ? null : a.answerText().trim();
             if (option == null && text == null) {
                 throw bad("An answer to question " + a.questionId() + " chose nothing and typed nothing");
+            }
+            // Same two rules as the portal's submit validator: an "Other…"
+            // (FREE_TEXT) option carries its typed text on the same row and
+            // is nothing without it; any other option carries none.
+            if (option != null) {
+                boolean freeText = option.getContentType() == ContentType.FREE_TEXT;
+                if (freeText && text == null) {
+                    throw bad("The \"" + option.getOptionText() + "\" option of question " + a.questionId()
+                            + " needs its typed answer");
+                }
+                if (!freeText && text != null) {
+                    throw bad("Question " + a.questionId()
+                            + " is answered by picking an option, not by typing");
+                }
             }
             resolved.add(new Resolved(q, option, row, text));
         }

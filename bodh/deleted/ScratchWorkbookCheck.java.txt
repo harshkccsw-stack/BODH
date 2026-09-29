@@ -1,0 +1,67 @@
+package com.bodhpsychometric;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+import org.junit.jupiter.api.Test;
+
+import com.bodhpsychometric.service.question.sheet.CanonicalRowExpander;
+import com.bodhpsychometric.service.question.sheet.CanonicalRowExpander.Expansion;
+import com.bodhpsychometric.service.question.sheet.SheetMappingSpec;
+import com.bodhpsychometric.service.question.sheet.SheetMappingSpec.ColumnMap;
+import com.bodhpsychometric.service.question.sheet.SheetMappingSpec.OptionColumn;
+import com.bodhpsychometric.service.question.sheet.SheetMappingSpec.OptionMode;
+import com.bodhpsychometric.service.question.sheet.SheetMappingSpec.OptionSpec;
+import com.bodhpsychometric.service.question.sheet.SheetMappingSpec.RowRange;
+import com.bodhpsychometric.service.question.sheet.SheetMappingSpec.ScoringMode;
+import com.bodhpsychometric.service.question.sheet.SheetMappingSpec.ScoringSpec;
+import com.bodhpsychometric.service.report.ScoringSheetParser;
+
+/** Throwaway: the real workbook through the expander, printed. Deleted after. */
+class ScratchWorkbookCheck {
+
+    @Test
+    void run() throws Exception {
+        String csv = Files.readString(Path.of(System.getenv("SCRATCH_CSV")));
+        List<List<String>> grid = ScoringSheetParser.readCsv(csv);
+
+        List<OptionColumn> options = new ArrayList<>();
+        for (int n = 1; n <= 24; n++) {
+            options.add(new OptionColumn("Option " + n + " Text", "Option " + n + " MQTs",
+                    "Option " + n + " Description"));
+        }
+        Map<String, SheetMappingSpec.SectionInfo> sections = new LinkedHashMap<>();
+        sections.put("55", new SheetMappingSpec.SectionInfo("Welcome & Consent", "Please read."));
+        sections.put("56", new SheetMappingSpec.SectionInfo("Evolution", "How you behave."));
+        sections.put("57", new SheetMappingSpec.SectionInfo("Personality", null));
+        sections.put("58", new SheetMappingSpec.SectionInfo("Work Values", null));
+        sections.put("60", new SheetMappingSpec.SectionInfo("Foundation Skill", null));
+        sections.put("61", new SheetMappingSpec.SectionInfo("Domain Exposure", null));
+
+        SheetMappingSpec spec = new SheetMappingSpec(
+                "3 — Upload (MQ-MQT)", 1, new RowRange(2, 99), List.of(),
+                new ColumnMap("Question Text", null, null, null, List.of(), null, null, null,
+                        "Section ID"),
+                new OptionSpec(OptionMode.COLUMNS, null, null, options, null, null),
+                new ScoringSpec(ScoringMode.OPTION_VALUE_TO_ROW_MQT, null),
+                null, List.of(), List.of(), true, List.of(), sections);
+
+        Expansion out = CanonicalRowExpander.expand(spec, grid);
+        System.out.println("=== ok=" + out.ok());
+        System.out.println("questions: " + out.rows().size());
+        System.out.println("skipped:   " + out.skipped().size());
+        out.skipped().forEach(s -> System.out.println("   row " + s.row() + ": " + s.why()));
+        System.out.println("blockers:  " + out.blockers());
+        System.out.println("unused columns: " + out.unusedColumns());
+        System.out.println("qualities found: " + out.pathCounts());
+        LinkedHashMap<String, Integer> bySection = new LinkedHashMap<>();
+        out.rows().forEach(r -> bySection.merge(r.cells().get("section"), 1, Integer::sum));
+        System.out.println("sections on the rows: " + bySection);
+        System.out.println("sample scores: " + out.rows().get(2).cells().get("option1Scores")
+                + " / " + out.rows().get(2).cells().get("option5Scores"));
+    }
+}

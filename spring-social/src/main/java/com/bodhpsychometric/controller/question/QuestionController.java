@@ -1,5 +1,6 @@
 package com.bodhpsychometric.controller.question;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -20,12 +21,12 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
-import com.bodhpsychometric.dto.MqtRefResponse;
 import com.bodhpsychometric.dto.MqtScoreRequest;
 import com.bodhpsychometric.dto.MqtScoreResponse;
 import com.bodhpsychometric.dto.QuestionOptionRequest;
 import com.bodhpsychometric.dto.QuestionOptionResponse;
 import com.bodhpsychometric.dto.QuestionImportRequest;
+import com.bodhpsychometric.dto.QuestionBulkDeleteRequest;
 import com.bodhpsychometric.dto.QuestionRequest;
 import com.bodhpsychometric.dto.QuestionResponse;
 import com.bodhpsychometric.dto.QuestionRowRequest;
@@ -553,6 +554,56 @@ public class QuestionController {
         return ResponseEntity.noContent().build();
     }
 
+    /**
+     * Delete several questions at once. Same two refusals as the single
+     * delete, checked for EVERY id before anything is removed: a selection
+     * that contains one frozen question deletes nothing and says which, so
+     * the author can drop it and repeat. Unknown ids are refused the same
+     * way rather than ignored — a selection referring to something that is
+     * already gone is a stale page, worth knowing about.
+     */
+    @PostMapping("/bulk-delete")
+    public ResponseEntity<?> bulkDeleteQuestions(@Valid @RequestBody QuestionBulkDeleteRequest request) {
+        List<Long> ids = request.questionIds().stream().filter(Objects::nonNull).distinct().toList();
+        if (ids.isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("message", "select at least one question"));
+        }
+
+        // Pass 1 — nothing is written until every id has been checked.
+        List<Map<String, Object>> blocked = new ArrayList<>();
+        for (Long id : ids) {
+            String reason = null;
+            if (!questionRepository.existsById(id)) {
+                reason = "This question no longer exists — refresh the page";
+            } else if (assessmentAnswerRepository.existsByQuestionQuestionId(id)) {
+                reason = "This question has responses and cannot be deleted";
+            } else if (questionnaireQuestionRepository.existsByQuestionQuestionId(id)) {
+                reason = "This question is used in a questionnaire — remove it there first";
+            }
+            if (reason != null) {
+                blocked.add(Map.of("questionId", id, "message", reason));
+            }
+        }
+        if (!blocked.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                    "message", blocked.size() + " of the " + ids.size()
+                            + " selected questions cannot be deleted — nothing was deleted",
+                    "blocked", blocked));
+        }
+
+        // Pass 2 — scoring rows first, then the questions take their options
+        // and rows with them by cascade, exactly as the single delete does.
+        for (Long id : ids) {
+            optionMqtScoreRepository.deleteByOptionQuestionQuestionId(id);
+            questionMqtScoreRepository.deleteByQuestionQuestionId(id);
+            questionRowMqtRepository.deleteByQuestionRowQuestionQuestionId(id);
+        }
+        optionMqtScoreRepository.flush();
+        questionRowMqtRepository.flush();
+        questionRepository.deleteAllById(ids);
+        return ResponseEntity.ok(Map.of("deleted", ids.size()));
+    }
+
     // ── Response assembly ─────────────────────────────────────────────────
 
     private QuestionResponse toResponse(Question q) {
@@ -573,10 +624,10 @@ public class QuestionController {
         List<QuestionOptionResponse> options = q.getOptions().stream()
                 .map(o -> QuestionOptionResponse.from(o, byOption.getOrDefault(o.getOptionId(), List.of())))
                 .toList();
-        Map<Long, List<MqtRefResponse>> byRow = questionRowMqtRepository
+        Map<Long, List<MqtScoreResponse>> byRow = questionRowMqtRepository
                 .findByQuestionRowQuestionQuestionId(q.getQuestionId()).stream()
                 .collect(Collectors.groupingBy(m -> m.getQuestionRow().getQuestionRowId(),
-                        Collectors.mapping(m -> MqtRefResponse.from(m.getMeasuredQualityType()),
+                        Collectors.mapping(m -> toScore(m.getMeasuredQualityType(), m.getScore()),
                                 Collectors.toList())));
         List<QuestionRowResponse> rows = q.getRows().stream()
                 .map(r -> QuestionRowResponse.from(r, byRow.getOrDefault(r.getQuestionRowId(), List.of())))
@@ -638,10 +689,10 @@ public class QuestionController {
         for (QuestionOptionRequest o : desiredOptions(request)) {
             dedupe(o.mqtScores()).keySet().forEach(ids::add);
         }
-        // Grid rows name MQTs without scoring them — a third level, and just
-        // as able to reference an id that does not exist.
+        // Grid rows score MQTs of their own — a third level, and just as
+        // able to reference an id that does not exist.
         for (QuestionRowRequest r : sanitizedRows(request)) {
-            ids.addAll(r.measuredQualityTypeIds());
+            dedupe(r.mqtScores()).keySet().forEach(ids::add);
         }
         return ids;
     }
@@ -673,16 +724,18 @@ public class QuestionController {
                 optionMqtScoreRepository.save(row);
             }
         }
-        // Grid rows: which MQTs the item measures. No score — the number
-        // comes from the column. Rows line up index-for-index with the
-        // sanitized payload for the same reason options do.
+        // Grid rows: what answering the item is worth, per MQT — the row's
+        // own score, like an option's, earned whatever column is picked. Rows
+        // line up index-for-index with the sanitized payload for the same
+        // reason options do; sanitizedRows already deduped and rounded.
         List<QuestionRowRequest> wantRows = sanitizedRows(request);
         List<QuestionRow> haveRows = question.getRows();
         for (int i = 0; i < wantRows.size() && i < haveRows.size(); i++) {
-            for (Long mqtId : wantRows.get(i).measuredQualityTypeIds()) {
+            for (MqtScoreRequest s : wantRows.get(i).mqtScores()) {
                 QuestionRowMqt row = new QuestionRowMqt();
                 row.setQuestionRow(haveRows.get(i));
-                row.setMeasuredQualityType(mqts.get(mqtId));
+                row.setMeasuredQualityType(mqts.get(s.measuredQualityTypeId()));
+                row.setScore(s.score());
                 questionRowMqtRepository.save(row);
             }
         }
@@ -932,6 +985,12 @@ public class QuestionController {
      */
     private String validateType(QuestionRequest request) {
         QuestionType type = typeOf(request);
+        // FREE_TEXT is an OPTION kind — the "Other…" row. A stem "made of" a
+        // text box means nothing, and `question.content_type` in MySQL was
+        // deliberately not widened for it (V36), so this is the guard.
+        if (request.contentType() == ContentType.FREE_TEXT) {
+            return "a question stem cannot be a short-answer box — FREE_TEXT is an option type";
+        }
         if (type == QuestionType.LINEAR_SCALE) {
             // A scale is one pick by definition: "choose 2 points on a 1—5
             // scale" has no meaning, and allowing it would hand the portal a
@@ -1012,16 +1071,48 @@ public class QuestionController {
             if (desiredOptions(request).size() < 2) {
                 return "a grid needs at least two columns";
             }
+            // The columns are one shared scale for every row — an "Other…"
+            // column would mean a text box per row, which no screen draws.
+            if (desiredOptions(request).stream().anyMatch(o -> contentTypeOf(o) == ContentType.FREE_TEXT)) {
+                return "a grid's columns are a shared rating scale — none of them can be a short-answer box";
+            }
             return null;
         }
-        return null;
+        // MCQ — the only type that may carry an "Other…" option.
+        return validateFreeTextOptions(desiredOptions(request));
     }
 
     /**
-     * The grid rows this payload actually means — trimmed, deduped MQT
-     * nominations, and empty for every type but LIKERT_GRID so switching a
-     * grid to another type drops its rows instead of leaving them to be
-     * delivered by a screen that has no idea what to do with them.
+     * The "Other…" option's rules, MCQ only — null when fine, else the
+     * message. At most ONE per question (two "Other" rows is a design nobody
+     * wants and one is what every downstream screen assumes), its text is
+     * the LABEL on the button so it is required, and it has no media: the
+     * box is what it is made of.
+     */
+    private String validateFreeTextOptions(List<QuestionOptionRequest> options) {
+        int freeText = 0;
+        for (QuestionOptionRequest o : options) {
+            if (contentTypeOf(o) != ContentType.FREE_TEXT) {
+                continue;
+            }
+            freeText++;
+            if (o.optionText() == null) {
+                return "the short-answer option needs a label (e.g. \"Other\")";
+            }
+            if (o.mediaUrl() != null) {
+                return "the short-answer option is a text box — it cannot carry a media URL";
+            }
+        }
+        return freeText > 1 ? "a question can have only one short-answer option" : null;
+    }
+
+    /**
+     * The grid rows this payload actually means — trimmed text, MQT scores
+     * deduped and rounded through {@link #dedupe} (the ONE place a score is
+     * rounded, so the write, the response and the freeze comparison agree),
+     * and empty for every type but LIKERT_GRID so switching a grid to another
+     * type drops its rows instead of leaving them to be delivered by a screen
+     * that has no idea what to do with them.
      *
      * A row needs text OR at least one MQT to survive: a form with trailing
      * blank row inputs then behaves exactly like the option editor.
@@ -1034,11 +1125,10 @@ public class QuestionController {
                 .filter(java.util.Objects::nonNull)
                 .map(r -> new QuestionRowRequest(
                         r.rowText() == null || r.rowText().isBlank() ? null : r.rowText().trim(),
-                        r.measuredQualityTypeIds() == null ? List.<Long>of()
-                                : r.measuredQualityTypeIds().stream()
-                                        .filter(java.util.Objects::nonNull)
-                                        .distinct().toList()))
-                .filter(r -> r.rowText() != null || !r.measuredQualityTypeIds().isEmpty())
+                        dedupe(r.mqtScores()).entrySet().stream()
+                                .map(e -> new MqtScoreRequest(e.getKey(), e.getValue()))
+                                .toList()))
+                .filter(r -> r.rowText() != null || !r.mqtScores().isEmpty())
                 .toList();
     }
 

@@ -35,7 +35,9 @@ import com.bodhpsychometric.repository.scoring.QuestionRowMqtRepository;
  * <li>{@code OptionMqtScore(option, m)} for every option they selected, and</li>
  * <li>{@code QuestionMqtScore(question, m)} for every question they answered —
  * counted ONCE per question, not once per selected option, which is what a
- * multi-select would otherwise do to it.</li>
+ * multi-select would otherwise do to it, and</li>
+ * <li>{@code QuestionRowMqt(row, m).score} for every grid ROW they answered —
+ * once per row, not once per cell, for the same reason.</li>
  * </ul>
  *
  * Per question type that comes out as:
@@ -45,9 +47,15 @@ import com.bodhpsychometric.repository.scoring.QuestionRowMqtRepository;
  * points already carry derived option scores (point <em>n</em> scores
  * <em>n</em>) and the question-level row is stored 0 on write, so adding the
  * flat part is a no-op.</li>
- * <li><b>LIKERT_GRID</b> — a pick on row <em>R</em> of column <em>C</em>
- * credits ONLY the MQTs that <em>R</em> nominates, each with the score
- * <em>C</em> carries for it. The one type whose option scores are filtered.</li>
+ * <li><b>LIKERT_GRID</b> — two parts. A pick on row <em>R</em> of column
+ * <em>C</em> credits ONLY the MQTs that <em>R</em> names, each with the score
+ * <em>C</em> carries for it — the one type whose option scores are filtered.
+ * And the ROW's own score (V37, 2026-09-29) lands once per answered row,
+ * whatever column was picked: the column is the answer, the row's edge is
+ * the number. A grid with unscored columns is therefore scored by its rows
+ * alone, and every respondent who completes it earns the same numbers from
+ * it — the rating itself lives in the per-row answer column, which the
+ * export, Data Studio and the report formulas already read.</li>
  * </ul>
  *
  * <h2>Rollups</h2>
@@ -70,18 +78,18 @@ public class MqtScoringService {
 
     private final QuestionMqtScoreRepository questionScores;
     private final OptionMqtScoreRepository optionScores;
-    private final QuestionRowMqtRepository rowNominations;
+    private final QuestionRowMqtRepository rowScores;
     private final MeasuredQualityTypeRepository measuredQualityTypes;
     private final QuestionnaireQuestionRepository placements;
 
     public MqtScoringService(QuestionMqtScoreRepository questionScores,
             OptionMqtScoreRepository optionScores,
-            QuestionRowMqtRepository rowNominations,
+            QuestionRowMqtRepository rowScores,
             MeasuredQualityTypeRepository measuredQualityTypes,
             QuestionnaireQuestionRepository placements) {
         this.questionScores = questionScores;
         this.optionScores = optionScores;
-        this.rowNominations = rowNominations;
+        this.rowScores = rowScores;
         this.measuredQualityTypes = measuredQualityTypes;
         this.placements = placements;
     }
@@ -111,8 +119,13 @@ public class MqtScoringService {
             Map<Long, Map<Long, Double>> questionScores,
             /** optionId → mqtId → score. */
             Map<Long, Map<Long, Double>> optionScores,
-            /** questionRowId → the MQTs that row measures (the grid filter). */
-            Map<Long, Set<Long>> rowNominations,
+            /**
+             * questionRowId → mqtId → the row's own score. The key set is the
+             * grid FILTER (which of a column's scores apply on that row); the
+             * value is what answering the row is worth — 0 for a pure
+             * nomination.
+             */
+            Map<Long, Map<Long, Double>> rowScores,
             /** Involved MQs, by name. */
             List<MqRef> mqs,
             /** Involved MQTs, MQ by MQ, depth-first in tree order. */
@@ -146,16 +159,13 @@ public class MqtScoringService {
         Map<Long, Map<Long, Double>> byQuestion = scoreMap(questionScores.findForQuestionnaire(questionnaireId));
         Map<Long, Map<Long, Double>> byOption = scoreMap(optionScores.findForQuestionnaire(questionnaireId));
 
-        Map<Long, Set<Long>> byRow = new HashMap<>();
-        for (Object[] row : rowNominations.findForQuestionnaire(questionnaireId)) {
-            byRow.computeIfAbsent(id(row[0]), k -> new HashSet<>()).add(id(row[1]));
-        }
+        Map<Long, Map<Long, Double>> byRow = scoreMap(rowScores.findForQuestionnaire(questionnaireId));
 
         // Every MQT this questionnaire touches, from all three levels.
         Set<Long> referenced = new LinkedHashSet<>();
         byQuestion.values().forEach(m -> referenced.addAll(m.keySet()));
         byOption.values().forEach(m -> referenced.addAll(m.keySet()));
-        byRow.values().forEach(referenced::addAll);
+        byRow.values().forEach(m -> referenced.addAll(m.keySet()));
         if (referenced.isEmpty()) {
             return new ScoringPlan(placed, byQuestion, byOption, byRow, List.of(), List.of(), Map.of());
         }
@@ -173,7 +183,7 @@ public class MqtScoringService {
     private ScoringPlan buildColumns(Set<Long> placed,
             Map<Long, Map<Long, Double>> byQuestion,
             Map<Long, Map<Long, Double>> byOption,
-            Map<Long, Set<Long>> byRow,
+            Map<Long, Map<Long, Double>> byRow,
             Set<Long> referenced,
             List<MeasuredQualityType> forest) {
 
@@ -265,6 +275,7 @@ public class MqtScoringService {
         plan.mqts().forEach(m -> own.put(m.measuredQualityTypeId(), 0d));
 
         Set<Long> answeredQuestions = new LinkedHashSet<>();
+        Set<Long> answeredRows = new LinkedHashSet<>();
         for (AssessmentAnswer answer : answers) {
             Long questionId = answer.getQuestion().getQuestionId();
             if (!plan.placedQuestionIds().contains(questionId)) {
@@ -273,6 +284,10 @@ public class MqtScoringService {
                 continue;
             }
             answeredQuestions.add(questionId);
+            Long rowId = answer.getQuestionRow() == null ? null : answer.getQuestionRow().getQuestionRowId();
+            if (rowId != null) {
+                answeredRows.add(rowId);
+            }
 
             Option option = answer.getOption();
             if (option == null) {
@@ -283,8 +298,8 @@ public class MqtScoringService {
                 continue;
             }
             // Grid: the row decides WHICH of the column's scores apply.
-            Set<Long> nominated = answer.getQuestionRow() == null ? null
-                    : plan.rowNominations().getOrDefault(answer.getQuestionRow().getQuestionRowId(), Set.of());
+            Set<Long> nominated = rowId == null ? null
+                    : plan.rowScores().getOrDefault(rowId, Map.of()).keySet();
             for (Map.Entry<Long, Double> entry : perMqt.entrySet()) {
                 if (nominated != null && !nominated.contains(entry.getKey())) {
                     continue;
@@ -295,6 +310,13 @@ public class MqtScoringService {
         // Once per ANSWERED question — a multi-select must not multiply it.
         for (Long questionId : answeredQuestions) {
             plan.questionScores().getOrDefault(questionId, Map.of())
+                    .forEach((mqtId, score) -> add(own, mqtId, score));
+        }
+        // Once per ANSWERED grid row — the row's own score, whatever column
+        // was picked. Per row rather than per cell for the same reason: a
+        // checkbox grid (per-row MAX n, still unexposed) must not multiply it.
+        for (Long rowId : answeredRows) {
+            plan.rowScores().getOrDefault(rowId, Map.of())
                     .forEach((mqtId, score) -> add(own, mqtId, score));
         }
 

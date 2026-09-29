@@ -15,7 +15,14 @@ import { BrandHeader } from '@/components/brand-header';
 import { Media, mediaTypeFor } from '@/components/media';
 import { cn } from '@/lib/utils';
 import { RichText, isBlankRichText } from '@/lib/rich-text';
-import { answerKey, portalAssessmentsApi, type PortalAssessmentDetail, type PortalQuestion } from '@/lib/api';
+import {
+  answerKey,
+  freeTextFilled,
+  optionTextKey,
+  portalAssessmentsApi,
+  type PortalAssessmentDetail,
+  type PortalQuestion,
+} from '@/lib/api';
 
 // Answers are keyed by SLOT — answerKey(questionId) for an ordinary question,
 // answerKey(questionId, rowId) for one row of a grid — and hold every selected
@@ -164,6 +171,8 @@ export function QuestionRunner({
   setAnswers,
   textAnswers,
   setTextAnswers,
+  optionTexts,
+  setOptionTexts,
   initialIndex = 0,
   onPartialSave,
   onSubmit,
@@ -182,6 +191,9 @@ export function QuestionRunner({
   /** SHORT_ANSWER payloads, keyed the same way — see take.tsx. */
   textAnswers: Record<string, string>;
   setTextAnswers: (a: Record<string, string>) => void;
+  /** What was typed into an "Other…" option, keyed by optionTextKey(slot, optionId). */
+  optionTexts: Record<string, string>;
+  setOptionTexts: (a: Record<string, string>) => void;
   /** Where to open — the first unanswered question on a resumed attempt. */
   initialIndex?: number;
   /**
@@ -267,6 +279,7 @@ export function QuestionRunner({
     slot: string,
     a: Record<string, number[]> = answers,
     t: Record<string, string> = textAnswers,
+    ot: Record<string, string> = optionTexts,
   ): boolean => {
     // Free text has nothing to count: min/maxSelections arrive as 1/1 like
     // any single choice, and against zero options that would reject every
@@ -275,7 +288,9 @@ export function QuestionRunner({
       return (t[slot] ?? '').trim().length > 0;
     }
     const n = (a[slot] ?? []).length;
-    return n >= qq.minSelections && n <= qq.maxSelections;
+    // …and a picked "Other…" option counts only once its box has something
+    // in it — the server refuses it empty, so the tick must wait too.
+    return n >= qq.minSelections && n <= qq.maxSelections && freeTextFilled(qq, slot, a, ot);
   };
 
   // The non-grid slot, for the code paths that only ever see one.
@@ -513,7 +528,12 @@ export function QuestionRunner({
       const n = (updated[s] ?? []).length;
       return n === q.minSelections && n === q.maxSelections;
     });
-    if (!autoNext || isScale || !settled) return;
+    // A tap that leaves an "Other…" option selected is never terminal: the
+    // box it opens still has to be typed into, and sliding the page away
+    // 350ms after it took focus is exactly the failure the SHORT_ANSWER
+    // comment below describes. Next — or Enter in the box — carries them on.
+    const otherPicked = next.some((id) => q.options.find((o) => o.optionId === id)?.contentType === 'FREE_TEXT');
+    if (!autoNext || isScale || !settled || otherPicked) return;
     // Where the beat after the tap lands: the next BLANK — computed from the
     // answers this tap just produced, because the render's `pending` still
     // counts the question they have this moment finished. Null means nothing
@@ -523,7 +543,7 @@ export function QuestionRunner({
     // in front of the last question.
     const after = questions
       .map((_, qi) => qi)
-      .filter((qi) => !isQuestionAnswered(qi, updated, textAnswers));
+      .filter((qi) => !isQuestionAnswered(qi, updated, textAnswers, optionTexts));
     const target = nextPendingFrom(index, after);
     if (target === null) return;
     clearAdvance();
@@ -537,10 +557,11 @@ export function QuestionRunner({
     qi: number,
     a: Record<string, number[]> = answers,
     t: Record<string, string> = textAnswers,
+    ot: Record<string, string> = optionTexts,
   ): boolean => {
     const qq = questions[qi];
     if (qq === undefined) return false;
-    return slotsOf(qq).every((slot) => slotSatisfied(qq, slot, a, t));
+    return slotsOf(qq).every((slot) => slotSatisfied(qq, slot, a, t, ot));
   };
   const answeredCount = questions.reduce((n, _, i) => n + (isQuestionAnswered(i) ? 1 : 0), 0);
 
@@ -615,7 +636,13 @@ export function QuestionRunner({
   // section 1, then every question of section 2 — so each group's indices are
   // one contiguous run.
   const sectionById = new Map(detail.sections.map((s) => [s.sectionId, s]));
-  const sections: { key: string; title: string | null; instruction: string | null; indices: number[] }[] = [];
+  const sections: {
+    key: string;
+    title: string | null;
+    instruction: string | null;
+    repeatInstruction: boolean;
+    indices: number[];
+  }[] = [];
   const sectionByKey = new Map<string, number>();
   questions.forEach((qq, qi) => {
     const key = qq.sectionId !== null ? String(qq.sectionId) : '__none__';
@@ -630,6 +657,7 @@ export function QuestionRunner({
         // isBlankRichText, not trim(): an author who emptied the editor left
         // "<p><br></p>" behind, which would draw an empty section banner.
         instruction: isBlankRichText(section?.instruction) ? null : (section?.instruction ?? null),
+        repeatInstruction: section?.showInstructionOnEachQuestion ?? false,
         indices: [],
       });
     }
@@ -647,9 +675,12 @@ export function QuestionRunner({
       placeOf.set(qi, {
         pos,
         title: sec.title,
-        // Only the section's first question carries it — this is the banner
-        // shown when the respondent crosses into a new section.
-        instruction: pos === 0 ? sec.instruction : null,
+        // The section's first question always carries it — that banner is the
+        // respondent's signal that they have crossed into a new section. With
+        // "Show instruction on each question" on, every question of the
+        // section carries it too: a standing rule ("rate each statement as it
+        // applies to you at work") has to still be on screen at question nine.
+        instruction: pos === 0 || sec.repeatInstruction ? sec.instruction : null,
       });
     });
   });
@@ -813,6 +844,11 @@ export function QuestionRunner({
       className="flex-1 min-h-dvh w-full bg-muted/20"
       onPointerDown={noteActivity}
       onKeyDown={noteActivity}
+      /* Typing in a text box is activity too. keydown already bubbles up
+         from it, but some mobile keyboards and IME compositions deliver a
+         whole word with one "Unidentified" keydown or none — `input` fires
+         per change regardless. */
+      onInput={noteActivity}
     >
       <BrandHeader
         title={title}
@@ -889,10 +925,12 @@ export function QuestionRunner({
         )}
 
         <main>
-          {/* The section's own instruction, on the question that opens it —
-              the respondent's only signal that they have crossed from one
-              section into the next. Authored per section in the wizard;
-              sections without one show nothing. */}
+          {/* The section's own instruction: on the question that opens the
+              section — the respondent's signal that they have crossed from
+              one section into the next — and, when the author turned on
+              "Show instruction on each question", above every question of
+              that section. Same banner either way. Authored per section in
+              the wizard; sections without one show nothing. */}
           {here?.instruction && (
             <div className="mb-5 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3">
               {here.title && (
@@ -1124,29 +1162,80 @@ export function QuestionRunner({
               <div className="space-y-2">
                 {q.options.map((opt, oi) => {
                   const on = selected.includes(opt.optionId);
+                  const isOther = opt.contentType === 'FREE_TEXT';
+                  const otherKey = optionTextKey(answerKey(q.questionId), opt.optionId);
+                  const rowClass = cn(
+                    'w-full text-left rounded-lg border p-3.5 sm:p-4 transition-colors',
+                    on ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40',
+                    // At the cap the unticked options are visibly inert —
+                    // the tick is refused, so it must not look available.
+                    multi && atCap && !on && 'opacity-60',
+                  );
+                  const marker = (
+                    <span
+                      className={cn(
+                        'mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center border',
+                        multi ? 'rounded' : 'rounded-full',
+                        on ? 'border-primary bg-primary text-primary-foreground' : 'border-border',
+                      )}
+                    >
+                      {on && <Check className="h-3 w-3" />}
+                    </span>
+                  );
+                  if (isOther) {
+                    // The "Other…" row, Google-Forms style: the label and an
+                    // ALWAYS-VISIBLE box on one line, so it reads as a
+                    // different kind of option before anyone touches it.
+                    // The row is a div, not a button — an input inside a
+                    // button is invalid HTML and every keystroke would toggle
+                    // the tick — so the marker+label is the button and the
+                    // box beside it selects the option on focus, the way
+                    // typing into Google's "Other" ticks its radio. No
+                    // auto-advance ever fires on that pick (selectOption);
+                    // Enter in the box IS Next.
+                    return (
+                      <div key={opt.optionId} className={cn(rowClass, 'flex items-start gap-3')}>
+                        <button
+                          type="button"
+                          onClick={() => selectOption(opt.optionId)}
+                          className="flex shrink-0 items-start gap-3 text-left"
+                        >
+                          {marker}
+                          <span className="text-sm">{opt.optionText || 'Other'}</span>
+                        </button>
+                        <input
+                          type="text"
+                          value={optionTexts[otherKey] ?? ''}
+                          onFocus={() => {
+                            if (!on) selectOption(opt.optionId);
+                          }}
+                          onChange={(e) => setOptionTexts({ ...optionTexts, [otherKey]: e.target.value })}
+                          onKeyDown={(e) => {
+                            if (e.key !== 'Enter') return;
+                            e.preventDefault();
+                            // Same gate as the Next button: nothing to press
+                            // until the question is answered, and where it
+                            // goes is wherever Next would go.
+                            if (answered && nextTarget !== null) goTo(nextTarget);
+                          }}
+                          placeholder="Type your answer…"
+                          aria-label={`${opt.optionText || 'Other'} — your answer`}
+                          /* Underline only, like Google's: a boxed input inside
+                             a boxed row is a frame in a frame. */
+                          className="min-w-0 flex-1 border-0 border-b border-border bg-transparent px-1 pb-1 text-sm outline-none transition-colors placeholder:text-muted-foreground/70 focus:border-primary"
+                        />
+                      </div>
+                    );
+                  }
                   return (
                     <button
                       key={opt.optionId}
                       type="button"
                       onClick={() => selectOption(opt.optionId)}
-                      className={cn(
-                        'w-full text-left rounded-lg border p-3.5 sm:p-4 transition-colors',
-                        on ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40',
-                        // At the cap the unticked options are visibly inert —
-                        // the tick is refused, so it must not look available.
-                        multi && atCap && !on && 'opacity-60',
-                      )}
+                      className={rowClass}
                     >
                       <div className="flex items-start gap-3">
-                        <span
-                          className={cn(
-                            'mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center border',
-                            multi ? 'rounded' : 'rounded-full',
-                            on ? 'border-primary bg-primary text-primary-foreground' : 'border-border',
-                          )}
-                        >
-                          {on && <Check className="h-3 w-3" />}
-                        </span>
+                        {marker}
                         <div className="flex-1 space-y-2">
                           <p className="text-sm">{opt.optionText || `Option ${oi + 1}`}</p>
                           {/* space-y-2 would put this as far from its own

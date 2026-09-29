@@ -3,6 +3,7 @@ package com.bodhpsychometric.model.scoring;
 import com.bodhpsychometric.model.question.QuestionRow;
 import com.bodhpsychometric.model.taxonomy.MeasuredQualityType;
 
+import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.ForeignKey;
@@ -16,11 +17,19 @@ import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 
 /**
- * Which MQT one grid ROW measures — "row 2 is an Extraversion item". The
- * odd one out of the scoring family: it carries NO score, because the number
- * comes from the column the respondent picks ({@link OptionMqtScore}). A row
- * may name several MQTs and an MQT may be named by many rows; the pair is
- * unique, so a row nominates each MQT at most once.
+ * Scoring edge of one grid ROW: what answering the item contributes to one
+ * MQT — "row 2 scores 3 on Extraversion". The third member of the scoring
+ * family, at row granularity; since V37 (2026-09-29) it carries a score like
+ * the other two. The score is earned by ANSWERING the row, whatever column
+ * was picked: the column is the answer, not the number.
+ *
+ * <p>Two things this edge also still is. A NOMINATION: the key set of a
+ * row's edges filters the column's scores ({@link OptionMqtScore}), so a pick
+ * on row R of column C credits only the MQTs R names, each with the score C
+ * carries — the V15 rule, kept for grids whose columns are scored. And 0 is
+ * a pure nomination, which is what every edge written before the column
+ * existed means. A row may name several MQTs and an MQT may be named by many
+ * rows; the pair is unique, so a row scores each MQT at most once.
  *
  * Same ownership rule as the other two: this flow rebuilds the rows on every
  * question update, and the MQT side has no cascade — deleting a node that a
@@ -49,6 +58,14 @@ public class QuestionRowMqt implements java.io.Serializable {
             foreignKey = @ForeignKey(name = "fkQrmMqt"))
     private MeasuredQualityType measuredQualityType;
 
+    /**
+     * What answering this row contributes to the MQT, to 2 decimals — a
+     * DOUBLE like its two siblings (V37). Rounded on the way in by
+     * QuestionController#dedupe: nothing else may write it.
+     */
+    @Column(name = "score", nullable = false)
+    private double score;
+
     public Long getQuestionRowMqtId() {
         return questionRowMqtId;
     }
@@ -71,5 +88,13 @@ public class QuestionRowMqt implements java.io.Serializable {
 
     public void setMeasuredQualityType(MeasuredQualityType measuredQualityType) {
         this.measuredQualityType = measuredQualityType;
+    }
+
+    public double getScore() {
+        return score;
+    }
+
+    public void setScore(double score) {
+        this.score = score;
     }
 }

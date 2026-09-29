@@ -27,6 +27,18 @@ public record SheetMappingResponse(
         List<DuplicateStem> duplicates,
         List<String> warnings,
         List<String> blockers,
+        /**
+         * Rows that were read but could not become questions, with the reason
+         * for each. Distinct from blockers: these cost their own row and
+         * nothing else, and the import goes ahead without them.
+         */
+        List<SkippedRow> skipped,
+        /**
+         * Headers in the question sheet that the reading never used — what
+         * this import would drop. Worked out from the mapping, not asked of
+         * the model.
+         */
+        List<String> unusedColumns,
         boolean confident,
         /** What the model says it could not tell. Not an error. */
         List<String> questions,
@@ -37,6 +49,10 @@ public record SheetMappingResponse(
      * panel show a sheet row beside its result — the check that catches a
      * column read one to the left faster than any amount of prose.
      */
+    /** A row left out of the import, and why. */
+    public record SkippedRow(int row, String why) {
+    }
+
     public record RowSource(
             int sourceRow,
             List<String> path,

@@ -16,10 +16,11 @@ import org.springframework.test.web.servlet.MockMvc;
 import com.jayway.jsonpath.JsonPath;
 
 /**
- * The Likert grid: rows are the items and NAME the MQTs they measure, the
- * options are the shared columns and carry the scores exactly as an MCQ's
- * options do. One pick per row, every row mandatory, one export column per
- * row.
+ * The Likert grid: rows are the items and SCORE the MQTs they measure exactly
+ * as an MCQ's options do (earned by answering the row, whatever column is
+ * picked); the options are the shared columns, which may carry scores of
+ * their own too. One pick per row, every row mandatory, one export column
+ * per row.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -59,13 +60,13 @@ class LikertGridTest {
                 + "\"mediaUrl\":null,\"riskFlag\":false," + extraFields
                 + "\"options\":[" + columns + "],"
                 + "\"rows\":["
-                + "{\"rowText\":\"Row one\",\"measuredQualityTypeIds\":[" + mqtA + "]},"
-                + "{\"rowText\":\"Row two\",\"measuredQualityTypeIds\":[" + mqtB + "]}],"
+                + "{\"rowText\":\"Row one\",\"mqtScores\":[{\"measuredQualityTypeId\":" + mqtA + ",\"score\":2}]},"
+                + "{\"rowText\":\"Row two\",\"mqtScores\":[{\"measuredQualityTypeId\":" + mqtB + ",\"score\":1.5}]}],"
                 + "\"mqtScores\":[]}";
     }
 
     @Test
-    void rowsNameTheirOwnMqtsAndColumnsCarryTheScores() throws Exception {
+    void rowsCarryTheirOwnScoresAndColumnsMayToo() throws Exception {
         int mqtA = newMqt("__smoke__gridA");
         int mqtB = newMqt("__smoke__gridB");
 
@@ -78,10 +79,13 @@ class LikertGridTest {
                 .andExpect(jsonPath("$.rows.length()").value(2))
                 .andExpect(jsonPath("$.rows[0].rowText").value("Row one"))
                 .andExpect(jsonPath("$.rows[0].sortOrder").value(0))
-                // The row NOMINATES — no score of its own anywhere in the shape.
+                // The row SCORES its MQTs like an option does — earned by
+                // answering the row, whatever column is picked.
                 .andExpect(jsonPath("$.rows[0].mqts.length()").value(1))
                 .andExpect(jsonPath("$.rows[0].mqts[0].measuredQualityTypeId").value(mqtA))
+                .andExpect(jsonPath("$.rows[0].mqts[0].score").value(2))
                 .andExpect(jsonPath("$.rows[1].mqts[0].measuredQualityTypeId").value(mqtB))
+                .andExpect(jsonPath("$.rows[1].mqts[0].score").value(1.5))
                 // The columns are ordinary scored options.
                 .andExpect(jsonPath("$.options.length()").value(3))
                 .andExpect(jsonPath("$.options[2].mqtScores.length()").value(2))
@@ -107,7 +111,7 @@ class LikertGridTest {
                                 + "\"stem\":\"__smoke__ grid rowless\",\"mediaUrl\":null,\"riskFlag\":false,"
                                 + "\"options\":[{\"optionText\":\"A\",\"contentType\":\"TEXT\",\"mediaUrl\":null,\"mqtScores\":[]},"
                                 + "{\"optionText\":\"B\",\"contentType\":\"TEXT\",\"mediaUrl\":null,\"mqtScores\":[]}],"
-                                + "\"rows\":[{\"rowText\":\"   \",\"measuredQualityTypeIds\":[]}],"
+                                + "\"rows\":[{\"rowText\":\"   \",\"mqtScores\":[]}],"
                                 + "\"mqtScores\":[]}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("at least one row")));
@@ -117,7 +121,7 @@ class LikertGridTest {
                         .content("{\"contentType\":\"TEXT\",\"questionType\":\"LIKERT_GRID\","
                                 + "\"stem\":\"__smoke__ grid one column\",\"mediaUrl\":null,\"riskFlag\":false,"
                                 + "\"options\":[{\"optionText\":\"Only\",\"contentType\":\"TEXT\",\"mediaUrl\":null,\"mqtScores\":[]}],"
-                                + "\"rows\":[{\"rowText\":\"Row\",\"measuredQualityTypeIds\":[]}],"
+                                + "\"rows\":[{\"rowText\":\"Row\",\"mqtScores\":[]}],"
                                 + "\"mqtScores\":[]}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("two columns")));
@@ -254,15 +258,22 @@ class LikertGridTest {
         String body = postJson("/api/questions/create", gridJson("__smoke__ grid lock", mqtA, mqtB, ""));
         int questionId = JsonPath.read(body, "$.questionId");
 
-        // Re-nominating a row's MQTs is scoring: owned by this flow, rebuilt
-        // on every save, never frozen.
+        // Re-scoring a row's MQTs is scoring: owned by this flow, rebuilt on
+        // every save, never frozen. A score of 0 is a pure nomination — it
+        // still filters the column's scores and adds nothing of its own.
+        // (The score is a primitive in the record, so a payload that OMITS
+        // it is refused as unreadable by the body parser; the form always
+        // sends one.)
         String swapped = gridJson("__smoke__ grid lock", mqtA, mqtB, "")
-                .replace("\"rowText\":\"Row one\",\"measuredQualityTypeIds\":[" + mqtA + "]",
-                        "\"rowText\":\"Row one\",\"measuredQualityTypeIds\":[" + mqtA + "," + mqtB + "]");
+                .replace("\"rowText\":\"Row one\",\"mqtScores\":[{\"measuredQualityTypeId\":" + mqtA + ",\"score\":2}]",
+                        "\"rowText\":\"Row one\",\"mqtScores\":[{\"measuredQualityTypeId\":" + mqtA + ",\"score\":2},"
+                                + "{\"measuredQualityTypeId\":" + mqtB + ",\"score\":0}]");
         mvc.perform(put("/api/questions/update/" + questionId).contentType(MediaType.APPLICATION_JSON)
                         .content(swapped))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.rows[0].mqts.length()").value(2));
+                .andExpect(jsonPath("$.rows[0].mqts.length()").value(2))
+                .andExpect(jsonPath("$.rows[0].mqts[1].measuredQualityTypeId").value(mqtB))
+                .andExpect(jsonPath("$.rows[0].mqts[1].score").value(0));
 
         // Re-wording a row is not: it is what an answer points at.
         mvc.perform(put("/api/questions/update/" + questionId).contentType(MediaType.APPLICATION_JSON)
