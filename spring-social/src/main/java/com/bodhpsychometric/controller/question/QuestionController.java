@@ -21,7 +21,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
-import com.bodhpsychometric.dto.MqtRefResponse;
 import com.bodhpsychometric.dto.MqtScoreRequest;
 import com.bodhpsychometric.dto.MqtScoreResponse;
 import com.bodhpsychometric.dto.QuestionOptionRequest;
@@ -625,10 +624,10 @@ public class QuestionController {
         List<QuestionOptionResponse> options = q.getOptions().stream()
                 .map(o -> QuestionOptionResponse.from(o, byOption.getOrDefault(o.getOptionId(), List.of())))
                 .toList();
-        Map<Long, List<MqtRefResponse>> byRow = questionRowMqtRepository
+        Map<Long, List<MqtScoreResponse>> byRow = questionRowMqtRepository
                 .findByQuestionRowQuestionQuestionId(q.getQuestionId()).stream()
                 .collect(Collectors.groupingBy(m -> m.getQuestionRow().getQuestionRowId(),
-                        Collectors.mapping(m -> MqtRefResponse.from(m.getMeasuredQualityType()),
+                        Collectors.mapping(m -> toScore(m.getMeasuredQualityType(), m.getScore()),
                                 Collectors.toList())));
         List<QuestionRowResponse> rows = q.getRows().stream()
                 .map(r -> QuestionRowResponse.from(r, byRow.getOrDefault(r.getQuestionRowId(), List.of())))
@@ -690,10 +689,10 @@ public class QuestionController {
         for (QuestionOptionRequest o : desiredOptions(request)) {
             dedupe(o.mqtScores()).keySet().forEach(ids::add);
         }
-        // Grid rows name MQTs without scoring them — a third level, and just
-        // as able to reference an id that does not exist.
+        // Grid rows score MQTs of their own — a third level, and just as
+        // able to reference an id that does not exist.
         for (QuestionRowRequest r : sanitizedRows(request)) {
-            ids.addAll(r.measuredQualityTypeIds());
+            dedupe(r.mqtScores()).keySet().forEach(ids::add);
         }
         return ids;
     }
@@ -725,16 +724,18 @@ public class QuestionController {
                 optionMqtScoreRepository.save(row);
             }
         }
-        // Grid rows: which MQTs the item measures. No score — the number
-        // comes from the column. Rows line up index-for-index with the
-        // sanitized payload for the same reason options do.
+        // Grid rows: what answering the item is worth, per MQT — the row's
+        // own score, like an option's, earned whatever column is picked. Rows
+        // line up index-for-index with the sanitized payload for the same
+        // reason options do; sanitizedRows already deduped and rounded.
         List<QuestionRowRequest> wantRows = sanitizedRows(request);
         List<QuestionRow> haveRows = question.getRows();
         for (int i = 0; i < wantRows.size() && i < haveRows.size(); i++) {
-            for (Long mqtId : wantRows.get(i).measuredQualityTypeIds()) {
+            for (MqtScoreRequest s : wantRows.get(i).mqtScores()) {
                 QuestionRowMqt row = new QuestionRowMqt();
                 row.setQuestionRow(haveRows.get(i));
-                row.setMeasuredQualityType(mqts.get(mqtId));
+                row.setMeasuredQualityType(mqts.get(s.measuredQualityTypeId()));
+                row.setScore(s.score());
                 questionRowMqtRepository.save(row);
             }
         }
@@ -1106,10 +1107,12 @@ public class QuestionController {
     }
 
     /**
-     * The grid rows this payload actually means — trimmed, deduped MQT
-     * nominations, and empty for every type but LIKERT_GRID so switching a
-     * grid to another type drops its rows instead of leaving them to be
-     * delivered by a screen that has no idea what to do with them.
+     * The grid rows this payload actually means — trimmed text, MQT scores
+     * deduped and rounded through {@link #dedupe} (the ONE place a score is
+     * rounded, so the write, the response and the freeze comparison agree),
+     * and empty for every type but LIKERT_GRID so switching a grid to another
+     * type drops its rows instead of leaving them to be delivered by a screen
+     * that has no idea what to do with them.
      *
      * A row needs text OR at least one MQT to survive: a form with trailing
      * blank row inputs then behaves exactly like the option editor.
@@ -1122,11 +1125,10 @@ public class QuestionController {
                 .filter(java.util.Objects::nonNull)
                 .map(r -> new QuestionRowRequest(
                         r.rowText() == null || r.rowText().isBlank() ? null : r.rowText().trim(),
-                        r.measuredQualityTypeIds() == null ? List.<Long>of()
-                                : r.measuredQualityTypeIds().stream()
-                                        .filter(java.util.Objects::nonNull)
-                                        .distinct().toList()))
-                .filter(r -> r.rowText() != null || !r.measuredQualityTypeIds().isEmpty())
+                        dedupe(r.mqtScores()).entrySet().stream()
+                                .map(e -> new MqtScoreRequest(e.getKey(), e.getValue()))
+                                .toList()))
+                .filter(r -> r.rowText() != null || !r.mqtScores().isEmpty())
                 .toList();
     }
 

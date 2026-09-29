@@ -433,9 +433,9 @@ export const emptyOption = (): OptionForm => ({
 });
 
 /**
- * One row of a LIKERT_GRID. `mqts` reuses ScoreRow so the row editor can be
- * the same ScoreEditor everything else uses — its score field is hidden, and
- * only the ids are sent, because a row nominates rather than scores.
+ * One row of a LIKERT_GRID. `mqts` is ScoreRow so the row editor IS the
+ * ScoreEditor an option uses, number and all: a row scores the MQTs it
+ * names, earned when the row is answered whatever column is picked.
  */
 export interface RowForm {
   rowText: string;
@@ -539,11 +539,9 @@ export const formFrom = (initial: QuestionResponse | null): QuestionForm =>
           mediaUrl: o.mediaUrl || '',
           mqtScores: viewsToRows(o.mqtScores || []),
         })),
-        // A row's MQTs arrive without scores; ScoreRow needs one, and the
-        // editor hides the field, so the placeholder is never shown or sent.
         rows: (initial.rows || []).map((r) => ({
           rowText: r.rowText || '',
-          mqts: r.mqts.map((m) => ({ mqtId: String(m.measuredQualityTypeId), score: '1' })),
+          mqts: viewsToRows(r.mqts || []),
         })),
         mqtScores: viewsToRows(initial.mqtScores || []),
       };
@@ -606,22 +604,6 @@ export const liveRows = (form: QuestionForm): RowForm[] =>
     : form.rows
         .map((r) => ({ ...r, rowText: r.rowText.trim(), mqts: r.mqts.filter((m) => m.mqtId) }))
         .filter((r) => r.rowText || r.mqts.length > 0);
-
-/**
- * (column, MQT) pairs a grid is missing: every MQT any row names has to be
- * scored on every column, or a rating on that row is worth nothing. A
- * WARNING, not an error — a half-scored grid is a legitimate draft, and the
- * backend does not refuse it either.
- */
-export function gridScoringGaps(form: QuestionForm): number {
-  if (form.questionType !== 'LIKERT_GRID') return 0;
-  const needed = new Set(liveRows(form).flatMap((r) => r.mqts.map((m) => m.mqtId)));
-  if (needed.size === 0) return 0;
-  return liveOptions(form).reduce((gaps, column) => {
-    const scored = new Set(column.mqtScores.filter((s) => s.mqtId).map((s) => s.mqtId));
-    return gaps + [...needed].filter((id) => !scored.has(id)).length;
-  }, 0);
-}
 
 /** null when the form can be saved, otherwise the first problem found. */
 export function validateQuestionForm(form: QuestionForm): string | null {
@@ -739,10 +721,10 @@ export function questionPayloadFrom(form: QuestionForm): QuestionPayload {
       mediaUrl: o.contentType === 'TEXT' || o.contentType === 'FREE_TEXT' ? null : o.mediaUrl,
       mqtScores: rowsToPayload(o.mqtScores),
     })),
-    // Ids only: a row nominates its MQTs, the columns carry the numbers.
+    // A row's scores travel exactly like an option's.
     rows: liveRows(form).map((r) => ({
       rowText: r.rowText || null,
-      measuredQualityTypeIds: r.mqts.map((m) => Number(m.mqtId)),
+      mqtScores: rowsToPayload(r.mqts),
     })),
     mqtScores: rowsToPayload(form.mqtScores),
   };
@@ -769,7 +751,12 @@ export function QuestionFormFields({
   const isScale = form.questionType === 'LINEAR_SCALE';
   const isGrid = form.questionType === 'LIKERT_GRID';
   const isText = form.questionType === 'SHORT_ANSWER';
-  const scoringGaps = gridScoringGaps(form);
+  // A grid's columns MAY carry scores of their own (the pre-2026-09-29 rule,
+  // kept for label grids). Folded away unless some column already has one,
+  // so the row editor is the one scoring surface an author meets by default.
+  const [showColumnScores, setShowColumnScores] = useState(
+    () => form.questionType === 'LIKERT_GRID' && form.options.some((o) => o.mqtScores.some((s) => s.mqtId)),
+  );
   const range = scaleRange(form);
   const points = scalePoints(range.from, range.to);
   // Options that will actually be stored — what the selection count is
@@ -1033,9 +1020,9 @@ export function QuestionFormFields({
       ) : (
         <>
       {isGrid && (
-        /* Rows are the statements. Each names the MQTs it measures — a pure
-           nomination, which is why the score field is hidden: the number
-           comes from the column the respondent picks. */
+        /* Rows are the statements. Each SCORES the MQTs it measures, exactly
+           like an MCQ option — earned when the row is answered, whatever
+           column the respondent picks. */
         <div className="space-y-1.5">
           <div className="flex items-center justify-between">
             <label className="text-sm font-medium">Rows (statements)</label>
@@ -1070,20 +1057,20 @@ export function QuestionFormFields({
                     </button>
                   </div>
                   <ScoreEditor
-                    title={`Row ${i + 1} measures`}
+                    title={`Row ${i + 1} → MQT scores`}
                     rows={row.mqts}
                     choices={choices}
                     onCreateChoice={onCreateChoice}
                     onChange={(mqts) => patchRow(i, { mqts })}
-                    hideScore
                   />
                 </div>
               ))}
             </div>
           )}
           <p className="text-[0.6875rem] text-muted-foreground">
-            One pick per row, and every row must be answered. Rows lock once
-            anyone has responded; which MQTs they measure never does.
+            One pick per row, and every row must be answered. A row earns its scores
+            when it is answered, whichever column is picked — the column is recorded
+            as the answer. Rows lock once anyone has responded; their scores never do.
           </p>
         </div>
       )}
@@ -1193,11 +1180,17 @@ export function QuestionFormFields({
             it is what previews, exports and the scoring key use.
           </p>
         )}
-        {isGrid && scoringGaps > 0 && (
-          <p className="text-[0.6875rem] text-amber-600 dark:text-amber-500 inline-flex items-center gap-1">
-            <AlertTriangle className="h-3 w-3" />
-            {scoringGaps} (column → MQT) score{scoringGaps === 1 ? '' : 's'} still missing — every MQT a
-            row measures needs a score on every column, or a rating on that row is worth nothing.
+        {isGrid && (
+          <p className="text-[0.6875rem] text-muted-foreground">
+            Columns are what respondents pick — numbers or words — and are recorded as the
+            answer; the scores live on the rows.{' '}
+            <button
+              type="button"
+              onClick={() => setShowColumnScores((v) => !v)}
+              className="underline underline-offset-2 hover:text-foreground"
+            >
+              {showColumnScores ? 'Hide column scores' : 'Score the columns too (optional)'}
+            </button>
           </p>
         )}
         {form.options.length === 0 ? (
@@ -1289,13 +1282,15 @@ export function QuestionFormFields({
                     )}
                   </>
                 )}
-                <ScoreEditor
-                  title={`${isGrid ? 'Column' : 'Option'} ${i + 1} → MQT scores`}
-                  rows={opt.mqtScores}
-                  choices={choices}
-                  onCreateChoice={onCreateChoice}
-                  onChange={(rows) => patchOption(i, { mqtScores: rows })}
-                />
+                {(!isGrid || showColumnScores) && (
+                  <ScoreEditor
+                    title={`${isGrid ? 'Column' : 'Option'} ${i + 1} → MQT scores`}
+                    rows={opt.mqtScores}
+                    choices={choices}
+                    onCreateChoice={onCreateChoice}
+                    onChange={(rows) => patchOption(i, { mqtScores: rows })}
+                  />
+                )}
               </div>
             ))}
           </div>

@@ -13,6 +13,8 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
 import com.jayway.jsonpath.JsonPath;
 
 /**
@@ -90,7 +92,7 @@ class MqtScoringExportTest {
         int scaleId = JsonPath.read(scaleBody, "$.questionId");
         int pointThree = JsonPath.read(scaleBody, "$.options[2].optionId");
 
-        // ── Q3: grid — columns scored under BOTH traits, rows name one each ──
+        // ── Q3: grid — columns scored under BOTH traits, rows score one each ──
         String columns = "";
         for (int n = 1; n <= 3; n++) {
             columns += (n == 1 ? "" : ",")
@@ -100,8 +102,8 @@ class MqtScoringExportTest {
         String gridBody = postJson("/api/questions/create",
                 "{\"contentType\":\"TEXT\",\"questionType\":\"LIKERT_GRID\",\"stem\":\"__smoke__ grid\","
                         + "\"mediaUrl\":null,\"riskFlag\":false,\"options\":[" + columns + "],"
-                        + "\"rows\":[{\"rowText\":\"Vocab item\",\"measuredQualityTypeIds\":[" + vocabulary + "]},"
-                        + "{\"rowText\":\"Verbal item\",\"measuredQualityTypeIds\":[" + verbal + "]}],"
+                        + "\"rows\":[{\"rowText\":\"Vocab item\",\"mqtScores\":[" + score(vocabulary, 5) + "]},"
+                        + "{\"rowText\":\"Verbal item\",\"mqtScores\":[" + score(verbal, 1) + "]}],"
                         + "\"mqtScores\":[]}");
         int gridId = JsonPath.read(gridBody, "$.questionId");
         int vocabRow = JsonPath.read(gridBody, "$.rows[0].questionRowId");
@@ -147,7 +149,9 @@ class MqtScoringExportTest {
         // MCQ  → A + B          Vocabulary 3 + 4, and Verbal 2 ONCE (not twice)
         // scale→ point 3        Verbal 3
         // grid → vocab row C2   Vocabulary 2 (the column's Verbal 2 is filtered out)
+        //                       + 5, the row's own score, whatever column was picked
         //        verbal row C3  Verbal 3     (the column's Vocabulary 3 is filtered out)
+        //                       + 1, the row's own score
         mvc.perform(post("/api/portal/assessments/submit/" + mappingId).header("Authorization", bearer)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"answers\":["
@@ -162,9 +166,9 @@ class MqtScoringExportTest {
                 .andExpect(jsonPath("$.assessmentStatus").value("COMPLETED"));
 
         // ── The sheet ────────────────────────────────────────────────────
-        // Vocabulary own = 3 + 4 (MCQ) + 2 (grid)          = 9
-        // Verbal     own = 2 (flat, once) + 3 (point) + 3  = 8
-        // Verbal subtree = 8 + 9 = 17, and the MQ is that same 17.
+        // Vocabulary own = 3 + 4 (MCQ) + 2 + 5 (grid column + row)   = 14
+        // Verbal     own = 2 (flat, once) + 3 (point) + 3 + 1 (grid)  = 9
+        // Verbal subtree = 9 + 14 = 23, and the MQ is that same 23.
         String path = " › ";
         mvc.perform(get("/api/reports/export/assessment/" + assessmentId
                         + "/respondent/" + respondentUserId))
@@ -186,20 +190,21 @@ class MqtScoringExportTest {
                 .andExpect(jsonPath("$.mqtColumns[1].path")
                         .value("__smoke__Cognition" + path + "Verbal" + path + "Vocabulary"))
                 .andExpect(jsonPath("$.rows.length()").value(1))
-                .andExpect(jsonPath("$.rows[0].mqtScores." + verbal).value(8))
-                .andExpect(jsonPath("$.rows[0].mqtScores." + vocabulary).value(9))
-                .andExpect(jsonPath("$.rows[0].mqtTotals." + verbal).value(17))
-                .andExpect(jsonPath("$.rows[0].mqtTotals." + vocabulary).value(9))
-                .andExpect(jsonPath("$.rows[0].mqScores." + measuredQualityId).value(17));
+                .andExpect(jsonPath("$.rows[0].mqtScores." + verbal).value(9))
+                .andExpect(jsonPath("$.rows[0].mqtScores." + vocabulary).value(14))
+                .andExpect(jsonPath("$.rows[0].mqtTotals." + verbal).value(23))
+                .andExpect(jsonPath("$.rows[0].mqtTotals." + vocabulary).value(14))
+                .andExpect(jsonPath("$.rows[0].mqScores." + measuredQualityId).value(23));
 
         // The audit trail behind those numbers: 4 edges for the MCQ (its flat
         // score + one per option), 6 for the scale (its flat row, stored 0,
-        // + one per generated point) and 6 for the grid — 2 rows x 3 columns,
-        // each column's OTHER trait filtered out by the row's nomination.
+        // + one per generated point) and 8 for the grid — per row, its own
+        // edge (no option) and then the 3 columns, each column's OTHER trait
+        // filtered out by the row's nomination.
         mvc.perform(get("/api/reports/export/assessment/" + assessmentId
                         + "/respondent/" + respondentUserId))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.scoringKey.length()").value(16))
+                .andExpect(jsonPath("$.scoringKey.length()").value(18))
                 // The flat one comes first and names no option — it lands on
                 // any answer at all.
                 .andExpect(jsonPath("$.scoringKey[0].questionTag").value("Q_1"))
@@ -207,20 +212,23 @@ class MqtScoringExportTest {
                 .andExpect(jsonPath("$.scoringKey[0].score").value(2))
                 .andExpect(jsonPath("$.scoringKey[0].mqtPath")
                         .value("__smoke__Cognition" + path + "Verbal"))
-                // The grid row can only ever earn what it nominates.
+                // The grid row can only ever earn what it names: its own edge
+                // (listed first, naming no option) plus the three columns.
                 .andExpect(jsonPath("$.scoringKey[?(@.rowText=='Vocab item')]",
-                        org.hamcrest.Matchers.hasSize(3)))
+                        org.hamcrest.Matchers.hasSize(4)))
                 .andExpect(jsonPath("$.scoringKey[?(@.rowText=='Vocab item' "
                                 + "&& @.mqtPath=='__smoke__Cognition" + path + "Verbal" + path + "Vocabulary')]",
-                        org.hamcrest.Matchers.hasSize(3)));
+                        org.hamcrest.Matchers.hasSize(4)))
+                .andExpect(jsonPath("$.scoringKey[?(@.rowText=='Vocab item' && @.optionText==null)].score",
+                        org.hamcrest.Matchers.contains(5.0)));
 
         // The assessment-wide export scores the same respondent identically —
         // one plan, one rule, whichever button was pressed.
         mvc.perform(get("/api/reports/export/assessment/" + assessmentId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.mqtColumns.length()").value(2))
-                .andExpect(jsonPath("$.rows[0].mqtScores." + verbal).value(8))
-                .andExpect(jsonPath("$.rows[0].mqtTotals." + verbal).value(17));
+                .andExpect(jsonPath("$.rows[0].mqtScores." + verbal).value(9))
+                .andExpect(jsonPath("$.rows[0].mqtTotals." + verbal).value(23));
 
         // ── Unplacing a question takes its score with it ──────────────────
         // The MCQ's answers survive, but it has no column in the sheet any
@@ -234,11 +242,139 @@ class MqtScoringExportTest {
         mvc.perform(get("/api/reports/export/assessment/" + assessmentId
                         + "/respondent/" + respondentUserId))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.rows[0].mqtScores." + vocabulary).value(2))
-                .andExpect(jsonPath("$.rows[0].mqtScores." + verbal).value(6))
-                .andExpect(jsonPath("$.rows[0].mqScores." + measuredQualityId).value(8))
+                .andExpect(jsonPath("$.rows[0].mqtScores." + vocabulary).value(7))
+                .andExpect(jsonPath("$.rows[0].mqtScores." + verbal).value(7))
+                .andExpect(jsonPath("$.rows[0].mqScores." + measuredQualityId).value(14))
                 // ...and the key loses that question's four edges with it.
-                .andExpect(jsonPath("$.scoringKey.length()").value(12));
+                .andExpect(jsonPath("$.scoringKey.length()").value(14));
+    }
+
+    /**
+     * A grid whose columns carry no scores is scored by its ROWS: answering a
+     * row earns the row's score, and the column picked is the answer, not the
+     * number. Two respondents rating everything 1 and everything 3 earn the
+     * same MQT numbers — and different _R&lt;n&gt; cells, which is where the
+     * rating lives for the export, Data Studio and the report formulas.
+     */
+    @Test
+    void aGridRowScoresWhateverColumnIsPicked() throws Exception {
+        int measuredQualityId = JsonPath.read(postJson("/api/qualities/create",
+                "{\"name\":\"__smoke__RowScored\",\"description\":null}"), "$.measuredQualityId");
+        int drive = JsonPath.read(postJson("/api/quality-types/create",
+                "{\"measuredQualityId\":" + measuredQualityId + ",\"parentTypeId\":null,\"name\":\"Drive\"}"),
+                "$.measuredQualityTypeId");
+        int focus = JsonPath.read(postJson("/api/quality-types/create",
+                "{\"measuredQualityId\":" + measuredQualityId + ",\"parentTypeId\":null,\"name\":\"Focus\"}"),
+                "$.measuredQualityTypeId");
+
+        // Columns 1..3 with NO scores. Row one scores Drive 2.5; row two
+        // scores Drive 1 and Focus 4.
+        String columns = "";
+        for (int n = 1; n <= 3; n++) {
+            columns += (n == 1 ? "" : ",")
+                    + "{\"optionText\":\"" + n + "\",\"contentType\":\"TEXT\",\"mediaUrl\":null,\"mqtScores\":[]}";
+        }
+        String gridBody = postJson("/api/questions/create",
+                "{\"contentType\":\"TEXT\",\"questionType\":\"LIKERT_GRID\",\"stem\":\"__smoke__ row-scored grid\","
+                        + "\"mediaUrl\":null,\"riskFlag\":false,\"options\":[" + columns + "],"
+                        + "\"rows\":[{\"rowText\":\"Item one\",\"mqtScores\":[" + score(drive, "2.5") + "]},"
+                        + "{\"rowText\":\"Item two\",\"mqtScores\":[" + score(drive, 1) + "," + score(focus, 4) + "]}],"
+                        + "\"mqtScores\":[]}");
+        int gridId = JsonPath.read(gridBody, "$.questionId");
+        int rowOne = JsonPath.read(gridBody, "$.rows[0].questionRowId");
+        int rowTwo = JsonPath.read(gridBody, "$.rows[1].questionRowId");
+        int columnOne = JsonPath.read(gridBody, "$.options[0].optionId");
+        int columnThree = JsonPath.read(gridBody, "$.options[2].optionId");
+
+        int questionnaireId = JsonPath.read(postJson("/api/questionnaire/create",
+                "{\"name\":\"__smoke__ row-scored QNR\",\"shortName\":null,\"category\":null,\"vertical\":null,"
+                        + "\"description\":null,\"durationMinutes\":null,\"generalInstruction\":null,"
+                        + "\"hasSections\":false}"), "$.questionnaireId");
+        mvc.perform(put("/api/questionnaire/" + questionnaireId + "/questions")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("[{\"questionId\":" + gridId + ",\"sectionId\":null,\"sortOrder\":1}]"))
+                .andExpect(status().isOk());
+        int assessmentId = JsonPath.read(postJson("/api/assessments/create",
+                "{\"name\":\"__smoke__ row-scored Assessment\",\"questionnaireId\":" + questionnaireId + ","
+                        + "\"showTermsAndConditions\":false,\"status\":\"ACTIVE\",\"autoNext\":false}"),
+                "$.assessmentId");
+
+        int low = rateEveryRow(assessmentId, "low.rater@test.local", "01-01-2001", "2001-01-01",
+                gridId, rowOne, rowTwo, columnOne);
+        int high = rateEveryRow(assessmentId, "high.rater@test.local", "02-02-2002", "2002-02-02",
+                gridId, rowOne, rowTwo, columnThree);
+
+        // Drive = 2.5 + 1 = 3.5 and Focus = 4 for BOTH, whatever they picked.
+        String sheet = mvc.perform(get("/api/reports/export/assessment/" + assessmentId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.rows.length()").value(2))
+                .andReturn().getResponse().getContentAsString();
+        for (int respondent : new int[] {low, high}) {
+            String row = "$.rows[?(@.respondentUserId==" + respondent + ")]";
+            assertEquals(3.5, number(sheet, row + ".mqtScores." + drive));
+            assertEquals(4.0, number(sheet, row + ".mqtScores." + focus));
+            assertEquals(7.5, number(sheet, row + ".mqScores." + measuredQualityId));
+        }
+        // ...while the ratings themselves differ, one column per row.
+        assertEquals("1", first(sheet, "$.rows[?(@.respondentUserId==" + low + ")].answers.Q_1_R1"));
+        assertEquals("3", first(sheet, "$.rows[?(@.respondentUserId==" + high + ")].answers.Q_1_R2"));
+
+        // The key lists the rows' own edges and nothing for the columns: one
+        // for row one, two for row two, each naming no option.
+        mvc.perform(get("/api/reports/export/assessment/" + assessmentId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.scoringKey.length()").value(3))
+                .andExpect(jsonPath("$.scoringKey[0].questionTag").value("Q_1_R1"))
+                .andExpect(jsonPath("$.scoringKey[0].rowText").value("Item one"))
+                .andExpect(jsonPath("$.scoringKey[0].optionText").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.scoringKey[0].score").value(2.5))
+                .andExpect(jsonPath("$.scoringKey[1].questionTag").value("Q_1_R2"))
+                .andExpect(jsonPath("$.scoringKey[2].questionTag").value("Q_1_R2"));
+    }
+
+    /** Create a respondent, allot, log in, begin, rate BOTH rows with one column; the respondent id. */
+    private int rateEveryRow(int assessmentId, String email, String dobForm, String dobIso,
+            int gridId, int rowOne, int rowTwo, int column) throws Exception {
+        int respondentUserId = JsonPath.read(postJson("/api/respondents/create",
+                "{\"name\":\"__smoke__ Rater\",\"email\":\"" + email + "\",\"dob\":\"" + dobForm + "\","
+                        + "\"phoneCountryCode\":\"+91\",\"phone\":\"9000000000\",\"gender\":\"FEMALE\","
+                        + "\"isConsented\":false,\"organizationId\":null}"), "$.respondentUserId");
+        postJson("/api/respondent-assessments/assign",
+                "{\"assessmentId\":" + assessmentId + ",\"respondentUserIds\":[" + respondentUserId + "]}");
+        String loginBody = mvc.perform(post("/api/portal/login").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"" + email + "\",\"dob\":\"" + dobIso + "\"}"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        String bearer = "Bearer " + (String) JsonPath.read(loginBody, "$.token");
+        int mappingId = JsonPath.read(loginBody,
+                "$.respondent.allottedAssessments[0].respondentAssessmentMappingId");
+        mvc.perform(post("/api/portal/assessments/begin/" + mappingId).header("Authorization", bearer)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"demographics\":[]}"))
+                .andExpect(status().isOk());
+        mvc.perform(post("/api/portal/assessments/submit/" + mappingId).header("Authorization", bearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"answers\":["
+                                + "{\"questionId\":" + gridId + ",\"optionId\":" + column
+                                + ",\"questionRowId\":" + rowOne + "},"
+                                + "{\"questionId\":" + gridId + ",\"optionId\":" + column
+                                + ",\"questionRowId\":" + rowTwo + "}]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.assessmentStatus").value("COMPLETED"));
+        return respondentUserId;
+    }
+
+    /** The one number a filtered JsonPath lands on. */
+    private static double number(String json, String path) {
+        java.util.List<?> hits = JsonPath.read(json, path);
+        assertEquals(1, hits.size(), path);
+        return ((Number) hits.get(0)).doubleValue();
+    }
+
+    /** The one value a filtered JsonPath lands on. */
+    private static Object first(String json, String path) {
+        java.util.List<?> hits = JsonPath.read(json, path);
+        assertEquals(1, hits.size(), path);
+        return hits.get(0);
     }
 
     /**

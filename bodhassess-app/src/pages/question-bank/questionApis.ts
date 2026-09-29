@@ -160,18 +160,13 @@ export interface QuestionPayload {
 
 /**
  * Matches QuestionRowRequest on the backend — one row of a LIKERT_GRID.
- * The MQT ids are a NOMINATION with no scores: the number a rating is worth
- * comes from the column, which is scored like any MCQ option.
+ * mqtScores has the same shape as an option's: the row carries the number,
+ * earned when the row is answered whatever column is picked — the column is
+ * the answer, not the score.
  */
 export interface QuestionRowPayload {
   rowText: string | null;
-  measuredQualityTypeIds: number[];
-}
-
-/** Matches MqtRefResponse on the backend — an MQT named without a score. */
-export interface MqtRef {
-  measuredQualityTypeId: number;
-  measuredQualityTypeName: string;
+  mqtScores: MqtScorePayload[];
 }
 
 /** Matches QuestionRowResponse on the backend. Empty on non-grid questions. */
@@ -179,7 +174,7 @@ export interface QuestionRowResponse {
   questionRowId: number;
   rowText: string | null;
   sortOrder: number;
-  mqts: MqtRef[];
+  mqts: MqtScoreView[];
 }
 
 /** Matches QuestionOptionResponse on the backend. */

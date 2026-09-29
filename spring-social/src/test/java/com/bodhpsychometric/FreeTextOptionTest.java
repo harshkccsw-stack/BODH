@@ -119,7 +119,7 @@ class FreeTextOptionTest {
                                 + "\"stem\":\"__smoke__ grid other\",\"mediaUrl\":null,\"riskFlag\":false,"
                                 + "\"options\":[" + option("Agree", "TEXT", null, "") + ","
                                 + option("Other", "FREE_TEXT", null, "") + "],"
-                                + "\"rows\":[{\"rowText\":\"Row one\",\"measuredQualityTypeIds\":[" + mqtId + "]}],"
+                                + "\"rows\":[{\"rowText\":\"Row one\",\"mqtScores\":[{\"measuredQualityTypeId\":" + mqtId + ",\"score\":1}]}],"
                                 + "\"mqtScores\":[]}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value(Matchers.containsString("shared rating scale")));

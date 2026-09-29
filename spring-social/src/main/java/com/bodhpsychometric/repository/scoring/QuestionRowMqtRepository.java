@@ -10,12 +10,14 @@ public interface QuestionRowMqtRepository extends JpaRepository<QuestionRowMqt, 
     java.util.List<QuestionRowMqt> findByQuestionRowQuestionQuestionId(Long questionId);
 
     /**
-     * Scoring-plan fetch — (questionRowId, mqtId) for every grid row of every
-     * question placed in this questionnaire. No score column by design: this
-     * is the FILTER, not a value. A pick on row R of column C credits only the
-     * MQTs R names here, each with the score C carries for that MQT.
+     * Scoring-plan fetch — (questionRowId, mqtId, score) for every grid row of
+     * every question placed in this questionnaire, the same (owner, mqt,
+     * score) shape the other two score tables project. Both the FILTER and a
+     * value: a pick on row R of column C credits only the MQTs R names here,
+     * each with the score C carries for that MQT — and answering R at all
+     * earns R's own score on each, whatever C was.
      */
-    @Query("select r.questionRow.questionRowId, r.measuredQualityType.measuredQualityTypeId "
+    @Query("select r.questionRow.questionRowId, r.measuredQualityType.measuredQualityTypeId, r.score "
             + "from QuestionRowMqt r where r.questionRow.question.questionId in "
             + "(select qq.question.questionId from QuestionnaireQuestion qq "
             + "where qq.questionnaire.questionnaireId = :questionnaireId)")
