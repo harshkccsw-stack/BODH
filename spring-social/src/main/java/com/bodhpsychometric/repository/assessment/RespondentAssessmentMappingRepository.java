@@ -12,6 +12,15 @@ public interface RespondentAssessmentMappingRepository extends JpaRepository<Res
 
     long countByAssessmentAssessmentId(Long assessmentId);
 
+    /**
+     * Attempts past NOT_STARTED on any assessment offering this questionnaire —
+     * respondents who have seen its layout. Blocks switching sections on or
+     * off, which renumbers every question and re-tags every export column.
+     */
+    long countByAssessment_Questionnaire_QuestionnaireIdAndAssessmentStatusNot(
+            Long questionnaireId,
+            com.bodhpsychometric.model.assessment.enums.RespondentAssessmentStatus status);
+
     /** Allotments block respondent deletion — pre-checked, never caught. */
     boolean existsByRespondent_Id(Long respondentUserId);
 

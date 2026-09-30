@@ -662,6 +662,9 @@ export function validateQuestionForm(form: QuestionForm): string | null {
     if (rows.length < 2) return 'A grid needs at least two columns';
     return null;
   }
+  // Mirrors validateType's MCQ floor: every placed question is mandatory, so
+  // one with nothing to pick would stop every respondent at it.
+  if (rows.length === 0) return 'A multiple-choice question needs at least one option';
   // Mirrors QuestionController.validateSelection, against the same option
   // list the backend will count (blank rows already dropped), so the problem
   // is reported inline instead of coming back as a 400.

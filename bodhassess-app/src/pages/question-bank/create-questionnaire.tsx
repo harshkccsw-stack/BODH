@@ -12,7 +12,6 @@ import {
   ChevronRight,
   Eye,
   GripVertical,
-  Layers,
   Library,
   Loader2,
   Pencil,
@@ -417,17 +416,18 @@ export default function CreateAssessmentPage() {
   const [sectionBusy, setSectionBusy] = useState(false);
 
   /*
-   * Flat → sectioned from Step 2. Step 1's checkbox remains the only switch
-   * that turns sections OFF; this one only turns them on, so an author who
-   * decides mid-writing that the questionnaire wants parts does not have to
-   * walk back a step to say so.
+   * Sections are switched by Step 2's "Organize into sections" box and
+   * nowhere else. Ticking takes effect at once; unticking deletes sections,
+   * so it asks first (the popup at the bottom). Step 1 used to own the
+   * switch, which meant walking back a step to change it, and its untick
+   * left the sections behind half-attached.
    */
-  const [convertOpen, setConvertOpen] = useState(false);
-  const [convertName, setConvertName] = useState('Section 1');
-  const [convertBusy, setConvertBusy] = useState(false);
-  const [convertError, setConvertError] = useState('');
-  // Focused by the header's Add Section button once sections are already on —
-  // the box under the header is the one place a section is named.
+  const [sectionsSwitching, setSectionsSwitching] = useState(false);
+  const [removeSectionsOpen, setRemoveSectionsOpen] = useState(false);
+  const [removeSectionsBusy, setRemoveSectionsBusy] = useState(false);
+  const [removeSectionsError, setRemoveSectionsError] = useState('');
+  // Focused once sections are ticked on — the box under the header is the one
+  // place a section is named, and a fresh sectioned questionnaire has none.
   const newSectionInputRef = useRef<HTMLInputElement | null>(null);
 
   const startEditSection = (sec: SectionResponse) => {
@@ -759,38 +759,78 @@ export default function CreateAssessmentPage() {
   });
 
   /**
-   * Turn a flat questionnaire into a sectioned one without going back to
-   * Step 1, then create its first section.
-   *
-   * Order matters: the flag lives on the catalog row, so it is PUT first and
-   * the local view only flips once the server has taken it — a failed PUT
-   * leaves the page exactly as it was. Every draft already on the page moves
-   * into the new section, because the placement PUT refuses a null sectionId
-   * on a sectioned questionnaire: left unassigned they would all land in the
-   * amber block and block Save until each one was re-picked by hand. Each
-   * card's own section dropdown splits them up afterwards.
+   * Flat → sectioned, at once. The flag lives on the catalog row, so it is PUT
+   * first and the page only flips once the server has taken it — a refusal
+   * (409 once a respondent has started) leaves the box unticked. No section
+   * is created: the naming box under the header gets the cursor, and any
+   * questions already here wait in the Unassigned group until each is placed
+   * — Save refuses them until then, as the placement PUT would. Throws, so
+   * each caller shows the message where it was asked.
    */
-  const convertToSections = async () => {
-    const name = convertName.trim();
-    if (!name || backendQid == null) return;
-    setConvertBusy(true);
-    setConvertError('');
+  const enableSections = async () => {
+    if (backendQid == null) return;
+    await questionnairesApi.updateQuestionnaire(backendQid, questionnairePayload(true));
+    setUseSections(true);
+    setStep2Error('');
+    // After the render that mounts the box.
+    setTimeout(() => newSectionInputRef.current?.focus(), 0);
+  };
+
+  const toggleSections = async (on: boolean) => {
+    if (!on) {
+      // Off deletes sections — confirm first.
+      setRemoveSectionsError('');
+      setRemoveSectionsOpen(true);
+      return;
+    }
+    setSectionsSwitching(true);
     try {
-      await questionnairesApi.updateQuestionnaire(backendQid, questionnairePayload(true));
-      const res = await questionnairesApi.createQuestionnaireSection(backendQid, {
-        name,
-        instruction: null,
-        showInstructionOnEachQuestion: false,
-      });
-      setQSections((prev) => [...prev, res.data]);
-      setDrafts((prev) => prev.map((d) => ({ ...d, sectionId: res.data.sectionId })));
-      setUseSections(true);
-      setConvertOpen(false);
-      setStep2Error('');
+      await enableSections();
     } catch (e: any) {
-      setConvertError(e?.response?.data?.message || e?.message || 'Failed to switch to sections');
+      setStep2Error(e?.response?.data?.message || e?.message || 'Failed to turn sections on');
     } finally {
-      setConvertBusy(false);
+      setSectionsSwitching(false);
+    }
+  };
+
+  /**
+   * Sectioned → flat. The server does the real work in the same PUT: it
+   * deletes the sections, keeps every saved placement in the order a
+   * respondent saw it and re-tags them Q_1..Q_n — and refuses (409) once
+   * anybody has started an assessment on this questionnaire.
+   *
+   * The drafts on the page get the same order locally: section by section in
+   * display order, the unassigned ones last, which is also where the server
+   * puts section-less placements. Throws on failure so each caller can show
+   * the message where it was asked — the popup, or the upload modal.
+   */
+  const disableSections = async () => {
+    if (backendQid == null) return;
+    await questionnairesApi.updateQuestionnaire(backendQid, questionnairePayload(false));
+    setDrafts((prev) => {
+      const known = new Set(qSections.map((s) => s.sectionId));
+      const ordered = [
+        ...qSections.flatMap((s) => prev.filter((d) => d.sectionId === s.sectionId)),
+        ...prev.filter((d) => d.sectionId == null || !known.has(d.sectionId)),
+      ];
+      return ordered.map((d) => ({ ...d, sectionId: null }));
+    });
+    setQSections([]);
+    setEditingSection(null);
+    setUseSections(false);
+    setStep2Error('');
+  };
+
+  const confirmRemoveSections = async () => {
+    setRemoveSectionsBusy(true);
+    setRemoveSectionsError('');
+    try {
+      await disableSections();
+      setRemoveSectionsOpen(false);
+    } catch (e: any) {
+      setRemoveSectionsError(e?.response?.data?.message || e?.message || 'Failed to remove sections');
+    } finally {
+      setRemoveSectionsBusy(false);
     }
   };
 
@@ -1035,27 +1075,25 @@ export default function CreateAssessmentPage() {
   );
 
   /*
-   * One button, two jobs. Sections already on: jump to the naming box that
-   * is right below the header rather than grow a second control that does
-   * the same thing. Still flat: open the switch-over dialog.
+   * The sections switch, and the only one. It shows the SERVER's state:
+   * ticking flips it once the PUT lands, unticking opens the confirmation
+   * below, and a refusal or Cancel leaves it as it was.
    */
-  const addSectionButton = (
-    <Button
-      variant="outline"
-      size="sm"
-      onClick={() => {
-        if (useSections) {
-          newSectionInputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          newSectionInputRef.current?.focus();
-          return;
-        }
-        setConvertName(qSections.length > 0 ? `Section ${qSections.length + 1}` : 'Section 1');
-        setConvertError('');
-        setConvertOpen(true);
-      }}
+  const sectionsCheckbox = (
+    <label
+      className="flex items-center gap-2 text-sm"
+      title="Organize questions into labelled sections (e.g., Part A, Part B)"
     >
-      <Layers className="h-3.5 w-3.5" /> Add Section
-    </Button>
+      <input
+        type="checkbox"
+        className="rounded"
+        checked={useSections}
+        disabled={backendQid == null || sectionsSwitching}
+        onChange={(e) => toggleSections(e.target.checked)}
+      />
+      Organize into sections
+      {sectionsSwitching && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+    </label>
   );
 
   const unassigned = useSections ? drafts.filter((d) => d.sectionId == null) : [];
@@ -1273,10 +1311,8 @@ export default function CreateAssessmentPage() {
                   Respondents fill the selected fields before starting this questionnaire. Selection order becomes the form order.
                 </p>
               </div>
-
-              <label className="flex items-center gap-2 text-sm" title="Organize questions into labelled sections (e.g., Part A, Part B)">
-                <input type="checkbox" checked={useSections} onChange={(e) => setUseSections(e.target.checked)} className="rounded" /> Organize into sections
-              </label>
+              {/* Sections are chosen in Step 2 ("Organize into sections"),
+                  where their effect on the questions is visible. */}
             </CardContent>
           </Card>
 
@@ -1312,7 +1348,7 @@ export default function CreateAssessmentPage() {
                     </button>
                   </>
                 )}
-                {addSectionButton}
+                {sectionsCheckbox}
                 <Button variant="outline" size="sm" onClick={openImport}>
                   <Library className="h-3.5 w-3.5" /> Import from Questionnaire
                 </Button>
@@ -1346,7 +1382,6 @@ export default function CreateAssessmentPage() {
                         <Button variant="outline" size="sm" onClick={openImport}>
                           <Library className="h-3.5 w-3.5" /> Import from Questionnaire
                         </Button>
-                        {addSectionButton}
                       </div>
                     </div>
                   ) : (
@@ -1581,12 +1616,13 @@ export default function CreateAssessmentPage() {
                     ...created.filter((c) => !prev.some((p) => p.sectionId === c.sectionId)),
                   ]),
                 // An upload can discover that the sheet is sectioned when the
-                // questionnaire is not. Same switch as the Add Section button
-                // makes, minus the first section: the import creates those.
-                enableSections: async () => {
-                  await questionnairesApi.updateQuestionnaire(backendQid, questionnairePayload(true));
-                  setUseSections(true);
-                },
+                // questionnaire is not. The same switch as ticking
+                // "Organize into sections"; the import creates the sections.
+                enableSections,
+                // A sheet that names no section at all can take the other
+                // way out — the same switch as unticking it, minus the
+                // popup: the upload's own choice spells out what it does.
+                disableSections,
               }}
             />
           )}
@@ -1888,64 +1924,67 @@ export default function CreateAssessmentPage() {
         </div>
       )}
 
-      {/* ===== Step 2's Add Section on a flat questionnaire ===== */}
-      {convertOpen && (
+      {/* ===== Unticking Step 2's "Organize into sections" ===== */}
+      {removeSectionsOpen && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4"
-          onClick={() => { if (!convertBusy) setConvertOpen(false); }}
+          onClick={() => { if (!removeSectionsBusy) setRemoveSectionsOpen(false); }}
         >
           <Card className="w-full max-w-md" onClick={(e) => e.stopPropagation()}>
             <CardHeader className="flex flex-row items-start justify-between pb-3">
               <div className="min-w-0">
-                <CardTitle className="text-base">Organize into sections</CardTitle>
+                <CardTitle className="text-base">Turn sections off?</CardTitle>
                 <p className="text-[0.6875rem] text-muted-foreground">
-                  This questionnaire is flat — adding a section switches it over.
+                  The questions stay — only the grouping goes.
                 </p>
               </div>
               <button
-                onClick={() => setConvertOpen(false)}
-                disabled={convertBusy}
+                onClick={() => setRemoveSectionsOpen(false)}
+                disabled={removeSectionsBusy}
                 className="text-muted-foreground hover:text-foreground disabled:opacity-40"
               >
                 <X className="h-4 w-4" />
               </button>
             </CardHeader>
             <CardContent className="space-y-3">
-              {convertError && (
+              {removeSectionsError && (
                 <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-400">
-                  {convertError}
+                  {removeSectionsError}
                 </div>
               )}
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium">Section name *</label>
-                <input
-                  autoFocus
-                  value={convertName}
-                  onChange={(e) => setConvertName(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') convertToSections(); }}
-                  placeholder="e.g., Part A"
-                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-                />
-              </div>
-              <div className="space-y-1 rounded-lg border border-border bg-muted/30 px-3 py-2.5 text-xs text-muted-foreground">
+              <div className="space-y-1.5 rounded-lg border border-border bg-muted/30 px-3 py-2.5 text-xs text-muted-foreground">
+                <p>
+                  {qSections.length > 0 ? (
+                    <>
+                      {qSections.length === 1 ? 'The section ' : `The ${qSections.length} sections `}
+                      <span className="text-foreground">{qSections.map((s) => `“${s.name}”`).join(', ')}</span>{' '}
+                      {qSections.length === 1 ? 'is' : 'are'} deleted
+                      {qSections.some((s) => s.instruction) ? ', with their instructions' : ''}.
+                    </>
+                  ) : 'This questionnaire has no sections yet.'}
+                </p>
                 <p>
                   {drafts.length > 0
-                    ? `The ${drafts.length} question${drafts.length !== 1 ? 's' : ''} already here move into this section — each card's section picker splits them up afterwards.`
-                    : 'Questions you add next go into this section.'}
+                    ? `Its ${drafts.length} question${drafts.length !== 1 ? 's' : ''} become one list, numbered 1–${drafts.length} in the order they are in now — section by section${unassigned.length > 0 ? ', with the unassigned ones last' : ''}.`
+                    : 'Questions you add next go into one list.'}
                 </p>
                 <p>
-                  Report tags become <span className="font-mono">Section_A_Q_1</span> instead
-                  of <span className="font-mono">Q_1</span> when you save.
+                  Report tags become <span className="font-mono">Q_1</span> instead
+                  of <span className="font-mono">Section_A_Q_1</span>.
                 </p>
-                <p>Step 1's "Organize into sections" tick box turns this back off.</p>
+                <p>
+                  This cannot be undone: ticking the box again turns sections back on, but the sections
+                  have to be created again. Not possible once a respondent has started an assessment that uses
+                  this questionnaire.
+                </p>
               </div>
             </CardContent>
             <div className="flex justify-end gap-2 border-t border-border px-5 py-3">
-              <Button variant="outline" onClick={() => setConvertOpen(false)} disabled={convertBusy}>
+              <Button variant="outline" onClick={() => setRemoveSectionsOpen(false)} disabled={removeSectionsBusy}>
                 Cancel
               </Button>
-              <Button variant="primary" onClick={convertToSections} disabled={convertBusy || !convertName.trim()}>
-                {convertBusy ? 'Switching…' : 'Add Section'}
+              <Button variant="primary" onClick={confirmRemoveSections} disabled={removeSectionsBusy}>
+                {removeSectionsBusy ? 'Turning off…' : 'Turn sections off'}
               </Button>
             </div>
           </Card>

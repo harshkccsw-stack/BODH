@@ -21,6 +21,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
+import com.bodhpsychometric.dto.ExistingStemResponse;
 import com.bodhpsychometric.dto.MqtScoreRequest;
 import com.bodhpsychometric.dto.MqtScoreResponse;
 import com.bodhpsychometric.dto.QuestionOptionRequest;
@@ -50,6 +51,7 @@ import com.bodhpsychometric.repository.questionnaire.QuestionnaireQuestionReposi
 import com.bodhpsychometric.repository.scoring.OptionMqtScoreRepository;
 import com.bodhpsychometric.repository.scoring.QuestionMqtScoreRepository;
 import com.bodhpsychometric.repository.scoring.QuestionRowMqtRepository;
+import com.bodhpsychometric.service.question.StemMatcher;
 import com.bodhpsychometric.model.questionnaire.QuestionnaireQuestion;
 
 import jakarta.validation.Valid;
@@ -187,25 +189,30 @@ public class QuestionController {
         if (requests == null || requests.isEmpty()) {
             return ResponseEntity.badRequest().body(Map.of("message", "no questions in payload"));
         }
-        // Pass 1 — validate everything up front.
+        // Pass 1 — validate everything up front, and ALL of it: a sheet fixed
+        // one error per upload is fixed forty uploads later.
         List<Map<Long, MeasuredQualityType>> resolvedMqts = new java.util.ArrayList<>();
+        List<BatchProblem> problems = new java.util.ArrayList<>();
         for (int i = 0; i < requests.size(); i++) {
             QuestionRequest request = requests.get(i);
             if (request.stem() == null || request.stem().isBlank()) {
-                return ResponseEntity.badRequest()
-                        .body(Map.of("message", "question " + (i + 1) + ": stem is required"));
+                problems.add(new BatchProblem(i, "stem is required"));
+                continue;
             }
             Map<Long, MeasuredQualityType> mqts = resolveMqts(request);
             if (mqts == null) {
-                return ResponseEntity.badRequest()
-                        .body(Map.of("message", "question " + (i + 1) + ": a referenced MQT does not exist"));
+                problems.add(new BatchProblem(i, "a referenced MQT does not exist"));
+                continue;
             }
             String problem = firstProblem(request);
             if (problem != null) {
-                return ResponseEntity.badRequest()
-                        .body(Map.of("message", "question " + (i + 1) + ": " + problem));
+                problems.add(new BatchProblem(i, problem));
+                continue;
             }
             resolvedMqts.add(mqts);
+        }
+        if (!problems.isEmpty()) {
+            return batchRefused(problems);
         }
         // Pass 2 — write, returning the created questions so callers get ids
         // (the questionnaire-attach flow needs them).
@@ -221,6 +228,19 @@ public class QuestionController {
             created.add(toResponse(question));
         }
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
+    }
+
+    /**
+     * Which of these stems are already in the bank — asked by the template
+     * upload before it creates anything, so re-uploading a sheet warns instead
+     * of silently making a second copy of every question. Reads only; the AI
+     * route answers the same question inside /ai/map-sheet with the same rule.
+     */
+    @PostMapping("/find-existing")
+    public List<ExistingStemResponse> findExisting(@RequestBody List<String> stems) {
+        return StemMatcher.findExisting(stems, questionRepository.findAllStems()).stream()
+                .map(ExistingStemResponse::from)
+                .toList();
     }
 
     /**
@@ -323,23 +343,30 @@ public class QuestionController {
             return bad("the new quality types reference each other in a loop");
         }
 
+        List<BatchProblem> problems = new java.util.ArrayList<>();
         for (int i = 0; i < request.questions().size(); i++) {
             QuestionRequest q = request.questions().get(i);
             if (q.stem() == null || q.stem().isBlank()) {
-                return bad("question " + (i + 1) + ": stem is required");
+                problems.add(new BatchProblem(i, "stem is required"));
+                continue;
             }
             // Pending ids are checked HERE, against the payload, because after
             // phase B an unmatched one would mean rolling back real writes.
-            for (Long id : referencedMqtIds(q)) {
-                if (id != null && id < 0 && !typeByRef.containsKey(id)) {
-                    return bad("question " + (i + 1) + ": scores a quality type ("
-                            + id + ") that this payload does not create");
-                }
+            Long orphan = referencedMqtIds(q).stream()
+                    .filter(id -> id != null && id < 0 && !typeByRef.containsKey(id))
+                    .findFirst().orElse(null);
+            if (orphan != null) {
+                problems.add(new BatchProblem(i, "scores a quality type ("
+                        + orphan + ") that this payload does not create"));
+                continue;
             }
             String problem = firstProblem(q);
             if (problem != null) {
-                return bad("question " + (i + 1) + ": " + problem);
+                problems.add(new BatchProblem(i, problem));
             }
+        }
+        if (!problems.isEmpty()) {
+            return batchRefused(problems);
         }
 
         /* ── Phase B — writing starts here, so everything below THROWS ────── */
@@ -426,6 +453,29 @@ public class QuestionController {
 
     private ResponseEntity<?> bad(String message) {
         return ResponseEntity.badRequest().body(Map.of("message", message));
+    }
+
+    /** One refused question of a batch: its 0-based position in the payload, and why. */
+    private record BatchProblem(int index, String message) {
+    }
+
+    /**
+     * A batch refused for EVERY problem it has, not the first one. `message`
+     * keeps the old one-line shape ("question 3: …", plus how many more) for
+     * any caller that reads only that; `problems` carries each by payload
+     * position, which the upload maps back to the sheet row the author sees —
+     * "question 3" names nothing once the review step has dropped a row.
+     */
+    private ResponseEntity<?> batchRefused(List<BatchProblem> problems) {
+        BatchProblem first = problems.get(0);
+        String message = "question " + (first.index() + 1) + ": " + first.message()
+                + (problems.size() > 1 ? " (and " + (problems.size() - 1) + " more)" : "");
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("message", message);
+        body.put("problems", problems.stream()
+                .map(p -> Map.of("index", (Object) p.index(), "message", p.message()))
+                .toList());
+        return ResponseEntity.badRequest().body(body);
     }
 
     private ResponseStatusException conflict(String message) {
@@ -1078,8 +1128,16 @@ public class QuestionController {
             }
             return null;
         }
-        // MCQ — the only type that may carry an "Other…" option.
-        return validateFreeTextOptions(desiredOptions(request));
+        // MCQ. Every placed question is mandatory (SelectionBounds' floor is
+        // never 0), so one with nothing to pick would stop every respondent
+        // at it for good. A mistyped option header in an upload sheet was
+        // enough to produce one.
+        List<QuestionOptionRequest> options = desiredOptions(request);
+        if (options.isEmpty()) {
+            return "a multiple-choice question needs at least one option";
+        }
+        // The only type that may carry an "Other…" option.
+        return validateFreeTextOptions(options);
     }
 
     /**

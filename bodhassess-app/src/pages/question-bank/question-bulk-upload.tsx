@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -20,23 +20,39 @@ import { Button } from '@/components/ui/button';
 import {
   questionApis,
   selectionLabel,
+  type BatchProblem,
+  type ExistingStem,
   type MqtScorePayload,
   type QuestionPayload,
   type QuestionResponse,
 } from './questionApis';
 import { contentMeta, type MqtChoice } from './question-form-modal';
 import {
+  classifySectionCell,
   collectingResolver,
+  groupRowErrors,
+  hasOptionColumns,
+  LEADING_ITEM_NUMBER,
   looksLikeOurTemplate,
   parseQuestionRows,
+  placeRow,
   planAwareResolver,
+  sectionCellsAbove,
+  stripItemNumber,
   unresolvedCounts,
 } from './question-sheet-rules';
-import type { ParsedQuestions } from './question-sheet-rules';
+import type {
+  BlankSectionChoice,
+  NameSectionChoice,
+  ParsedQuestions,
+  RowPlacement,
+  SectionRef,
+} from './question-sheet-rules';
 import {
   buildImportPlan,
   defaultDecision,
   groupPathsByRoot,
+  groupSheetSections,
   needsAttention,
   type ImportPlan,
   type PathDecision,
@@ -54,7 +70,7 @@ export {
 } from './question-sheet-rules';
 export type { MqtKeyResolver, ParsedQuestions } from './question-sheet-rules';
 import { AiSheetImport } from './ai-sheet-import';
-import type { SectionResponse } from '@/pages/questionnaires/questionnairesApi';
+import { questionnairesApi, type SectionResponse } from '@/pages/questionnaires/questionnairesApi';
 import { questionImportApi, workbookHasRows } from './questionImportApi';
 
 // ── Bulk XLSX upload — shared by the Questions page and the questionnaire
@@ -65,14 +81,43 @@ import { questionImportApi, workbookHasRows } from './questionImportApi';
 // the options in a random order), selectRule (blank/min/max/equals),
 // selectCount (the n that rule applies to), section, scores,
 // option1..optionN, option1Scores..optionNScores.
-// Score cells: entries separated by |, each "mqtName:score" or "mqtId:score".
+// Score cells: entries separated by | or ",", each "mqtName:score" or
+// "mqtId:score"; decimals take a dot.
 // The `section` column is used ONLY when uploading inside a sectioned
-// questionnaire (it must name an EXISTING section there — uploads never
-// create sections); the Questions page and flat questionnaires ignore it,
-// which is what keeps the template consistent across both flows.
+// questionnaire, where it names a section there. A blank or unknown name is
+// not an error — a sections step asks what to do with those rows. The
+// Questions page and flat questionnaires ignore the column, which is what
+// keeps the template consistent across both flows.
 // Parsing happens entirely in the browser; the payload goes to
 // /questions/bulk-create, which is all-or-nothing — so ANY row error blocks
 // the whole upload rather than importing half a sheet.
+
+/** One tab of a workbook, read for the template upload. */
+export interface QuestionWorkbook {
+  rows: Record<string, unknown>[];
+  /** The tab the rows came from — "questions" when there is one, else the first. */
+  sheetName: string;
+  /** Other tabs whose header row also has a `stem` column. Nobody reads them. */
+  otherStemTabs: string[];
+}
+
+export async function readQuestionWorkbook(file: File): Promise<QuestionWorkbook> {
+  const XLSX = await import('xlsx');
+  const wb = XLSX.read(await file.arrayBuffer());
+  // Prefer the sheet named "questions" (the template ships an "mqts"
+  // reference sheet beside it); fall back to the first sheet.
+  const sheetName = wb.Sheets['questions'] ? 'questions' : wb.SheetNames[0] ?? '';
+  const ws = wb.Sheets[sheetName];
+  const rows = ws ? XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '' }) : [];
+  // Said out loud because only one tab is ever read: a workbook with its
+  // questions split over two tabs would otherwise lose one of them silently.
+  const otherStemTabs = wb.SheetNames.filter((name) => {
+    if (name === sheetName) return false;
+    const header = XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets[name], { header: 1, blankrows: false })[0] ?? [];
+    return header.some((cell) => String(cell ?? '').toLowerCase().replace(/[\s_-]/g, '') === 'stem');
+  });
+  return { rows, sheetName, otherStemTabs };
+}
 
 /**
  * The workbook's rows, untouched. Split out from the parser so the AI import
@@ -80,12 +125,7 @@ import { questionImportApi, workbookHasRows } from './questionImportApi';
  * `looksLikeOurTemplate`.
  */
 export async function readQuestionSheet(file: File): Promise<Record<string, unknown>[]> {
-  const XLSX = await import('xlsx');
-  const wb = XLSX.read(await file.arrayBuffer());
-  // Prefer the sheet named "questions" (the template ships an "mqts"
-  // reference sheet beside it); fall back to the first sheet.
-  const ws = wb.Sheets['questions'] || wb.Sheets[wb.SheetNames[0]];
-  return XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '' });
+  return (await readQuestionWorkbook(file)).rows;
 }
 
 /** Read + parse, the template upload's entry point. Unchanged signature. */
@@ -150,6 +190,25 @@ export async function downloadTemplate(choices: MqtChoice[]) {
   XLSX.utils.book_append_sheet(wb, mqtSheet, 'mqts');
 
   XLSX.writeFile(wb, 'questions-template.xlsx');
+}
+
+/** What the server refused, one line per problem — shown wherever Import was pressed. */
+function UploadErrorBox({ lines }: { lines: string[] }) {
+  return (
+    <div className="rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-3 py-2 text-xs text-red-700 dark:text-red-400 flex items-start gap-2">
+      <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+      <div className="space-y-1 max-h-44 overflow-y-auto">
+        {lines.length === 1 ? (
+          <p>{lines[0]}</p>
+        ) : (
+          <>
+            <p className="font-medium">Nothing was imported — the server refused these:</p>
+            {lines.map((line, i) => <p key={i}>• {line}</p>)}
+          </>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function ScoreChips({ scores, choices }: { scores: MqtScorePayload[]; choices: MqtChoice[] }) {
@@ -277,19 +336,23 @@ export function QuestionPreview({
 }
 
 /**
- * Questionnaire mode (wizard Step 2). Each row's `section` cell must name an
- * EXISTING section of the questionnaire — create sections there first, the
- * upload never creates them. On submit the created bank questions come back
- * through onCreated with their matched sectionIds (all null on flat
- * questionnaires, where the section column is ignored like on the Questions
- * page) so the wizard can auto-select them into the mapping.
+ * Questionnaire mode (wizard Step 2). Each row's `section` cell is matched to
+ * one of the questionnaire's sections by name. A blank or unknown name is not
+ * an error: the sections step asks what should happen to those rows —
+ * unassigned (the default; the wizard's Unassigned group), an existing
+ * section, a section created for the name, or the name of the row above —
+ * and, when NO row names a section, whether to turn the questionnaire's
+ * sections off instead. On submit the created bank questions come back
+ * through onCreated with their sectionIds (all null on flat questionnaires,
+ * where the section column is ignored like on the Questions page) so the
+ * wizard can auto-select them into the mapping.
  */
 export interface QuestionnaireUploadTarget {
   questionnaireId: number;
   hasSections: boolean;
   sections: { sectionId: number; name: string }[];
   onCreated: (created: QuestionResponse[], sectionIds: (number | null)[]) => Promise<void> | void;
-  /** Sections the AI route created on its way in, so the page can show them. */
+  /** Sections an upload created on its way in, so the page can show them. */
   onSectionsCreated?: (created: SectionResponse[]) => void;
   /**
    * Turn sections ON for this questionnaire. Offered when a foreign sheet
@@ -297,6 +360,19 @@ export interface QuestionnaireUploadTarget {
    * the alternative is dropping that part of the author's work in silence.
    */
   enableSections?: () => Promise<void>;
+  /**
+   * Turn sections OFF — the same switch as unticking Step 2's "Organize into sections", which
+   * deletes the sections and leaves one numbered list. Offered when a sheet
+   * names no section at all inside a sectioned questionnaire.
+   */
+  disableSections?: () => Promise<void>;
+}
+
+/** Per parsed question: its sheet row, its section cell, and the nearest non-blank one above it. */
+interface RowMeta {
+  rowNo: number;
+  cell: string | null;
+  above: string | null;
 }
 
 export function BulkUploadModal({
@@ -313,9 +389,10 @@ export function BulkUploadModal({
   questionnaire?: QuestionnaireUploadTarget;
 }) {
   // 'fork' is the warning screen a foreign sheet lands on; 'ai' is the mapper.
-  // Both are reachable ONLY from a file that has rows and no `stem` column —
-  // the template path never passes through either.
-  const [step, setStep] = useState<'pick' | 'fork' | 'ai' | 'qualities' | 'review'>('pick');
+  // Both are reachable from a file that has rows and no `stem` column, and
+  // from one more place: a `stem` sheet with no option columns at all, whose
+  // answers are somewhere only the mapper can look for them.
+  const [step, setStep] = useState<'pick' | 'fork' | 'ai' | 'qualities' | 'sections' | 'review'>('pick');
   const [foreignFile, setForeignFile] = useState<File | null>(null);
   const [aiAvailable, setAiAvailable] = useState(false);
   // True while the AI panel is writing. "Choose another file" must not be
@@ -327,17 +404,34 @@ export function BulkUploadModal({
   // correction the panel sends carries it too.
   const [aiNotes, setAiNotes] = useState('');
   const [idx, setIdx] = useState(0);
+  const [file, setFile] = useState<File | null>(null);
   const [fileName, setFileName] = useState('');
   const [parsing, setParsing] = useState(false);
   const [payloads, setPayloads] = useState<QuestionPayload[]>([]);
-  // Parallel to payloads: the matched section per question (questionnaire
-  // mode with sections), else null throughout.
-  const [sectionIds, setSectionIds] = useState<(number | null)[]>([]);
-  const [sectionNames, setSectionNames] = useState<(string | null)[]>([]);
+  // Parallel to payloads. Kept per ROW rather than as resolved section ids, so
+  // the sections step can change its mind and dropping a question in review
+  // cannot change what "fill down" gave the rows below it.
+  const [rowMeta, setRowMeta] = useState<RowMeta[]>([]);
   const [ignoredSections, setIgnoredSections] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
-  const [uploadError, setUploadError] = useState('');
+  const [uploadErrors, setUploadErrors] = useState<string[]>([]);
+
+  // What the workbook looked like beyond its rows — all warnings, none blocks.
+  const [sheetName, setSheetName] = useState('');
+  const [otherStemTabs, setOtherStemTabs] = useState<string[]>([]);
+  const [unknownColumns, setUnknownColumns] = useState<string[]>([]);
+  const [noOptionColumns, setNoOptionColumns] = useState(false);
+  // Stems the bank already holds, by sheet row — re-uploading a sheet would
+  // otherwise make a second, independent copy of every question.
+  const [existingByRow, setExistingByRow] = useState<Map<number, ExistingStem>>(new Map());
+  // Offered, never assumed: a stem's leading "1." is removed only if asked.
+  const [stripNumbers, setStripNumbers] = useState(false);
+  // The sections step's answers. Unassigned unless somebody says otherwise.
+  const [blankChoice, setBlankChoice] = useState<BlankSectionChoice>('none');
+  const [nameChoice, setNameChoice] = useState<Record<string, NameSectionChoice>>({});
+  // Bumped per file, so a lookup still in flight for the last one is dropped.
+  const fileGeneration = useRef(0);
 
   /*
    * Qualities the sheet names that the bank does not have.
@@ -355,6 +449,7 @@ export function BulkUploadModal({
   const [decisions, setDecisions] = useState<Record<string, PathDecision>>({});
 
   const sectioned = questionnaire != null && questionnaire.hasSections;
+  const sectionRefs = useMemo<SectionRef[]>(() => questionnaire?.sections ?? [], [questionnaire]);
 
   const plan = useMemo<ImportPlan>(
     () => buildImportPlan(proposals, decisions),
@@ -370,6 +465,48 @@ export function BulkUploadModal({
   }, [choices, plan]);
   const unresolvedLeft = proposals.filter((p) =>
     needsAttention(p, decisions[p.pathKey] ?? defaultDecision(p)));
+
+  /* ── sections ─────────────────────────────────────────────────────────── */
+
+  const cellKinds = useMemo(
+    () => (sectioned ? rowMeta.map((m) => classifySectionCell(m.cell, sectionRefs)) : []),
+    [sectioned, rowMeta, sectionRefs],
+  );
+  const blankRows = cellKinds.filter((c) => c.kind === 'blank').length;
+  /** No row names a section — the one case where turning sections off is offered. */
+  const allBlank = sectioned && payloads.length > 0 && blankRows === payloads.length;
+  /** Names the questionnaire does not have, each with how many rows carry it. */
+  const unknownNames = useMemo(
+    () => groupSheetSections(rowMeta.filter((_, i) => cellKinds[i]?.kind === 'unknown').map((m) => m.cell)),
+    [rowMeta, cellKinds],
+  );
+  const sectionStep = sectioned && (blankRows > 0 || unknownNames.length > 0);
+  const placements = useMemo<RowPlacement[]>(
+    () => rowMeta.map((m) => (sectioned ? placeRow(m.cell, m.above, sectionRefs, blankChoice, nameChoice) : null)),
+    [rowMeta, sectioned, sectionRefs, blankChoice, nameChoice],
+  );
+  const turningOff = allBlank && blankChoice === 'off';
+  const placedCount = turningOff ? 0 : placements.filter((p) => p != null).length;
+  const creatingKeys = new Set(placements.flatMap((p) => (p != null && 'createKey' in p ? [p.createKey] : [])));
+
+  /** What the review card says about one question's section. */
+  const sectionLabelOf = (i: number): string | undefined => {
+    if (!sectioned) return undefined;
+    if (turningOff) return 'No sections (turning them off)';
+    const p = placements[i];
+    if (p == null) return 'Unassigned — place it in Step 2';
+    if ('sectionId' in p) return sectionRefs.find((s) => s.sectionId === p.sectionId)?.name;
+    return `${unknownNames.find((n) => n.key === p.createKey)?.value ?? p.createKey} (new section)`;
+  };
+
+  /* ── leading item numbers ─────────────────────────────────────────────── */
+
+  const numbered = payloads.filter((p) => LEADING_ITEM_NUMBER.test(p.stem)).length;
+  // Offered when numbering is the sheet's habit, not when one stem happens to
+  // open with "3)" — that one is more likely content than a label.
+  const offerStrip = numbered > 0 && numbered * 2 >= payloads.length;
+  const outgoing = (p: QuestionPayload): QuestionPayload =>
+    (stripNumbers ? { ...p, stem: stripItemNumber(p.stem) } : p);
 
   // Asked before the route is offered: an install with no key shows the
   // template alone rather than a button that fails when pressed.
@@ -387,55 +524,47 @@ export function BulkUploadModal({
   // never do is guess.
   const aiOffered = aiAvailable;
 
-  /**
-   * Trim + case-insensitive match against the questionnaire's sections.
-   * Missing or ambiguous names are hard errors — the fix is to add/rename
-   * sections in Step 2 and re-upload, never to guess.
-   */
-  const matchSections = (raw: (string | null)[], rowNos: number[], errs: string[]) => {
-    const ids: (number | null)[] = [];
-    const names: (string | null)[] = [];
-    raw.forEach((cell, i) => {
-      const rowNo = `Row ${rowNos[i]}`;
-      const name = (cell || '').trim();
-      if (!name) {
-        errs.push(`${rowNo}: section is required — this questionnaire uses sections`);
-        ids.push(null); names.push(null);
-        return;
-      }
-      const matches = questionnaire!.sections.filter((s) => s.name.trim().toLowerCase() === name.toLowerCase());
-      if (matches.length === 0) {
-        errs.push(`${rowNo}: no section named "${name}" in this questionnaire — create it first, then re-upload`);
-        ids.push(null); names.push(null);
-      } else if (matches.length > 1) {
-        errs.push(`${rowNo}: "${name}" matches ${matches.length} sections — rename one so names are unique`);
-        ids.push(null); names.push(null);
-      } else {
-        ids.push(matches[0].sectionId);
-        names.push(matches[0].name);
-      }
-    });
-    return { ids, names };
+  /** Duplicate stems, asked once per file. A lookup that fails is a missing warning, not an error. */
+  const lookUpExisting = (result: ParsedQuestions, generation: number) => {
+    if (result.payloads.length === 0) return;
+    questionApis.findExistingStems(result.payloads.map((p) => p.stem))
+      .then((res) => {
+        if (generation !== fileGeneration.current) return;
+        const byRow = new Map<number, ExistingStem>();
+        for (const hit of res.data) byRow.set(result.rowNos[hit.index], hit);
+        setExistingByRow(byRow);
+      })
+      .catch(() => { /* the import itself does not depend on this */ });
   };
 
-  const pickFile = async (file: File | undefined) => {
-    if (!file) return;
-    setFileName(file.name);
-    setUploadError('');
+  const pickFile = async (picked: File | undefined) => {
+    if (!picked) return;
+    const generation = ++fileGeneration.current;
+    setFile(picked);
+    setFileName(picked.name);
+    setUploadErrors([]);
     setPayloads([]);
-    setSectionIds([]);
-    setSectionNames([]);
+    setRowMeta([]);
     setIgnoredSections(false);
     setErrors([]);
     setRawRows([]);
     setProposals([]);
     setDecisions({});
+    setSheetName('');
+    setOtherStemTabs([]);
+    setUnknownColumns([]);
+    setNoOptionColumns(false);
+    setExistingByRow(new Map());
+    setStripNumbers(false);
+    setBlankChoice('none');
+    setNameChoice({});
     setStep('pick');
     setIdx(0);
     setForeignFile(null);
     setParsing(true);
     try {
-      const rawRows = await readQuestionSheet(file);
+      const book = await readQuestionWorkbook(picked);
+      const rawRows = book.rows;
       // The fork. NOT a failed parse — a sheet of ours with bad rows is fixed
       // in the sheet, and routing it through the model would turn a fixable
       // typo into a re-interpretation. Only rows with no `stem` column at all
@@ -444,16 +573,20 @@ export function BulkUploadModal({
       // A first tab with NO rows is not proof of an empty workbook — a cover
       // sheet in front of the items is common — so before calling it empty,
       // ask whether any other tab has rows. Only then does it fork.
-      if (!looksLikeOurTemplate(rawRows) && (rawRows.length > 0 || (await workbookHasRows(file)))) {
-        setForeignFile(file);
+      if (!looksLikeOurTemplate(rawRows) && (rawRows.length > 0 || (await workbookHasRows(picked)))) {
+        setForeignFile(picked);
         setStep('fork');
         return;
       }
+      setSheetName(book.sheetName);
+      setOtherStemTabs(book.otherStemTabs);
+      setNoOptionColumns(rawRows.length > 0 && !hasOptionColumns(rawRows));
       setRawRows(rawRows);
       // Pass one collects the qualities this bank has never heard of; the
       // rows are parsed again once somebody has said what to do with them.
       const unknown = new Map<string, Set<number>>();
-      applyParse(rawRows, collectingResolver(choices, unknown));
+      const { result } = applyParse(rawRows, collectingResolver(choices, unknown));
+      lookUpExisting(result, generation);
       const wanted = unresolvedCounts(unknown);
       if (wanted.length === 0) {
         setProposals([]);
@@ -474,29 +607,43 @@ export function BulkUploadModal({
 
   /**
    * Rows → payloads, with whatever resolver this pass calls for, and the
-   * section matching that goes with them. One place, so the collecting pass
-   * and the decided pass cannot drift.
+   * section cells that go with them. One place, so the collecting pass and
+   * the decided pass cannot drift.
    */
   const applyParse = (rows: Record<string, unknown>[], resolve: ReturnType<typeof collectingResolver>) => {
     const result = parseQuestionRows(rows, choices, resolve);
     const errs = [...result.errors];
+    const above = sectionCellsAbove(result.sections);
+    setRowMeta(result.rowNos.map((rowNo, i) => ({ rowNo, cell: result.sections[i], above: above[i] })));
     if (sectioned) {
-      const { ids, names } = matchSections(result.sections, result.rowNos, errs);
-      setSectionIds(ids);
-      setSectionNames(names);
+      // The one section problem that stays an error: two sections share the
+      // name, and nothing says which was meant. The fix is in Step 2.
+      result.sections.forEach((cell, i) => {
+        const kind = classifySectionCell(cell, sectionRefs);
+        if (kind.kind === 'ambiguous') {
+          errs.push(`Row ${result.rowNos[i]}: "${kind.value}" matches ${kind.count} sections of this `
+            + 'questionnaire — rename one of them in Step 2 so the names are unique');
+        }
+      });
     } else {
-      setSectionIds(result.payloads.map(() => null));
-      setSectionNames(result.payloads.map(() => null));
-      setIgnoredSections(result.sections.some((s) => !!s));
+      setIgnoredSections(result.sections.some((s) => !!(s || '').trim()));
     }
     setPayloads(result.payloads);
+    setUnknownColumns(result.unknownColumns);
     setErrors(errs);
-    return errs;
+    return { result, errs };
   };
+
+  /** Whether these cells leave anything for the sections step to decide. */
+  const needsSectionStep = (cells: (string | null)[]) =>
+    sectioned && cells.some((cell) => {
+      const kind = classifySectionCell(cell, sectionRefs).kind;
+      return kind === 'blank' || kind === 'unknown';
+    });
 
   /** Leaving the qualities step: re-read the rows now that the names mean something. */
   const applyDecisions = () => {
-    const errs = applyParse(rawRows, planAwareResolver(choices, plan.keyToId));
+    const { result, errs } = applyParse(rawRows, planAwareResolver(choices, plan.keyToId));
     // Back to the file screen if the second pass found something new — that
     // is where the error list is shown, and where the fix is.
     if (errs.length > 0) {
@@ -504,15 +651,14 @@ export function BulkUploadModal({
       return;
     }
     setIdx(0);
-    setStep('review');
+    setStep(needsSectionStep(result.sections) ? 'sections' : 'review');
   };
 
   const removeCurrent = () => {
-    const drop = (arr: any[]) => arr.filter((_, i) => i !== idx);
+    const drop = <T,>(arr: T[]) => arr.filter((_, i) => i !== idx);
     const next = drop(payloads);
     setPayloads(next);
-    setSectionIds(drop(sectionIds));
-    setSectionNames(drop(sectionNames));
+    setRowMeta(drop(rowMeta));
     if (next.length === 0) {
       setStep('pick');
       setIdx(0);
@@ -521,10 +667,53 @@ export function BulkUploadModal({
     }
   };
 
+  /**
+   * A refused import, as lines to show. The server names EVERY refused
+   * question by its position in the payload; this turns each into the sheet
+   * row the author can find, grouped like the parse errors are.
+   */
+  const refusalLines = (e: any): string[] => {
+    const problems: BatchProblem[] | undefined = e?.response?.data?.problems;
+    if (Array.isArray(problems) && problems.length > 0) {
+      return groupRowErrors(problems.map((p) => {
+        const rowNo = rowMeta[p.index]?.rowNo;
+        return rowNo != null ? `Row ${rowNo}: ${p.message}` : `Question ${p.index + 1}: ${p.message}`;
+      }));
+    }
+    return [e?.response?.data?.message || e?.message || 'Upload failed'];
+  };
+
   const submit = async () => {
     setUploading(true);
-    setUploadError('');
+    setUploadErrors([]);
     try {
+      // Sections first, as the AI route does them: turned off, or created for
+      // the names the author chose to create. A section left behind by an
+      // import that then fails is empty, visible and one click to delete —
+      // and on a retry its name now matches, so it is not created twice.
+      let sectionIds: (number | null)[] = payloads.map(() => null);
+      if (questionnaire && sectioned) {
+        if (turningOff) {
+          await questionnaire.disableSections?.();
+        } else {
+          const idByKey = new Map<string, number>();
+          const made: SectionResponse[] = [];
+          for (const name of unknownNames) {
+            if (!creatingKeys.has(name.key)) continue;
+            const res = await questionnairesApi.createQuestionnaireSection(questionnaire.questionnaireId, {
+              name: name.value,
+              instruction: null,
+              showInstructionOnEachQuestion: false,
+            });
+            made.push(res.data);
+            idByKey.set(name.key, res.data.sectionId);
+          }
+          if (made.length > 0) questionnaire.onSectionsCreated?.(made);
+          sectionIds = placements.map((p) =>
+            (p == null ? null : 'sectionId' in p ? p.sectionId : idByKey.get(p.createKey) ?? null));
+        }
+      }
+      const questions = payloads.map(outgoing);
       // Both endpoints return the created questions IN REQUEST ORDER, so
       // sectionIds[i] still belongs to created[i].
       const creating = plan.newQualities.length + plan.newQualityTypes.length > 0;
@@ -534,13 +723,13 @@ export function BulkUploadModal({
         ? (await questionImportApi.importQuestions({
           newQualities: plan.newQualities,
           newQualityTypes: plan.newQualityTypes,
-          questions: payloads,
+          questions,
         })).data.questions
-        : (await questionApis.bulkCreateQuestions(payloads)).data;
+        : (await questionApis.bulkCreateQuestions(questions)).data;
       if (questionnaire) await questionnaire.onCreated(created, sectionIds);
       else await onDone?.();
     } catch (e: any) {
-      setUploadError(e?.response?.data?.message || e?.message || 'Upload failed');
+      setUploadErrors(refusalLines(e));
     } finally {
       setUploading(false);
     }
@@ -548,6 +737,9 @@ export function BulkUploadModal({
 
   const ready = payloads.length > 0 && errors.length === 0 && !parsing;
   const last = idx === payloads.length - 1;
+  const shownErrors = groupRowErrors(errors);
+  const existingCount = rowMeta.filter((m) => existingByRow.has(m.rowNo)).length;
+  const currentExisting = rowMeta[idx] ? existingByRow.get(rowMeta[idx].rowNo) : undefined;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={onClose}>
@@ -559,6 +751,7 @@ export function BulkUploadModal({
               : step === 'fork' ? 'This is not our template'
               : step === 'ai' ? 'Mapping your sheet'
               : step === 'qualities' ? 'Qualities this sheet names'
+              : step === 'sections' ? 'Sections for these questions'
               : `Review — Question ${idx + 1} of ${payloads.length}`}
           </CardTitle>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
@@ -568,10 +761,19 @@ export function BulkUploadModal({
             <div className="space-y-4">
               <div className="rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30 px-3 py-2.5 text-xs text-amber-700 dark:text-amber-500 flex items-start gap-2">
                 <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                <span>
-                  <strong>{fileName}</strong> has rows but no <code>stem</code> column, so it is
-                  not the questions template. Nothing has been read from it beyond its column names.
-                </span>
+                {noOptionColumns ? (
+                  // Reached from the file screen's suggestion, not the fork.
+                  <span>
+                    <strong>{fileName}</strong> has a <code>stem</code> column but no{' '}
+                    <code>option1</code>, <code>option2</code>… columns, so the template cannot find
+                    its answers. Nothing has been imported.
+                  </span>
+                ) : (
+                  <span>
+                    <strong>{fileName}</strong> has rows but no <code>stem</code> column, so it is
+                    not the questions template. Nothing has been read from it beyond its column names.
+                  </span>
+                )}
               </div>
               <div className="rounded-lg border border-border p-3 space-y-1.5">
                 <p className="text-sm font-medium">Use the template</p>
@@ -630,7 +832,11 @@ export function BulkUploadModal({
                     </Button>
                   </>
                 ) : (
-                  <p className="text-xs text-muted-foreground">Not configured on this server.</p>
+                  <p className="text-xs text-muted-foreground">
+                    AI mapping isn&apos;t set up on this server — it needs an OpenAI API key, which
+                    an administrator adds to the server&apos;s settings. Until then, copy your
+                    questions into the template above.
+                  </p>
                 )}
               </div>
             </div>
@@ -712,6 +918,168 @@ export function BulkUploadModal({
             </div>
           )}
 
+          {step === 'sections' && questionnaire && (
+            <div className="space-y-3">
+              {allBlank ? (
+                <>
+                  <div className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2.5 text-xs">
+                    <p className="font-medium flex items-center gap-1.5">
+                      <Layers className="h-3.5 w-3.5 text-primary" />
+                      This sheet has no sections, but this questionnaire does
+                    </p>
+                    <p className="text-muted-foreground mt-0.5">
+                      None of its {payloads.length} row{payloads.length === 1 ? '' : 's'} fills in
+                      the <code>section</code> column. Choose what happens to them — nothing is
+                      imported or changed until the last button.
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-border divide-y divide-border text-xs">
+                    <label className="flex items-start gap-2.5 px-3 py-2.5 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="blank-sections"
+                        className="mt-0.5"
+                        checked={blankChoice === 'none'}
+                        onChange={() => setBlankChoice('none')}
+                      />
+                      <span>
+                        <span className="font-medium text-foreground">Leave them unassigned</span>
+                        <span className="block text-muted-foreground">
+                          They arrive in Step 2&apos;s Unassigned group, and you place each one in a
+                          section before saving.
+                        </span>
+                      </span>
+                    </label>
+                    <label className={`flex items-start gap-2.5 px-3 py-2.5 ${sectionRefs.length === 0 ? 'opacity-60' : 'cursor-pointer'}`}>
+                      <input
+                        type="radio"
+                        name="blank-sections"
+                        className="mt-0.5"
+                        disabled={sectionRefs.length === 0}
+                        checked={blankChoice.startsWith('id:')}
+                        onChange={() => setBlankChoice(`id:${sectionRefs[0].sectionId}`)}
+                      />
+                      <span className="min-w-0 flex-1 space-y-1.5">
+                        <span className="font-medium text-foreground">Put all of them in one section</span>
+                        {sectionRefs.length === 0 ? (
+                          <span className="block text-muted-foreground">This questionnaire has no sections yet.</span>
+                        ) : (
+                          <select
+                            value={blankChoice.startsWith('id:') ? blankChoice : `id:${sectionRefs[0].sectionId}`}
+                            onChange={(e) => setBlankChoice(e.target.value as BlankSectionChoice)}
+                            className="block h-8 max-w-[15rem] rounded-md border border-border bg-background px-2 text-xs outline-none focus:border-primary"
+                          >
+                            {sectionRefs.map((sec) => (
+                              <option key={sec.sectionId} value={`id:${sec.sectionId}`}>{sec.name}</option>
+                            ))}
+                          </select>
+                        )}
+                      </span>
+                    </label>
+                    {questionnaire.disableSections && (
+                      <label className="flex items-start gap-2.5 px-3 py-2.5 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="blank-sections"
+                          className="mt-0.5"
+                          checked={blankChoice === 'off'}
+                          onChange={() => setBlankChoice('off')}
+                        />
+                        <span>
+                          <span className="font-medium text-foreground">Turn sections off for this questionnaire</span>
+                          <span className="block text-muted-foreground">
+                            {sectionRefs.length > 0
+                              ? `Its ${sectionRefs.length} section${sectionRefs.length === 1 ? ' is' : 's are'} deleted, with any section instructions. `
+                              : ''}
+                            Every question — these and any already here — becomes one list, numbered
+                            in order. Refused once a respondent has started an assessment that uses it.
+                          </span>
+                        </span>
+                      </label>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <>
+                  {unknownNames.length > 0 && (
+                    <>
+                      <div className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2.5 text-xs">
+                        <p className="font-medium flex items-center gap-1.5">
+                          <Layers className="h-3.5 w-3.5 text-primary" />
+                          {unknownNames.length} section name{unknownNames.length === 1 ? ' in this sheet is' : 's in this sheet are'}{' '}
+                          not in this questionnaire
+                        </p>
+                        <p className="text-muted-foreground mt-0.5">
+                          Create the section, put its questions in one you already have, or leave them
+                          unassigned to place in Step 2. A section you create is added when you import.
+                        </p>
+                      </div>
+                      <div className="rounded-lg border border-border divide-y divide-border">
+                        {unknownNames.map((name) => (
+                          <div key={name.key} className="flex flex-wrap items-center gap-2 px-3 py-2.5">
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-sm font-medium">{name.value}</p>
+                              <p className="text-[0.6875rem] text-muted-foreground">
+                                {name.count} question{name.count === 1 ? '' : 's'} in the sheet
+                              </p>
+                            </div>
+                            <select
+                              value={nameChoice[name.key] ?? 'none'}
+                              onChange={(e) => setNameChoice((prev) => ({ ...prev, [name.key]: e.target.value as NameSectionChoice }))}
+                              className="h-8 max-w-[15rem] rounded-md border border-border bg-background px-2 text-xs outline-none focus:border-primary"
+                            >
+                              <option value="none">Leave unassigned</option>
+                              <option value="new">Create section “{name.value}”</option>
+                              {sectionRefs.map((sec) => (
+                                <option key={sec.sectionId} value={`id:${sec.sectionId}`}>Put in “{sec.name}”</option>
+                              ))}
+                            </select>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                  {blankRows > 0 && (
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30 px-3 py-2.5 text-xs text-amber-700 dark:text-amber-500 space-y-2">
+                      <div>
+                        <p className="font-medium">
+                          {blankRows} question{blankRows === 1 ? ' leaves' : 's leave'} the section column blank
+                        </p>
+                        <p className="mt-0.5">
+                          Often a merged cell: the section is written once, on the first row of its group.
+                        </p>
+                      </div>
+                      <select
+                        value={blankChoice === 'off' ? 'none' : blankChoice}
+                        onChange={(e) => setBlankChoice(e.target.value as BlankSectionChoice)}
+                        className="h-8 max-w-full rounded-md border border-border bg-background px-2 text-xs text-foreground outline-none focus:border-primary"
+                      >
+                        <option value="none">Leave them unassigned</option>
+                        <option value="fill">Fill down — use the section of the row above</option>
+                        {sectionRefs.map((sec) => (
+                          <option key={sec.sectionId} value={`id:${sec.sectionId}`}>Put them all in “{sec.name}”</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </>
+              )}
+
+              <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                {turningOff
+                  ? `Sections will be turned off, then ${payloads.length} question${payloads.length === 1 ? '' : 's'} imported into one list.`
+                  : `${placedCount} of ${payloads.length} question${payloads.length === 1 ? '' : 's'} go into a section`
+                    + (payloads.length - placedCount > 0
+                      ? ` · ${payloads.length - placedCount} arrive unassigned — place them in Step 2 before saving`
+                      : '')
+                    + (creatingKeys.size > 0
+                      ? ` · ${creatingKeys.size} new section${creatingKeys.size === 1 ? '' : 's'} will be created`
+                      : '')
+                    + '.'}
+              </div>
+            </div>
+          )}
+
           {step === 'pick' ? (
             <>
               <div className="rounded-lg border border-border/70 bg-muted/30 px-3 py-2 text-xs text-muted-foreground space-y-1">
@@ -740,21 +1108,25 @@ export function BulkUploadModal({
                   &ldquo;Other&rdquo; row — respondents who pick it type their own answer. Leave it blank for
                   none; at most one per question. Its label and scores are that option&apos;s own cells.</p>
                 {sectioned ? (
-                  <p><code className="text-foreground">section</code> must name an existing section of THIS
-                    questionnaire (matched by name, case-insensitive) — create the sections in Step 2 first;
-                    the upload never creates them.</p>
+                  <p><code className="text-foreground">section</code> names a section of THIS questionnaire
+                    (matched by name, case-insensitive). A blank or unknown name is not an error — before
+                    anything is imported you choose: leave those questions unassigned, put them in a
+                    section, create the section, or fill down from the row above.</p>
                 ) : (
                   <p>The <code className="text-foreground">section</code> column is ignored here — it only
                     applies when uploading inside a sectioned questionnaire.</p>
                 )}
-                <p>Score cells: <code className="text-foreground">MqtName:score | MqtId:score</code> — names must be
+                <p>Score cells: <code className="text-foreground">MqtName:score | MqtId:score</code> — a comma
+                  works as well as <code className="text-foreground">|</code>{' '}
+                  (<code className="text-foreground">Habitual:4, Impulsive:2</code> is two scores). Names must be
                   unambiguous, otherwise use the id or the full tree path
                   (<code className="text-foreground">Internal Drive › Self-Efficacy:3</code>, exactly as the{' '}
                   <code className="text-foreground">mqts</code> sheet&apos;s <code className="text-foreground">tree</code>{' '}
-                  column prints it). Scores may be decimal
+                  column prints it). Scores may be decimal, written with a dot
                   (<code className="text-foreground">0.25</code>, <code className="text-foreground">0.5</code>), kept to two
                   places. The template&apos;s <code className="text-foreground">mqts</code> sheet
                   lists every MQT with its exact name, id and tree position.</p>
+                <p>Every question needs at least one option.</p>
                 <button type="button" onClick={() => downloadTemplate(choices)} className="inline-flex items-center gap-1 text-primary hover:underline font-medium">
                   <Download className="h-3 w-3" /> Download template
                 </button>
@@ -778,12 +1150,78 @@ export function BulkUploadModal({
                 </div>
               )}
 
+              {!parsing && sheetName && (
+                <p className="text-[0.6875rem] text-muted-foreground">
+                  Read from the “{sheetName}” tab{fileName ? ` of ${fileName}` : ''}.
+                </p>
+              )}
+
+              {!parsing && otherStemTabs.length > 0 && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30 px-3 py-2 text-xs text-amber-700 dark:text-amber-500 flex items-start gap-2">
+                  <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  <span>
+                    {otherStemTabs.map((t) => `“${t}”`).join(', ')} also {otherStemTabs.length === 1 ? 'has' : 'have'} a{' '}
+                    <code>stem</code> column and {otherStemTabs.length === 1 ? 'was' : 'were'} not read — only one tab
+                    is uploaded at a time (the one called “questions”, else the first). Upload the other tab as
+                    its own file to import it too.
+                  </span>
+                </div>
+              )}
+
+              {/* Before the errors: when this is true, every row's "no options"
+                  error has one cause, and this box says what it is. */}
+              {!parsing && noOptionColumns && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30 px-3 py-2.5 text-xs text-amber-700 dark:text-amber-500 space-y-1.5">
+                  <p className="font-medium">
+                    This sheet has no <code>option1</code>, <code>option2</code>… columns, so none of its
+                    questions has answers to choose from.
+                  </p>
+                  {aiOffered ? (
+                    <>
+                      <p>
+                        If the answers are in columns with other names, the AI route can read them.
+                        Or rename those columns to <code>option1</code>, <code>option2</code>… and upload again.
+                      </p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => { setForeignFile(file); setStep('fork'); }}
+                        disabled={!file}
+                      >
+                        <Sparkles className="h-3.5 w-3.5" /> Map it with AI instead
+                      </Button>
+                    </>
+                  ) : (
+                    <p>
+                      Rename the answer columns to <code>option1</code>, <code>option2</code>… and upload again.
+                      (AI mapping, which can read other layouts, isn&apos;t set up on this server — it needs an
+                      OpenAI API key.)
+                    </p>
+                  )}
+                </div>
+              )}
+
               {!parsing && errors.length > 0 && (
                 <div className="rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-3 py-2 text-xs text-red-700 dark:text-red-400 space-y-1 max-h-44 overflow-y-auto">
                   <p className="font-medium">Fix these in the sheet and re-upload — nothing was imported:</p>
-                  {errors.slice(0, 25).map((err, i) => <p key={i}>• {err}</p>)}
-                  {errors.length > 25 && <p>…and {errors.length - 25} more</p>}
+                  {shownErrors.slice(0, 25).map((err, i) => <p key={i}>• {err}</p>)}
+                  {shownErrors.length > 25 && <p>…and {shownErrors.length - 25} more</p>}
                 </div>
+              )}
+
+              {!parsing && unknownColumns.length > 0 && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30 px-3 py-2 text-xs text-amber-700 dark:text-amber-500 flex items-start gap-2">
+                  <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  <span>
+                    Not recognised, so ignored: <strong>{unknownColumns.join(' · ')}</strong>. If one of these
+                    was meant to be a template column — <code>option1</code>, <code>option1Scores</code>,{' '}
+                    <code>scores</code>… — fix its header and upload again.
+                  </span>
+                </div>
+              )}
+
+              {!parsing && uploadErrors.length > 0 && (
+                <UploadErrorBox lines={uploadErrors} />
               )}
 
               {!parsing && ready && (
@@ -792,12 +1230,44 @@ export function BulkUploadModal({
                   <span>
                     {payloads.length} question{payloads.length !== 1 ? 's' : ''} parsed —{' '}
                     {payloads.reduce((a, p) => a + p.options.length, 0)} options,{' '}
-                    {payloads.reduce((a, p) => a + p.mqtScores.length + p.options.reduce((b, o) => b + o.mqtScores.length, 0), 0)} MQT scores
-                    {sectioned && `, across ${new Set(sectionIds).size} section${new Set(sectionIds).size !== 1 ? 's' : ''}`}.
+                    {payloads.reduce((a, p) => a + p.mqtScores.length + p.options.reduce((b, o) => b + o.mqtScores.length, 0), 0)} MQT scores.
+                    {sectionStep && ' Some rows need a section choice — that is the next step.'}
                     {ignoredSections && ' The section column was ignored — this questionnaire has no sections.'}
                     {' '}Review them one by one, or import the lot.
                   </span>
                 </div>
+              )}
+
+              {!parsing && ready && existingCount > 0 && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30 px-3 py-2 text-xs text-amber-700 dark:text-amber-500 flex items-start gap-2">
+                  <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  <span>
+                    {existingCount === payloads.length ? 'All' : existingCount} of these {payloads.length} question
+                    {payloads.length === 1 ? ' is' : 's are'} already in the question bank. Importing adds a second,
+                    separate copy of each — fine for a standard item reused on purpose, but if this sheet was
+                    uploaded before, remove them in the review.
+                  </span>
+                </div>
+              )}
+
+              {!parsing && ready && offerStrip && (
+                <label className="flex items-start gap-2 rounded-lg border border-border px-3 py-2 text-xs cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 rounded"
+                    checked={stripNumbers}
+                    onChange={(e) => setStripNumbers(e.target.checked)}
+                  />
+                  <span>
+                    <span className="font-medium">
+                      Remove the numbers from the start of {numbered} question{numbered === 1 ? '' : 's'}
+                    </span>
+                    <span className="block text-muted-foreground">
+                      e.g. “{payloads.find((p) => LEADING_ITEM_NUMBER.test(p.stem))?.stem.slice(0, 40)}…” —
+                      the portal numbers questions itself, so these would show twice.
+                    </span>
+                  </span>
+                </label>
               )}
             </>
           ) : step === 'review' ? (
@@ -809,8 +1279,18 @@ export function BulkUploadModal({
                   style={{ width: `${((idx + 1) / payloads.length) * 100}%` }}
                 />
               </div>
+              {currentExisting && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30 px-3 py-2 text-xs text-amber-700 dark:text-amber-500 flex items-start gap-2">
+                  <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  <span>
+                    Already in the question bank as question #{currentExisting.existingQuestionId}
+                    {currentExisting.method === 'NORMALISED' ? ' (same words, different punctuation or numbering)' : ''}.
+                    Importing makes a second copy.
+                  </span>
+                </div>
+              )}
               {payloads[idx] && (
-                <QuestionPreview p={payloads[idx]} choices={previewChoices} sectionName={sectionNames[idx] ?? undefined} />
+                <QuestionPreview p={outgoing(payloads[idx])} choices={previewChoices} sectionName={sectionLabelOf(idx)} />
               )}
               <div className="flex justify-end">
                 <button
@@ -822,12 +1302,7 @@ export function BulkUploadModal({
                   <Trash2 className="h-3 w-3" /> Remove this question from the batch
                 </button>
               </div>
-              {uploadError && (
-                <div className="rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-3 py-2 text-xs text-red-700 dark:text-red-400 flex items-start gap-2">
-                  <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                  <span>{uploadError}</span>
-                </div>
-              )}
+              {uploadErrors.length > 0 && <UploadErrorBox lines={uploadErrors} />}
             </>
           ) : null}
         </CardContent>
@@ -846,6 +1321,15 @@ export function BulkUploadModal({
                 Back to file
               </Button>
               <Button variant="primary" onClick={applyDecisions} disabled={unresolvedLeft.length > 0}>
+                {sectionStep ? 'Choose sections' : `Review ${payloads.length} question${payloads.length !== 1 ? 's' : ''}`}
+              </Button>
+            </>
+          ) : step === 'sections' ? (
+            <>
+              <Button variant="outline" onClick={() => setStep(proposals.length > 0 ? 'qualities' : 'pick')}>
+                {proposals.length > 0 ? 'Back to qualities' : 'Back to file'}
+              </Button>
+              <Button variant="primary" onClick={() => { setIdx(0); setStep('review'); }}>
                 Review {payloads.length} question{payloads.length !== 1 ? 's' : ''}
               </Button>
             </>
@@ -858,8 +1342,9 @@ export function BulkUploadModal({
                     upload before this point. */}
                 {/* Hidden while qualities are waiting on a decision: importing
                     from here would use the collecting pass, in which those
-                    scores resolved to nothing. */}
-                {ready && proposals.length === 0 && (
+                    scores resolved to nothing. Hidden while sections are too:
+                    the defaults are safe, but the author has not seen them. */}
+                {ready && proposals.length === 0 && !sectionStep && (
                   <Button variant="outline" onClick={submit} disabled={uploading}>
                     {uploading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                     Import All Questions
@@ -867,12 +1352,18 @@ export function BulkUploadModal({
                 )}
                 <Button
                   variant="primary"
-                  onClick={() => { if (proposals.length > 0) setStep('qualities'); else { setIdx(0); setStep('review'); } }}
+                  onClick={() => {
+                    if (proposals.length > 0) setStep('qualities');
+                    else if (sectionStep) setStep('sections');
+                    else { setIdx(0); setStep('review'); }
+                  }}
                   disabled={!ready}
                 >
                   {proposals.length > 0
                     ? `Review ${proposals.length} new qualit${proposals.length === 1 ? 'y' : 'ies'}`
-                    : `Review ${payloads.length > 0 ? payloads.length : ''} question${payloads.length !== 1 ? 's' : ''}`}
+                    : sectionStep
+                      ? 'Choose sections'
+                      : `Review ${payloads.length > 0 ? payloads.length : ''} question${payloads.length !== 1 ? 's' : ''}`}
                 </Button>
               </div>
             </>
@@ -882,11 +1373,13 @@ export function BulkUploadModal({
                 variant="outline"
                 onClick={() => {
                   if (idx > 0) { setIdx(idx - 1); return; }
-                  setStep(proposals.length > 0 ? 'qualities' : 'pick');
+                  setStep(sectionStep ? 'sections' : proposals.length > 0 ? 'qualities' : 'pick');
                 }}
                 disabled={uploading}
               >
-                {idx === 0 ? (proposals.length > 0 ? 'Back to qualities' : 'Back to file') : 'Back'}
+                {idx === 0
+                  ? (sectionStep ? 'Back to sections' : proposals.length > 0 ? 'Back to qualities' : 'Back to file')
+                  : 'Back'}
               </Button>
               <div className="flex gap-2">
                 {!last && (

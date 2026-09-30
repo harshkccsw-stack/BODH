@@ -48,7 +48,8 @@ import {
   type SheetCsv,
   type SheetMappingResponse,
 } from './questionImportApi';
-import type { QuestionResponse } from './questionApis';
+import type { BatchProblem, QuestionResponse } from './questionApis';
+import { groupRowErrors } from './question-sheet-rules';
 import {
   questionnairesApi,
   type SectionResponse,
@@ -348,6 +349,33 @@ export function AiSheetImport({
     return (mapping?.rows.length ?? 0) + (mapping?.skipped?.length ?? 0);
   }, [mapping]);
 
+  /*
+   * Scales the MODEL wrote out. In SHARED_SCALE and SCALE_COLUMN modes the
+   * option labels and values are not read from cells — they are the one thing
+   * the model authors, from a note in the sheet or from what the uploader
+   * typed. Said plainly, because they import as real options.
+   */
+  const { writtenScales, writtenEvidence } = useMemo(() => {
+    type Point = { text: string; value: number | null };
+    const options = (mapping?.spec as {
+      options?: {
+        mode?: string;
+        evidence?: string | null;
+        scale?: Point[] | null;
+        scales?: Record<string, Point[]> | null;
+      };
+    } | undefined)?.options;
+    const scales: { name: string | null; points: Point[] }[] = [];
+    if (options?.mode === 'SHARED_SCALE' && options.scale?.length) {
+      scales.push({ name: null, points: options.scale });
+    } else if (options?.mode === 'SCALE_COLUMN' && options.scales) {
+      for (const [name, points] of Object.entries(options.scales)) {
+        if (points?.length) scales.push({ name, points });
+      }
+    }
+    return { writtenScales: scales, writtenEvidence: options?.evidence?.trim() ?? '' };
+  }, [mapping]);
+
   const unusedColumns = mapping?.unusedColumns ?? [];
   /** Unused columns whose NAME suggests they carry the section — worth singling out. */
   const sectionLikeUnused = useMemo(
@@ -428,7 +456,15 @@ export function AiSheetImport({
       const res = await questionImportApi.importQuestions(payload);
       await onImported(res.data.questions, sectionIds);
     } catch (e: any) {
-      setError(e?.response?.data?.message || e?.message || 'Import failed');
+      // Every refused question, named by the sheet row it came from — the
+      // server numbers them by payload position, which is this panel's rows.
+      const problems: BatchProblem[] | undefined = e?.response?.data?.problems;
+      setError(Array.isArray(problems) && problems.length > 0
+        ? groupRowErrors(problems.map((p) => {
+          const row = sources[p.index]?.sourceRow;
+          return row != null ? `Row ${row}: ${p.message}` : `Question ${p.index + 1}: ${p.message}`;
+        })).join('\n')
+        : e?.response?.data?.message || e?.message || 'Import failed');
     } finally {
       setSubmitting(false);
       onBusyChange?.(false);
@@ -559,6 +595,25 @@ export function AiSheetImport({
           </p>
           <p>{mapping.summary}</p>
         </Box>
+
+        {writtenScales.length > 0 && (
+          <Box tone="amber" icon={TriangleAlert}>
+            <p className="font-medium">
+              The answer options were written by the AI — they are not columns of your sheet
+            </p>
+            <p>
+              It took them from {writtenEvidence || 'the sheet'}. If you described the answers in your
+              note, that is where they came from. They import as real options with these values, so
+              check every label and number:
+            </p>
+            {writtenScales.map((scale) => (
+              <p key={scale.name ?? '_'}>
+                {scale.name && <strong>{scale.name}: </strong>}
+                {scale.points.map((pt) => `${pt.text}${pt.value != null ? ` (${pt.value})` : ''}`).join(' · ')}
+              </p>
+            ))}
+          </Box>
+        )}
 
         {/* The arithmetic, before the prose. A wrong reading shows up in these
             three numbers long before anybody reads a stem. */}
@@ -990,7 +1045,7 @@ export function AiSheetImport({
           </p>
         </Box>
       )}
-      {error && <Box tone="red" icon={AlertTriangle}>{error}</Box>}
+      {error && <Box tone="red" icon={AlertTriangle}><p className="whitespace-pre-line">{error}</p></Box>}
 
       <div className="flex justify-between gap-2 pt-2 border-t border-border">
         <Button

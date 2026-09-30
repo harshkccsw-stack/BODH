@@ -688,11 +688,11 @@ class CanonicalRowExpanderTest {
     }
 
     @Test
-    void aRowWithOneOptionIsSkipped_andTheRestStillImport() {
+    void aRowWithNoOptionsIsSkipped_andTheRestStillImport() {
         List<List<String>> grid = List.of(
                 List.of("Question Text", "Opt1", "Opt2", "Notes"),
                 List.of("Do you agree?", "Yes", "No", ""),
-                List.of("How you actually behave these days.", "I understand, continue", "", ""),
+                List.of("How you actually behave these days.", "", "", ""),
                 List.of("And this one?", "Yes", "No", ""));
 
         Expansion out = CanonicalRowExpander.expand(plainSpec(4), grid);
@@ -701,7 +701,25 @@ class CanonicalRowExpanderTest {
         assertEquals(2, out.rows().size());
         assertEquals(1, out.skipped().size());
         assertEquals(3, out.skipped().get(0).row());
-        assertTrue(out.skipped().get(0).why().contains("one option"), out.skipped().get(0).why());
+        assertTrue(out.skipped().get(0).why().contains("no options"), out.skipped().get(0).why());
+    }
+
+    @Test
+    void aRowWithOneOptionImports_likeTheTemplateUploadAndTheForm() {
+        // The floor is one option everywhere: a consent or "I understand" row
+        // is a question with a single answer, not a misreading.
+        List<List<String>> grid = List.of(
+                List.of("Question Text", "Opt1", "Opt2"),
+                List.of("Do you agree?", "Yes", "No"),
+                List.of("I have read the instructions.", "I understand, continue", ""));
+
+        Expansion out = CanonicalRowExpander.expand(plainSpec(3), grid);
+
+        assertTrue(out.ok(), "blockers: " + out.blockers());
+        assertEquals(2, out.rows().size());
+        assertTrue(out.skipped().isEmpty(), out.skipped().toString());
+        assertEquals("I understand, continue", out.rows().get(1).cells().get("option1"));
+        assertEquals("", out.rows().get(1).cells().getOrDefault("option2", ""));
     }
 
     @Test
@@ -709,9 +727,9 @@ class CanonicalRowExpanderTest {
         List<List<String>> grid = List.of(
                 List.of("Question Text", "Opt1", "Opt2"),
                 List.of("Do you agree?", "Yes", "No"),
-                List.of("A preamble.", "continue", ""),
-                List.of("Another preamble.", "continue", ""),
-                List.of("A third.", "continue", ""));
+                List.of("A preamble.", "", ""),
+                List.of("Another preamble.", "", ""),
+                List.of("A third.", "", ""));
 
         Expansion out = CanonicalRowExpander.expand(plainSpec(5), grid);
 
