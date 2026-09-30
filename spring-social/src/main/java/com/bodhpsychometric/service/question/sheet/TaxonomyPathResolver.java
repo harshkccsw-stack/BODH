@@ -88,7 +88,32 @@ public final class TaxonomyPathResolver {
             /** True when no segment is AMBIGUOUS and nothing needs creating. */
             boolean fullyResolved,
             /** True when a segment could not be decided and a human must pick. */
-            boolean needsPick) {
+            boolean needsPick,
+            /**
+             * A BARE name only (one segment, no type): every type anywhere in the
+             * taxonomy carrying that name, exact matches first. A score needs a
+             * type, and a bare name says nothing about where that type is — so
+             * all of them are shown rather than the first one found. Empty for
+             * a path that names its types.
+             */
+            List<Candidate> candidates,
+            /**
+             * A bare name that matched a measured quality: how many types sit
+             * anywhere under it. Zero means there is nothing to pick from, so
+             * creating a same-name type under it is the only way to score.
+             */
+            int qualityTypeCount) {
+    }
+
+    public static final String EXACT = "EXACT";
+    public static final String LOOSE = "LOOSE";
+
+    /**
+     * A type whose name is the bare name — EXACT when identical, LOOSE when it
+     * differs only in case, spaces, '-' or '_'. No other kind of similarity:
+     * a near spelling is a different name here, and creating it is shown.
+     */
+    public record Candidate(Long mqtId, String path, String similarity) {
     }
 
     /* ===================== entry point ===================== */
@@ -109,8 +134,12 @@ public final class TaxonomyPathResolver {
         List<String> names = splitPath(pathKey);
         List<Segment> segments = new ArrayList<>();
         if (names.isEmpty()) {
-            return new Resolution(pathKey, segments, questionCount, false, false);
+            return new Resolution(pathKey, segments, questionCount, false, false, List.of(), 0);
         }
+        // A bare name gets every same-named type as a candidate; a path that
+        // names its types is resolved level by level and needs none.
+        boolean bare = names.size() == 1;
+        List<Candidate> candidates = bare ? typesNamed(taxonomy, names.get(0)) : List.of();
 
         // ── segment 0: a measured quality, matched at the root only ──────────
         Match<Quality> mq = match(taxonomy, names.get(0), Quality::name);
@@ -118,7 +147,7 @@ public final class TaxonomyPathResolver {
             segments.add(new Segment(names.get(0), AMBIGUOUS, null, null, null, null,
                     mq.count() + " measured qualities are called \"" + names.get(0) + "\" — pick one.",
                     null, null));
-            return new Resolution(pathKey, segments, questionCount, false, true);
+            return new Resolution(pathKey, segments, questionCount, false, true, candidates, 0);
         }
 
         Quality quality = mq.value();
@@ -127,7 +156,9 @@ public final class TaxonomyPathResolver {
             // that exists as a TYPE, not a quality. Left alone this silently
             // builds a whole parallel quality beside the real one, with real
             // items in it — cheap to spot here, expensive to find later.
-            Found deeper = findAnywhere(taxonomy, names.get(0));
+            // A bare name says the same thing through its candidates — all of
+            // them, where this note could only ever name the first.
+            Found deeper = bare ? null : findAnywhere(taxonomy, names.get(0));
             segments.add(new Segment(names.get(0), CREATE, null, null, null, null,
                     deeper == null ? null
                             : "no measured quality has this name, but a type does, at " + deeper.path()
@@ -161,7 +192,7 @@ public final class TaxonomyPathResolver {
                 segments.add(new Segment(name, AMBIGUOUS, null, null, parentMqId, parentMqtId,
                         hit.count() + " types here are called \"" + name + "\" — pick one.",
                         null, null));
-                return new Resolution(pathKey, segments, questionCount, false, true);
+                return new Resolution(pathKey, segments, questionCount, false, true, candidates, 0);
             }
             if (hit.value() == null) {
                 // Not among this parent's children. It may exist elsewhere in
@@ -186,7 +217,45 @@ public final class TaxonomyPathResolver {
         }
 
         boolean full = segments.stream().allMatch(Segment::isResolved);
-        return new Resolution(pathKey, segments, questionCount, full, false);
+        int qualityTypeCount = bare && quality != null ? countTypes(safe(quality.roots())) : 0;
+        return new Resolution(pathKey, segments, questionCount, full, false, candidates, qualityTypeCount);
+    }
+
+    /* ===================== bare names ===================== */
+
+    /** Every type in the taxonomy named {@code name}, exact matches before loose ones. */
+    private static List<Candidate> typesNamed(List<Quality> taxonomy, String name) {
+        List<Candidate> exact = new ArrayList<>();
+        List<Candidate> loose = new ArrayList<>();
+        String wanted = name.trim();
+        String key = normalise(name);
+        for (Quality q : safe(taxonomy)) {
+            collectNamed(safe(q.roots()), q.name(), wanted, key, exact, loose);
+        }
+        exact.addAll(loose);
+        return exact;
+    }
+
+    private static void collectNamed(List<Node> nodes, String prefix, String wanted, String key,
+            List<Candidate> exact, List<Candidate> loose) {
+        for (Node n : nodes) {
+            String path = prefix + CanonicalRowExpander.PATH_SEPARATOR + n.name();
+            String own = n.name() == null ? "" : n.name().trim();
+            if (own.equals(wanted)) {
+                exact.add(new Candidate(n.id(), path, EXACT));
+            } else if (normalise(own).equals(key)) {
+                loose.add(new Candidate(n.id(), path, LOOSE));
+            }
+            collectNamed(safe(n.children()), path, wanted, key, exact, loose);
+        }
+    }
+
+    private static int countTypes(List<Node> nodes) {
+        int count = 0;
+        for (Node n : nodes) {
+            count += 1 + countTypes(safe(n.children()));
+        }
+        return count;
     }
 
     /* ===================== matching ===================== */

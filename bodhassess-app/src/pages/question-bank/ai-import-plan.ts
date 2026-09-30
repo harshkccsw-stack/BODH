@@ -3,7 +3,9 @@ import type { MqtKeyResolver } from './question-sheet-rules';
 import type {
   NewQuality,
   NewQualityType,
+  PathCandidate,
   PathProposal,
+  PathSegment,
   SheetMappingResponse,
 } from './questionImportApi';
 
@@ -22,10 +24,73 @@ export interface PathDecision {
   mqtId?: number;
 }
 
+/**
+ * A score-cell key that is just a name — `Transactional`, not
+ * `DDPS › Transactional`. A score needs a TYPE, and a bare name does not say
+ * where that type is: it may be a type somewhere, a quality, or nothing yet.
+ */
+export function isBareName(path: PathProposal): boolean {
+  return path.segments.length === 1;
+}
+
+const isMatched = (segment: PathSegment | undefined) =>
+  segment?.status === 'MATCHED' || segment?.status === 'MATCHED_NORMALISED';
+
+/**
+ * A bare name's same-named type directly under the quality it matched —
+ * `Analytical › Analytical`, which is exactly what Create makes. When it is
+ * already there, it is the answer, and creating a second would be refused.
+ */
+export function ownTypeOf(path: PathProposal): PathCandidate | undefined {
+  const root = path.segments[0];
+  if (!isBareName(path) || !isMatched(root)) return undefined;
+  const key = normaliseName(root.name);
+  return (path.candidates ?? []).find((c) => {
+    const parts = c.path.split(SEP.trim()).map((p) => p.trim());
+    return parts.length === 2 && parts[0] === root.name && normaliseName(parts[1]) === key;
+  });
+}
+
+/**
+ * The same folding the server's matching uses — case, spaces, '-' and '_' —
+ * so two spellings of one new name are created once, not refused as a clash.
+ */
+function normaliseName(name: string): string {
+  return name.toLowerCase().replace(/[\s_-]/g, '');
+}
+
+/** "Pick one" — no default at all. Approve stays disabled until somebody chooses. */
+const PICK: PathDecision = { mode: 'existing' };
+
+/**
+ * A bare name, by what the taxonomy holds under that name (matched loosely):
+ *
+ * - nothing → create a quality AND a same-named type, which holds the scores;
+ * - one type (and no quality) → that type;
+ * - a quality with no types → create a same-named type under it;
+ * - a quality whose own same-named type exists, and nothing else → that type;
+ * - anything with a choice in it (several types, a quality that has types,
+ *   two qualities of the name) → no default: somebody picks.
+ *
+ * Never "leave unmapped": dropping a score is only ever somebody's choice.
+ */
+function bareNameDefault(path: PathProposal): PathDecision {
+  const root = path.segments[0];
+  const candidates = path.candidates ?? [];
+  if (root?.status === 'AMBIGUOUS') return PICK;
+  if (isMatched(root)) {
+    const own = ownTypeOf(path);
+    if (own && candidates.length === 1) return { mode: 'existing', mqtId: own.mqtId };
+    if (candidates.length > 0 || path.qualityTypeCount > 0) return PICK;
+    return { mode: 'create' };
+  }
+  if (candidates.length === 1) return { mode: 'existing', mqtId: candidates[0].mqtId };
+  if (candidates.length > 1) return PICK;
+  return { mode: 'create' };
+}
+
 export function defaultDecision(path: PathProposal): PathDecision {
-  // A path naming only a quality has no type to score against — there is
-  // nothing to create, because the sheet never said what it would be called.
-  if (path.segments.length < 2) return { mode: 'unmapped' };
+  if (isBareName(path)) return bareNameDefault(path);
   // Ambiguity resolves to NOTHING, deliberately: an unresolved path is one
   // click to fix, a confidently wrong one mis-scores the instrument for life.
   if (path.needsPick) return { mode: 'unmapped' };
@@ -36,10 +101,21 @@ export function defaultDecision(path: PathProposal): PathDecision {
   return { mode: 'create' };
 }
 
+/**
+ * Whether Create means anything for this path. A path that fully exists has
+ * nothing to create; an ambiguous one cannot say where; a bare name always
+ * can — a same-named type — unless that type is already there.
+ */
+export function canCreate(path: PathProposal): boolean {
+  if (path.segments.some((s) => s.status === 'AMBIGUOUS')) return false;
+  if (isBareName(path)) return ownTypeOf(path) == null;
+  return !path.fullyResolved;
+}
+
 /** A path still waiting on a person — approve stays disabled while any is. */
 export function needsAttention(path: PathProposal, decision: PathDecision): boolean {
   if (decision.mode === 'existing') return decision.mqtId == null;
-  if (decision.mode === 'create') return path.segments.some((s) => s.status === 'AMBIGUOUS');
+  if (decision.mode === 'create') return !canCreate(path);
   return false;
 }
 
@@ -89,7 +165,23 @@ export function buildImportPlan(
     let parentTypeRef: number | null = null;
     let finalId: number | null = null;
 
-    path.segments.forEach((segment, i) => {
+    // A bare name has no type to hold its scores, so Create makes one with
+    // the same name — under the quality it matched, or under a new quality of
+    // that name. Without it the quality was created EMPTY and the scores were
+    // dropped anyway, which looked exactly like it had worked.
+    const segments: PathSegment[] = isBareName(path)
+      ? [path.segments[0], {
+        ...path.segments[0],
+        status: 'CREATE',
+        mqId: null,
+        mqtId: null,
+        note: null,
+        suggestedMqtId: null,
+        suggestedPath: null,
+      }]
+      : path.segments;
+
+    segments.forEach((segment, i) => {
       prefix = i === 0 ? segment.name : `${prefix}${SEP}${segment.name}`;
 
       if (segment.status === 'MATCHED' || segment.status === 'MATCHED_NORMALISED') {
@@ -104,10 +196,14 @@ export function buildImportPlan(
         return;
       }
 
-      let ref = refByPrefix.get(prefix);
+      // Keyed the way the server compares names: "Transactional" and
+      // "transactional" in one sheet are one new quality, where two would be
+      // refused as a clash and take the whole import down with them.
+      const prefixKey = prefix.split(SEP).map(normaliseName).join('|');
+      let ref = refByPrefix.get(prefixKey);
       if (ref == null) {
         ref = nextRef--;
-        refByPrefix.set(prefix, ref);
+        refByPrefix.set(prefixKey, ref);
         pendingNames.set(ref, prefix);
         if (i === 0) {
           newQualities.push({ ref, name: segment.name, description: null });

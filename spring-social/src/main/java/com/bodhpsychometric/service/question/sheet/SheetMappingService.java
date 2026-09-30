@@ -167,7 +167,11 @@ public class SheetMappingService {
                             .map(seg -> new PathSegment(seg.name(), seg.status(), seg.mqId(), seg.mqtId(),
                                     seg.parentMqId(), seg.parentMqtId(), seg.note(),
                                     seg.suggestedMqtId(), seg.suggestedPath()))
-                            .toList()));
+                            .toList(),
+                    r.candidates().stream()
+                            .map(c -> new SheetMappingResponse.PathCandidate(c.mqtId(), c.path(), c.similarity()))
+                            .toList(),
+                    r.qualityTypeCount()));
         }
         return paths;
     }

@@ -34,6 +34,16 @@ export interface PathSegment {
   suggestedPath: string | null;
 }
 
+/**
+ * Matches SheetMappingResponse.PathCandidate — a type carrying a bare name.
+ * LOOSE = the same name apart from case, spaces, '-' and '_'.
+ */
+export interface PathCandidate {
+  mqtId: number;
+  path: string;
+  similarity: 'EXACT' | 'LOOSE';
+}
+
 /** Matches SheetMappingResponse.PathProposal. */
 export interface PathProposal {
   pathKey: string;
@@ -41,6 +51,10 @@ export interface PathProposal {
   fullyResolved: boolean;
   needsPick: boolean;
   segments: PathSegment[];
+  /** A bare name (no type in the path) only: every type in the taxonomy with that name. */
+  candidates: PathCandidate[];
+  /** A bare name that matched a measured quality: how many types sit under it. */
+  qualityTypeCount: number;
 }
 
 /** Matches SheetMappingResponse.RowSource — where one expanded row came from. */

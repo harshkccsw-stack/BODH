@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildImportPlan,
+  canCreate,
   defaultDecision,
   diffFacts,
   readingFacts,
@@ -29,8 +30,12 @@ const path = (segments: PathSegment[], extra: Partial<PathProposal> = {}): PathP
   fullyResolved: segments.every((s) => s.status === 'MATCHED' || s.status === 'MATCHED_NORMALISED'),
   needsPick: segments.some((s) => s.status === 'AMBIGUOUS'),
   segments,
+  candidates: [],
+  qualityTypeCount: 0,
   ...extra,
 });
+const cand = (mqtId: number, where: string, similarity: 'EXACT' | 'LOOSE' = 'EXACT') =>
+  ({ mqtId, path: where, similarity });
 
 describe('defaultDecision', () => {
   it('uses an existing type when the whole path resolved', () => {
@@ -43,8 +48,62 @@ describe('defaultDecision', () => {
     expect(defaultDecision(path([seg('Drive', 'MATCHED', { mqId: 7 }), seg('Grit', 'AMBIGUOUS')])).mode).toBe('unmapped');
   });
 
-  it('cannot score against a bare quality, so a one-segment path is unmapped', () => {
-    expect(defaultDecision(path([seg('Drive', 'MATCHED', { mqId: 7 })])).mode).toBe('unmapped');
+});
+
+describe('defaultDecision — a bare name (no type in the path)', () => {
+  it('creates when nothing has the name', () => {
+    expect(defaultDecision(path([seg('Transactional', 'CREATE')]))).toEqual({ mode: 'create' });
+  });
+
+  it('uses the one type that has the name, exact or loose', () => {
+    const one = path([seg('self efficacy', 'CREATE')], { candidates: [cand(41, `Drive${SEP}Self-Efficacy`, 'LOOSE')] });
+    expect(defaultDecision(one)).toEqual({ mode: 'existing', mqtId: 41 });
+  });
+
+  it('decides nothing when the name is in several places', () => {
+    const two = path([seg('Self-Efficacy', 'CREATE')], {
+      candidates: [cand(41, `Drive${SEP}Self-Efficacy`), cand(53, `Execution${SEP}Agility${SEP}Self-Efficacy`)],
+    });
+    expect(defaultDecision(two)).toEqual({ mode: 'existing' });
+    expect(needsAttention(two, defaultDecision(two))).toBe(true);
+  });
+
+  it('a quality: creates a same-name type when it has none, otherwise asks', () => {
+    const empty = path([seg('Analytical', 'MATCHED', { mqId: 3 })]);
+    expect(defaultDecision(empty)).toEqual({ mode: 'create' });
+
+    const withTypes = path([seg('Analytical', 'MATCHED', { mqId: 3 })], { qualityTypeCount: 4 });
+    expect(defaultDecision(withTypes)).toEqual({ mode: 'existing' });
+    expect(needsAttention(withTypes, defaultDecision(withTypes))).toBe(true);
+  });
+
+  it('a quality whose own same-name type exists: uses it, and Create is off', () => {
+    const own = path([seg('Analytical', 'MATCHED', { mqId: 3 })], {
+      candidates: [cand(30, `Analytical${SEP}Analytical`)], qualityTypeCount: 1,
+    });
+    expect(defaultDecision(own)).toEqual({ mode: 'existing', mqtId: 30 });
+    expect(canCreate(own)).toBe(false);
+    // ...unless the name is ALSO somewhere else, which is a choice again.
+    const plus = path([seg('Analytical', 'MATCHED', { mqId: 3 })], {
+      candidates: [cand(30, `Analytical${SEP}Analytical`), cand(61, `Other${SEP}Analytical`)], qualityTypeCount: 1,
+    });
+    expect(defaultDecision(plus)).toEqual({ mode: 'existing' });
+  });
+
+  it('two qualities of the name: asks, and cannot create', () => {
+    const clash = path([seg('Drive', 'AMBIGUOUS')]);
+    expect(defaultDecision(clash)).toEqual({ mode: 'existing' });
+    expect(canCreate(clash)).toBe(false);
+  });
+
+  it('never pre-selects leave unmapped', () => {
+    const cases = [
+      path([seg('A', 'CREATE')]),
+      path([seg('A', 'MATCHED', { mqId: 1 })]),
+      path([seg('A', 'MATCHED', { mqId: 1 })], { qualityTypeCount: 2 }),
+      path([seg('A', 'CREATE')], { candidates: [cand(1, `X${SEP}A`), cand(2, `Y${SEP}A`)] }),
+    ];
+    for (const c of cases) expect(defaultDecision(c).mode).not.toBe('unmapped');
   });
 });
 
@@ -82,6 +141,40 @@ describe('buildImportPlan', () => {
     expect(mid).toMatchObject({ name: 'Mid', qualityId: 7, parentTypeRef: null });
     expect(leaf).toMatchObject({ name: 'Leaf', qualityId: null, parentTypeRef: mid.ref });
     expect(plan.keyToId.get(p.pathKey)).toBe(leaf.ref);
+  });
+
+  it('gives a bare new name a quality AND a same-name type, and scores the type', () => {
+    // The empty-quality bug: Create used to make the quality alone, and the
+    // scores — which need a type — were dropped anyway.
+    const p = path([seg('Transactional', 'CREATE')]);
+    const plan = buildImportPlan([p], { [p.pathKey]: { mode: 'create' } });
+
+    expect(plan.newQualities).toEqual([{ ref: -1, name: 'Transactional', description: null }]);
+    expect(plan.newQualityTypes).toEqual([{
+      ref: -2, name: 'Transactional', qualityRef: -1, qualityId: null, parentTypeRef: null, parentTypeId: null,
+    }]);
+    expect(plan.keyToId.get(p.pathKey)).toBe(-2);
+  });
+
+  it('gives a bare name that is an existing quality a same-name type under it', () => {
+    const p = path([seg('Analytical', 'MATCHED', { mqId: 3 })]);
+    const plan = buildImportPlan([p], { [p.pathKey]: { mode: 'create' } });
+
+    expect(plan.newQualities).toEqual([]);
+    expect(plan.newQualityTypes).toEqual([{
+      ref: -1, name: 'Analytical', qualityRef: null, qualityId: 3, parentTypeRef: null, parentTypeId: null,
+    }]);
+    expect(plan.keyToId.get(p.pathKey)).toBe(-1);
+  });
+
+  it('creates two spellings of one new name once — the server would refuse the second', () => {
+    const a = path([seg('Transactional', 'CREATE')]);
+    const b = path([seg('transactional', 'CREATE')]);
+    const plan = buildImportPlan([a, b], { [a.pathKey]: { mode: 'create' }, [b.pathKey]: { mode: 'create' } });
+
+    expect(plan.newQualities).toHaveLength(1);
+    expect(plan.newQualityTypes).toHaveLength(1);
+    expect(plan.keyToId.get(a.pathKey)).toBe(plan.keyToId.get(b.pathKey));
   });
 
   it('honours "use existing" and "leave unmapped" without creating anything', () => {

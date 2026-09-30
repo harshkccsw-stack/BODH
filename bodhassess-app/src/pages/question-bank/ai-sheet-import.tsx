@@ -20,8 +20,11 @@ import type { MqtChoice } from './question-form-modal';
 import { parseQuestionRows, QuestionPreview } from './question-bulk-upload';
 import {
   buildImportPlan,
+  canCreate,
   defaultDecision,
   diffFacts,
+  isBareName,
+  ownTypeOf,
   groupPathsByRoot,
   groupSheetSections,
   readingFacts,
@@ -835,8 +838,7 @@ export function AiSheetImport({
                   // "Create" is not a legal answer for a path that already
                   // resolves, or one the resolver could not pin down — the
                   // bulk button must not set what a single row cannot.
-                  if (mode === 'create'
-                    && (path.fullyResolved || path.segments.some((sg) => sg.status === 'AMBIGUOUS'))) continue;
+                  if (mode === 'create' && !canCreate(path)) continue;
                   next[path.pathKey] = { mode, mqtId: prev[path.pathKey]?.mqtId };
                 }
                 return next;
@@ -1229,6 +1231,45 @@ const MARKERS: Record<string, { mark: string; className: string }> = {
   AMBIGUOUS: { mark: '?', className: 'text-red-600 dark:text-red-400' },
 };
 
+/** A bare name that needs somebody to pick — amber, not the red of a clash. */
+const PICK_MARKER = { mark: '?', className: 'text-amber-600 dark:text-amber-500' };
+
+/**
+ * What the taxonomy holds for a bare name, in the words and mark its block
+ * header shows. Mirrors the cases of defaultDecision's bare-name rule.
+ */
+function bareSummary(path: PathProposal): { marker: { mark: string; className: string }; text: string } {
+  const root = path.segments[0];
+  const name = root?.name ?? '';
+  const candidates = path.candidates ?? [];
+  if (root?.status === 'AMBIGUOUS') {
+    return { marker: PICK_MARKER, text: 'more than one quality has this name — pick the type to score' };
+  }
+  if (root?.status === 'MATCHED' || root?.status === 'MATCHED_NORMALISED') {
+    const own = ownTypeOf(path);
+    if (own && candidates.length === 1) {
+      return { marker: MARKERS.MATCHED, text: `a measured quality — its type “${name}” gets the scores` };
+    }
+    if (candidates.length > 0 || path.qualityTypeCount > 0) {
+      return {
+        marker: PICK_MARKER,
+        text: `a measured quality, not a type — scores go to a type, so pick one or create “${name}” under it`,
+      };
+    }
+    return { marker: MARKERS.CREATE, text: `a measured quality with no types yet — a type “${name}” is created under it` };
+  }
+  if (candidates.length === 1) {
+    const c = candidates[0];
+    return c.similarity === 'EXACT'
+      ? { marker: MARKERS.MATCHED, text: `found as a type — ${c.path}` }
+      : { marker: MARKERS.MATCHED_NORMALISED, text: `matched loosely to a type — ${c.path}` };
+  }
+  if (candidates.length > 1) {
+    return { marker: PICK_MARKER, text: `found as ${candidates.length} types — pick the one this sheet means` };
+  }
+  return { marker: MARKERS.CREATE, text: `not in your taxonomy — a quality and a type “${name}” are created` };
+}
+
 /**
  * One measured quality and every type the sheet named under it. The header
  * carries what belongs to the quality as a whole — its name, its total
@@ -1260,15 +1301,18 @@ export function PathGroupBlock({
   onRename?: (anchorKey: string, segmentIndex: number, name: string) => void;
 }) {
   const root = group.paths[0]?.segments[0];
-  const marker = MARKERS[root?.status ?? 'CREATE'] ?? MARKERS.CREATE;
+  // A block that is just one bare name says what was found for THAT name —
+  // "already in your taxonomy" with a green tick read as "fine" when the name
+  // was a quality and nothing could be scored against it.
+  const bare = group.paths.length === 1 && isBareName(group.paths[0]) ? bareSummary(group.paths[0]) : null;
+  const marker = bare?.marker ?? MARKERS[root?.status ?? 'CREATE'] ?? MARKERS.CREATE;
   // Any path of the group anchors a root rename — renameKeys walks the rest.
   const anchorKey = group.paths[0]?.pathKey ?? '';
-  const status = root?.status === 'CREATE' ? 'new measured quality'
+  const status = bare?.text ?? (root?.status === 'CREATE' ? 'new measured quality'
     : root?.status === 'AMBIGUOUS' ? 'more than one quality has this name'
       : root?.status === 'MATCHED_NORMALISED' ? 'matched loosely to one you have'
-        : 'already in your taxonomy';
-  const canCreateAny = group.paths.some((p) =>
-    !p.fullyResolved && !p.segments.some((sg) => sg.status === 'AMBIGUOUS'));
+        : 'already in your taxonomy');
+  const canCreateAny = group.paths.some(canCreate);
   const typed = group.paths.filter((p) => p.segments.length > 1).length;
 
   return (
@@ -1453,18 +1497,67 @@ function PathRow({
   // DIFFERENT quality, so hiding those would hide the correct pick.
   const root = path.segments[0];
   const mqName = root && (root.status === 'MATCHED' || root.status === 'MATCHED_NORMALISED') ? root.name : null;
-  const under = mqName ? choices.filter((c) => c.label.startsWith(`${mqName}${SEP}`)) : [];
-  const elsewhere = mqName ? choices.filter((c) => !c.label.startsWith(`${mqName}${SEP}`)) : choices;
+  // A bare name's same-named types lead the picker, then the matched quality's
+  // own types, then everything else — each listed once.
+  const bare = isBareName(path);
+  const candidates = bare ? path.candidates ?? [] : [];
+  const candidateIds = new Set(candidates.map((c) => c.mqtId));
+  const rest = choices.filter((c) => !candidateIds.has(c.id));
+  const under = mqName ? rest.filter((c) => c.label.startsWith(`${mqName}${SEP}`)) : [];
+  const elsewhere = mqName ? rest.filter((c) => !c.label.startsWith(`${mqName}${SEP}`)) : rest;
+  const ambiguous = path.segments.some((s) => s.status === 'AMBIGUOUS');
+  const createLabel = !bare ? 'Create'
+    : mqName ? `Create type “${root.name}” under it`
+      : `Create “${root.name}” (quality + type)`;
   return (
     <div className="px-3 py-2.5 space-y-2">
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div className="min-w-0 space-y-1">
           {/* The root belongs to the block around this row, which prints it
               once — repeating it per type is what made a six-type quality
-              look like six qualities. A path that names no type at all still
-              needs a line here, or its buttons would answer a blank. */}
-          {path.segments.length === 1 && (
-            <p className="text-xs text-muted-foreground">Scored against the quality itself</p>
+              look like six qualities. A bare name — no type at all — says
+              what it found instead: every same-named type, each one click. */}
+          {bare && candidates.length === 0 && (
+            <p className="text-xs text-muted-foreground">
+              {mqName
+                ? path.qualityTypeCount > 0
+                  ? `No type is called “${root.name}”. Pick one of its ${path.qualityTypeCount} types, or create one.`
+                  : 'It has no types yet, and a score needs one.'
+                : 'Nothing in your taxonomy has this name.'}
+            </p>
+          )}
+          {candidates.length > 0 && (
+            <div className="space-y-1">
+              <p className="text-xs text-muted-foreground">
+                {candidates.length === 1 ? 'A type with this name:' : `${candidates.length} types with this name:`}
+              </p>
+              {candidates.map((c) => {
+                const using = decision.mode === 'existing' && decision.mqtId === c.mqtId;
+                return (
+                  <div key={c.mqtId} className="flex flex-wrap items-center gap-1.5 text-xs">
+                    <span className="font-medium break-words">{c.path}</span>
+                    <span
+                      className={`rounded-full border px-1.5 text-[0.625rem] font-medium ${c.similarity === 'EXACT'
+                        ? 'border-green-200 bg-green-50 text-green-700 dark:border-green-900 dark:bg-green-950/30 dark:text-green-400'
+                        : 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-500'}`}
+                      title={c.similarity === 'EXACT' ? 'Spelled exactly as in the sheet' : 'Differs only in case, spaces, “-” or “_”'}
+                    >
+                      {c.similarity === 'EXACT' ? 'exact' : 'matched loosely'}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={busy || using}
+                      onClick={() => onChange({ mode: 'existing', mqtId: c.mqtId })}
+                      className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[0.6875rem] font-medium ${using
+                        ? 'border-primary bg-primary/10 text-primary'
+                        : 'border-primary/40 text-primary hover:bg-primary/5'}`}
+                    >
+                      <Check className="h-3 w-3" /> {using ? 'Using this' : 'Use this'}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
           )}
           {path.segments.slice(1).map((segment, offset) => {
             const i = offset + 1;
@@ -1517,9 +1610,11 @@ function PathRow({
 
       <div className="flex items-center gap-1.5 flex-wrap">
         {(['create', 'existing', 'unmapped'] as const).map((mode) => {
-          const disabled = mode === 'create' && path.segments.some((s) => s.status === 'AMBIGUOUS');
-          const label = mode === 'create' ? 'Create' : mode === 'existing' ? 'Use existing' : 'Leave unmapped';
-          if (mode === 'create' && path.fullyResolved) return null;
+          // Ambiguous: shown, but it cannot say where. Nothing to create (the
+          // path exists, or a bare name's own type is already there): hidden.
+          const disabled = mode === 'create' && ambiguous;
+          if (mode === 'create' && !ambiguous && !canCreate(path)) return null;
+          const label = mode === 'create' ? createLabel : mode === 'existing' ? 'Use existing' : 'Leave unmapped';
           return (
             <button
               key={mode}
@@ -1546,15 +1641,24 @@ function PathRow({
             className="rounded-lg border border-border bg-background px-2 py-1 text-[0.6875rem] max-w-full"
           >
             <option value="">Pick a measured quality type…</option>
-            {under.length > 0 ? (
-              <>
-                <optgroup label={`Under ${mqName}`}>
-                  {under.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
-                </optgroup>
-                <optgroup label="Everything else">
-                  {elsewhere.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
-                </optgroup>
-              </>
+            {candidates.length > 0 && (
+              <optgroup label="Same name">
+                {candidates.map((c) => (
+                  <option key={c.mqtId} value={c.mqtId}>
+                    {c.path} — {c.similarity === 'EXACT' ? 'exact' : 'matched loosely'}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+            {under.length > 0 && (
+              <optgroup label={`Under ${mqName}`}>
+                {under.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+              </optgroup>
+            )}
+            {candidates.length > 0 || under.length > 0 ? (
+              <optgroup label="Everything else">
+                {elsewhere.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+              </optgroup>
             ) : (
               elsewhere.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)
             )}

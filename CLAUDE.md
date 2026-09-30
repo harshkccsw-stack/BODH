@@ -159,6 +159,19 @@ re-read a file before editing; expect it to have changed):
     OFFERED for removal, never stripped silently; stems already in the bank
     warn via `POST /api/questions/find-existing` (`StemMatcher`, shared with the
     AI route — its normalised match ignores a leading item number).
+  * A BARE score key (`Transactional:4` — a name, no `›` path) on the
+    qualities step, both routes: `resolve-paths` returns every same-named TYPE
+    anywhere (`candidates`, EXACT or LOOSE = case/space/-/_; no fuzzy
+    matching, by decision) and, when the name is a QUALITY, how many types sit
+    under it (`qualityTypeCount`). Defaults (`bareNameDefault` in
+    ai-import-plan.ts): nothing found → Create; one type → use it; several
+    types, or a quality that has types, or two qualities of the name → no
+    default, somebody picks; a quality with no types → create under it.
+    Leave unmapped is never pre-selected for a bare name. Create on a bare
+    name makes quality AND same-name type (`X › X`; under the existing quality
+    if the name is one) — it used to make the quality alone, and the scores
+    were silently dropped. New names are de-duplicated loosely, as the
+    server's `requireNameFree` compares them.
   * Sectioned upload: a blank or unknown `section` is NOT an error. A sections
     step decides — default unassigned; blanks: fill down / an existing section;
     unknown names: create / an existing section; every row blank: also "turn
@@ -390,7 +403,7 @@ re-read a file before editing; expect it to have changed):
 
 ## Verification loop (do this EVERY change)
 
-1. Backend: `cd spring-social && ./mvnw -B test` (463 tests green as of
+1. Backend: `cd spring-social && ./mvnw -B test` (468 tests green as of
    2026-09-30). Tightening a DTO's validation breaks the fixtures that post
    that shape — fix the payloads, do not relax the rule. If every Spring test
    errors with `BeanDefinitionOverrideException` on repositories, the IDE has

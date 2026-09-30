@@ -50,6 +50,7 @@ import type {
 } from './question-sheet-rules';
 import {
   buildImportPlan,
+  canCreate,
   defaultDecision,
   groupPathsByRoot,
   groupSheetSections,
@@ -874,12 +875,13 @@ export function BulkUploadModal({
               <div className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2.5 text-xs">
                 <p className="font-medium">
                   {proposals.length} quality name{proposals.length === 1 ? '' : 's'} in this sheet
-                  {proposals.length === 1 ? ' is' : ' are'} not in your taxonomy
+                  {proposals.length === 1 ? ' is' : ' are'} not a type you already score against
                 </p>
                 <p className="text-muted-foreground mt-0.5">
-                  Create them with the questions, point them at something you already have, or
-                  leave them unmapped — those scores are then dropped and the questions import
-                  unscored. Nothing is created until you press the last button.
+                  Scores attach to a measured quality type. For each name: create it, use a type you
+                  already have, or leave it unmapped — its scores are then dropped and those questions
+                  import unscored. Names marked ? need a choice. Nothing is created until you press the
+                  last button.
                 </p>
               </div>
 
@@ -893,8 +895,7 @@ export function BulkUploadModal({
                   onBulk={(mode) => setDecisions((prev) => {
                     const next = { ...prev };
                     for (const path of group.paths) {
-                      if (mode === 'create'
-                        && (path.fullyResolved || path.segments.some((sg) => sg.status === 'AMBIGUOUS'))) continue;
+                      if (mode === 'create' && !canCreate(path)) continue;
                       next[path.pathKey] = { mode, mqtId: prev[path.pathKey]?.mqtId };
                     }
                     return next;

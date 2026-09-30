@@ -78,15 +78,19 @@ public class MeasuredQualityTypeController {
     }
 
     @PostMapping("/create")
-    public ResponseEntity<MqtNodeResponse> createQualityType(@Valid @RequestBody MeasuredQualityTypeRequest request) {
+    public ResponseEntity<?> createQualityType(@Valid @RequestBody MeasuredQualityTypeRequest request) {
         MeasuredQualityType node = new MeasuredQualityType();
-        node.setName(request.name().trim());
+        String name = request.name().trim();
+        node.setName(name);
 
         if (request.parentTypeId() != null) {
             // Sub-MQT: MQ comes from the parent, position after its siblings.
             MeasuredQualityType parent = measuredQualityTypeRepository.findById(request.parentTypeId()).orElse(null);
             if (parent == null) {
                 return ResponseEntity.notFound().build();
+            }
+            if (nameTaken(parent.getChildren(), name, null)) {
+                return siblingTaken(name, parent.getName());
             }
             node.setSortOrder(parent.getChildren().size());
             parent.addChild(node); // sets parent AND pins the child to the parent's MQ
@@ -95,6 +99,9 @@ public class MeasuredQualityTypeController {
             MeasuredQuality mq = measuredQualityRepository.findById(request.measuredQualityId()).orElse(null);
             if (mq == null) {
                 return ResponseEntity.notFound().build();
+            }
+            if (nameTaken(mq.getTypes().stream().filter(MeasuredQualityType::isRoot).toList(), name, null)) {
+                return siblingTaken(name, mq.getName());
             }
             node.setSortOrder((int) mq.getTypes().stream().filter(MeasuredQualityType::isRoot).count());
             node.setMeasuredQuality(mq);
@@ -107,14 +114,42 @@ public class MeasuredQualityTypeController {
     }
 
     @PutMapping("/update/{id}")
-    public ResponseEntity<MqtNodeResponse> updateQualityType(@PathVariable Long id,
+    public ResponseEntity<?> updateQualityType(@PathVariable Long id,
             @Valid @RequestBody MeasuredQualityTypeRequest request) {
-        return measuredQualityTypeRepository.findById(id)
-                .map(t -> {
-                    t.setName(request.name().trim());
-                    return ResponseEntity.ok(MqtNodeResponse.from(measuredQualityTypeRepository.save(t)));
-                })
-                .orElse(ResponseEntity.notFound().build());
+        MeasuredQualityType t = measuredQualityTypeRepository.findById(id).orElse(null);
+        if (t == null) {
+            return ResponseEntity.notFound().build();
+        }
+        String name = request.name().trim();
+        List<MeasuredQualityType> siblings = t.getParent() != null
+                ? t.getParent().getChildren()
+                : t.getMeasuredQuality().getTypes().stream().filter(MeasuredQualityType::isRoot).toList();
+        if (nameTaken(siblings, name, id)) {
+            return siblingTaken(name, t.getParent() != null
+                    ? t.getParent().getName() : t.getMeasuredQuality().getName());
+        }
+        t.setName(name);
+        return ResponseEntity.ok(MqtNodeResponse.from(measuredQualityTypeRepository.save(t)));
+    }
+
+    /*
+     * MQT names are deliberately NOT unique across the taxonomy — "Attention"
+     * may sit under several MQs, or under two different parents of one MQ, and
+     * everything resolves by id. What IS refused (2026-09-30) is the same name
+     * twice among SIBLINGS: the roots of one MQ, or the children of one type.
+     * Ignoring case, like the Qualities page and the MQ rule. Service-level
+     * only: a root has no parent and MySQL never treats two NULLs as equal, so
+     * a plain unique key could not express it.
+     */
+    private static boolean nameTaken(List<MeasuredQualityType> siblings, String name, Long exceptId) {
+        return siblings.stream().anyMatch(s -> s.getName() != null
+                && s.getName().trim().equalsIgnoreCase(name)
+                && !s.getMeasuredQualityTypeId().equals(exceptId));
+    }
+
+    private static ResponseEntity<Map<String, String>> siblingTaken(String name, String under) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("message",
+                "\"" + under + "\" already has a type named \"" + name + "\""));
     }
 
     @DeleteMapping("/delete/{id}")

@@ -205,6 +205,52 @@ class TaxonomyPathResolverTest {
         assertNull(r.segments().get(2).mqtId());
     }
 
+    /* ===================== bare names — a score cell with no path ===================== */
+
+    @Test
+    void aBareNameListsEverySameNamedType_exactBeforeLoose() {
+        // "Self-Efficacy" lives in two places. The old root note named only the
+        // first; a bare name must show both, because either could be meant.
+        Resolution r = resolve("self efficacy");
+
+        assertEquals(2, r.candidates().size());
+        assertEquals(TaxonomyPathResolver.LOOSE, r.candidates().get(0).similarity());
+        List<Long> ids = r.candidates().stream().map(TaxonomyPathResolver.Candidate::mqtId).toList();
+        assertTrue(ids.containsAll(List.of(41L, 53L)), ids.toString());
+        assertEquals("Internal Drive" + SEP + "Self-Efficacy", r.candidates().get(0).path());
+        // The candidates replace the first-match note, which could only ever name one.
+        assertNull(r.segments().get(0).note());
+
+        List<TaxonomyPathResolver.Candidate> exactFirst = TaxonomyPathResolver.resolve("Self-Efficacy", 1, List.of(
+                new Quality(7L, "Internal Drive", List.of(node(41L, "self efficacy"), node(44L, "Self-Efficacy")))))
+                .candidates();
+        assertEquals(TaxonomyPathResolver.EXACT, exactFirst.get(0).similarity());
+        assertEquals(44L, exactFirst.get(0).mqtId());
+        assertEquals(TaxonomyPathResolver.LOOSE, exactFirst.get(1).similarity());
+    }
+
+    @Test
+    void aBareNameThatIsAQualityCountsTheTypesUnderIt() {
+        Resolution drive = resolve("Internal Drive");
+        assertEquals(TaxonomyPathResolver.MATCHED, drive.segments().get(0).status());
+        assertEquals(3, drive.qualityTypeCount());
+        assertTrue(drive.candidates().isEmpty());
+
+        Resolution empty = TaxonomyPathResolver.resolve("analytical", 1, List.of(new Quality(3L, "Analytical", List.of())));
+        assertEquals(TaxonomyPathResolver.MATCHED_NORMALISED, empty.segments().get(0).status());
+        assertEquals(0, empty.qualityTypeCount());
+    }
+
+    @Test
+    void aBareNameFoundNowhereHasNoCandidates_andAPathNeverHasAny() {
+        Resolution nowhere = resolve("Transactional");
+        assertEquals(TaxonomyPathResolver.CREATE, nowhere.segments().get(0).status());
+        assertTrue(nowhere.candidates().isEmpty());
+        assertEquals(0, nowhere.qualityTypeCount());
+
+        assertTrue(resolve("Internal Drive" + SEP + "Self-Efficacy").candidates().isEmpty());
+    }
+
     @Test
     void resolveAllKeepsSheetOrderAndQuestionCounts() {
         java.util.LinkedHashMap<String, Integer> counts = new java.util.LinkedHashMap<>();
