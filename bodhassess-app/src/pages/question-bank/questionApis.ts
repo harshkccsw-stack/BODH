@@ -255,6 +255,27 @@ function bulkCreateQuestions(questions: QuestionPayload[]) {
   return api.post<QuestionResponse[]>(`/questions/bulk-create`, questions);
 }
 
+/**
+ * Matches one entry of the 400 body's `problems` from bulk-create and
+ * /questions/import — every refused question, by its position in the payload.
+ */
+export interface BatchProblem {
+  index: number;
+  message: string;
+}
+
+/** Matches ExistingStemResponse on the backend — an uploaded stem the bank already holds. */
+export interface ExistingStem {
+  index: number;
+  existingQuestionId: number;
+  method: 'EXACT' | 'NORMALISED';
+}
+
+/** Which of these stems are already in the bank. Reads only. */
+function findExistingStems(stems: string[]) {
+  return api.post<ExistingStem[]>(`/questions/find-existing`, stems);
+}
+
 function updateQuestion(id: number, question: QuestionPayload) {
   return api.put<QuestionResponse>(`/questions/update/${id}`, question);
 }
@@ -289,6 +310,7 @@ export const questionApis = {
   getQuestionById,
   createQuestion,
   bulkCreateQuestions,
+  findExistingStems,
   updateQuestion,
   deleteQuestion,
   bulkDeleteQuestions,

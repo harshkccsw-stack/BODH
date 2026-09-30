@@ -209,7 +209,37 @@ export function planAwareResolver(
 }
 
 /**
- * "Extraversion:3 | 14:0.5" → payload entries, appending problems to errors.
+ * A score cell's entries. `|` and `,` both separate them: "A:4, B:2" is two
+ * scores, exactly like "A:4 | B:2" — the comma is what people type.
+ *
+ * <p>That makes a DECIMAL comma ambiguous, so it is refused by name rather
+ * than guessed at: "A: 0,5" — a digit, a comma, then nothing but digits —
+ * is what a spreadsheet in a comma-decimal locale writes, and reading it as
+ * two entries would fail on "5" with a message about the wrong thing.
+ */
+function scoreEntries(raw: string, where: string, errors: string[]): string[] {
+  const out: string[] = [];
+  for (const group of raw.split('|')) {
+    const pieces = group.split(',');
+    for (let i = 0; i < pieces.length; i++) {
+      const piece = pieces[i].trim();
+      if (!piece) continue;
+      const next = (pieces[i + 1] ?? '').trim();
+      if (piece.includes(':') && /\d$/.test(piece) && /^\d+$/.test(next)) {
+        errors.push(`${where}: "${piece},${next}" uses a comma as the decimal point — write `
+          + `${piece}.${next} (a comma separates two scores)`);
+        i++;
+        continue;
+      }
+      out.push(piece);
+    }
+  }
+  return out;
+}
+
+/**
+ * "Extraversion:3 | 14:0.5, Grit:1" → payload entries, appending problems to
+ * errors.
  *
  * Scores are decimal: a cell may weight an option at 0.25 as readily as 3.
  * Rounded to the 2 decimals the backend stores — NOT truncated, which is what
@@ -217,9 +247,15 @@ export function planAwareResolver(
  */
 function parseScoreCell(raw: string, where: string, resolve: MqtKeyResolver, errors: string[]): MqtScorePayload[] {
   const out: MqtScorePayload[] = [];
-  for (const part of raw.split('|').map((p) => p.trim()).filter(Boolean)) {
+  for (const part of scoreEntries(raw, where, errors)) {
     const sep = part.lastIndexOf(':');
-    if (sep < 0) { errors.push(`${where}: "${part}" is not name:score`); continue; }
+    if (sep < 0) {
+      // A comma inside a quality's NAME splits it too; say so, since the fix
+      // (use its id) is not something anybody would guess.
+      errors.push(`${where}: "${part}" is not name:score`
+        + (raw.includes(',') ? ' — "|" and "," both separate scores, so a quality whose name has a comma needs its id' : ''));
+      continue;
+    }
     const key = part.slice(0, sep).trim();
     const score = Number(part.slice(sep + 1).trim());
     if (!Number.isFinite(score)) { errors.push(`${where}: score in "${part}" is not a number`); continue; }
@@ -234,6 +270,106 @@ export interface ParsedQuestions {
   sections: (string | null)[];
   rowNos: number[];
   errors: string[];
+  /**
+   * Headers this template does not know, as the sheet spells them. Ignored by
+   * the import — a warning, not an error — but named, because a misspelt
+   * `option1` or `scores` is otherwise a question silently missing its
+   * answers or its scoring.
+   */
+  unknownColumns: string[];
+}
+
+/** The template's own columns, after the case/space/_/- folding every header gets. */
+const KNOWN_COLUMNS = new Set([
+  'stem', 'description', 'type', 'mediaurl', 'risk', 'shuffle',
+  'selectrule', 'selectcount', 'otheroption', 'section', 'scores',
+]);
+const OPTION_COLUMN = /^option\d+(description|scores)?$/;
+
+const foldHeader = (header: string) => header.toLowerCase().replace(/[\s_-]/g, '');
+
+/**
+ * Headers no rule reads. A header-less column that holds data comes back from
+ * the reader as `__EMPTY…`; it is reported as unnamed, and dropped entirely
+ * when it holds nothing (a stray formatted cell, not a column).
+ */
+function unknownColumnsOf(rawRows: Record<string, unknown>[]): string[] {
+  const headers = new Set<string>();
+  for (const r of rawRows) Object.keys(r).forEach((k) => headers.add(k));
+  const out: string[] = [];
+  for (const header of headers) {
+    if (header.startsWith('__EMPTY')) {
+      const used = rawRows.some((r) => String(r[header] ?? '').trim() !== '');
+      if (used && !out.includes('(a column with no header)')) out.push('(a column with no header)');
+      continue;
+    }
+    const folded = foldHeader(header);
+    if (!KNOWN_COLUMNS.has(folded) && !OPTION_COLUMN.test(folded)) out.push(header);
+  }
+  return out;
+}
+
+/**
+ * Does the sheet have any `option1…N` column at all? A sheet with a `stem`
+ * column and none of these is the template's shape in name only — its
+ * answers are somewhere the template cannot see, which is the AI route's job.
+ */
+export function hasOptionColumns(rawRows: Record<string, unknown>[]): boolean {
+  return rawRows.some((r) => Object.keys(r).some((k) => /^option\d+$/.test(foldHeader(k))));
+}
+
+/**
+ * "Row 2: X", "Row 3: X" … "Row 43: X" → "Rows 2–43: X". One problem in forty
+ * rows is one problem, and reading it forty times buries every other one.
+ * A message that names no row passes through untouched, in its place.
+ */
+export function groupRowErrors(errors: string[]): string[] {
+  const order: string[] = [];
+  const rowsByRest = new Map<string, number[]>();
+  const loose = new Map<string, string>();
+  errors.forEach((e, i) => {
+    const m = /^Row (\d+)([\s\S]*)$/.exec(e);
+    if (!m) {
+      const key = `#${i}`;
+      loose.set(key, e);
+      order.push(key);
+      return;
+    }
+    const rest = m[2];
+    if (!rowsByRest.has(rest)) {
+      rowsByRest.set(rest, []);
+      order.push(rest);
+    }
+    rowsByRest.get(rest)!.push(Number(m[1]));
+  });
+  return order.map((key) => {
+    const plain = loose.get(key);
+    if (plain != null) return plain;
+    const rows = [...new Set(rowsByRest.get(key)!)].sort((a, b) => a - b);
+    if (rows.length === 1) return `Row ${rows[0]}${key}`;
+    const ranges: string[] = [];
+    for (let i = 0; i < rows.length; i++) {
+      let j = i;
+      while (j + 1 < rows.length && rows[j + 1] === rows[j] + 1) j++;
+      ranges.push(j === i ? String(rows[i]) : `${rows[i]}–${rows[j]}`);
+      i = j;
+    }
+    return `Rows ${ranges.join(', ')}${ranges.length > 1 ? ` (${rows.length} rows)` : ''}${key}`;
+  });
+}
+
+/**
+ * A leading item number, as sheets write them: "1. ", "12) ", "(3) ", "Q4: ",
+ * "1.) ". Needs whitespace after the mark, so "2.5 hours" and "1-2 times"
+ * keep their digits. Mirrors StemMatcher.LEADING_ITEM_NUMBER on the backend,
+ * which ignores the same prefix when looking for a stem already in the bank.
+ */
+export const LEADING_ITEM_NUMBER = /^\s*(?:q\s*)?\(?\d{1,3}\s*[.):]\)?\s+/i;
+
+/** The stem without its leading item number — unchanged if that would leave nothing. */
+export function stripItemNumber(stem: string): string {
+  const stripped = stem.replace(LEADING_ITEM_NUMBER, '').trim();
+  return stripped || stem;
 }
 
 /**
@@ -321,6 +457,12 @@ export function parseQuestionRows(
       options.push(option);
       optionByNumber.set(n, option);
     }
+    // Every placed question is mandatory, so one with nothing to pick would
+    // stop every respondent at it. Mirrors QuestionController.validateType.
+    if (options.length === 0) {
+      errors.push(`Row ${rowNo}: no options — a question needs at least one (fill in option1, option2, …)`);
+      return;
+    }
     // otherOption = the NUMBER of the option that is the "Other…" row — the
     // one respondents type into. Its label, description and scores are that
     // optionN's own columns, so the sheet stays optionN-shaped and "at most
@@ -368,6 +510,89 @@ export function parseQuestionRows(
   });
 
   if (payloads.length === 0 && errors.length === 0) errors.push('No data rows found in the sheet');
-  return { payloads, sections, rowNos, errors };
+  return { payloads, sections, rowNos, errors, unknownColumns: unknownColumnsOf(rawRows) };
 }
 
+
+/* ===================== sections ===================== */
+// Inside a sectioned questionnaire each row's `section` cell is matched to one
+// of its sections by name. A blank or unknown name used to refuse the whole
+// sheet; now it is a question the author answers before anything is written:
+// leave the row unassigned (the default — Step 2 places it), put it in a
+// section, create the section, or copy the name down from the row above.
+// Guessing is still never an option: nothing lands anywhere nobody chose.
+
+/** One of the questionnaire's sections, as the upload sees it. */
+export interface SectionRef {
+  sectionId: number;
+  name: string;
+}
+
+/** Where one row's section cell points, before anybody has chosen anything. */
+export type SectionCell =
+  | { kind: 'blank' }
+  | { kind: 'matched'; sectionId: number }
+  | { kind: 'unknown'; key: string; value: string }
+  | { kind: 'ambiguous'; value: string; count: number };
+
+/** Trimmed, case-insensitive — the same match the AI route makes. */
+export function classifySectionCell(cell: string | null, sections: SectionRef[]): SectionCell {
+  const value = (cell || '').trim();
+  if (!value) return { kind: 'blank' };
+  const key = value.toLowerCase();
+  const hits = sections.filter((s) => s.name.trim().toLowerCase() === key);
+  if (hits.length === 1) return { kind: 'matched', sectionId: hits[0].sectionId };
+  if (hits.length > 1) return { kind: 'ambiguous', value, count: hits.length };
+  return { kind: 'unknown', key, value };
+}
+
+/**
+ * For each row, the nearest non-blank section cell ABOVE it — what "fill down"
+ * copies. Worked out over the sheet's own order at parse time, so dropping a
+ * row in review cannot change what the rows below it inherited.
+ */
+export function sectionCellsAbove(cells: (string | null)[]): (string | null)[] {
+  let last: string | null = null;
+  return cells.map((cell) => {
+    const above = last;
+    if ((cell || '').trim()) last = cell;
+    return above;
+  });
+}
+
+/**
+ * What happens to rows whose section cell is blank: unassigned, copied down
+ * from the row above, or one existing section for all of them. `off` — turn
+ * the questionnaire's sections off — is offered only when EVERY row is blank.
+ */
+export type BlankSectionChoice = 'none' | 'fill' | 'off' | `id:${number}`;
+
+/** What happens to a section name the questionnaire does not have. */
+export type NameSectionChoice = 'none' | 'new' | `id:${number}`;
+
+/** Where one row lands: an existing section, one about to be created (by name key), or unassigned. */
+export type RowPlacement = { sectionId: number } | { createKey: string } | null;
+
+export function placeRow(
+  cell: string | null,
+  above: string | null,
+  sections: SectionRef[],
+  blank: BlankSectionChoice,
+  names: Record<string, NameSectionChoice>,
+): RowPlacement {
+  const byName = (c: SectionCell): RowPlacement => {
+    if (c.kind === 'matched') return { sectionId: c.sectionId };
+    if (c.kind === 'unknown') {
+      const choice = names[c.key] ?? 'none';
+      if (choice === 'new') return { createKey: c.key };
+      if (choice.startsWith('id:')) return { sectionId: Number(choice.slice(3)) };
+    }
+    // Unassigned, or ambiguous — which is refused as an error upstream.
+    return null;
+  };
+  const own = classifySectionCell(cell, sections);
+  if (own.kind !== 'blank') return byName(own);
+  if (blank === 'fill') return above == null ? null : byName(classifySectionCell(above, sections));
+  if (blank.startsWith('id:')) return { sectionId: Number(blank.slice(3)) };
+  return null;
+}

@@ -86,7 +86,18 @@ public record SheetMappingResponse(
             int questionCount,
             boolean fullyResolved,
             boolean needsPick,
-            List<PathSegment> segments) {
+            List<PathSegment> segments,
+            /**
+             * A bare name (no type in the path) only: every type in the
+             * taxonomy with that name. Empty for a path that names its types.
+             */
+            List<PathCandidate> candidates,
+            /** A bare name that matched a measured quality: how many types sit under it. */
+            int qualityTypeCount) {
+    }
+
+    /** A same-named type, with its full path. similarity: EXACT | LOOSE (case, spaces, '-', '_'). */
+    public record PathCandidate(Long mqtId, String path, String similarity) {
     }
 
     public record PathSegment(

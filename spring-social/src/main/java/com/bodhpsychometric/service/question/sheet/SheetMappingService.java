@@ -22,6 +22,7 @@ import com.bodhpsychometric.model.taxonomy.MeasuredQuality;
 import com.bodhpsychometric.model.taxonomy.MeasuredQualityType;
 import com.bodhpsychometric.repository.measures.MeasuredQualityRepository;
 import com.bodhpsychometric.repository.question.QuestionRepository;
+import com.bodhpsychometric.service.question.StemMatcher;
 import com.bodhpsychometric.service.question.sheet.CanonicalRowExpander.ExpandedRow;
 import com.bodhpsychometric.service.question.sheet.CanonicalRowExpander.Expansion;
 import com.bodhpsychometric.service.question.sheet.SheetMappingSpec.ScalePoint;
@@ -166,7 +167,11 @@ public class SheetMappingService {
                             .map(seg -> new PathSegment(seg.name(), seg.status(), seg.mqId(), seg.mqtId(),
                                     seg.parentMqId(), seg.parentMqtId(), seg.note(),
                                     seg.suggestedMqtId(), seg.suggestedPath()))
-                            .toList()));
+                            .toList(),
+                    r.candidates().stream()
+                            .map(c -> new SheetMappingResponse.PathCandidate(c.mqtId(), c.path(), c.similarity()))
+                            .toList(),
+                    r.qualityTypeCount()));
         }
         return paths;
     }
@@ -220,37 +225,15 @@ public class SheetMappingService {
         if (expansion.rows().isEmpty()) {
             return List.of();
         }
-        Map<String, Long> exact = new LinkedHashMap<>();
-        Map<String, Long> loose = new LinkedHashMap<>();
-        for (QuestionRepository.StemOnly existing : questions.findAllStems()) {
-            if (existing.getStem() == null) {
-                continue;
-            }
-            exact.putIfAbsent(existing.getStem().trim(), existing.getId());
-            loose.putIfAbsent(normaliseStem(existing.getStem()), existing.getId());
-        }
-
+        List<String> stems = expansion.rows().stream()
+                .map(row -> row.cells().getOrDefault("stem", ""))
+                .toList();
         List<DuplicateStem> out = new ArrayList<>();
-        for (int i = 0; i < expansion.rows().size(); i++) {
-            ExpandedRow row = expansion.rows().get(i);
-            String stem = row.cells().getOrDefault("stem", "").trim();
-            Long hit = exact.get(stem);
-            String method = "EXACT";
-            if (hit == null) {
-                hit = loose.get(normaliseStem(stem));
-                method = "NORMALISED";
-            }
-            if (hit != null) {
-                out.add(new DuplicateStem(i, row.sourceRow(), hit, method));
-            }
+        for (StemMatcher.Match m : StemMatcher.findExisting(stems, questions.findAllStems())) {
+            out.add(new DuplicateStem(m.index(), expansion.rows().get(m.index()).sourceRow(),
+                    m.existingQuestionId(), m.method()));
         }
         return out;
-    }
-
-    private static String normaliseStem(String s) {
-        return s == null ? "" : s.trim().toLowerCase(java.util.Locale.ROOT)
-                .replaceAll("[\\p{Punct}\\u2018\\u2019\\u201c\\u201d]", "")
-                .replaceAll("\\s+", " ");
     }
 
     /**

@@ -32,7 +32,7 @@ import {
   type QuestionType,
   type SelectionRule,
 } from './questionApis';
-import { qualitiesApi, type MQ, type MQT, type MeasuredQualityResponse } from '../MeasuredQuality/qualitiesApi';
+import { qualitiesApi, type MQ, type MQT, type MeasuredQualityResponse, type MqtNodeResponse } from '../MeasuredQuality/qualitiesApi';
 
 // The ONE create/edit form for bank questions. The Questions page renders it
 // as a modal; the questionnaire wizard's Step 2 renders the same fields
@@ -222,6 +222,15 @@ export function ScoreEditor({
       if (under === 'new-mq') {
         const quality = newQualityName.trim();
         if (!quality) { setCreateError('Name the measured quality too'); return; }
+        // The backend does not refuse a duplicate MQ name, and two MQs called
+        // the same thing split one trait's scores across two trees. Point at
+        // the existing one instead.
+        const clash = parents.find((m) => m.name.trim().toLowerCase() === quality.toLowerCase());
+        if (clash) {
+          setUnder(`mq:${clash.measuredQualityId}`);
+          setCreateError(`"${clash.name}" already exists — it is now selected under "Under".`);
+          return;
+        }
         const made = await qualitiesApi.createQuality({ name: quality, description: '' });
         measuredQualityId = made.data.measuredQualityId;
         qualityMade = quality;
@@ -229,6 +238,25 @@ export function ScoreEditor({
         measuredQualityId = Number(under.slice(3));
       } else {
         parentTypeId = Number(under.slice(4));
+      }
+      // Same name twice among SIBLINGS is refused (the backend says so too,
+      // with a 409); the same name under a different MQ or parent is fine.
+      if (under !== 'new-mq') {
+        const findNode = (nodes: MqtNodeResponse[], id: number): MqtNodeResponse | null => {
+          for (const n of nodes) {
+            if (n.measuredQualityTypeId === id) return n;
+            const hit = findNode(n.children || [], id);
+            if (hit) return hit;
+          }
+          return null;
+        };
+        const siblings = measuredQualityId != null
+          ? parents.find((m) => m.measuredQualityId === measuredQualityId)?.mqts ?? []
+          : parents.map((m) => findNode(m.mqts, parentTypeId!)).find(Boolean)?.children ?? [];
+        if (siblings.some((n) => n.name.trim().toLowerCase() === name.toLowerCase())) {
+          setCreateError(`"${parentLabel()}" already has a type named "${name}" — pick it from the list instead.`);
+          return;
+        }
       }
       const label = `${parentLabel()} › ${name}`;
       const made = await qualitiesApi.createQualityType({ name, measuredQualityId, parentTypeId });
@@ -266,7 +294,10 @@ export function ScoreEditor({
           </span>
         </span>
         <div className="flex items-center gap-1.5">
-          {onCreateChoice && rows.length === 0 && (
+          {/* Shown on every scope (question, option, grid row), and whether or
+              not rows exist yet — it used to vanish once one mapping existed,
+              which is why options appeared to have no way to create one. */}
+          {onCreateChoice && (
             <Button
               variant="outline"
               size="sm"
@@ -351,6 +382,9 @@ export function ScoreEditor({
               onChange={(e) => setUnder(e.target.value)}
               className="h-8 min-w-0 flex-1 rounded-md border border-border bg-background px-2 text-xs focus:border-primary focus:outline-none"
             >
+              <optgroup label="New">
+                <option value="new-mq">+ a new measured quality…</option>
+              </optgroup>
               <optgroup label="Measured quality">
                 {parents.map((mq) => (
                   <option key={mq.measuredQualityId} value={`mq:${mq.measuredQualityId}`}>{mq.name}</option>
@@ -363,10 +397,17 @@ export function ScoreEditor({
                   ))}
                 </optgroup>
               )}
-              <optgroup label="New">
-                <option value="new-mq">+ a new measured quality…</option>
-              </optgroup>
             </select>
+            <button
+              type="button"
+              onClick={() => setUnder(under === 'new-mq'
+                ? (parents.length > 0 ? `mq:${parents[0].measuredQualityId}` : 'new-mq')
+                : 'new-mq')}
+              className="h-8 shrink-0 rounded-md border border-border bg-background px-2 text-[0.6875rem] font-medium text-muted-foreground hover:border-primary/40 hover:text-foreground"
+              title={under === 'new-mq' ? 'Hang the new type under an existing quality instead' : 'Create a new measured quality for this type'}
+            >
+              {under === 'new-mq' ? 'Use existing MQ' : '+ New MQ'}
+            </button>
           </div>
           {under === 'new-mq' && (
             <input
@@ -662,6 +703,9 @@ export function validateQuestionForm(form: QuestionForm): string | null {
     if (rows.length < 2) return 'A grid needs at least two columns';
     return null;
   }
+  // Mirrors validateType's MCQ floor: every placed question is mandatory, so
+  // one with nothing to pick would stop every respondent at it.
+  if (rows.length === 0) return 'A multiple-choice question needs at least one option';
   // Mirrors QuestionController.validateSelection, against the same option
   // list the backend will count (blank rows already dropped), so the problem
   // is reported inline instead of coming back as a 400.

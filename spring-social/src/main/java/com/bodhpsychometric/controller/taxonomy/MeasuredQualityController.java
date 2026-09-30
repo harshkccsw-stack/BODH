@@ -14,7 +14,6 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.bodhpsychometric.dto.MeasuredQualityRequest;
@@ -64,20 +63,38 @@ public class MeasuredQualityController {
     }
 
     @PostMapping("/create")
-    @ResponseStatus(HttpStatus.CREATED)
-    public MeasuredQualityResponse createMeasuredQuality(@Valid @RequestBody MeasuredQualityRequest request) {
+    public ResponseEntity<?> createMeasuredQuality(@Valid @RequestBody MeasuredQualityRequest request) {
+        String name = request.name().trim();
+        // One MQ per name, ignoring case. Pre-checked — V38's unique key would
+        // otherwise surface as a 500 at commit (the project rule).
+        if (measuredQualityRepository.existsByNameIgnoreCase(name)) {
+            return nameTaken(name);
+        }
         MeasuredQuality mq = new MeasuredQuality();
-        mq.setName(request.name().trim());
+        mq.setName(name);
         mq.setDescription(request.description());
-        return MeasuredQualityResponse.from(measuredQualityRepository.save(mq));
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(MeasuredQualityResponse.from(measuredQualityRepository.save(mq)));
+    }
+
+    private static ResponseEntity<Map<String, String>> nameTaken(String name) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(Map.of("message", "A measured quality named \"" + name + "\" already exists"));
     }
 
     @PutMapping("/update/{id}")
-    public ResponseEntity<MeasuredQualityResponse> updateMeasuredQuality(@PathVariable Long id,
+    public ResponseEntity<?> updateMeasuredQuality(@PathVariable Long id,
             @Valid @RequestBody MeasuredQualityRequest request) {
+        String name = request.name().trim();
+        if (!measuredQualityRepository.existsById(id)) {
+            return ResponseEntity.notFound().build();
+        }
+        if (measuredQualityRepository.existsByNameIgnoreCaseAndMeasuredQualityIdNot(name, id)) {
+            return nameTaken(name);
+        }
         return measuredQualityRepository.findById(id)
-                .map(mq -> {
-                    mq.setName(request.name().trim());
+                .<ResponseEntity<?>>map(mq -> {
+                    mq.setName(name);
                     mq.setDescription(request.description());
                     return ResponseEntity.ok(MeasuredQualityResponse.from(measuredQualityRepository.save(mq)));
                 })

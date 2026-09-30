@@ -1,11 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import {
+  classifySectionCell,
   collectingResolver,
+  groupRowErrors,
+  hasOptionColumns,
+  LEADING_ITEM_NUMBER,
   looksLikeOurTemplate,
   mqtKeyResolver,
   parseQuestionRows,
+  placeRow,
   planAwareResolver,
+  sectionCellsAbove,
+  stripItemNumber,
   unresolvedCounts,
+  type SectionRef,
 } from '../question-sheet-rules';
 import type { MqtChoice } from '../question-form-modal';
 
@@ -126,6 +134,101 @@ describe('parseQuestionRows — the template upload', () => {
     // The fork keys on the ABSENCE of this message — it must stay word for word.
     expect(parseQuestionRows([], choices).errors).toEqual(['No data rows found in the sheet']);
   });
+
+  it('refuses a question with no options, and takes one with a single option', () => {
+    const out = parseQuestionRows([
+      { stem: 'Nothing to pick', Answer1: 'Yes', Answer2: 'No' },
+      { stem: 'I have read the instructions.', option1: 'I understand' },
+    ], choices);
+    expect(out.errors).toEqual(['Row 2: no options — a question needs at least one (fill in option1, option2, …)']);
+    expect(out.payloads).toHaveLength(1);
+    expect(out.payloads[0].options).toHaveLength(1);
+  });
+
+  it('names the columns it does not recognise, without refusing the sheet over them', () => {
+    const out = parseQuestionRows([
+      { stem: 'a', option1: 'x', 'Option 2': 'y', 'option2 scores': '', score: 'Growth Mindset:1', Notes: '', __EMPTY: '' },
+    ], choices);
+    expect(out.errors).toEqual([]);
+    // 'Option 2' and 'option2 scores' fold to known columns; 'score' is the typo.
+    expect(out.unknownColumns).toEqual(['score', 'Notes']);
+    expect(parseQuestionRows([{ stem: 'a', option1: 'x', __EMPTY: 'stray' }], choices).unknownColumns)
+      .toEqual(['(a column with no header)']);
+  });
+});
+
+describe('parseQuestionRows — score cells', () => {
+  const scoresOf = (cell: string) => parseQuestionRows([{ stem: 's', option1: 'x', option1Scores: cell }], choices);
+
+  it('reads a comma exactly like |, so "A:4, B:2" is two scores', () => {
+    const comma = scoresOf('Growth Mindset:4, 61:2');
+    const pipe = scoresOf('Growth Mindset:4 | 61:2');
+    expect(comma.errors).toEqual([]);
+    expect(comma.payloads[0].options[0].mqtScores).toEqual([
+      { measuredQualityTypeId: 42, score: 4 },
+      { measuredQualityTypeId: 61, score: 2 },
+    ]);
+    expect(comma.payloads[0].options[0].mqtScores).toEqual(pipe.payloads[0].options[0].mqtScores);
+    // Mixed, and ids either side of a comma, are the same rule.
+    expect(scoresOf('42:0.5,61:1 | 41:3').payloads[0].options[0].mqtScores).toHaveLength(3);
+  });
+
+  it('refuses a decimal comma by name instead of reading it as two entries', () => {
+    const out = scoresOf('Growth Mindset: 0,5');
+    expect(out.errors).toEqual([
+      'Row 2 option1Scores: "Growth Mindset: 0,5" uses a comma as the decimal point — write '
+        + 'Growth Mindset: 0.5 (a comma separates two scores)',
+    ]);
+    expect(scoresOf('Growth Mindset: 0,5, 61:2').errors).toHaveLength(1);
+  });
+
+  it('says why when a comma has split a quality name', () => {
+    const out = scoresOf('Anxiety, General:3');
+    expect(out.errors[0]).toContain('"Anxiety" is not name:score');
+    expect(out.errors[0]).toContain('needs its id');
+  });
+});
+
+describe('groupRowErrors', () => {
+  it('folds one message over many rows into one line, with ranges', () => {
+    const errors = [
+      'Row 2: section is blank', 'Row 3: section is blank', 'Row 4: section is blank',
+      'Row 7 option1Scores: no MQT named "X"',
+      'Row 9: section is blank',
+      'No data rows found in the sheet',
+    ];
+    expect(groupRowErrors(errors)).toEqual([
+      'Rows 2–4, 9 (4 rows): section is blank',
+      'Row 7 option1Scores: no MQT named "X"',
+      'No data rows found in the sheet',
+    ]);
+  });
+
+  it('writes one unbroken run without a count', () => {
+    const errors = Array.from({ length: 42 }, (_, i) => `Row ${i + 2}: no options`);
+    expect(groupRowErrors(errors)).toEqual(['Rows 2–43: no options']);
+  });
+});
+
+describe('stripItemNumber', () => {
+  it('takes the numbering sheets put in front of a stem, and nothing else', () => {
+    expect(stripItemNumber('1. I enjoy chatting. ')).toBe('I enjoy chatting.');
+    expect(stripItemNumber('12) I enjoy calls')).toBe('I enjoy calls');
+    expect(stripItemNumber('(3) Pick one')).toBe('Pick one');
+    expect(stripItemNumber('Q4: Pick one')).toBe('Pick one');
+    expect(stripItemNumber('2.5 hours is enough')).toBe('2.5 hours is enough');
+    expect(stripItemNumber('1-2 times a week')).toBe('1-2 times a week');
+    expect(stripItemNumber('10 minutes')).toBe('10 minutes');
+    expect(LEADING_ITEM_NUMBER.test('I enjoy')).toBe(false);
+  });
+});
+
+describe('hasOptionColumns', () => {
+  it('is true only when some option1…N column exists', () => {
+    expect(hasOptionColumns([{ stem: 'a', 'Option 1': 'x' }])).toBe(true);
+    expect(hasOptionColumns([{ stem: 'a', A: 'x', B: 'y' }])).toBe(false);
+    expect(hasOptionColumns([{ stem: 'a', option1Scores: '' }])).toBe(false);
+  });
 });
 
 describe('parseQuestionRows — the round trip', () => {
@@ -228,5 +331,45 @@ describe('planAwareResolver', () => {
     const errors: string[] = [];
     expect(planAwareResolver(choices, plan)('Never seen', 'Row 9 scores', errors)).toBeNull();
     expect(errors).toEqual(['Row 9 scores: no MQT named "Never seen"']);
+  });
+});
+
+describe('section placement', () => {
+  const sections: SectionRef[] = [
+    { sectionId: 1, name: 'Part A' },
+    { sectionId: 2, name: 'Part B' },
+    { sectionId: 3, name: 'Twice' },
+    { sectionId: 4, name: ' twice ' },
+  ];
+
+  it('classifies a cell against the sections by trimmed, case-insensitive name', () => {
+    expect(classifySectionCell('  part a ', sections)).toEqual({ kind: 'matched', sectionId: 1 });
+    expect(classifySectionCell('', sections)).toEqual({ kind: 'blank' });
+    expect(classifySectionCell(null, sections)).toEqual({ kind: 'blank' });
+    expect(classifySectionCell('Part C', sections)).toEqual({ kind: 'unknown', key: 'part c', value: 'Part C' });
+    expect(classifySectionCell('TWICE', sections)).toEqual({ kind: 'ambiguous', value: 'TWICE', count: 2 });
+  });
+
+  it('copies the nearest name above, never one from below', () => {
+    expect(sectionCellsAbove(['', 'Part A', '', '', 'Part B', ''])).toEqual(
+      [null, null, 'Part A', 'Part A', 'Part A', 'Part B']);
+  });
+
+  it('leaves blank and unknown rows unassigned unless somebody chose otherwise', () => {
+    expect(placeRow('', null, sections, 'none', {})).toBeNull();
+    expect(placeRow('Part C', null, sections, 'none', {})).toBeNull();
+    expect(placeRow('Part B', null, sections, 'none', {})).toEqual({ sectionId: 2 });
+  });
+
+  it('follows the choices: an existing section, a new one, or fill down', () => {
+    expect(placeRow('', null, sections, 'id:2', {})).toEqual({ sectionId: 2 });
+    expect(placeRow('Part C', null, sections, 'none', { 'part c': 'new' })).toEqual({ createKey: 'part c' });
+    expect(placeRow('Part C', null, sections, 'none', { 'part c': 'id:1' })).toEqual({ sectionId: 1 });
+    // Fill down resolves the copied name like any other — including a new one.
+    expect(placeRow('', 'Part A', sections, 'fill', {})).toEqual({ sectionId: 1 });
+    expect(placeRow('', 'Part C', sections, 'fill', { 'part c': 'new' })).toEqual({ createKey: 'part c' });
+    expect(placeRow('', null, sections, 'fill', {})).toBeNull();
+    // 'off' places nothing: the questionnaire is about to have no sections.
+    expect(placeRow('', null, sections, 'off', {})).toBeNull();
   });
 });

@@ -23,7 +23,11 @@ import jakarta.persistence.Table;
  * queries, not a filtered mapping.
  */
 @Entity
-@Table(name = "MeasuredQuality")
+// One MQ per name (V38, 2026-09-30). MySQL's key is case-insensitive through
+// the table collation; the controller pre-checks ignoring case so the key is
+// only ever a backstop. MQT names stay free — see MeasuredQualityType.
+@Table(name = "MeasuredQuality",
+        uniqueConstraints = @jakarta.persistence.UniqueConstraint(name = "uqMqName", columnNames = "name"))
 public class MeasuredQuality implements java.io.Serializable {
 
     private static final long serialVersionUID = 1L;

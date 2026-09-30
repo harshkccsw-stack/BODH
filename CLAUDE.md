@@ -142,6 +142,50 @@ re-read a file before editing; expect it to have changed):
   marks it with `otherOption` = the option NUMBER. Export sheet and Data
   Studio print the cell as `AssessmentAnswer.displayText()` — `Other: what
   they typed` — so the text is visible and the choice stays countable.
+- Question upload + sections switch (2026-09-30):
+  * An MCQ needs **at least ONE option** everywhere — `QuestionController.validateType`,
+    the question form, the sheet parser and the AI expander (which used to skip
+    one-option rows as preambles; they now import). No option = a mandatory
+    question nobody can answer.
+  * Score cells: `,` separates entries exactly like `|`; a decimal comma
+    (`A: 0,5`) is refused by name, never guessed.
+  * `bulk-create` and `/questions/import` refuse with EVERY problem:
+    `{message, problems:[{index,message}]}` (`message` keeps the old one-line
+    shape); both upload routes map `index` back to the sheet row.
+  * Template upload: errors grouped per message (`groupRowErrors`, "Rows 2–43: …");
+    unrecognised headers WARN, never block; the tab read is named and other
+    tabs with a `stem` column are called out; a `stem` sheet with no `optionN`
+    columns is pointed at the AI route; leading item numbers ("1.") are
+    OFFERED for removal, never stripped silently; stems already in the bank
+    warn via `POST /api/questions/find-existing` (`StemMatcher`, shared with the
+    AI route — its normalised match ignores a leading item number).
+  * A BARE score key (`Transactional:4` — a name, no `›` path) on the
+    qualities step, both routes: `resolve-paths` returns every same-named TYPE
+    anywhere (`candidates`, EXACT or LOOSE = case/space/-/_; no fuzzy
+    matching, by decision) and, when the name is a QUALITY, how many types sit
+    under it (`qualityTypeCount`). Defaults (`bareNameDefault` in
+    ai-import-plan.ts): nothing found → Create; one type → use it; several
+    types, or a quality that has types, or two qualities of the name → no
+    default, somebody picks; a quality with no types → create under it.
+    Leave unmapped is never pre-selected for a bare name. Create on a bare
+    name makes quality AND same-name type (`X › X`; under the existing quality
+    if the name is one) — it used to make the quality alone, and the scores
+    were silently dropped. New names are de-duplicated loosely, as the
+    server's `requireNameFree` compares them.
+  * Sectioned upload: a blank or unknown `section` is NOT an error. A sections
+    step decides — default unassigned; blanks: fill down / an existing section;
+    unknown names: create / an existing section; every row blank: also "turn
+    sections off". A name matching two sections stays an error. Pure rules in
+    `question-sheet-rules.ts` (`classifySectionCell`, `placeRow`).
+  * The sections switch is Step 2's "Organize into sections" checkbox and
+    nothing else (moved from Step 1; no Add/Remove Section buttons; new
+    questionnaires start flat). Ticking PUTs the flag at once — no dialog,
+    questions already there wait in Unassigned; unticking asks first, because
+    it deletes the sections. `PUT /api/questionnaire/update` with
+    `hasSections:false` DELETES the sections, flattens placements in display
+    order and re-tags them Q_1..Q_n; an omitted/null flag means UNCHANGED (it
+    used to mean off). Switching either way is a 409 once any allotment on an
+    assessment of that questionnaire is past NOT_STARTED.
 - Taxonomy: `MeasuredQuality` (MQ) → tree of `MeasuredQualityType` (MQT,
   self-referencing parent, any depth). MQT names deliberately NOT unique —
   resolve by id when ambiguous.
@@ -359,8 +403,8 @@ re-read a file before editing; expect it to have changed):
 
 ## Verification loop (do this EVERY change)
 
-1. Backend: `cd spring-social && ./mvnw -B test` (421 tests green as of
-   2026-09-17). Tightening a DTO's validation breaks the fixtures that post
+1. Backend: `cd spring-social && ./mvnw -B test` (468 tests green as of
+   2026-09-30). Tightening a DTO's validation breaks the fixtures that post
    that shape — fix the payloads, do not relax the rule. If every Spring test
    errors with `BeanDefinitionOverrideException` on repositories, the IDE has
    written stale class files into `target/classes`; run `./mvnw -B clean test`.

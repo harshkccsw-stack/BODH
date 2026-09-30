@@ -321,9 +321,11 @@ public final class CanonicalRowExpander {
             return;
         }
         List<ScalePoint> scale = found.points();
-        if (scale.size() < 2) {
-            problems.add("Row " + rowNo + " would import with "
-                    + (scale.isEmpty() ? "no options" : "one option") + ".");
+        // One option is a question (a consent or "I understand" row); none is
+        // one no respondent could ever answer. Same floor as the template
+        // upload and QuestionController.
+        if (scale.isEmpty()) {
+            problems.add("Row " + rowNo + " would import with no options.");
             return;
         }
 
@@ -855,8 +857,8 @@ public final class CanonicalRowExpander {
 
     private static List<ScalePoint> checkedScale(List<ScalePoint> scale, String what,
             boolean scoring, List<String> blockers) {
-        if (scale == null || scale.size() < 2) {
-            blockers.add("The mapping defines " + what + " with fewer than two options.");
+        if (scale == null || scale.isEmpty()) {
+            blockers.add("The mapping defines " + what + " with no options.");
             return List.of();
         }
         // A DECLARED scale on a scored sheet must value every point. Per-row

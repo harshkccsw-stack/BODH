@@ -27,6 +27,7 @@ import com.bodhpsychometric.dto.QuestionnaireResponse;
 import com.bodhpsychometric.dto.SectionRequest;
 import com.bodhpsychometric.dto.SectionResponse;
 import com.bodhpsychometric.model.RichTextHtml;
+import com.bodhpsychometric.model.assessment.enums.RespondentAssessmentStatus;
 import com.bodhpsychometric.model.demographics.DemographicField;
 import com.bodhpsychometric.model.demographics.QuestionnaireDemographicField;
 import com.bodhpsychometric.model.question.Question;
@@ -34,6 +35,7 @@ import com.bodhpsychometric.model.questionnaire.Questionnaire;
 import com.bodhpsychometric.model.questionnaire.QuestionnaireQuestion;
 import com.bodhpsychometric.model.questionnaire.Section;
 import com.bodhpsychometric.repository.assessment.AssessmentRepository;
+import com.bodhpsychometric.repository.assessment.RespondentAssessmentMappingRepository;
 import com.bodhpsychometric.repository.demographics.DemographicFieldRepository;
 import com.bodhpsychometric.repository.demographics.QuestionnaireDemographicFieldRepository;
 import com.bodhpsychometric.repository.question.QuestionRepository;
@@ -80,6 +82,9 @@ public class QuestionnaireController {
 
     @Autowired
     private AssessmentRepository assessmentRepository;
+
+    @Autowired
+    private RespondentAssessmentMappingRepository respondentAssessmentMappingRepository;
 
     // Every write below reshapes what the portal delivers, so each one evicts
     // this questionnaire's Redis content entry. Evicted inside the
@@ -129,14 +134,56 @@ public class QuestionnaireController {
         if (error != null) {
             return ResponseEntity.badRequest().body(Map.of("message", error));
         }
-        return questionnaireRepository.findById(id)
-                .map(q -> {
-                    apply(q, request);
-                    portalContentService.evict(id);
-                    return ResponseEntity.ok(
-                            (Object) QuestionnaireResponse.from(questionnaireRepository.save(q), questionCountOf(id)));
-                })
-                .orElse(ResponseEntity.notFound().build());
+        Questionnaire q = questionnaireRepository.findById(id).orElse(null);
+        if (q == null) {
+            return ResponseEntity.notFound().build();
+        }
+        // Omitted = unchanged. It used to mean OFF, so a body that simply
+        // left the field out switched sections off — and, now that off means
+        // the sections are deleted, that would have been destructive.
+        boolean wantSections = request.hasSections() == null ? q.isHasSections() : request.hasSections();
+        if (wantSections != q.isHasSections()) {
+            // Switching renumbers every question (Section_A_Q_1 ↔ Q_1, which
+            // are Data Studio column names) and changes the page a respondent
+            // mid-attempt is looking at. Pre-checked, like every conflict here.
+            long started = respondentAssessmentMappingRepository
+                    .countByAssessment_Questionnaire_QuestionnaireIdAndAssessmentStatusNot(
+                            id, RespondentAssessmentStatus.NOT_STARTED);
+            if (started > 0) {
+                return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("message",
+                        started + " respondent" + (started == 1 ? " has" : "s have")
+                                + " already started an assessment that uses this questionnaire — "
+                                + "sections can no longer be turned " + (wantSections ? "on" : "off")));
+            }
+            if (!wantSections) {
+                flattenSections(q);
+            }
+        }
+        apply(q, request);
+        portalContentService.evict(id);
+        return ResponseEntity.ok(QuestionnaireResponse.from(questionnaireRepository.save(q), questionCountOf(id)));
+    }
+
+    /**
+     * Sections → one list, before the flag goes off. Every placement keeps its
+     * place in the order a respondent saw it (section by section; unassigned
+     * last), numbered 0..n-1, and is re-tagged Q_1..Q_n. The sections
+     * themselves are DELETED, with their instructions: a flat questionnaire
+     * holding hidden sections is what the old Step 1 untick left behind, and
+     * turning sections back on then resurrected them half-attached.
+     */
+    private void flattenSections(Questionnaire questionnaire) {
+        Long id = questionnaire.getQuestionnaireId();
+        List<QuestionnaireQuestion> placements = questionnaireQuestionRepository.findInDisplayOrder(id);
+        for (int i = 0; i < placements.size(); i++) {
+            placements.get(i).setSection(null);
+            placements.get(i).setSortOrder(i);
+        }
+        assignQuestionTags(false, List.of(), placements);
+        // Placements first: they reference the sections about to go.
+        questionnaireQuestionRepository.flush();
+        sectionRepository.deleteAll(sectionRepository.findByQuestionnaire_QuestionnaireIdOrderBySectionIdAsc(id));
+        sectionRepository.flush();
     }
 
     @DeleteMapping("/delete/{id}")
@@ -519,7 +566,11 @@ public class QuestionnaireController {
         q.setDescription(request.description());
         q.setDurationMinutes(request.durationMinutes());
         q.setGeneralInstruction(instructionOrNull(request.generalInstruction()));
-        q.setHasSections(Boolean.TRUE.equals(request.hasSections()));
+        // Null keeps what is there: false on a new row, the stored value on an
+        // update (whose caller has already dealt with an actual switch).
+        if (request.hasSections() != null) {
+            q.setHasSections(request.hasSections());
+        }
     }
 
     /**
