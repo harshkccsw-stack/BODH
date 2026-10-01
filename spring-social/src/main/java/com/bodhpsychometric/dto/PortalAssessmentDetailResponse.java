@@ -159,13 +159,18 @@ public record PortalAssessmentDetailResponse(
             int sortOrder) {
     }
 
-    /** One row of the pre-assessment demographic form. */
+    /**
+     * One row of the pre-assessment demographic form. otherOptionLabel is the
+     * write-in choice on a DROPDOWN / CHECKLIST — render it after the options
+     * with a text box that is required once it is picked; null = none.
+     */
     public record PortalDemographicField(
             Long demographicFieldId,
             String label,
             DemographicFieldType fieldType,
             String placeholder,
             List<String> options,
+            String otherOptionLabel,
             boolean required,
             int sortOrder) {
     }

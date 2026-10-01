@@ -142,6 +142,21 @@ re-read a file before editing; expect it to have changed):
   marks it with `otherOption` = the option NUMBER. Export sheet and Data
   Studio print the cell as `AssessmentAnswer.displayText()` — `Other: what
   they typed` — so the text is visible and the choice stays countable.
+- Demographic CHECKLIST + write-in "Other" (2026-10-01, `V39`,
+  `docs/demographic-other-and-checklist-plan.md`): CHECKLIST ticks any number
+  of options, which live in `demographic_field_option` like a Dropdown's. The
+  write-in is `DemographicField.otherOptionLabel` (NULL = none), NOT an option
+  row, and is delivered last; picking it requires `otherText` (≤255,
+  `other_text` on that one row). A plain "Other" with no box is just an option.
+  **A checklist answer is ONE ROW PER TICK** in `demographic_response`; the
+  unique key is (respondent, assessment, field, `option_value`), where
+  `option_value` is `''` on every non-checklist row, so single-value fields
+  keep their DB-enforced one answer. Never read demographic rows into a map
+  by field (the last tick silently wins) — collect a list, order it with
+  `DemographicField.inChoiceOrder`. Answers lock a field: its type, and any
+  choice somebody picked (rename/remove → 409, Dropdowns too). Excel: one
+  1/0 column per checklist choice + a `(specified)` column; Data Studio:
+  `demo:<id>:opt:<choice>` and `demo:<id>:other`.
 - Question upload + sections switch (2026-09-30):
   * An MCQ needs **at least ONE option** everywhere — `QuestionController.validateType`,
     the question form, the sheet parser and the AI expander (which used to skip
@@ -408,8 +423,8 @@ re-read a file before editing; expect it to have changed):
 
 ## Verification loop (do this EVERY change)
 
-1. Backend: `cd spring-social && ./mvnw -B test` (468 tests green as of
-   2026-09-30). Tightening a DTO's validation breaks the fixtures that post
+1. Backend: `cd spring-social && ./mvnw -B test` (473 tests green as of
+   2026-10-01). Tightening a DTO's validation breaks the fixtures that post
    that shape — fix the payloads, do not relax the rule. If every Spring test
    errors with `BeanDefinitionOverrideException` on repositories, the IDE has
    written stale class files into `target/classes`; run `./mvnw -B clean test`.

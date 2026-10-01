@@ -9,8 +9,10 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
 /**
- * Payload for creating/updating a demographic field. options is read only
- * for DROPDOWN fields (display order = list order) and cleared otherwise.
+ * Payload for creating/updating a demographic field. options and
+ * otherOptionLabel are read only for DROPDOWN and CHECKLIST fields (display
+ * order = list order, the write-in always last) and cleared otherwise.
+ * otherOptionLabel blank or absent = the field has no write-in "Other".
  */
 public record DemographicFieldRequest(
         @NotBlank(message = "label is required")
@@ -20,5 +22,7 @@ public record DemographicFieldRequest(
         DemographicFieldType fieldType,
         @Size(max = 255, message = "placeholder must be at most 255 characters")
         String placeholder,
-        List<String> options) {
+        List<String> options,
+        @Size(max = 255, message = "the Other choice's label must be at most 255 characters")
+        String otherOptionLabel) {
 }

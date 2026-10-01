@@ -163,6 +163,7 @@ public record PortalQuestionnaireContent(
                         qdf.getDemographicField().getOptions().stream()
                                 .filter(Objects::nonNull)
                                 .toList(),
+                        qdf.getDemographicField().getOtherOptionLabel(),
                         qdf.isRequired(),
                         qdf.getSortOrder()))
                 .toList();

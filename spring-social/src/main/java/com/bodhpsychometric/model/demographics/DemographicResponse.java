@@ -28,11 +28,18 @@ import jakarta.persistence.UniqueConstraint;
  *
  * The value is stored as text for every field type; NUMBER and DATE are
  * validated and parsed by the service against the field's type.
+ *
+ * ONE ROW PER TICK on a CHECKLIST (V39): {@link #optionValue} is the ticked
+ * option there and '' on every other type, and the unique key includes it —
+ * so a Text/Number/Date/Dropdown answer is still exactly one row, enforced by
+ * the database, while a checklist gets one row per distinct tick. Readers must
+ * therefore collect a field's rows into a list, never put them in a map by
+ * field (the last tick would silently win).
  */
 @Entity
 @Table(name = "DemographicResponse",
-        uniqueConstraints = @UniqueConstraint(name = "uqDrRespondentAssessmentField",
-                columnNames = {"respondentUserId", "assessmentId", "demographicFieldId"}),
+        uniqueConstraints = @UniqueConstraint(name = "uqDrRespondentAssessmentFieldOption",
+                columnNames = {"respondentUserId", "assessmentId", "demographicFieldId", "optionValue"}),
         indexes = {
                 @Index(name = "idxDrAssessment", columnList = "assessmentId"),
                 @Index(name = "idxDrField", columnList = "demographicFieldId")
@@ -62,6 +69,23 @@ public class DemographicResponse implements java.io.Serializable {
 
     @Column(name = "responseValue", nullable = false, columnDefinition = "TEXT")
     private String responseValue;
+
+    /**
+     * Which tick this row is: the option's text on a CHECKLIST row, '' on
+     * every other type. '' and not null — MySQL never treats two NULLs as
+     * equal, so a null here would let a second answer for a single-value
+     * field past the unique key. The column is utf8mb4_bin (V39) so the key
+     * compares exactly.
+     */
+    @Column(name = "optionValue", nullable = false, length = 255)
+    private String optionValue = "";
+
+    /**
+     * What the respondent typed for the field's write-in "Other" choice —
+     * only on the row whose value IS that choice, null everywhere else.
+     */
+    @Column(name = "otherText", length = 255)
+    private String otherText;
 
     public Long getDemographicResponseId() {
         return demographicResponseId;
@@ -101,5 +125,21 @@ public class DemographicResponse implements java.io.Serializable {
 
     public void setResponseValue(String responseValue) {
         this.responseValue = responseValue;
+    }
+
+    public String getOptionValue() {
+        return optionValue;
+    }
+
+    public void setOptionValue(String optionValue) {
+        this.optionValue = optionValue;
+    }
+
+    public String getOtherText() {
+        return otherText;
+    }
+
+    public void setOtherText(String otherText) {
+        this.otherText = otherText;
     }
 }

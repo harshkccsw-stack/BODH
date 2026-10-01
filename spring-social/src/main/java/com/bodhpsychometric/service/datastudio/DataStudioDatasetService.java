@@ -64,7 +64,16 @@ import com.bodhpsychometric.service.MqtScoringService;
  * across families (a demographic field and a trait may both be "Age"):
  * <ul>
  * <li>{@code core:*} — identity and attempt state</li>
- * <li>{@code demo:<fieldId>} — one per demographic field on the form</li>
+ * <li>{@code demo:<fieldId>} — one per demographic field on the form; a
+ *     CHECKLIST's ticks joined with "; " in choice order</li>
+ * <li>{@code demo:<fieldId>:opt:<choice>} — CHECKLIST only, one per choice
+ *     (the write-in included): 1 ticked, 0 not, null when the checklist was
+ *     never answered. Keyed by the choice's TEXT, not its position, so
+ *     reordering choices cannot silently repoint a formula; renaming one with
+ *     answers is refused, and renaming one without breaks the formula loudly
+ *     ("Unknown column") instead.</li>
+ * <li>{@code demo:<fieldId>:other} — what was typed for a DROPDOWN's or
+ *     CHECKLIST's write-in "Other"; only on fields that have one</li>
  * <li>{@code ans:<questionTag>} — one per question, or per ROW of a grid
  *     question, matching the export sheet's tagging exactly</li>
  * <li>{@code mqt:<id>} — that trait's own score</li>
@@ -90,6 +99,9 @@ public class DataStudioDatasetService {
     public static final String MQT = "mqt:";
     public static final String MQT_TOTAL = "mqtt:";
     public static final String MQ = "mq:";
+    /** Suffixes on a demographic key: a checklist choice, and a write-in's text. */
+    public static final String CHOICE_INFIX = ":opt:";
+    public static final String OTHER_SUFFIX = ":other";
 
     private final AssessmentRepository assessments;
     private final RespondentAssessmentMappingRepository allotments;
@@ -172,8 +184,19 @@ public class DataStudioDatasetService {
                 .map(QuestionnaireDemographicField::getDemographicField)
                 .toList();
         for (DemographicField field : fields) {
-            columns.add(new Column(DEMO + field.getDemographicFieldId(), field.getLabel(),
+            Long fieldId = field.getDemographicFieldId();
+            columns.add(new Column(DEMO + fieldId, field.getLabel(),
                     demographicType(field), "demographics", optionsOf(field)));
+            if (field.getFieldType() == DemographicFieldType.CHECKLIST) {
+                for (String choice : field.choices()) {
+                    columns.add(new Column(choiceKey(fieldId, choice), field.getLabel() + ": " + choice,
+                            "number", "demographics"));
+                }
+            }
+            if (field.getOtherOptionLabel() != null) {
+                columns.add(new Column(DEMO + fieldId + OTHER_SUFFIX, field.getLabel() + " (specified)",
+                        "string", "demographics"));
+            }
         }
 
         // ── Answer columns, in display order ──────────────────────────────
@@ -246,7 +269,9 @@ public class DataStudioDatasetService {
 
         Map<Long, Map<AnswerKey, List<String>>> cellsByRespondent = new HashMap<>();
         Map<Long, List<AssessmentAnswer>> rawByRespondent = new HashMap<>();
-        Map<Long, Map<Long, String>> demographicsByRespondent = new HashMap<>();
+        // respondentId → fieldId → every row of that field — a list, because a
+        // checklist is one row per tick and a put would keep only the last.
+        Map<Long, Map<Long, List<DemographicResponse>>> demographicsByRespondent = new HashMap<>();
         if (!respondentIds.isEmpty()) {
             for (AssessmentAnswer answer : answers.findForExport(assessmentId, respondentIds)) {
                 Long respondentId = answer.getRespondent().getId();
@@ -267,8 +292,9 @@ public class DataStudioDatasetService {
             for (DemographicResponse response : demographicResponses.findForExport(assessmentId, respondentIds)) {
                 demographicsByRespondent
                         .computeIfAbsent(response.getRespondent().getId(), k -> new HashMap<>())
-                        .put(response.getDemographicField().getDemographicFieldId(),
-                                response.getResponseValue());
+                        .computeIfAbsent(response.getDemographicField().getDemographicFieldId(),
+                                k -> new ArrayList<>())
+                        .add(response);
             }
         }
 
@@ -323,7 +349,7 @@ public class DataStudioDatasetService {
             Map<AnswerKey, String> tagByKey,
             Map<AnswerKey, List<String>> cells,
             List<AssessmentAnswer> rawAnswers,
-            Map<Long, String> demographics) {
+            Map<Long, List<DemographicResponse>> demographics) {
 
         RespondentUser respondent = attempt.getRespondent();
         Organization organization = respondent.getOrganization();
@@ -345,8 +371,23 @@ public class DataStudioDatasetService {
         row.put(CORE + "organizationId", organization == null ? null : organization.getOrganizationId());
 
         for (DemographicField field : fields) {
-            row.put(DEMO + field.getDemographicFieldId(),
-                    demographics.get(field.getDemographicFieldId()));
+            Long fieldId = field.getDemographicFieldId();
+            List<DemographicResponse> answered = demographics.getOrDefault(fieldId, List.of());
+            List<String> values = field.inChoiceOrder(
+                    answered.stream().map(DemographicResponse::getResponseValue).toList());
+            row.put(DEMO + fieldId, values.isEmpty() ? null : String.join("; ", values));
+            if (field.getFieldType() == DemographicFieldType.CHECKLIST) {
+                // Null, not 0, when the checklist was never answered: an
+                // optional field left blank is not "ticked nothing", and a 0
+                // would drag every share-of-respondents average down.
+                for (String choice : field.choices()) {
+                    row.put(choiceKey(fieldId, choice), values.isEmpty() ? null : (values.contains(choice) ? 1 : 0));
+                }
+            }
+            if (field.getOtherOptionLabel() != null) {
+                row.put(DEMO + fieldId + OTHER_SUFFIX, answered.stream()
+                        .map(DemographicResponse::getOtherText).filter(t -> t != null).findFirst().orElse(null));
+            }
         }
 
         for (Map.Entry<AnswerKey, List<String>> entry : cells.entrySet()) {
@@ -391,10 +432,20 @@ public class DataStudioDatasetService {
         return type == DemographicFieldType.DROPDOWN ? "enum" : "string";
     }
 
+    /**
+     * A DROPDOWN's choices for the grid's filter — the write-in included, so
+     * "Other (specify)" is a value you can filter on like any other. A
+     * CHECKLIST's main column is a joined list, not one value, so it has none.
+     */
     private List<String> optionsOf(DemographicField field) {
-        if (field.getFieldType() != DemographicFieldType.DROPDOWN || field.getOptions() == null) {
+        if (field.getFieldType() != DemographicFieldType.DROPDOWN) {
             return null;
         }
-        return List.copyOf(field.getOptions());
+        return List.copyOf(field.choices());
+    }
+
+    /** The 1/0 column for one choice of a checklist. */
+    public static String choiceKey(Long demographicFieldId, String choice) {
+        return DEMO + demographicFieldId + CHOICE_INFIX + choice;
     }
 }
