@@ -40,6 +40,7 @@ import {
   sectionCellsAbove,
   stripItemNumber,
   unresolvedCounts,
+  warningsForRow,
 } from './question-sheet-rules';
 import type {
   BlankSectionChoice,
@@ -207,6 +208,19 @@ function UploadErrorBox({ lines }: { lines: string[] }) {
             {lines.map((line, i) => <p key={i}>• {line}</p>)}
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+/** Scores the parser skipped rather than guessed at. Amber: the import still goes ahead. */
+function SkippedScoresBox({ lines }: { lines: string[] }) {
+  return (
+    <div className="rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30 px-3 py-2 text-xs text-amber-700 dark:text-amber-500 flex items-start gap-2">
+      <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+      <div className="space-y-1 max-h-44 overflow-y-auto">
+        <p className="font-medium">Imports, but check these scores afterwards:</p>
+        {lines.map((line, i) => <p key={i}>• {line}</p>)}
       </div>
     </div>
   );
@@ -415,6 +429,8 @@ export function BulkUploadModal({
   const [rowMeta, setRowMeta] = useState<RowMeta[]>([]);
   const [ignoredSections, setIgnoredSections] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
+  // Scores skipped rather than guessed — the questions still import.
+  const [warnings, setWarnings] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadErrors, setUploadErrors] = useState<string[]>([]);
 
@@ -548,6 +564,7 @@ export function BulkUploadModal({
     setRowMeta([]);
     setIgnoredSections(false);
     setErrors([]);
+    setWarnings([]);
     setRawRows([]);
     setProposals([]);
     setDecisions({});
@@ -631,6 +648,7 @@ export function BulkUploadModal({
     }
     setPayloads(result.payloads);
     setUnknownColumns(result.unknownColumns);
+    setWarnings(result.warnings);
     setErrors(errs);
     return { result, errs };
   };
@@ -1239,6 +1257,10 @@ export function BulkUploadModal({
                 </div>
               )}
 
+              {!parsing && ready && warnings.length > 0 && (
+                <SkippedScoresBox lines={groupRowErrors(warnings)} />
+              )}
+
               {!parsing && ready && existingCount > 0 && (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30 px-3 py-2 text-xs text-amber-700 dark:text-amber-500 flex items-start gap-2">
                   <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
@@ -1289,6 +1311,9 @@ export function BulkUploadModal({
                     Importing makes a second copy.
                   </span>
                 </div>
+              )}
+              {warningsForRow(warnings, rowMeta[idx]?.rowNo).length > 0 && (
+                <SkippedScoresBox lines={warningsForRow(warnings, rowMeta[idx]?.rowNo)} />
               )}
               {payloads[idx] && (
                 <QuestionPreview p={outgoing(payloads[idx])} choices={previewChoices} sectionName={sectionLabelOf(idx)} />

@@ -147,8 +147,13 @@ re-read a file before editing; expect it to have changed):
     the question form, the sheet parser and the AI expander (which used to skip
     one-option rows as preambles; they now import). No option = a mandatory
     question nobody can answer.
-  * Score cells: `,` separates entries exactly like `|`; a decimal comma
-    (`A: 0,5`) is refused by name, never guessed.
+  * Score cells: `,` separates entries exactly like `|`. A comma piece with
+    no `:` is the front of a NAME and is rejoined with the next piece, in the
+    sheet's own spelling (`Quality, Testing & Operations:1` is one quality —
+    the AI plan keys on that exact text). A decimal comma (`A: 0,5`) is never
+    guessed: that one score is SKIPPED with a WARNING (`ParsedQuestions.warnings`,
+    amber, non-blocking) and the question imports without it (2026-10-01; it
+    used to refuse the whole sheet).
   * `bulk-create` and `/questions/import` refuse with EVERY problem:
     `{message, problems:[{index,message}]}` (`message` keeps the old one-line
     shape); both upload routes map `index` back to the sheet row.

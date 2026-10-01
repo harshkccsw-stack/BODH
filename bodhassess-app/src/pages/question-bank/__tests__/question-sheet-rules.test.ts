@@ -13,6 +13,7 @@ import {
   sectionCellsAbove,
   stripItemNumber,
   unresolvedCounts,
+  warningsForRow,
   type SectionRef,
 } from '../question-sheet-rules';
 import type { MqtChoice } from '../question-form-modal';
@@ -173,19 +174,68 @@ describe('parseQuestionRows — score cells', () => {
     expect(scoresOf('42:0.5,61:1 | 41:3').payloads[0].options[0].mqtScores).toHaveLength(3);
   });
 
-  it('refuses a decimal comma by name instead of reading it as two entries', () => {
+  it('skips a decimal comma with a warning instead of guessing — the question still imports', () => {
     const out = scoresOf('Growth Mindset: 0,5');
-    expect(out.errors).toEqual([
-      'Row 2 option1Scores: "Growth Mindset: 0,5" uses a comma as the decimal point — write '
-        + 'Growth Mindset: 0.5 (a comma separates two scores)',
+    expect(out.errors).toEqual([]);
+    expect(out.warnings).toEqual([
+      'Row 2 option1Scores: "Growth Mindset: 0,5" skipped — a comma separates scores, so it is not '
+        + 'read as Growth Mindset: 0.5. The question imports without it; if that was meant, add the '
+        + 'score on the question after import',
     ]);
-    expect(scoresOf('Growth Mindset: 0,5, 61:2').errors).toHaveLength(1);
+    expect(out.payloads).toHaveLength(1);
+    expect(out.payloads[0].options[0].mqtScores).toEqual([]);
+    // Only the ambiguous entry goes; the rest of the cell still counts.
+    const mixed = scoresOf('Growth Mindset: 0,5, 61:2');
+    expect(mixed.errors).toEqual([]);
+    expect(mixed.warnings).toHaveLength(1);
+    expect(mixed.payloads[0].options[0].mqtScores).toEqual([{ measuredQualityTypeId: 61, score: 2 }]);
   });
 
-  it('says why when a comma has split a quality name', () => {
-    const out = scoresOf('Anxiety, General:3');
-    expect(out.errors[0]).toContain('"Anxiety" is not name:score');
-    expect(out.errors[0]).toContain('needs its id');
+  it('reads a quality name that has a comma in it as one name', () => {
+    const withComma: MqtChoice[] = [
+      ...choices,
+      { id: 70, name: 'Quality, Testing & Operations', label: `Engineering${SEP}Quality, Testing & Operations` },
+    ];
+    const out = parseQuestionRows(
+      [{ stem: 's', option1: 'x', option1Scores: 'Quality, Testing & Operations:1, 61:2' }], withComma);
+    expect(out.errors).toEqual([]);
+    expect(out.payloads[0].options[0].mqtScores).toEqual([
+      { measuredQualityTypeId: 70, score: 1 },
+      { measuredQualityTypeId: 61, score: 2 },
+    ]);
+    // ...and a decimal comma after such a name is still caught.
+    const decimal = parseQuestionRows(
+      [{ stem: 's', option1: 'x', option1Scores: 'Quality, Testing & Operations: 0,5' }], withComma);
+    expect(decimal.warnings).toHaveLength(1);
+    expect(decimal.errors).toEqual([]);
+  });
+
+  it('hands the resolver the name exactly as the sheet spelled it', () => {
+    // The AI route's plan keys on the sheet's own text; a normalised ", "
+    // would miss "Quality,Testing".
+    const keyToId = new Map<string, number | null>([['Quality,Testing & Ops', -1]]);
+    const out = parseQuestionRows(
+      [{ stem: 's', option1: 'x', option1Scores: 'Quality,Testing & Ops:4' }],
+      choices,
+      planAwareResolver(choices, keyToId),
+    );
+    expect(out.errors).toEqual([]);
+    expect(out.payloads[0].options[0].mqtScores).toEqual([{ measuredQualityTypeId: -1, score: 4 }]);
+  });
+
+  it('still refuses a piece that never reaches a score', () => {
+    expect(scoresOf('Growth Mindset:4, Perseverance').errors)
+      .toEqual(['Row 2 option1Scores: "Perseverance" is not name:score']);
+    // An unknown comma name is now one unknown name, not two half-names.
+    expect(scoresOf('Anxiety, General:3').errors).toEqual(['Row 2 option1Scores: no MQT named "Anxiety, General"']);
+  });
+});
+
+describe('warningsForRow', () => {
+  it('picks one row and not the rows whose number starts the same', () => {
+    const warnings = ['Row 7 option1Scores: a', 'Row 70 scores: b', 'Row 7 scores: c'];
+    expect(warningsForRow(warnings, 7)).toEqual(['Row 7 option1Scores: a', 'Row 7 scores: c']);
+    expect(warningsForRow(warnings, undefined)).toEqual([]);
   });
 });
 
