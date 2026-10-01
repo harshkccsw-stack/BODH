@@ -1601,27 +1601,6 @@ main > section.legal-hero{min-height:0!important}
 @media (max-width:640px){.wm-flow{flex-direction:column;align-items:flex-start}.wm-plus,.wm-eq{transform:rotate(90deg);margin-left:24px}}
 .wm-lead{text-wrap:pretty}
 .sol-ph{width:100%}@media (max-width:980px){.cons-hero .sol-ph{height:auto;aspect-ratio:4/3}}
-/* Revision 28: comment fixes */
-.cine .hero-h2{margin-top:24px;font:400 clamp(20px,1.7vw,26px)/1.3 var(--serif);color:var(--on-dark);max-width:30ch;letter-spacing:-.005em}
-.cine .hero-h2 + .lede{margin-top:12px}
-.proc-step p{text-align:justify;hyphens:auto;-webkit-hyphens:auto}
-.proc-step p mark{background:none;color:inherit;font-weight:600;box-shadow:inset 0 -.35em 0 rgba(224,138,46,.28);padding:0 .05em}
-.proc.light .proc-step p mark{color:var(--ink)}
-/* ecosystem panel keeps one size; content scrolls */
-@media (min-width:1001px){
-  .eco-panel{height:540px;min-height:0!important;align-items:stretch!important}
-  .eco-panel-in{height:100%;align-items:stretch}
-  .eco-copy{overflow-y:auto;max-height:100%;padding-right:10px;align-self:stretch;display:flex;flex-direction:column;justify-content:center}
-  .eco-view{max-height:100%;overflow-y:auto;align-self:center}
-  .eco-copy,.eco-view{scrollbar-width:thin;scrollbar-color:rgba(242,194,122,.5) transparent}
-}
-/* AI section readability */
-.ah-lede{max-width:40ch}
-@media (min-width:1001px){.ah-bg::after{background:linear-gradient(90deg,rgba(22,33,62,.88) 0%,rgba(22,33,62,.7) 36%,rgba(22,33,62,.42) 70%,rgba(22,33,62,.3) 100%)}}
-.ai-hands .split-col{background:rgba(15,23,48,.86)}
-.ai-hands .split-col li{color:var(--on-dark)}
-.ai-hands .ah-left .ai-result{background:rgba(15,23,48,.82)}
-.proc-step p{text-align:justify;text-justify:inter-word;hyphens:auto;-webkit-hyphens:auto;hyphenate-limit-chars:6 3 3}
 
 </style>
 </head>
@@ -1945,10 +1924,10 @@ window.BODH = (function () {
   INDUSTRIES.forEach(d => { const n = PRACTICE_NAMES[d.id]; if (n) { d.name = n[0]; d.short = n[1]; } });
 
   const PROCESS = [
-    { k: "Diagnose the decision", w: "Week 1–2", d: "We clarify <mark>the exact people problem</mark> you need to solve: hiring accuracy, leadership potential, role fit, behavioural risk, or development needs. Together we define <mark>what must be measured and why it matters</mark>.", prod: "Bodh Consulting" },
-    { k: "Design the right assessment", w: "Week 2–4", d: "You get access to our <mark>library of validated assessments</mark> or a <mark>fully custom tool</mark> built for your role and context. Every assessment is <mark>calibrated on Indian norms</mark> for higher relevance and predictive accuracy.", prod: "Assessment Library" },
-    { k: "Deploy on the BODH Platform", w: "Week 4–7", d: "Candidates take an <mark>AI-powered, adaptive assessment</mark> through our secure platform. Administrators <mark>track progress in real time</mark> from a single, simple dashboard.", prod: "BODH Platform" },
-    { k: "Decide with clear insight", w: "Week 7–8", d: "<mark>Scoring is fully automated</mark> using parameters set by our psychometricians. You receive a clear, <mark>ready-to-use report</mark> — <mark>no calculations required</mark>. You act with confidence.", prod: "Bodh Engine" }
+    { k: "Diagnose the decision", w: "Week 1–2", d: "We clarify the exact people problem you need to solve: hiring accuracy, leadership potential, role fit, behavioural risk, or development needs. Together we define what must be measured and why it matters.", prod: "Bodh Consulting" },
+    { k: "Design the right assessment", w: "Week 2–4", d: "You get access to our library of validated assessments or a fully custom tool built for your role and context. Every assessment is calibrated on Indian norms for higher relevance and predictive accuracy.", prod: "Assessment Library" },
+    { k: "Deploy on the BODH Platform", w: "Week 4–7", d: "Candidates take an AI-powered, adaptive assessment through our secure platform. Administrators track progress in real time from a single, simple dashboard.", prod: "BODH Platform" },
+    { k: "Decide with clear insight", w: "Week 7–8", d: "Scoring is fully automated using parameters set by our psychometricians. You receive a clear, ready-to-use report — no calculations required. You act with confidence.", prod: "Bodh Engine" }
   ];
 
   const HERO = {
@@ -2001,7 +1980,7 @@ window.BODH = (function () {
   ];
 
   const AI_AT = {
-    title: "AI at BODH", sub: "Faster with AI. Decided by people.",
+    title: "AI at BODH", sub: "AI is fast. Understanding a person still takes a person.",
     intro: ["We use AI only where it measurably improves speed, accuracy, or insight.", "Every decision that affects a human being remains with a qualified psychologist."],
     ai: ["Selects the next question in adaptive tests for a shorter, more precise experience", "Drafts clear report narratives inside approved templates for faster delivery", "Flags unusual response patterns and cohort trends for earlier attention", "Answers plain-English questions about your assessment data instantly", "Supports item drafting and document summarising for psychologist review"],
     people: ["Deciding what is worth measuring", "Approving every assessment item", "Setting norms, cut-offs, and report language", "Interpreting results in debriefs", "Every hiring, clinical, educational, or safety-related decision"],
@@ -2543,8 +2522,8 @@ window.BODH = (function () {
 
   function processHTML(steps = D.PROCESS) {
     return `<div class="proc">${steps.map((s, i) => `<div class="proc-step" data-rv style="--rd:${i * .07}s">
-      <div class="proc-top"><span class="proc-step-l">Step ${i + 1}</span>${s.w && steps !== D.PROCESS ? `<span class="proc-wk">${s.w}</span>` : ""}</div>
-      <h3>${s.k}</h3>${s.t ? `<p class="proc-t">${s.t}</p>` : ""}<p lang="en">${s.d}</p>
+      <div class="proc-top"><span class="proc-step-l">Step ${i + 1}</span>${s.w ? `<span class="proc-wk">${s.w}</span>` : ""}</div>
+      <h3>${s.k}</h3>${s.t ? `<p class="proc-t">${s.t}</p>` : ""}<p>${s.d}</p>
       ${s.ai ? `<p class="proc-ai">${SPARK}<span>${s.ai}</span></p>` : ""}
       </div>`).join("")}</div>`;
   }
@@ -2616,8 +2595,7 @@ window.BODH = (function () {
       <div class="wrap cine-in">
         <div>
           <h1 class="h1-long"><span class="ln"><span style="--i:0">${D.HERO.h1[0]}</span></span><span class="ln"><span style="--i:1"><em>${D.HERO.h1[1]}</em></span></span></h1>
-          <h2 class="hero-h2 fadein" style="--dl:.6s">${D.HERO.sub}</h2>
-          <p class="lede fadein" style="--dl:.75s">${D.HERO.lede}</p>
+          <p class="lede fadein" style="--dl:.65s"><b>${D.HERO.sub}</b> ${D.HERO.lede}</p>
           <div class="hero-ctas fadein" style="--dl:1s">${demoBtn()}<a class="btn btn-line" href="#/products">Explore products ${arrow}</a></div>
         </div>
       </div>
@@ -2626,7 +2604,7 @@ window.BODH = (function () {
 
     <section class="sec" id="engagement">
       <div class="wrap">
-        <div class="head"><h2 class="d2">From first conversation to confident decision.<span class="h2-sub">Four clear steps, led by a psychologist.</span></h2><p class="lede"><mark>Your decision</mark> comes first. A <mark>BODH psychologist</mark> stays with you <mark>start to finish</mark>.</p></div>
+        <div class="head"><h2 class="d2">From first conversation to confident decision.<span class="h2-sub">Delivered in weeks, not quarters.</span></h2><p class="lede">We start with <mark>your decision</mark>, not a product catalogue. A <mark>BODH psychologist</mark> partners with you from the <mark>first conversation</mark> through to the <mark>final insight</mark>.</p></div>
         ${processHTML().replace('class="proc"', 'class="proc light"')}
       </div>
     </section>
@@ -2650,7 +2628,7 @@ window.BODH = (function () {
 
     <section class="sec paper" id="who">
       <div class="wrap">
-        <div class="head"><h2 class="d2">Where BODH is used<span class="h2-sub">One ecosystem. Four clear applications.</span></h2><p class="lede">Whether you are making <mark>high-stakes talent decisions</mark>, supporting <mark>clinical work</mark>, guiding <mark>students</mark>, or running <mark>research</mark> — BODH <mark>adapts to the decision</mark> you need to make.</p></div>
+        <div class="head"><h2 class="d2">Where BODH is used<span class="h2-sub">One ecosystem. Four clear applications.</span></h2><p class="lede">Whether you are making high-stakes talent decisions, supporting clinical work, guiding students, or running research — BODH adapts to the decision you need to make.</p></div>
         <div class="apps4">${D.APPS.map((d, i) => { const p = D.HOW.practices.find(x => x.id === d.id); return `<a class="app4" href="#${D.SOL_PATH[d.id]}" data-rv style="--rd:${i * .07}s">
             <img src="assets/${p.photo}" alt="" loading="lazy" style="object-position:${p.pos}">
             <div class="app4-b"><span class="app4-k">0${i + 1} · ${esc(d.name)}</span><h3>${esc(d.tag)}</h3><p>${esc(d.p[0])}</p><span class="go">Explore ${esc(d.name)} ${arrow}</span></div>
@@ -2663,7 +2641,7 @@ window.BODH = (function () {
       <div class="wrap ah-in">
         <div class="ah-left">
           <h2 class="d2" id="tr-h" data-rv>${D.AI_AT.title}<span class="h2-sub">${D.AI_AT.sub}</span></h2>
-          <p class="lede ah-lede" data-rv>${D.AI_AT.intro[0]}<br><b class="w">${D.AI_AT.intro[1]}</b></p>
+          <p class="lede" data-rv>${D.AI_AT.intro[0]} <b class="w">${D.AI_AT.intro[1]}</b></p>
           <div class="ai-result" data-rv><h3>The result for you</h3><p>${D.AI_AT.result}</p></div>
           <p class="ah-more" data-rv><a class="link" href="#/how-we-work/ai">More on AI at BODH ${arrow}</a></p>
         </div>
@@ -2671,7 +2649,7 @@ window.BODH = (function () {
       </div>
     </section>
 
-    ${testiHTML(D.TESTIMONIAL, "Testimonials", "sol-analyst.jpg")}
+    ${testiHTML(D.TESTIMONIAL, "Testimonials")}
 
     <section class="close2 close-home">
       <img src="assets/sol-presenter.jpg" alt="" loading="lazy">
