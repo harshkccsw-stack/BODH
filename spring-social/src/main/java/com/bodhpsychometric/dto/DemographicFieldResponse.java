@@ -14,7 +14,8 @@ public record DemographicFieldResponse(
         String label,
         DemographicFieldType fieldType,
         String placeholder,
-        List<String> options) {
+        List<String> options,
+        String otherOptionLabel) {
 
     public static DemographicFieldResponse from(DemographicField f) {
         return new DemographicFieldResponse(
@@ -22,6 +23,7 @@ public record DemographicFieldResponse(
                 f.getLabel(),
                 f.getFieldType(),
                 f.getPlaceholder(),
-                List.copyOf(f.getOptions()));
+                List.copyOf(f.getOptions()),
+                f.getOtherOptionLabel());
     }
 }

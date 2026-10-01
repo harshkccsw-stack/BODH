@@ -39,8 +39,10 @@ import com.bodhpsychometric.model.assessment.AssessmentAnswer;
 import com.bodhpsychometric.model.assessment.RespondentAssessmentMapping;
 import com.bodhpsychometric.model.assessment.enums.RespondentAssessmentStatus;
 import com.bodhpsychometric.model.auth.RespondentUser;
+import com.bodhpsychometric.model.demographics.DemographicField;
 import com.bodhpsychometric.model.demographics.DemographicResponse;
 import com.bodhpsychometric.model.demographics.QuestionnaireDemographicField;
+import com.bodhpsychometric.model.demographics.enums.DemographicFieldType;
 import com.bodhpsychometric.model.organization.Organization;
 import com.bodhpsychometric.model.question.Option;
 import com.bodhpsychometric.model.question.Question;
@@ -246,7 +248,9 @@ public class AssessmentReportService {
         List<DemographicColumn> demographicColumns = demographicFields
                 .findForPortalDelivery(questionnaireId).stream()
                 .map(QuestionnaireDemographicField::getDemographicField)
-                .map(f -> new DemographicColumn(f.getDemographicFieldId(), f.getLabel()))
+                .map(f -> new DemographicColumn(f.getDemographicFieldId(), f.getLabel(), f.getFieldType(),
+                        f.getFieldType().hasChoices() ? List.copyOf(f.getOptions()) : List.of(),
+                        f.getOtherOptionLabel()))
                 .toList();
 
         // (questionId, rowId) → column tag, so an answer finds its column.
@@ -302,8 +306,10 @@ public class AssessmentReportService {
         // respondentId → the answers themselves, which is what scoring consumes
         // (a cell is text, a score needs the option and grid row behind it).
         Map<Long, List<AssessmentAnswer>> rawAnswersByRespondent = new HashMap<>();
-        // respondentId → fieldId → value
-        Map<Long, Map<Long, String>> demographicsByRespondent = new HashMap<>();
+        // respondentId → fieldId → every row of that field. A list, never a
+        // put: a checklist is one row per tick, and a map by field would keep
+        // only the last one — silently.
+        Map<Long, Map<Long, List<DemographicResponse>>> demographicsByRespondent = new HashMap<>();
         if (!respondentIds.isEmpty()) {
             for (AssessmentAnswer a : answers.findForExport(assessmentId, respondentIds)) {
                 rawAnswersByRespondent
@@ -323,7 +329,8 @@ public class AssessmentReportService {
             for (DemographicResponse d : demographicResponses.findForExport(assessmentId, respondentIds)) {
                 demographicsByRespondent
                         .computeIfAbsent(d.getRespondent().getId(), k -> new HashMap<>())
-                        .put(d.getDemographicField().getDemographicFieldId(), d.getResponseValue());
+                        .computeIfAbsent(d.getDemographicField().getDemographicFieldId(), k -> new ArrayList<>())
+                        .add(d);
             }
         }
 
@@ -347,6 +354,24 @@ public class AssessmentReportService {
                 answerCells.put(tag, String.join("; ", entry.getValue()));
             }
 
+            // Demographic cells: one value per field, a checklist's ticks in
+            // choice order (joined for the plain cell, listed for the
+            // one-column-per-choice layout), and any write-in text.
+            Map<Long, String> demographicCells = new HashMap<>();
+            Map<Long, List<String>> demographicSelections = new HashMap<>();
+            Map<Long, String> demographicOtherTexts = new HashMap<>();
+            demographicsByRespondent.getOrDefault(respondentUserId, Map.of()).forEach((fieldId, fieldRows) -> {
+                DemographicField field = fieldRows.get(0).getDemographicField();
+                List<String> values = field.inChoiceOrder(
+                        fieldRows.stream().map(DemographicResponse::getResponseValue).toList());
+                demographicCells.put(fieldId, String.join("; ", values));
+                if (field.getFieldType() == DemographicFieldType.CHECKLIST) {
+                    demographicSelections.put(fieldId, values);
+                }
+                fieldRows.stream().map(DemographicResponse::getOtherText).filter(t -> t != null)
+                        .findFirst().ifPresent(t -> demographicOtherTexts.put(fieldId, t));
+            });
+
             MqtScoringService.Scores scores = scoring.score(
                     rawAnswersByRespondent.getOrDefault(respondentUserId, List.of()), plan);
 
@@ -359,7 +384,9 @@ public class AssessmentReportService {
                     organization == null ? null : organization.getName(),
                     mapping.getAssessmentStatus(),
                     mapping.getPopUpCount(),
-                    demographicsByRespondent.getOrDefault(respondentUserId, Map.of()),
+                    demographicCells,
+                    demographicSelections,
+                    demographicOtherTexts,
                     answerCells,
                     scores.mqtScores(),
                     scores.mqtTotals(),

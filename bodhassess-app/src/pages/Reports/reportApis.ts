@@ -91,10 +91,19 @@ export interface ExportAssessmentRef {
   questionnaireName: string;
 }
 
-/** Matches ExportSheetResponse.DemographicColumn on the backend. */
+/**
+ * Matches ExportSheetResponse.DemographicColumn on the backend. A CHECKLIST
+ * is laid out one column per choice (`options`, then `otherOptionLabel`);
+ * any field with a write-in adds a "(specified)" column after its own.
+ */
 export interface DemographicColumn {
   demographicFieldId: number;
   label: string;
+  fieldType: 'TEXT' | 'NUMBER' | 'DATE' | 'DROPDOWN' | 'CHECKLIST';
+  /** The field's options for DROPDOWN / CHECKLIST, in order; empty otherwise. */
+  options: string[];
+  /** The write-in "Other" choice, delivered last; null = none. */
+  otherOptionLabel: string | null;
 }
 
 /**
@@ -163,6 +172,10 @@ export interface ExportRow {
   popUpCount: number;
   /** demographicFieldId → value (JSON object keys arrive as strings). */
   demographics: Record<string, string>;
+  /** CHECKLIST fieldId → its ticks in choice order. Absent = never answered. */
+  demographicSelections: Record<string, string[]>;
+  /** fieldId → what was typed for the field's write-in "Other". */
+  demographicOtherTexts: Record<string, string>;
   /** questionTag → chosen option text ("A; B" when multi-select). */
   answers: Record<string, string>;
   /** measuredQualityTypeId → that node's own score (JSON object keys arrive as strings). */
@@ -255,13 +268,45 @@ function exportRespondent(assessmentId: number, respondentUserId: number, organi
 const scoreOf = (map: Record<string, number>, id: number): number => map?.[String(id)] ?? 0;
 
 /**
+ * The demographic block of the Raw Data matrix, as header + cell pairs.
+ *
+ * A CHECKLIST is ONE COLUMN PER CHOICE holding 1 if ticked and 0 if not — the
+ * ticks are separate variables (like a grid's rows), and a joined
+ * "Smartphone; Laptop" cell cannot be counted or pivoted. Blank, not 0, when
+ * the respondent never answered the checklist, so "did not answer" stays
+ * distinct from "ticked nothing". Any field with a write-in "Other" gets one
+ * more column after its own: what the respondent typed.
+ */
+function demographicCells(columns: DemographicColumn[]): Array<{ header: string; cell: (r: ExportRow) => string | number }> {
+  return columns.flatMap((c) => {
+    const id = String(c.demographicFieldId);
+    const own =
+      c.fieldType === 'CHECKLIST'
+        ? [...c.options, ...(c.otherOptionLabel ? [c.otherOptionLabel] : [])].map((choice) => ({
+            header: `${c.label}: ${choice}`,
+            cell: (r: ExportRow) => {
+              const ticks = r.demographicSelections?.[id];
+              return ticks ? (ticks.includes(choice) ? 1 : 0) : '';
+            },
+          }))
+        : [{ header: c.label, cell: (r: ExportRow) => r.demographics[id] ?? '' }];
+    const specified = c.otherOptionLabel
+      ? [{ header: `${c.label} (specified)`, cell: (r: ExportRow) => r.demographicOtherTexts?.[id] ?? '' }]
+      : [];
+    return [...own, ...specified];
+  });
+}
+
+/**
  * Turn an ExportSheet into an .xlsx and trigger the browser download. Parsed
  * in the browser (dynamic import so the ~400 KB xlsx lib is only fetched when
  * someone actually exports).
  *
  * Five sheets:
  * 1. "Raw Data"       — the matrix: respondent columns, one per demographic
- *                       label, one per questionTag, then the MQ/MQT scores.
+ *                       label (one per choice on a checklist, plus a
+ *                       "(specified)" column for a write-in "Other"), one per
+ *                       questionTag, then the MQ/MQT scores.
  *                       One respondent stays ONE row, which is what a pivot
  *                       table or an SPSS import needs.
  * 2. "MQ-MQT Scores"  — the same numbers long-format, one row per respondent ×
@@ -294,15 +339,16 @@ export async function downloadExportSheet(sheet: ExportSheet, fileName?: string)
     ...mqs.map((mq) => scoreOf(r.mqScores, mq.measuredQualityId)),
   ];
 
+  const demographics = demographicCells(sheet.demographicColumns);
   const header = [
     'Serial ID', 'Name', 'Email', 'Organization', 'Status', 'Pop-up Count',
-    ...sheet.demographicColumns.map((c) => c.label),
+    ...demographics.map((d) => d.header),
     ...sheet.questionColumns.map((c) => c.questionTag),
     ...scoreHeaders,
   ];
   const body = sheet.rows.map((r) => [
     r.serialId ?? '', r.name ?? '', r.email, r.organizationName ?? '', r.status, r.popUpCount ?? 0,
-    ...sheet.demographicColumns.map((c) => r.demographics[String(c.demographicFieldId)] ?? ''),
+    ...demographics.map((d) => d.cell(r)),
     ...sheet.questionColumns.map((c) => r.answers[c.questionTag] ?? ''),
     ...scoreCells(r),
   ]);

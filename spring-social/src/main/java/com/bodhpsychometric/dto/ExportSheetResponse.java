@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.Map;
 
 import com.bodhpsychometric.model.assessment.enums.RespondentAssessmentStatus;
+import com.bodhpsychometric.model.demographics.enums.DemographicFieldType;
 
 /**
  * A flat export "sheet" for one assessment: the column definitions plus one
@@ -46,8 +47,22 @@ public record ExportSheetResponse(
             String questionnaireName) {
     }
 
-    /** One demographic column header; cells are looked up by demographicFieldId. */
-    public record DemographicColumn(Long demographicFieldId, String label) {
+    /**
+     * One demographic field; cells are looked up by demographicFieldId.
+     *
+     * A CHECKLIST is laid out as ONE COLUMN PER CHOICE ({@code options}, then
+     * {@code otherOptionLabel} when set) holding 1 if ticked and 0 if not —
+     * blank when the respondent left the whole checklist unanswered, so "did
+     * not answer" stays distinct from "did not tick". Same reasoning as a
+     * grid's one-column-per-row: the ticks are separate variables, and one
+     * joined cell cannot be counted. Every other type is one column.
+     *
+     * A field with a write-in "Other" ({@code otherOptionLabel} non-null, on a
+     * DROPDOWN or CHECKLIST) adds one more column after its own: what the
+     * respondent typed, from {@link ExportRow#demographicOtherTexts()}.
+     */
+    public record DemographicColumn(Long demographicFieldId, String label, DemographicFieldType fieldType,
+            List<String> options, String otherOptionLabel) {
     }
 
     /**
@@ -103,7 +118,10 @@ public record ExportSheetResponse(
             double score) {
     }
 
-    /** One respondent's row. demographics keyed by fieldId, answers keyed by questionTag. */
+    /**
+     * One respondent's row. demographics keyed by fieldId (a checklist's
+     * ticks joined with "; " in choice order), answers keyed by questionTag.
+     */
     public record ExportRow(
             Long respondentUserId,
             String serialId,
@@ -115,6 +133,10 @@ public record ExportSheetResponse(
             /** Inactivity "focus" popups dismissed during the attempt. */
             int popUpCount,
             Map<Long, String> demographics,
+            /** CHECKLIST fieldId → its ticks in choice order. Absent = unanswered. */
+            Map<Long, List<String>> demographicSelections,
+            /** fieldId → what was typed for the field's write-in "Other". */
+            Map<Long, String> demographicOtherTexts,
             Map<String, String> answers,
             /** measuredQualityTypeId → that node's own score. */
             Map<Long, Double> mqtScores,
