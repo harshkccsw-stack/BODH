@@ -1004,6 +1004,13 @@ export function AiSheetImport({
           {parsed.errors.slice(0, 8).map((e, i) => <p key={i}>• {e}</p>)}
         </Box>
       )}
+      {/* Skipped, not guessed — these do not hold the import back. */}
+      {parsed.warnings.length > 0 && (
+        <Box tone="amber" icon={TriangleAlert}>
+          <p className="font-medium">Imports, but check these scores afterwards:</p>
+          {groupRowErrors(parsed.warnings).map((w, i) => <p key={i}>• {w}</p>)}
+        </Box>
+      )}
 
       {current && (
         <>

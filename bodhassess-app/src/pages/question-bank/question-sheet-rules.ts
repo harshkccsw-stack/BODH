@@ -212,22 +212,39 @@ export function planAwareResolver(
  * A score cell's entries. `|` and `,` both separate them: "A:4, B:2" is two
  * scores, exactly like "A:4 | B:2" — the comma is what people type.
  *
- * <p>That makes a DECIMAL comma ambiguous, so it is refused by name rather
- * than guessed at: "A: 0,5" — a digit, a comma, then nothing but digits —
- * is what a spreadsheet in a comma-decimal locale writes, and reading it as
- * two entries would fail on "5" with a message about the wrong thing.
+ * <p>A comma piece with no `:` cannot be a score on its own, so it is the
+ * front of a quality NAME that has a comma in it — "Quality, Testing &
+ * Operations:1" — and is joined back onto the piece after it. Joined with the
+ * cell's own text, not a normalised ", ": the AI route's plan keys on the name
+ * exactly as the sheet spelled it. Only a trailing piece with no `:` is left
+ * to fail as "not name:score".
+ *
+ * <p>A DECIMAL comma — "A: 0,5", a digit, a comma, then nothing but digits —
+ * is what a spreadsheet in a comma-decimal locale writes, and it is
+ * ambiguous: 0.5, or a score of 0 and a stray "5". It is never guessed. That
+ * one entry is SKIPPED with a warning and the question imports without it —
+ * one unreadable score is no reason to refuse ninety questions, and a missing
+ * score shows on the question afterwards, where a guessed one would not.
  */
-function scoreEntries(raw: string, where: string, errors: string[]): string[] {
+function scoreEntries(raw: string, where: string, warnings: string[]): string[] {
   const out: string[] = [];
   for (const group of raw.split('|')) {
     const pieces = group.split(',');
+    let name = ''; // the front of a comma-containing name, untrimmed
     for (let i = 0; i < pieces.length; i++) {
-      const piece = pieces[i].trim();
+      const joined = name ? `${name},${pieces[i]}` : pieces[i];
+      const piece = joined.trim();
       if (!piece) continue;
+      if (!piece.includes(':') && i < pieces.length - 1) {
+        name = joined;
+        continue;
+      }
+      name = '';
       const next = (pieces[i + 1] ?? '').trim();
       if (piece.includes(':') && /\d$/.test(piece) && /^\d+$/.test(next)) {
-        errors.push(`${where}: "${piece},${next}" uses a comma as the decimal point — write `
-          + `${piece}.${next} (a comma separates two scores)`);
+        warnings.push(`${where}: "${piece},${next}" skipped — a comma separates scores, so it is not `
+          + `read as ${piece}.${next}. The question imports without it; if that was meant, add the score `
+          + 'on the question after import');
         i++;
         continue;
       }
@@ -245,15 +262,18 @@ function scoreEntries(raw: string, where: string, errors: string[]): string[] {
  * Rounded to the 2 decimals the backend stores — NOT truncated, which is what
  * this did while the column was an int and would silently upload 0.75 as 0.
  */
-function parseScoreCell(raw: string, where: string, resolve: MqtKeyResolver, errors: string[]): MqtScorePayload[] {
+function parseScoreCell(
+  raw: string,
+  where: string,
+  resolve: MqtKeyResolver,
+  errors: string[],
+  warnings: string[],
+): MqtScorePayload[] {
   const out: MqtScorePayload[] = [];
-  for (const part of scoreEntries(raw, where, errors)) {
+  for (const part of scoreEntries(raw, where, warnings)) {
     const sep = part.lastIndexOf(':');
     if (sep < 0) {
-      // A comma inside a quality's NAME splits it too; say so, since the fix
-      // (use its id) is not something anybody would guess.
-      errors.push(`${where}: "${part}" is not name:score`
-        + (raw.includes(',') ? ' — "|" and "," both separate scores, so a quality whose name has a comma needs its id' : ''));
+      errors.push(`${where}: "${part}" is not name:score`);
       continue;
     }
     const key = part.slice(0, sep).trim();
@@ -270,6 +290,12 @@ export interface ParsedQuestions {
   sections: (string | null)[];
   rowNos: number[];
   errors: string[];
+  /**
+   * Problems that do NOT block the import, each naming its row like an error
+   * does: a score that was skipped rather than guessed at. The question still
+   * imports; the author fixes the score on it afterwards.
+   */
+  warnings: string[];
   /**
    * Headers this template does not know, as the sheet spells them. Ignored by
    * the import — a warning, not an error — but named, because a misspelt
@@ -358,6 +384,11 @@ export function groupRowErrors(errors: string[]): string[] {
   });
 }
 
+/** One sheet row's warnings, for the review card of that question. */
+export function warningsForRow(warnings: string[], rowNo: number | undefined): string[] {
+  return rowNo == null ? [] : warnings.filter((w) => w.startsWith(`Row ${rowNo} `));
+}
+
 /**
  * A leading item number, as sheets write them: "1. ", "12) ", "(3) ", "Q4: ",
  * "1.) ". Needs whitespace after the mark, so "2.5 hours" and "1-2 times"
@@ -406,6 +437,7 @@ export function parseQuestionRows(
   const sections: (string | null)[] = [];
   const rowNos: number[] = [];
   const errors: string[] = [];
+  const warnings: string[] = [];
 
   rawRows.forEach((r, i) => {
     const rowNo = i + 2; // sheet row: 1 is the header
@@ -433,7 +465,7 @@ export function parseQuestionRows(
     // before this column existed means. Read exactly like `risk`, so the two
     // yes/no columns behave the same.
     const shuffleOptions = ['1', 'true', 'yes', 'y'].includes((row.shuffle || '').toLowerCase());
-    const mqtScores = parseScoreCell(row.scores || '', `Row ${rowNo} scores`, resolveMqt, errors);
+    const mqtScores = parseScoreCell(row.scores || '', `Row ${rowNo} scores`, resolveMqt, errors, warnings);
 
     const optionNums = Object.keys(row)
       .map((k) => k.match(/^option(\d+)$/))
@@ -452,7 +484,8 @@ export function parseQuestionRows(
         description: row[`option${n}description`] || null,
         contentType: 'TEXT',
         mediaUrl: null,
-        mqtScores: parseScoreCell(row[`option${n}scores`] || '', `Row ${rowNo} option${n}Scores`, resolveMqt, errors),
+        mqtScores: parseScoreCell(
+          row[`option${n}scores`] || '', `Row ${rowNo} option${n}Scores`, resolveMqt, errors, warnings),
       };
       options.push(option);
       optionByNumber.set(n, option);
@@ -510,7 +543,7 @@ export function parseQuestionRows(
   });
 
   if (payloads.length === 0 && errors.length === 0) errors.push('No data rows found in the sheet');
-  return { payloads, sections, rowNos, errors, unknownColumns: unknownColumnsOf(rawRows) };
+  return { payloads, sections, rowNos, errors, warnings, unknownColumns: unknownColumnsOf(rawRows) };
 }
 
 
