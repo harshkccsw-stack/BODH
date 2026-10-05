@@ -73,6 +73,16 @@ class ActivityLogTest {
         assertNotNull(row.getRequestId(), "the row must be joinable to the log lines");
     }
 
+    /** A CORS preflight is the browser asking permission, not anyone acting. */
+    @Test
+    void aCorsPreflightIsNotRecorded() throws Exception {
+        long before = activityLogs.count();
+        mvc.perform(options("/api/qualities/getAll")
+                        .header(HttpHeaders.ORIGIN, "http://localhost:3000")
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "GET"));
+        assertEquals(before, activityLogs.count());
+    }
+
     /** With require-auth off, an anonymous call is normal — recorded, no who. */
     @Test
     void anAnonymousCallIsRecordedWithoutAnActor() throws Exception {

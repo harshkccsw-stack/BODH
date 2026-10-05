@@ -66,8 +66,14 @@ public class ActivityLogFilter extends OncePerRequestFilter {
         // did — and the heartbeat path is deliberately MySQL-free. Actuator
         // is the deploy health gate and the compose healthcheck: machine
         // polls every 30 s, never a person.
+        //
+        // CORS preflights (OPTIONS) are the browser asking permission before
+        // the real call — always anonymous (no token is ever attached), always
+        // paired with the request that follows, which IS recorded. Logging
+        // them doubled the trail with rows nobody did (2026-10-05).
         String uri = request.getRequestURI();
         return !enabled
+                || "OPTIONS".equalsIgnoreCase(request.getMethod())
                 || uri.startsWith("/api/activity")
                 || uri.startsWith("/api/portal/assessments/heartbeat/")
                 || uri.startsWith("/api/reports/liveTracking")
