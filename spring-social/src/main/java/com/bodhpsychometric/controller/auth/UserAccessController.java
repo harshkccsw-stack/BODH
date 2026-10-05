@@ -18,15 +18,18 @@ import org.springframework.web.bind.annotation.RestController;
 import com.bodhpsychometric.dto.DashboardUserResponse;
 import com.bodhpsychometric.dto.RoleGroupAssignRequest;
 import com.bodhpsychometric.model.auth.PractitionerUser;
+import com.bodhpsychometric.model.auth.RespondentUser;
 import com.bodhpsychometric.model.auth.RoleGroup;
 import com.bodhpsychometric.model.auth.User;
 import com.bodhpsychometric.repository.auth.PractitionerUserRepository;
+import com.bodhpsychometric.repository.auth.RespondentUserRepository;
 import com.bodhpsychometric.repository.auth.RoleGroupRepository;
 import com.bodhpsychometric.repository.auth.UserRepository;
 
 /**
- * The "assign role group" screen: who can open the dashboard, and which group
- * each of them holds. Assignment lives here rather than on the practitioner
+ * The "assign role group" screen: every identity, and which group each of
+ * them holds. Holding a group opens the dashboard (see DashboardAuthService),
+ * so a respondent can be given a role without a practitioner profile. Assignment lives here rather than on the practitioner
  * form so that granting access is its own deliberate act — creating a
  * practitioner does not hand out any pages.
  *
@@ -47,19 +50,26 @@ public class UserAccessController {
     private PractitionerUserRepository practitionerUserRepository;
 
     @Autowired
+    private RespondentUserRepository respondentUserRepository;
+
+    @Autowired
     private RoleGroupRepository roleGroupRepository;
 
     @GetMapping("/getAll")
     public List<DashboardUserResponse> getDashboardUsers() {
-        // Names live on the practitioner profile, so they come from one extra
-        // listing query rather than a join per row. A superadmin with no
-        // profile simply has none.
-        Map<Long, String> namesByUserId = new HashMap<>();
+        // Names live on the profiles, so they come from two listing queries
+        // rather than a join per row. Practitioner name wins when a person
+        // holds both; a superadmin with no profile simply has none.
+        Map<Long, String> practitionerNames = new HashMap<>();
         for (PractitionerUser practitioner : practitionerUserRepository.findAllForListing()) {
-            namesByUserId.put(practitioner.getUser().getId(), practitioner.getName());
+            practitionerNames.put(practitioner.getUser().getId(), practitioner.getName());
         }
-        return userRepository.findDashboardUsers().stream()
-                .map(user -> toResponse(user, namesByUserId.get(user.getId())))
+        Map<Long, String> respondentNames = new HashMap<>();
+        for (RespondentUser respondent : respondentUserRepository.findAllForListing()) {
+            respondentNames.put(respondent.getUser().getId(), respondent.getName());
+        }
+        return userRepository.findAllForAccess().stream()
+                .map(user -> toResponse(user, practitionerNames, respondentNames))
                 .toList();
     }
 
@@ -92,13 +102,21 @@ public class UserAccessController {
         user.setRoleGroup(group);
         userRepository.save(user);
 
-        String name = practitionerUserRepository.findByUser_Id(userId)
-                .map(PractitionerUser::getName).orElse(null);
-        return ResponseEntity.ok(toResponse(user, name));
+        Map<Long, String> practitionerNames = new HashMap<>();
+        practitionerUserRepository.findByUser_Id(userId)
+                .ifPresent(p -> practitionerNames.put(userId, p.getName()));
+        Map<Long, String> respondentNames = new HashMap<>();
+        respondentUserRepository.findByUser_Id(userId)
+                .ifPresent(r -> respondentNames.put(userId, r.getName()));
+        return ResponseEntity.ok(toResponse(user, practitionerNames, respondentNames));
     }
 
-    private static DashboardUserResponse toResponse(User user, String name) {
+    private static DashboardUserResponse toResponse(User user,
+            Map<Long, String> practitionerNames, Map<Long, String> respondentNames) {
         RoleGroup group = user.getRoleGroup();
+        boolean practitioner = practitionerNames.containsKey(user.getId());
+        boolean respondent = respondentNames.containsKey(user.getId());
+        String name = practitioner ? practitionerNames.get(user.getId()) : respondentNames.get(user.getId());
         return new DashboardUserResponse(
                 user.getId(),
                 user.getSerialId(),
@@ -106,6 +124,8 @@ public class UserAccessController {
                 user.getEmail(),
                 user.isSuperAdmin(),
                 group == null ? null : group.getRoleGroupId(),
-                group == null ? null : group.getName());
+                group == null ? null : group.getName(),
+                practitioner,
+                respondent);
     }
 }

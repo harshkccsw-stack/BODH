@@ -27,13 +27,20 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.bodhpsychometric.dto.BulkRespondentRequest;
 import com.bodhpsychometric.dto.BulkRespondentValidationResponse;
+import com.bodhpsychometric.dto.RespondentDeleteCheck;
 import com.bodhpsychometric.dto.RespondentRequest;
 import com.bodhpsychometric.dto.RespondentResponse;
+import com.bodhpsychometric.model.assessment.RespondentAssessmentMapping;
+import com.bodhpsychometric.model.assessment.enums.RespondentAssessmentStatus;
 import com.bodhpsychometric.model.auth.RespondentUser;
 import com.bodhpsychometric.model.auth.User;
 import com.bodhpsychometric.model.auth.enums.Gender;
 import com.bodhpsychometric.model.organization.Organization;
+import com.bodhpsychometric.repository.assessment.AssessmentAnswerRepository;
 import com.bodhpsychometric.repository.assessment.RespondentAssessmentMappingRepository;
+import com.bodhpsychometric.repository.demographics.DemographicResponseRepository;
+import com.bodhpsychometric.repository.report.ReportNarrativeRepository;
+import com.bodhpsychometric.service.PortalRedisStore;
 import com.bodhpsychometric.repository.auth.PractitionerUserRepository;
 import com.bodhpsychometric.repository.auth.RespondentUserRepository;
 import com.bodhpsychometric.repository.auth.UserRepository;
@@ -107,6 +114,18 @@ public class RespondentController {
 
     @Autowired
     private RespondentAssessmentMappingRepository respondentAssessmentMappingRepository;
+
+    @Autowired
+    private AssessmentAnswerRepository assessmentAnswerRepository;
+
+    @Autowired
+    private DemographicResponseRepository demographicResponseRepository;
+
+    @Autowired
+    private ReportNarrativeRepository reportNarrativeRepository;
+
+    @Autowired
+    private PortalRedisStore portalRedisStore;
 
     @GetMapping("/getAll")
     public List<RespondentResponse> getAllRespondents() {
@@ -195,26 +214,96 @@ public class RespondentController {
         return ResponseEntity.ok(RespondentResponse.from(respondentUserRepository.save(respondent)));
     }
 
+    /**
+     * The delete popup's warning: which allotments go with the respondent,
+     * which ones still block it, and whether the login survives. Read-only —
+     * the same rules {@link #deleteRespondent} applies, so the two agree.
+     */
+    @GetMapping("/delete-check/{id}")
+    @Transactional(readOnly = true)
+    public ResponseEntity<?> deleteCheck(@PathVariable Long id) {
+        RespondentUser respondent = respondentUserRepository.findById(id).orElse(null);
+        if (respondent == null) {
+            return ResponseEntity.notFound().build();
+        }
+        return ResponseEntity.ok(checkDelete(respondent));
+    }
+
+    /**
+     * Deletes the respondent together with every allotment nobody has begun —
+     * including ones a Reports Hub reset handed back, which is what makes
+     * "reset, then delete" work. An allotment that still holds answers (or is
+     * past NOT_STARTED) blocks with 409 naming it: a finished attempt is only
+     * ever discarded by an explicit reset, never as a side effect of this.
+     * Report narratives about the removed attempts go too (fkRnAttempt would
+     * block otherwise); the dashboard warns about them first.
+     */
     @DeleteMapping("/delete/{id}")
     public ResponseEntity<?> deleteRespondent(@PathVariable Long id) {
         RespondentUser respondent = respondentUserRepository.findById(id).orElse(null);
         if (respondent == null) {
             return ResponseEntity.notFound().build();
         }
-        if (respondentAssessmentMappingRepository.existsByRespondent_Id(id)) {
+        RespondentDeleteCheck check = checkDelete(respondent);
+        if (!check.deletable()) {
             return ResponseEntity.status(HttpStatus.CONFLICT)
-                    .body(Map.of("message",
-                            "This respondent has assessment attempts and cannot be deleted"));
+                    .body(Map.of("message", "This respondent has started or completed "
+                            + String.join(", ", check.startedAssessments())
+                            + " — reset " + (check.startedAssessments().size() == 1 ? "it" : "them")
+                            + " in the Reports Hub before deleting"));
         }
+
+        List<RespondentAssessmentMapping> allotments =
+                respondentAssessmentMappingRepository.findByRespondentForListing(id);
+        if (!allotments.isEmpty()) {
+            List<Long> attemptIds = allotments.stream()
+                    .map(RespondentAssessmentMapping::getRespondentAssessmentMappingId)
+                    .toList();
+            reportNarrativeRepository.deleteByAttemptIds(attemptIds);
+            for (RespondentAssessmentMapping allotment : allotments) {
+                // Untouched, so normally nothing is there — but a reset that
+                // raced a heartbeat can leave a key, and it would outlive the row.
+                Long attemptId = allotment.getRespondentAssessmentMappingId();
+                portalRedisStore.completeSubmission(attemptId);
+                portalRedisStore.deletePartial(attemptId);
+                portalRedisStore.deleteHeartbeat(attemptId);
+            }
+            respondentAssessmentMappingRepository.deleteAll(allotments);
+            respondentAssessmentMappingRepository.flush();
+        }
+
         User user = respondent.getUser();
         respondentUserRepository.delete(respondent);
         // The identity row goes too — unless something else still needs it:
         // a practitioner profile, dashboard access, or the superadmin flag.
-        if (!user.isSuperAdmin() && user.getRoleGroup() == null
-                && !practitionerUserRepository.existsByUser_Id(user.getId())) {
+        if (!check.keepsLogin()) {
             userRepository.delete(user);
         }
         return ResponseEntity.noContent().build();
+    }
+
+    private RespondentDeleteCheck checkDelete(RespondentUser respondent) {
+        Long id = respondent.getId();
+        List<String> untouched = new ArrayList<>();
+        List<String> started = new ArrayList<>();
+        List<Long> attemptIds = new ArrayList<>();
+        for (RespondentAssessmentMapping allotment
+                : respondentAssessmentMappingRepository.findByRespondentForListing(id)) {
+            attemptIds.add(allotment.getRespondentAssessmentMappingId());
+            Long assessmentId = allotment.getAssessment().getAssessmentId();
+            // Status alone is not trusted: answers on a NOT_STARTED row would
+            // FK-block the delete and 500 at commit, so they count as begun.
+            boolean begun = allotment.getAssessmentStatus() != RespondentAssessmentStatus.NOT_STARTED
+                    || assessmentAnswerRepository.existsByRespondent_IdAndAssessment_AssessmentId(id, assessmentId)
+                    || demographicResponseRepository.existsByRespondent_IdAndAssessment_AssessmentId(id, assessmentId);
+            (begun ? started : untouched).add(allotment.getAssessment().getName());
+        }
+        long narratives = attemptIds.isEmpty() ? 0
+                : reportNarrativeRepository.countByRespondentAssessmentMappingIdIn(attemptIds);
+        User user = respondent.getUser();
+        boolean keepsLogin = user.isSuperAdmin() || user.getRoleGroup() != null
+                || practitionerUserRepository.existsByUser_Id(user.getId());
+        return new RespondentDeleteCheck(id, untouched, started, narratives, keepsLogin, started.isEmpty());
     }
 
     // ── Bulk upload (organization wizard, step 3 → "Upload") ──────────────
@@ -261,9 +350,10 @@ public class RespondentController {
             return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(report);
         }
 
-        // Pass 2 — write. Every row is a new identity: an email that already
-        // exists was rejected above, so there is no attach-to-existing branch
-        // here the way the single create has.
+        // Pass 2 — write. An email with an identity already on file (a
+        // practitioner, say) gets the respondent profile attached to it;
+        // validation above guaranteed it has no respondent profile yet and the
+        // dob matches. Everyone else is a new identity.
         //
         // The full RespondentResponse goes back rather than a slim ref: it
         // already carries serialId, email and dob, which is exactly what the
@@ -272,14 +362,17 @@ public class RespondentController {
         // back to them, not a disclosure of anything they did not just send.
         List<RespondentResponse> created = new ArrayList<>();
         for (BulkRespondentRequest.Row row : request.rows()) {
-            User user = new User();
-            user.setEmail(row.email().trim());
-            user.setDob(parseDob(row.dob()));
-            user.setAccountStatus(true);
-            user = userRepository.save(user);
-            // Derived from the generated id, so it can only be set after the
-            // insert — same rule as the single create and the seeder.
-            user.setSerialId(String.format("USR-%06d", user.getId()));
+            User user = userRepository.findByEmailIgnoreCase(row.email().trim()).orElse(null);
+            if (user == null) {
+                user = new User();
+                user.setEmail(row.email().trim());
+                user.setDob(parseDob(row.dob()));
+                user.setAccountStatus(true);
+                user = userRepository.save(user);
+                // Derived from the generated id, so it can only be set after the
+                // insert — same rule as the single create and the seeder.
+                user.setSerialId(String.format("USR-%06d", user.getId()));
+            }
 
             RespondentUser respondent = new RespondentUser();
             respondent.setUser(user);
@@ -335,13 +428,23 @@ public class RespondentController {
                 if (first != null) {
                     issues.add(issue(line, "email",
                             "Duplicate email — row " + first + " already uses it"));
-                } else if (userRepository.findByEmailIgnoreCase(email).isPresent()) {
-                    // Decision: an existing email is an error to fix, never a
-                    // silent attach. The single-create endpoint DOES attach a
-                    // respondent profile to a matching identity, but doing that
-                    // invisibly to a row buried in a 300-line sheet is not
-                    // something an admin can be expected to notice.
-                    issues.add(issue(line, "email", "Email already exists"));
+                } else {
+                    // An email that already has an identity (a practitioner,
+                    // an admin) gets a respondent profile ATTACHED, exactly like
+                    // the single create — one person may be both (2026-10-05;
+                    // this used to refuse with "Email already exists"). Only a
+                    // second respondent profile, or a dob that does not match
+                    // the credential on file, is a real problem.
+                    User existing = userRepository.findByEmailIgnoreCase(email).orElse(null);
+                    if (existing != null) {
+                        LocalDate rowDob = parseDob(row.dob());
+                        if (respondentUserRepository.existsByUser_Id(existing.getId())) {
+                            issues.add(issue(line, "email", "A respondent with this email already exists"));
+                        } else if (rowDob != null && !rowDob.equals(existing.getDob())) {
+                            issues.add(issue(line, "email",
+                                    "This email belongs to an existing account with a different date of birth"));
+                        }
+                    }
                 }
             }
 

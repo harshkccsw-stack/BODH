@@ -329,6 +329,23 @@ re-read a file before editing; expect it to have changed):
     trade as 2026-08-24: rejected by column name before upload, not as one
     issue per line. The sheet's `dialCode()` is lenient (`+91`, `0091`, `91`)
     because a spreadsheet eats a leading '+'.
+- People & access (2026-10-05, `RespondentDeleteAndAccessTest`):
+  * Respondent delete removes every UNTOUCHED allotment with the respondent
+    (NOT_STARTED, no answers, no demographic rows — what a Reports Hub reset
+    leaves) plus report narratives about them (fkRnAttempt blocks otherwise).
+    A started/completed attempt still 409s, "reset it first" — a delete never
+    discards answers by itself. `GET /api/respondents/delete-check/{id}` feeds
+    the warning popup, same rules as the delete.
+  * Dashboard login gate = superadmin OR practitioner profile OR a role group
+    (`DashboardAuthService.hasDashboardAccess`). Assign Role Group lists EVERY
+    identity (`findAllForAccess`) with practitioner/respondent flags, so a
+    respondent can be made an admin without a practitioner profile.
+  * The bulk respondent sheet ATTACHES a profile to an existing identity with
+    no respondent profile and a matching dob (was "Email already exists"),
+    like the single create. Second respondent / dob mismatch stay issues.
+  * Org drill-in: members show an Info button (`member-info-modal.tsx`):
+    consent, assessments with Reset (the SAME `/reports/resetAssessment`),
+    and Unassign with confirm.
 - Organization: profile-level M:1 (PractitionerUser/RespondentUser each carry
   a nullable organizationId; one org per member). Carries TWO optional inline
   base64 logos (see the ContentType exception above).
@@ -423,8 +440,8 @@ re-read a file before editing; expect it to have changed):
 
 ## Verification loop (do this EVERY change)
 
-1. Backend: `cd spring-social && ./mvnw -B test` (473 tests green as of
-   2026-10-01). Tightening a DTO's validation breaks the fixtures that post
+1. Backend: `cd spring-social && ./mvnw -B test` (477 tests green as of
+   2026-10-05). Tightening a DTO's validation breaks the fixtures that post
    that shape — fix the payloads, do not relax the rule. If every Spring test
    errors with `BeanDefinitionOverrideException` on repositories, the IDE has
    written stale class files into `target/classes`; run `./mvnw -B clean test`.

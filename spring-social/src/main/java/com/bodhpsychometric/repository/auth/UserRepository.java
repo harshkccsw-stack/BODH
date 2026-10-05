@@ -37,4 +37,12 @@ public interface UserRepository extends JpaRepository<User, Long> {
             + "order by u.email")
     List<User> findDashboardUsers();
 
+    /**
+     * Every identity, for the Assign Role Group screen — practitioners,
+     * respondents and bare superadmins alike, since a role group is now what
+     * opens the dashboard to someone without a practitioner profile.
+     */
+    @Query("select u from User u left join fetch u.roleGroup order by u.email")
+    List<User> findAllForAccess();
+
 }

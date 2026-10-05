@@ -7,10 +7,12 @@
 // practitioner starts with the Dashboard and nothing else until someone comes
 // here on purpose.
 //
-// The list is everyone who can sign in to the dashboard — practitioners, plus
-// any superadmin. Superadmin rows are shown but not assignable: the flag
-// already opens everything, so a group on that row would describe access the
-// person does not depend on.
+// The list is EVERY identity (2026-10-05) — practitioners, respondents and
+// superadmins. One person may be practitioner and respondent at once, and a
+// group is what opens the dashboard to a respondent with no practitioner
+// profile (the server's login gate admits anyone holding one). Superadmin
+// rows are shown but not assignable: the flag already opens everything, so a
+// group on that row would describe access the person does not depend on.
 
 import { useEffect, useMemo, useState } from 'react';
 import { UserCog, Search, ShieldCheck, Check, AlertCircle } from 'lucide-react';
@@ -20,12 +22,21 @@ import { rolesApi, type DashboardUserResponse, type RoleGroupResponse } from './
 const errorText = (e: any, fallback: string) =>
   e?.response?.data?.message || e?.message || fallback;
 
+type KindFilter = 'all' | 'practitioner' | 'respondent' | 'grouped';
+
+/** Rendering thousands of rows of selects is slow; search narrows past this. */
+const MAX_ROWS = 200;
+
+/** Can this identity open the dashboard at all — the server's login gate. */
+const canSignIn = (u: DashboardUserResponse) => u.superAdmin || u.practitioner || u.roleGroupId !== null;
+
 export default function AssignRoleGroupPage() {
   const [users, setUsers] = useState<DashboardUserResponse[]>([]);
   const [groups, setGroups] = useState<RoleGroupResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [search, setSearch] = useState('');
+  const [kind, setKind] = useState<KindFilter>('all');
 
   // Per-row state, keyed by userId, so one row saving or failing never blanks
   // the others.
@@ -53,22 +64,24 @@ export default function AssignRoleGroupPage() {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return users;
-    return users.filter((u) =>
+    const byKind = users.filter((u) =>
+      kind === 'all' ||
+      (kind === 'practitioner' && u.practitioner) ||
+      (kind === 'respondent' && u.respondent) ||
+      (kind === 'grouped' && u.roleGroupId !== null));
+    if (!q) return byKind;
+    return byKind.filter((u) =>
       (u.name ?? '').toLowerCase().includes(q) ||
       u.email.toLowerCase().includes(q) ||
       (u.serialId ?? '').toLowerCase().includes(q) ||
       (u.roleGroupName ?? '').toLowerCase().includes(q));
-  }, [users, search]);
+  }, [users, search, kind]);
 
   const withGroup = useMemo(
     () => users.filter((u) => u.roleGroupId !== null).length,
     [users],
   );
-  const dashboardOnly = useMemo(
-    () => users.filter((u) => !u.superAdmin && u.roleGroupId === null).length,
-    [users],
-  );
+  const signInCount = useMemo(() => users.filter(canSignIn).length, [users]);
 
   const assign = async (user: DashboardUserResponse, value: string) => {
     const roleGroupId = value === '' ? null : Number(value);
@@ -100,7 +113,8 @@ export default function AssignRoleGroupPage() {
           Assign Role Group
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Give a dashboard user the one group they hold. Changes apply on their next page load.
+          Give anyone — practitioner or respondent — the one group they hold. A group also lets a
+          respondent sign in to the dashboard. Changes apply on their next page load.
         </p>
       </div>
 
@@ -119,7 +133,7 @@ export default function AssignRoleGroupPage() {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
         <Card>
           <CardContent className="p-5">
-            <div className="text-sm text-muted-foreground">Dashboard users</div>
+            <div className="text-sm text-muted-foreground">Users</div>
             <div className="text-2xl font-semibold mt-1">{users.length}</div>
           </CardContent>
         </Card>
@@ -131,21 +145,33 @@ export default function AssignRoleGroupPage() {
         </Card>
         <Card>
           <CardContent className="p-5">
-            <div className="text-sm text-muted-foreground">Dashboard only</div>
-            <div className="text-2xl font-semibold mt-1">{dashboardOnly}</div>
-            <div className="text-xs text-muted-foreground mt-1">Can sign in, but the menu is empty</div>
+            <div className="text-sm text-muted-foreground">Can sign in to the dashboard</div>
+            <div className="text-2xl font-semibold mt-1">{signInCount}</div>
+            <div className="text-xs text-muted-foreground mt-1">Practitioners, super admins and anyone holding a group</div>
           </CardContent>
         </Card>
       </div>
 
-      <div className="relative max-w-md">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search by name, email, serial or group..."
-          className="w-full h-9 rounded-md border border-input bg-background pl-9 pr-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:border-ring focus:ring-[3px] focus:ring-ring/30 transition-shadow"
-        />
+      <div className="flex flex-col sm:flex-row gap-3">
+        <div className="relative flex-1 max-w-md">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search by name, email, serial or group..."
+            className="w-full h-9 rounded-md border border-input bg-background pl-9 pr-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:border-ring focus:ring-[3px] focus:ring-ring/30 transition-shadow"
+          />
+        </div>
+        <select
+          value={kind}
+          onChange={(e) => setKind(e.target.value as KindFilter)}
+          className="h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:border-ring focus:ring-[3px] focus:ring-ring/30"
+        >
+          <option value="all">Everyone</option>
+          <option value="practitioner">Practitioners</option>
+          <option value="respondent">Respondents</option>
+          <option value="grouped">Holding a group</option>
+        </select>
       </div>
 
       <Card>
@@ -164,9 +190,9 @@ export default function AssignRoleGroupPage() {
               <div className="px-5 py-10 text-center text-sm text-muted-foreground">Loading…</div>
             ) : filtered.length === 0 ? (
               <div className="px-5 py-10 text-center text-sm text-muted-foreground">
-                {users.length === 0 ? 'No dashboard users yet.' : 'Nobody matches your search.'}
+                {users.length === 0 ? 'No users yet.' : 'Nobody matches your search.'}
               </div>
-            ) : filtered.map((user) => (
+            ) : filtered.slice(0, MAX_ROWS).map((user) => (
               <div key={user.userId} className="px-5 py-4 hover:bg-muted/50 transition-colors">
                 <div className="flex items-center justify-between gap-4 flex-wrap">
                   <div className="min-w-0">
@@ -182,6 +208,16 @@ export default function AssignRoleGroupPage() {
                       {user.superAdmin && (
                         <span className="inline-flex items-center gap-1 rounded-full bg-purple-50 dark:bg-purple-950/30 text-purple-700 dark:text-purple-400 px-2 py-0.5 text-xs">
                           <ShieldCheck className="h-3 w-3" /> Super admin
+                        </span>
+                      )}
+                      {user.practitioner && (
+                        <span className="inline-flex items-center rounded-full bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400 px-2 py-0.5 text-xs">
+                          Practitioner
+                        </span>
+                      )}
+                      {user.respondent && (
+                        <span className="inline-flex items-center rounded-full bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 px-2 py-0.5 text-xs">
+                          Respondent
                         </span>
                       )}
                     </div>
@@ -204,7 +240,9 @@ export default function AssignRoleGroupPage() {
                       className="h-9 min-w-56 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:border-ring focus:ring-[3px] focus:ring-ring/30 disabled:opacity-60"
                     >
                       <option value="">
-                        {user.superAdmin ? 'Full access (super admin)' : 'None — dashboard only'}
+                        {user.superAdmin
+                          ? 'Full access (super admin)'
+                          : user.practitioner ? 'None — dashboard only' : 'None — no dashboard access'}
                       </option>
                       {groups.map((g) => (
                         <option key={g.roleGroupId} value={g.roleGroupId}>
@@ -222,6 +260,11 @@ export default function AssignRoleGroupPage() {
                 )}
               </div>
             ))}
+            {filtered.length > MAX_ROWS && (
+              <div className="px-5 py-3 text-center text-xs text-muted-foreground">
+                Showing the first {MAX_ROWS} of {filtered.length} — search or filter to find someone.
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>

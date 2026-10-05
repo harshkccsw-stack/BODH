@@ -20,10 +20,12 @@ import io.jsonwebtoken.JwtException;
 
 /**
  * Dashboard sign-in: email + dob against the User row. This endpoint only
- * issues tokens to accounts that may open the dashboard — being a
- * practitioner (or superadmin) is the gate; respondent-only accounts get
- * 403 here, their portal flow is separate. The role group no longer grants
- * access by itself — it only supplies urlPaths once the gate passes.
+ * issues tokens to accounts that may open the dashboard — a practitioner
+ * profile, the superadmin flag, or a role group someone assigned on the
+ * Assign Role Group screen (2026-10-05: that screen lists every identity, so
+ * a respondent can be made an admin without a practitioner profile). A plain
+ * respondent with none of the three gets 403 here; their portal flow is
+ * separate. The group also supplies urlPaths once the gate passes.
  */
 @Service
 public class DashboardAuthService {
@@ -52,9 +54,7 @@ public class DashboardAuthService {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Account is disabled");
         }
 
-        boolean dashboardAccess = user.isSuperAdmin()
-                || practitioners.existsByUser_Id(user.getId());
-        if (!dashboardAccess) {
+        if (!hasDashboardAccess(user)) {
             throw noDashboardAccess();
         }
 
@@ -84,11 +84,17 @@ public class DashboardAuthService {
         if (!user.isAccountStatus()) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Account is disabled");
         }
-        if (!user.isSuperAdmin() && !practitioners.existsByUser_Id(user.getId())) {
+        if (!hasDashboardAccess(user)) {
             throw noDashboardAccess();
         }
 
         return toAuthUser(user, effectivePaths(user));
+    }
+
+    /** The one gate, shared by login and session restore. */
+    private boolean hasDashboardAccess(User user) {
+        return user.isSuperAdmin() || user.getRoleGroup() != null
+                || practitioners.existsByUser_Id(user.getId());
     }
 
     /**
@@ -120,7 +126,7 @@ public class DashboardAuthService {
 
     private static ResponseStatusException noDashboardAccess() {
         return new ResponseStatusException(HttpStatus.FORBIDDEN,
-                "Only practitioner accounts can access the dashboard");
+                "This account has no dashboard access");
     }
 
     private static ResponseStatusException invalidCredentials() {

@@ -54,12 +54,15 @@ export interface RoleGroupResponse {
 export interface DashboardUserResponse {
   userId: number;
   serialId: string | null;
-  /** From the practitioner profile — null for a bare superadmin. */
+  /** Practitioner profile name, else respondent — null for a bare superadmin. */
   name: string | null;
   email: string;
   superAdmin: boolean;
   roleGroupId: number | null;
   roleGroupName: string | null;
+  /** Which profiles this one identity carries — a person may hold both. */
+  practitioner: boolean;
+  respondent: boolean;
 }
 
 // ── Roles ─────────────────────────────────────────────────────────────────
