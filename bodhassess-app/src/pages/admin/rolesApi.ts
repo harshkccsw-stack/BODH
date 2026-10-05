@@ -102,7 +102,7 @@ function deleteRoleGroup(id: number) {
 }
 
 // ── Assignment ────────────────────────────────────────────────────────────
-/** Everyone who can open the dashboard, with the group they hold. */
+/** Every identity, with the group (or superadmin flag) they hold. */
 function getDashboardUsers() {
   return api.get<DashboardUserResponse[]>(`/user-access/getAll`);
 }
@@ -118,6 +118,19 @@ function assignRoleGroup(userId: number, roleGroupId: number | null) {
   );
 }
 
+/**
+ * Superadmin for ANY identity — full access, the access-admin pages
+ * included. Clears any group the person held.
+ */
+function assignSuperAdmin(userId: number) {
+  return api.put<DashboardUserResponse>(`/user-access/assign-superadmin/${userId}`);
+}
+
+/** 409 for the last superadmin — someone must always be able to get back in. */
+function revokeSuperAdmin(userId: number) {
+  return api.put<DashboardUserResponse>(`/user-access/revoke-superadmin/${userId}`);
+}
+
 export const rolesApi = {
   getAllRoles,
   createRole,
@@ -129,4 +142,6 @@ export const rolesApi = {
   deleteRoleGroup,
   getDashboardUsers,
   assignRoleGroup,
+  assignSuperAdmin,
+  revokeSuperAdmin,
 };

@@ -340,6 +340,14 @@ re-read a file before editing; expect it to have changed):
     (`DashboardAuthService.hasDashboardAccess`). Assign Role Group lists EVERY
     identity (`findAllForAccess`) with practitioner/respondent flags, so a
     respondent can be made an admin without a practitioner profile.
+  * Full access, two equivalent ways (for internal staff, so nobody shares
+    the seeded superadmin login): Assign Role Group's "Super admin" option
+    (`PUT /api/user-access/assign-superadmin|revoke-superadmin/{userId}`, any
+    identity, clears the group, last superadmin can't be revoked), or a role
+    whose paths include exactly `/*` (role editor's "Full access" checkbox).
+    Both reach the four SUPERADMIN_ONLY_PATHS — `canAccess` admits `/*`, and
+    the activity-log API checks `User.hasFullAccess()` live. A section
+    wildcard like `/admin/*` still does NOT.
   * The bulk respondent sheet ATTACHES a profile to an existing identity with
     no respondent profile and a matching dob (was "Email already exists"),
     like the single create. Second respondent / dob mismatch stay issues.
@@ -440,7 +448,7 @@ re-read a file before editing; expect it to have changed):
 
 ## Verification loop (do this EVERY change)
 
-1. Backend: `cd spring-social && ./mvnw -B test` (477 tests green as of
+1. Backend: `cd spring-social && ./mvnw -B test` (478 tests green as of
    2026-10-05). Tightening a DTO's validation breaks the fixtures that post
    that shape — fix the payloads, do not relax the rule. If every Spring test
    errors with `BeanDefinitionOverrideException` on repositories, the IDE has

@@ -10,9 +10,13 @@
 // The list is EVERY identity (2026-10-05) — practitioners, respondents and
 // superadmins. One person may be practitioner and respondent at once, and a
 // group is what opens the dashboard to a respondent with no practitioner
-// profile (the server's login gate admits anyone holding one). Superadmin
-// rows are shown but not assignable: the flag already opens everything, so a
-// group on that row would describe access the person does not depend on.
+// profile (the server's login gate admits anyone holding one).
+//
+// "Super admin" is the first choice in the same dropdown: it sets the flag
+// (full access, the access-admin pages included — no role can grant those)
+// and clears any group, since a group on a superadmin describes access the
+// person does not depend on. Granting it asks for confirmation; the server
+// refuses to revoke the last one.
 
 import { useEffect, useMemo, useState } from 'react';
 import { UserCog, Search, ShieldCheck, Check, AlertCircle } from 'lucide-react';
@@ -23,6 +27,9 @@ const errorText = (e: any, fallback: string) =>
   e?.response?.data?.message || e?.message || fallback;
 
 type KindFilter = 'all' | 'practitioner' | 'respondent' | 'grouped';
+
+/** The dropdown value standing for the superadmin flag rather than a group. */
+const SUPER = '__superadmin__';
 
 /** Rendering thousands of rows of selects is slow; search narrows past this. */
 const MAX_ROWS = 200;
@@ -43,6 +50,8 @@ export default function AssignRoleGroupPage() {
   const [savingId, setSavingId] = useState<number | null>(null);
   const [savedId, setSavedId] = useState<number | null>(null);
   const [rowError, setRowError] = useState<{ userId: number; message: string } | null>(null);
+  // Granting superadmin waits for an explicit confirm on that row.
+  const [pendingSuper, setPendingSuper] = useState<number | null>(null);
 
   const refresh = async () => {
     setLoading(true);
@@ -84,16 +93,44 @@ export default function AssignRoleGroupPage() {
   const signInCount = useMemo(() => users.filter(canSignIn).length, [users]);
 
   const assign = async (user: DashboardUserResponse, value: string) => {
+    if (value === SUPER) {
+      if (!user.superAdmin) setPendingSuper(user.userId);
+      return;
+    }
     const roleGroupId = value === '' ? null : Number(value);
+    setPendingSuper(null);
     setSavingId(user.userId);
     setRowError(null);
     setSavedId(null);
     try {
-      const res = await rolesApi.assignRoleGroup(user.userId, roleGroupId);
-      setUsers((list) => list.map((u) => (u.userId === user.userId ? res.data : u)));
+      // Leaving superadmin: drop the flag first — the server refuses a group
+      // on a superadmin — then give the chosen group, if any.
+      let row = user;
+      if (user.superAdmin) row = (await rolesApi.revokeSuperAdmin(user.userId)).data;
+      if (roleGroupId !== null || row.roleGroupId !== null) {
+        row = (await rolesApi.assignRoleGroup(user.userId, roleGroupId)).data;
+      }
+      const saved = row;
+      setUsers((list) => list.map((u) => (u.userId === user.userId ? saved : u)));
       setSavedId(user.userId);
     } catch (e: any) {
       setRowError({ userId: user.userId, message: errorText(e, 'Failed to assign group') });
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  const confirmSuper = async (user: DashboardUserResponse) => {
+    setSavingId(user.userId);
+    setRowError(null);
+    setSavedId(null);
+    try {
+      const res = await rolesApi.assignSuperAdmin(user.userId);
+      setUsers((list) => list.map((u) => (u.userId === user.userId ? res.data : u)));
+      setSavedId(user.userId);
+      setPendingSuper(null);
+    } catch (e: any) {
+      setRowError({ userId: user.userId, message: errorText(e, 'Failed to make super admin') });
     } finally {
       setSavingId(null);
     }
@@ -234,15 +271,14 @@ export default function AssignRoleGroupPage() {
                       </span>
                     )}
                     <select
-                      value={user.roleGroupId ?? ''}
-                      disabled={user.superAdmin || savingId === user.userId || groups.length === 0}
+                      value={pendingSuper === user.userId || user.superAdmin ? SUPER : (user.roleGroupId ?? '')}
+                      disabled={savingId === user.userId}
                       onChange={(e) => assign(user, e.target.value)}
                       className="h-9 min-w-56 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:border-ring focus:ring-[3px] focus:ring-ring/30 disabled:opacity-60"
                     >
+                      <option value={SUPER}>Super admin — full access</option>
                       <option value="">
-                        {user.superAdmin
-                          ? 'Full access (super admin)'
-                          : user.practitioner ? 'None — dashboard only' : 'None — no dashboard access'}
+                        {user.practitioner ? 'None — dashboard only' : 'None — no dashboard access'}
                       </option>
                       {groups.map((g) => (
                         <option key={g.roleGroupId} value={g.roleGroupId}>
@@ -252,6 +288,31 @@ export default function AssignRoleGroupPage() {
                     </select>
                   </div>
                 </div>
+
+                {pendingSuper === user.userId && (
+                  <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-purple-200 bg-purple-50 dark:border-purple-900 dark:bg-purple-950/30 px-3 py-2 text-xs text-purple-800 dark:text-purple-300">
+                    <span className="flex items-center gap-1.5">
+                      <ShieldCheck className="h-3.5 w-3.5 shrink-0" />
+                      Make {user.name || user.email} a super admin? They get every page, including roles,
+                      role groups, this screen and the activity log.
+                    </span>
+                    <span className="flex gap-2">
+                      <button
+                        onClick={() => setPendingSuper(null)}
+                        className="h-7 rounded-md border border-input bg-background px-2.5 text-xs hover:bg-muted"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={() => confirmSuper(user)}
+                        disabled={savingId === user.userId}
+                        className="h-7 rounded-md bg-purple-600 px-2.5 text-xs text-white hover:bg-purple-700 disabled:opacity-60"
+                      >
+                        Make super admin
+                      </button>
+                    </span>
+                  </div>
+                )}
 
                 {rowError?.userId === user.userId && (
                   <div className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-3 py-2 text-xs text-red-700 dark:text-red-400">

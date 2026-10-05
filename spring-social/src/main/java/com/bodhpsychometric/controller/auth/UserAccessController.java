@@ -73,6 +73,48 @@ public class UserAccessController {
                 .toList();
     }
 
+    /**
+     * Makes ANY identity a superadmin — practitioner or respondent alike
+     * (2026-10-05; the practitioner page's own toggle only reached
+     * practitioners). The flag is full access, the four access-admin pages
+     * included, which no role can grant. Any group the person held is
+     * cleared: assignRoleGroup refuses a group on a superadmin, so leaving
+     * one behind would store access nothing depends on.
+     */
+    @PutMapping("/assign-superadmin/{userId}")
+    public ResponseEntity<?> assignSuperAdmin(@PathVariable Long userId) {
+        User user = userRepository.findById(userId).orElse(null);
+        if (user == null) {
+            return ResponseEntity.notFound().build();
+        }
+        user.setSuperAdmin(true);
+        user.setRoleGroup(null);
+        userRepository.save(user);
+        return ResponseEntity.ok(toResponse(user));
+    }
+
+    /**
+     * Takes the flag away again; the person drops to no group (dashboard only
+     * if they are a practitioner, no dashboard otherwise) until one is
+     * assigned. The last superadmin cannot be revoked — nobody could reach
+     * this screen to fix it.
+     */
+    @PutMapping("/revoke-superadmin/{userId}")
+    public ResponseEntity<?> revokeSuperAdmin(@PathVariable Long userId) {
+        User user = userRepository.findById(userId).orElse(null);
+        if (user == null) {
+            return ResponseEntity.notFound().build();
+        }
+        if (user.isSuperAdmin() && userRepository.countBySuperAdminTrue() <= 1) {
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(Map.of("message",
+                            "Cannot revoke the last superadmin — make someone else superadmin first"));
+        }
+        user.setSuperAdmin(false);
+        userRepository.save(user);
+        return ResponseEntity.ok(toResponse(user));
+    }
+
     @PutMapping("/assign-role-group/{userId}")
     public ResponseEntity<?> assignRoleGroup(@PathVariable Long userId,
             @RequestBody RoleGroupAssignRequest request) {
@@ -102,13 +144,19 @@ public class UserAccessController {
         user.setRoleGroup(group);
         userRepository.save(user);
 
+        return ResponseEntity.ok(toResponse(user));
+    }
+
+    /** One row, for the write endpoints — profile names looked up by user id. */
+    private DashboardUserResponse toResponse(User user) {
+        Long userId = user.getId();
         Map<Long, String> practitionerNames = new HashMap<>();
         practitionerUserRepository.findByUser_Id(userId)
                 .ifPresent(p -> practitionerNames.put(userId, p.getName()));
         Map<Long, String> respondentNames = new HashMap<>();
         respondentUserRepository.findByUser_Id(userId)
                 .ifPresent(r -> respondentNames.put(userId, r.getName()));
-        return ResponseEntity.ok(toResponse(user, practitionerNames, respondentNames));
+        return toResponse(user, practitionerNames, respondentNames);
     }
 
     private static DashboardUserResponse toResponse(User user,

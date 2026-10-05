@@ -209,4 +209,69 @@ class RespondentDeleteAndAccessTest {
                         .content("{\"email\":\"sheet.pract@test.local\",\"dob\":\"1989-09-09\"}"))
                 .andExpect(status().isOk());
     }
+
+    @Test
+    void anyoneCanBeMadeSuperadminAndBack() throws Exception {
+        createRespondent("Respondent Super", "resp.super@test.local", "11-11-1991");
+        String login = "{\"email\":\"resp.super@test.local\",\"dob\":\"1991-11-11\"}";
+        String users = mvc.perform(get("/api/user-access/getAll"))
+                .andReturn().getResponse().getContentAsString();
+        int userId = ((Number) JsonPath.<java.util.List<Object>>read(users,
+                "$[?(@.email == 'resp.super@test.local')].userId").get(0)).intValue();
+
+        // A "/*" role is a legal role — the full-access checkbox stores exactly that.
+        int roleId = JsonPath.read(postJson("/api/roles/create",
+                "{\"name\":\"Access Test Full\",\"description\":null,\"urlPaths\":[\"/*\"]}"), "$.id");
+        int groupId = JsonPath.read(postJson("/api/role-groups/create",
+                "{\"name\":\"Access Test Full Group\",\"description\":null,\"roleIds\":[" + roleId + "]}"),
+                "$.roleGroupId");
+        mvc.perform(put("/api/user-access/assign-role-group/" + userId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"roleGroupId\":" + groupId + "}"))
+                .andExpect(status().isOk());
+
+        // The full-access role alone reaches the activity log (superadmin-only
+        // before 2026-10-05) — the token carries no superadmin flag here.
+        String roleLogin = mvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON).content(login))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.user.superAdmin").value(false))
+                .andReturn().getResponse().getContentAsString();
+        String roleToken = JsonPath.read(roleLogin, "$.token");
+        mvc.perform(get("/api/activity/getAll").header("Authorization", "Bearer " + roleToken))
+                .andExpect(status().isOk());
+
+        // A narrower role does not.
+        int narrowRoleId = JsonPath.read(postJson("/api/roles/create",
+                "{\"name\":\"Access Test Admin Section\",\"description\":null,\"urlPaths\":[\"/admin/*\"]}"), "$.id");
+        int narrowGroupId = JsonPath.read(postJson("/api/role-groups/create",
+                "{\"name\":\"Access Test Admin Group\",\"description\":null,\"roleIds\":[" + narrowRoleId + "]}"),
+                "$.roleGroupId");
+        mvc.perform(put("/api/user-access/assign-role-group/" + userId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"roleGroupId\":" + narrowGroupId + "}"))
+                .andExpect(status().isOk());
+        mvc.perform(get("/api/activity/getAll").header("Authorization", "Bearer " + roleToken))
+                .andExpect(status().isForbidden());
+
+        // Superadmin clears the group it makes redundant.
+        mvc.perform(put("/api/user-access/assign-superadmin/" + userId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.superAdmin").value(true))
+                .andExpect(jsonPath("$.roleGroupId").doesNotExist())
+                .andExpect(jsonPath("$.respondent").value(true));
+        mvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON).content(login))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.user.superAdmin").value(true))
+                .andExpect(jsonPath("$.user.urlPaths", hasItem("/*")));
+
+        mvc.perform(put("/api/user-access/revoke-superadmin/" + userId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.superAdmin").value(false));
+        mvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON).content(login))
+                .andExpect(status().isForbidden());
+
+        mvc.perform(put("/api/user-access/assign-superadmin/999999"))
+                .andExpect(status().isNotFound());
+    }
 }
