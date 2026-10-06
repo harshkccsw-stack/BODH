@@ -6,13 +6,24 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.util.List;
+
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.support.TransactionTemplate;
 
+import com.bodhpsychometric.model.assessment.AssessmentAnswer;
+import com.bodhpsychometric.model.question.Option;
+import com.bodhpsychometric.model.question.enums.ContentType;
+import com.bodhpsychometric.repository.assessment.AssessmentAnswerRepository;
+import com.bodhpsychometric.repository.question.OptionRepository;
+import com.bodhpsychometric.repository.question.QuestionRepository;
 import com.jayway.jsonpath.JsonPath;
 
 /**
@@ -27,6 +38,30 @@ class ShortAnswerTest {
 
     @Autowired
     private MockMvc mvc;
+
+    @Autowired
+    private OptionRepository options;
+
+    @Autowired
+    private QuestionRepository questions;
+
+    @Autowired
+    private AssessmentAnswerRepository answers;
+
+    @Autowired
+    private TransactionTemplate tx;
+
+    /** The generated text slot as stored — the API never shows it. */
+    private Option textSlot(long questionId) {
+        return options.findTextAnswerOptions(List.of(questionId)).get(questionId);
+    }
+
+    /** Every option row the question owns in the database, hidden or not. */
+    private List<String> storedOptions(long questionId) {
+        return tx.execute(status -> questions.findById(questionId).orElseThrow().getOptions().stream()
+                .map(o -> o.getContentType() + ":" + o.getOptionText())
+                .toList());
+    }
 
     private String postJson(String path, String body) throws Exception {
         return mvc.perform(post(path).contentType(MediaType.APPLICATION_JSON).content(body))
@@ -67,6 +102,37 @@ class ShortAnswerTest {
                 // question-level row is normalised to 0.
                 .andExpect(jsonPath("$.mqtScores[0].measuredQualityTypeId").value(mqtId))
                 .andExpect(jsonPath("$.mqtScores[0].score").value(3));
+
+        // V40: ONE option IS stored — the generated text slot the answer row
+        // will point at — FREE_TEXT, unlabelled, and absent from the API.
+        assertThat(storedOptions(questionId)).containsExactly("FREE_TEXT:null");
+        assertThat(textSlot(questionId)).isNotNull();
+    }
+
+    @Test
+    void switchingTypeReplacesTheTextSlotAndLeavesNothingBehind() throws Exception {
+        String body = postJson("/api/questions/create", shortAnswerJson("__smoke__ switch me", "", ""));
+        int questionId = JsonPath.read(body, "$.questionId");
+        long slotBefore = textSlot(questionId).getOptionId();
+
+        // Unanswered, so the type may change: the slot goes, the choices come.
+        mvc.perform(put("/api/questions/update/" + questionId).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"contentType\":\"TEXT\",\"questionType\":\"MCQ\",\"stem\":\"__smoke__ switch me\","
+                                + "\"mediaUrl\":null,\"riskFlag\":false,\"options\":["
+                                + "{\"optionText\":\"Yes\",\"contentType\":\"TEXT\",\"mediaUrl\":null,\"mqtScores\":[]},"
+                                + "{\"optionText\":\"No\",\"contentType\":\"TEXT\",\"mediaUrl\":null,\"mqtScores\":[]}],"
+                                + "\"rows\":[],\"mqtScores\":[]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.options.length()").value(2));
+        assertThat(storedOptions(questionId)).containsExactly("TEXT:Yes", "TEXT:No");
+        assertThat(options.findById(slotBefore)).isEmpty();
+
+        // And back: the choices go, a fresh slot comes, still hidden.
+        mvc.perform(put("/api/questions/update/" + questionId).contentType(MediaType.APPLICATION_JSON)
+                        .content(shortAnswerJson("__smoke__ switch me", "", "")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.options.length()").value(0));
+        assertThat(storedOptions(questionId)).containsExactly("FREE_TEXT:null");
     }
 
     @Test
@@ -96,6 +162,16 @@ class ShortAnswerTest {
                                 + "\"options\":[],\"rows\":[],\"mqtScores\":[]}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("not available yet")));
+
+        // GAMES is reserved too (2026-10-06) and, unlike PARAGRAPH, is not even
+        // in the MySQL enum yet — options or none, the server refuses it.
+        mvc.perform(post("/api/questions/create").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"contentType\":\"TEXT\",\"questionType\":\"GAMES\","
+                                + "\"stem\":\"__smoke__ games\",\"mediaUrl\":null,\"riskFlag\":false,"
+                                + "\"options\":[{\"optionText\":\"Play\",\"contentType\":\"TEXT\","
+                                + "\"mediaUrl\":null,\"mqtScores\":[]}],\"rows\":[],\"mqtScores\":[]}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("games questions")));
     }
 
     @Test
@@ -180,5 +256,22 @@ class ShortAnswerTest {
         mvc.perform(get("/api/reports/export/assessment/" + assessmentId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.rows[0].answers.Q_1").value("Busy, but good."));
+
+        // V40: the row carries the question's text slot AND the text, the
+        // same shape as an "Other…" answer — the portal sent text only.
+        List<AssessmentAnswer> stored = answers.findForExport((long) assessmentId, List.of((long) respondentUserId));
+        assertThat(stored).hasSize(1);
+        assertThat(stored.get(0).getOption()).isNotNull();
+        assertThat(stored.get(0).getOption().getOptionId()).isEqualTo(textSlot(questionId).getOptionId());
+        assertThat(stored.get(0).getOption().getContentType()).isEqualTo(ContentType.FREE_TEXT);
+        assertThat(stored.get(0).getAnswerText()).isEqualTo("Busy, but good.");
+
+        // Answered, yet still editable: the slot is regenerated identically,
+        // so a stem edit does not read as "its options are locked".
+        mvc.perform(put("/api/questions/update/" + questionId).contentType(MediaType.APPLICATION_JSON)
+                        .content(shortAnswerJson("__smoke__ describe your week, briefly", "",
+                                "{\"measuredQualityTypeId\":" + mqtId + ",\"score\":3}")))
+                .andExpect(status().isOk());
+        assertThat(textSlot(questionId).getOptionId()).isEqualTo(stored.get(0).getOption().getOptionId());
     }
 }

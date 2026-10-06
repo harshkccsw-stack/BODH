@@ -5,6 +5,10 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.util.List;
+
 import org.hamcrest.Matchers;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,6 +26,8 @@ import com.bodhpsychometric.model.question.enums.ContentType;
 import com.bodhpsychometric.model.question.enums.QuestionType;
 import com.bodhpsychometric.model.questionnaire.Questionnaire;
 import com.bodhpsychometric.model.questionnaire.QuestionnaireQuestion;
+import com.bodhpsychometric.model.assessment.AssessmentAnswer;
+import com.bodhpsychometric.repository.assessment.AssessmentAnswerRepository;
 import com.bodhpsychometric.repository.assessment.AssessmentRepository;
 import com.bodhpsychometric.repository.question.QuestionRepository;
 import com.bodhpsychometric.repository.questionnaire.QuestionnaireQuestionRepository;
@@ -42,6 +48,7 @@ class MemoryMeshAttemptSyncTest {
     @Autowired private QuestionnaireRepository questionnaires;
     @Autowired private QuestionnaireQuestionRepository placements;
     @Autowired private AssessmentRepository assessments;
+    @Autowired private AssessmentAnswerRepository answers;
 
     private record Seed(Long assessmentId, Long questionId, Long otherQuestionId) {
     }
@@ -178,5 +185,73 @@ class MemoryMeshAttemptSyncTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.email").value("mm.attempt@test.local"))
                 .andExpect(jsonPath("$.assessments.length()").value(Matchers.greaterThanOrEqualTo(1)));
+    }
+
+    private record ShortSeed(Long assessmentId, Long questionId, Long textSlotId) {
+    }
+
+    /** A short answer as the question flow stores it: one unlabelled FREE_TEXT slot (V40). */
+    private ShortSeed seedShortAnswer() {
+        return tx.execute(status -> {
+            Question q = new Question();
+            q.setQuestionTexString("Describe your week.");
+            q.setContentType(ContentType.TEXT);
+            q.setQuestionType(QuestionType.SHORT_ANSWER);
+            Option slot = new Option();
+            slot.setContentType(ContentType.FREE_TEXT);
+            slot.setSortOrder(0);
+            q.addOption(slot);
+            q = questions.save(q);
+
+            Questionnaire qn = new Questionnaire();
+            qn.setName("Mirror short questionnaire");
+            qn.setHasSections(false);
+            qn = questionnaires.save(qn);
+            QuestionnaireQuestion p = new QuestionnaireQuestion();
+            p.setQuestionnaire(qn);
+            p.setQuestion(q);
+            p.setSortOrder(0);
+            placements.save(p);
+
+            Assessment a = new Assessment();
+            a.setName("Mirror short assessment");
+            a.setQuestionnaire(qn);
+            a.setStatus(AssessmentStatus.ACTIVE);
+            a = assessments.save(a);
+            return new ShortSeed(a.getAssessmentId(), q.getQuestionId(), q.getOptions().get(0).getOptionId());
+        });
+    }
+
+    @Test
+    void aMirroredShortAnswerLandsOnItsTextSlot() throws Exception {
+        ShortSeed s = seedShortAnswer();
+        String person = """
+                "respondent":{"name":"Short Mirror","email":"mm.short@test.local",\
+                "phoneCountryCode":"+91","phone":"9700000043","dob":"1994-04-04","gender":"FEMALE"}""";
+
+        mvc.perform(post("/api/sync/memorymesh/attempts")
+                .header(KEY, "test-sync-key")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(("{" + person + ",\"assessmentId\":%d,\"answers\":[{\"questionId\":%d}]}")
+                        .formatted(s.assessmentId(), s.questionId())))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value(Matchers.containsString("typed nothing")));
+
+        String body = mvc.perform(post("/api/sync/memorymesh/attempts")
+                .header(KEY, "test-sync-key")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(("{" + person + ",\"assessmentId\":%d,\"answers\":[{\"questionId\":%d,"
+                        + "\"answerText\":\"Calm, mostly\"}]}").formatted(s.assessmentId(), s.questionId())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.stored").value(1))
+                .andReturn().getResponse().getContentAsString();
+        long respondentId = ((Number) JsonPath.read(body, "$.respondentUserId")).longValue();
+
+        List<AssessmentAnswer> stored = answers.findForExport(s.assessmentId(), List.of(respondentId));
+        assertThat(stored).hasSize(1);
+        assertThat(stored.get(0).getOption().getOptionId()).isEqualTo(s.textSlotId());
+        assertThat(stored.get(0).getAnswerText()).isEqualTo("Calm, mostly");
+        // The slot has no label, so the printed cell is the text alone.
+        assertThat(stored.get(0).displayText()).isEqualTo("Calm, mostly");
     }
 }

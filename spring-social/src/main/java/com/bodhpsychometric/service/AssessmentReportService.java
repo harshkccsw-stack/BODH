@@ -116,11 +116,15 @@ public class AssessmentReportService {
     }
 
     @Transactional(readOnly = true)
-    public ReportPageResponse<ReportAssessmentOption> assessmentOptions(String search, int page, int size) {
+    public ReportPageResponse<ReportAssessmentOption> assessmentOptions(Long organizationId, String search,
+            int page, int size) {
         Pageable pageable = pageOf(page, size, Sort.by("name").ascending());
-        Page<Assessment> result = isBlank(search)
-                ? assessments.findAll(pageable)
-                : assessments.findByNameContainingIgnoreCase(search.trim(), pageable);
+        Page<Assessment> result = organizationId != null
+                ? assessments.findInOrganizationCatalog(organizationId,
+                        isBlank(search) ? null : "%" + search.trim().toLowerCase() + "%", pageable)
+                : isBlank(search)
+                        ? assessments.findAll(pageable)
+                        : assessments.findByNameContainingIgnoreCase(search.trim(), pageable);
         return ReportPageResponse.from(result.map(ReportAssessmentOption::from));
     }
 

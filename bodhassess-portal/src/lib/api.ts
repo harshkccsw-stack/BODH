@@ -146,7 +146,7 @@ export type PortalSelectionRule = 'MIN' | 'MAX' | 'EQUALS';
 // What shape the question is. Matches QuestionType on the backend — RENDERING
 // only: a LINEAR_SCALE is an ordinary cap-1 question whose options are the
 // points 1—5, so every gate still reads min/maxSelections.
-export type PortalQuestionType = 'MCQ' | 'LINEAR_SCALE' | 'LIKERT_GRID' | 'SHORT_ANSWER' | 'PARAGRAPH';
+export type PortalQuestionType = 'MCQ' | 'LINEAR_SCALE' | 'LIKERT_GRID' | 'SHORT_ANSWER' | 'PARAGRAPH' | 'GAMES';
 // Matches PortalAssessmentDetailResponse.PortalQuestion on the backend.
 export interface PortalQuestion {
   questionId: number;
