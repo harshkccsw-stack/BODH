@@ -36,6 +36,17 @@ const PATH_VERTICAL: Record<string, string> = {
   experimental: 'EXPERIMENTS',
 };
 
+// List order, picked in the filter row. Ids are IDENTITY, so a higher id was
+// created later; names compare case-insensitively with numbers in order.
+type SortKey = 'NEWEST' | 'OLDEST' | 'AZ' | 'ZA';
+const SORTS: { value: SortKey; label: string }[] = [
+  { value: 'NEWEST', label: 'Newest first' },
+  { value: 'OLDEST', label: 'Oldest first' },
+  { value: 'AZ', label: 'Name A–Z' },
+  { value: 'ZA', label: 'Name Z–A' },
+];
+const byName = (a: string, b: string) => a.localeCompare(b, undefined, { sensitivity: 'base', numeric: true });
+
 export default function AllQuestionnairesPage() {
   const navigate = useNavigate();
   const pathname = usePathname();
@@ -46,6 +57,7 @@ export default function AllQuestionnairesPage() {
   const [loadError, setLoadError] = useState('');
   const [search, setSearch] = useState('');
   const [filterVertical, setFilterVertical] = useState<string>('ALL');
+  const [sort, setSort] = useState<SortKey>('NEWEST');
 
   const [confirmDelete, setConfirmDelete] = useState<QuestionnaireResponse | null>(null);
 
@@ -79,8 +91,12 @@ export default function AllQuestionnairesPage() {
           (q.category || '').toLowerCase().includes(s),
       );
     }
-    return list;
-  }, [items, activeVertical, search]);
+    return [...list].sort((a, b) => {
+      if (sort === 'AZ') return byName(a.name, b.name) || b.questionnaireId - a.questionnaireId;
+      if (sort === 'ZA') return byName(b.name, a.name) || b.questionnaireId - a.questionnaireId;
+      return sort === 'OLDEST' ? a.questionnaireId - b.questionnaireId : b.questionnaireId - a.questionnaireId;
+    });
+  }, [items, activeVertical, search, sort]);
 
   const totalQuestions = useMemo(() => items.reduce((a, q) => a + q.questionCount, 0), [items]);
 
@@ -167,6 +183,14 @@ export default function AllQuestionnairesPage() {
             ))}
           </div>
         )}
+        <select
+          value={sort}
+          onChange={(e) => setSort(e.target.value as SortKey)}
+          aria-label="Sort"
+          className="h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:border-ring"
+        >
+          {SORTS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+        </select>
       </div>
 
       {loading ? (

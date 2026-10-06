@@ -159,20 +159,28 @@ export function ColumnCatalog({ columns, onInsert, sections = [], className, aut
                 <GroupLabel>{scoresLabel}</GroupLabel>
                 {scores.groups.map((g) => (
                   <div key={g.id} className="mb-1.5">
-                    <div className="flex items-baseline gap-1 px-1 py-0.5">
-                      <span className="truncate text-[11px] font-semibold" title={g.name}>
+                    {/* The heading row inserts the MQ total, the one column the
+                        MQ itself stands for — the whole row, not just the small
+                        "Σ all", which stays visible so the click says what it
+                        inserts. */}
+                    {g.total ? (
+                      <button
+                        type="button"
+                        className="group flex w-full select-none items-baseline gap-1 rounded px-1 py-0.5 text-left hover:bg-muted"
+                        title={`${g.total.label} — ${g.total.key}`}
+                        onClick={() => onInsert(`[${g.total!.key}]`)}
+                      >
+                        <span className="min-w-0 truncate text-[11px] font-semibold">{g.name}</span>
+                        <span className="ml-auto flex shrink-0 items-baseline gap-1 text-[10px] text-muted-foreground">
+                          <code className="hidden font-mono group-hover:inline">{g.total.key}</code>
+                          <span className="px-1 group-hover:text-foreground">Σ all</span>
+                        </span>
+                      </button>
+                    ) : (
+                      <div className="select-none truncate px-1 py-0.5 text-[11px] font-semibold" title={g.name}>
                         {g.name}
-                      </span>
-                      {g.total && (
-                        <button
-                          className="ml-auto shrink-0 rounded px-1 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground"
-                          title={`${g.total.label} — ${g.total.key}`}
-                          onClick={() => onInsert(`[${g.total!.key}]`)}
-                        >
-                          Σ all
-                        </button>
-                      )}
-                    </div>
+                      </div>
+                    )}
                     {flatten(g.roots).map((n) => (
                       <Row
                         key={n.column.key}
@@ -266,24 +274,26 @@ function Row({
   after?: React.ReactNode;
 }) {
   return (
-    <div
-      className="group flex items-center gap-1 rounded pr-1 hover:bg-muted"
-      style={indent ? { paddingLeft: indent * 10 } : undefined}
-    >
+    <div className="group flex items-center gap-1 rounded pr-1 hover:bg-muted">
+      {/* The whole row is the button — indent, name, and the key shown on
+          hover. The key and the indent used to sit OUTSIDE it, so a click on
+          either selected text instead of inserting. The Σ button stays a
+          sibling: a button cannot hold another. */}
       <button
         type="button"
-        className="flex-1 truncate rounded px-1.5 py-1 text-left text-[11px]"
+        className="flex min-w-0 flex-1 select-none items-center gap-1 rounded py-1 pr-1.5 text-left text-[11px]"
+        style={{ paddingLeft: 6 + indent * 10 }}
         title={title}
         onClick={onClick}
       >
-        {children}
+        <span className="min-w-0 flex-1 truncate">{children}</span>
+        {code && (
+          <code className="hidden shrink-0 font-mono text-[10px] text-muted-foreground group-hover:inline">
+            {code}
+          </code>
+        )}
       </button>
       {after}
-      {code && (
-        <code className="hidden shrink-0 font-mono text-[10px] text-muted-foreground group-hover:inline">
-          {code}
-        </code>
-      )}
     </div>
   );
 }

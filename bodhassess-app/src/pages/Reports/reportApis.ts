@@ -220,7 +220,12 @@ function getOrganizations(query: PagedQuery) {
   return api.get<ReportPage<OrganizationOption>>(`/reports/getOrganizations`, { params: query });
 }
 
-function getAssessments(query: PagedQuery) {
+export interface AssessmentOptionQuery extends PagedQuery {
+  /** Only the assessments mapped into this org's catalog; undefined = all. */
+  organizationId?: number;
+}
+
+function getAssessments(query: AssessmentOptionQuery) {
   return api.get<ReportPage<AssessmentOption>>(`/reports/getAssessments`, { params: query });
 }
 

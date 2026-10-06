@@ -1,6 +1,9 @@
 package com.bodhpsychometric.service;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -16,6 +19,7 @@ import com.bodhpsychometric.model.question.Question;
 import com.bodhpsychometric.model.question.QuestionRow;
 import com.bodhpsychometric.repository.assessment.AssessmentAnswerRepository;
 import com.bodhpsychometric.repository.assessment.RespondentAssessmentMappingRepository;
+import com.bodhpsychometric.repository.question.OptionRepository;
 
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
@@ -38,14 +42,16 @@ public class AssessmentSubmissionWriter {
 
     private final RespondentAssessmentMappingRepository mappings;
     private final AssessmentAnswerRepository assessmentAnswers;
+    private final OptionRepository options;
 
     @PersistenceContext
     private EntityManager entityManager;
 
     public AssessmentSubmissionWriter(RespondentAssessmentMappingRepository mappings,
-            AssessmentAnswerRepository assessmentAnswers) {
+            AssessmentAnswerRepository assessmentAnswers, OptionRepository options) {
         this.mappings = mappings;
         this.assessmentAnswers = assessmentAnswers;
+        this.options = options;
     }
 
     /**
@@ -72,6 +78,16 @@ public class AssessmentSubmissionWriter {
         assessmentAnswers.deleteByRespondent_IdAndAssessment_AssessmentId(respondentUserId, assessmentId);
         assessmentAnswers.flush();
 
+        // A short answer is stored on its question's generated text-slot
+        // option (V40). The portal never sees that option, so its entry
+        // carries text only; this is the one place every portal submission
+        // is written, including ones staged before V40, so it attaches here.
+        Set<Long> textOnly = entries.stream()
+                .filter(e -> e.optionId() == null && e.questionRowId() == null)
+                .map(AnswerEntry::questionId)
+                .collect(Collectors.toSet());
+        Map<Long, Option> textSlots = options.findTextAnswerOptions(textOnly);
+
         for (AnswerEntry entry : entries) {
             AssessmentAnswer answer = new AssessmentAnswer();
             answer.setRespondent(mapping.getRespondent());
@@ -79,6 +95,8 @@ public class AssessmentSubmissionWriter {
             answer.setQuestion(entityManager.getReference(Question.class, entry.questionId()));
             if (entry.optionId() != null) {
                 answer.setOption(entityManager.getReference(Option.class, entry.optionId()));
+            } else if (entry.questionRowId() == null) {
+                answer.setOption(textSlots.get(entry.questionId()));
             }
             if (entry.questionRowId() != null) {
                 answer.setQuestionRow(entityManager.getReference(QuestionRow.class, entry.questionRowId()));

@@ -110,13 +110,22 @@ public class MemoryMeshAttemptSyncService {
             if (option == null && text == null) {
                 throw bad("An answer to question " + a.questionId() + " chose nothing and typed nothing");
             }
+            // A short answer is stored on its generated text-slot option
+            // (V40), exactly as the portal's writer stores it. MemoryMesh
+            // imported the question with no options, so it sends text only.
+            if (option == null && row == null) {
+                option = q.textAnswerOption().orElse(null);
+            }
             // Same two rules as the portal's submit validator: an "Other…"
             // (FREE_TEXT) option carries its typed text on the same row and
             // is nothing without it; any other option carries none.
             if (option != null) {
                 boolean freeText = option.getContentType() == ContentType.FREE_TEXT;
                 if (freeText && text == null) {
-                    throw bad("The \"" + option.getOptionText() + "\" option of question " + a.questionId()
+                    // A short answer's text slot has no label to quote.
+                    throw bad((option.getOptionText() == null
+                            ? "Question " + a.questionId()
+                            : "The \"" + option.getOptionText() + "\" option of question " + a.questionId())
                             + " needs its typed answer");
                 }
                 if (!freeText && text != null) {

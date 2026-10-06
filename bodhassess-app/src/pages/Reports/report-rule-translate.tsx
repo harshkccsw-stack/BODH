@@ -23,6 +23,8 @@ import {
   type TranslationResult,
 } from './reportRulesApi';
 import { ColumnCatalogButton } from './column-catalog';
+import { buildRefResolver, type RefResolver } from './formula-refs';
+import { FormulaReadout } from './formula-readout';
 
 /**
  * Turn imported plain-language rules into formulae, with a human deciding.
@@ -114,6 +116,7 @@ export function ReportRuleTranslate({
   organizationId,
   rules,
   columns,
+  resolveRef,
   initialRuleIds,
   onClose,
   onApplied,
@@ -123,6 +126,12 @@ export function ReportRuleTranslate({
   rules: ReportRuleResponse[];
   /** The assessment's columns, for the insert rail. */
   columns: ReportColumn[];
+  /**
+   * Names for the keys in a proposal. The page's own resolver when it has
+   * one, because the page knows every active rule — `rules` here is only
+   * this assessment's, and a formula may read a library rule from elsewhere.
+   */
+  resolveRef?: RefResolver;
   /**
    * Empty: the batch screen, pick from every candidate. One or more ids: skip
    * the picker and translate exactly those — the per-rule button.
@@ -146,6 +155,10 @@ export function ReportRuleTranslate({
     rules.forEach((r) => out.set(r.reportRuleId, r));
     return out;
   }, [rules]);
+  const resolve = useMemo(
+    () => resolveRef ?? buildRefResolver(columns, rules),
+    [resolveRef, columns, rules],
+  );
 
   const [chosen, setChosen] = useState<Set<number>>(() => new Set(
     initialRuleIds.length
@@ -490,6 +503,7 @@ export function ReportRuleTranslate({
                     onHint={(v) => patch(d.ruleId, { hint: v })}
                     onReask={() => void reask(d)}
                     columns={columns}
+                    resolve={resolve}
                     others={drafts.filter((x) => x.ruleId !== d.ruleId)}
                     savedFormulae={rules.filter((r) =>
                       r.latest?.definitionKind === 'EXPRESSION'
@@ -549,6 +563,7 @@ function DraftCard({
   onHint,
   onReask,
   columns,
+  resolve,
   others,
   savedFormulae,
   outcome,
@@ -561,6 +576,7 @@ function DraftCard({
   onHint: (hint: string) => void;
   onReask: () => void;
   columns: ReportColumn[];
+  resolve: RefResolver;
   others: Draft[];
   savedFormulae: ReportRuleResponse[];
   outcome: DryRunResult['rules'][number] | null;
@@ -674,6 +690,11 @@ function DraftCard({
               }] : []}
             />
           </div>
+
+          {/* The proposal in names, directly under "Sheet said" and the box,
+              so the two can be read against each other: right items, and the
+              right one of own score / whole branch / MQ total. */}
+          <FormulaReadout formula={d.expression} resolve={resolve} />
 
           {d.note && (
             <p className="text-xs text-blue-900">

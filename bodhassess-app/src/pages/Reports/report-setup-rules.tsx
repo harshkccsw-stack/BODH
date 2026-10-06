@@ -30,6 +30,8 @@ import {
   type RuleStage,
 } from './reportRulesApi';
 import { ColumnCatalog } from './column-catalog';
+import { buildRefResolver, namedToken } from './formula-refs';
+import { FormulaReadout, StatementMentions } from './formula-readout';
 import { ReportRuleImport } from './report-rule-import';
 import { ReportRuleTranslate } from './report-rule-translate';
 
@@ -144,6 +146,7 @@ export function ReportRulesStep({
   const [runError, setRunError] = useState('');
 
   const expressionRef = useRef<HTMLTextAreaElement | null>(null);
+  const statementRef = useRef<HTMLTextAreaElement | null>(null);
 
   // Asked once, so an install with no key never draws a button that fails when
   // pressed. A failure here simply leaves the feature hidden.
@@ -191,6 +194,16 @@ export function ReportRulesStep({
       list.sort((a, b) => a.stepOrder - b.stepOrder || a.name.localeCompare(b.name)));
     return out;
   }, [rules, assessmentId]);
+
+  /**
+   * Names for every key a rule here can hold. Any ACTIVE rule, not only this
+   * assessment's: the validator accepts a slug from anywhere in the library,
+   * so the readout must be able to name one too.
+   */
+  const resolveRef = useMemo(
+    () => buildRefResolver(columns, rules.filter((r) => r.status === 'ACTIVE')),
+    [columns, rules],
+  );
 
   const verdictBySlug = useMemo(() => {
     const out: Record<string, RulePortability> = {};
@@ -257,6 +270,34 @@ export function ReportRulesStep({
         }
       });
       return { ...f, expression: next };
+    });
+  };
+
+  /**
+   * The plain-language twin of `insert`: the name a reader understands AND the
+   * key — "Internal Drive [mqt:14]". The name keeps the sentence readable; the
+   * key is what stops the AI from picking the wrong one of two "Verbal"s, and
+   * both models that read this text are sent every key with its label.
+   */
+  const insertNamed = (token: string) => {
+    const phrase = namedToken(resolveRef(token.slice(1, -1)));
+    setForm((f) => {
+      if (!f) return f;
+      const el = statementRef.current;
+      const text = f.statementText;
+      const at = el ? el.selectionStart : text.length;
+      const before = at > 0 && !/\s|\(/.test(text[at - 1]) ? ' ' : '';
+      // At the end the next thing typed is almost always a word, so leave
+      // room for it; before punctuation, don't.
+      const after = at >= text.length || /[\p{L}\p{N}]/u.test(text[at]) ? ' ' : '';
+      const piece = before + phrase + after;
+      window.requestAnimationFrame(() => {
+        if (el) {
+          el.focus();
+          el.selectionStart = el.selectionEnd = at + piece.length;
+        }
+      });
+      return { ...f, statementText: text.slice(0, at) + piece + text.slice(at) };
     });
   };
 
@@ -524,9 +565,17 @@ export function ReportRulesStep({
                               )}
                             </div>
                             {rule.latest?.definitionKind === 'EXPRESSION' ? (
-                              <code className="mt-1 block truncate text-xs text-muted-foreground">
-                                {rule.latest.expression}
-                              </code>
+                              <>
+                                <code className="mt-1 block truncate text-xs text-muted-foreground">
+                                  {rule.latest.expression}
+                                </code>
+                                <FormulaReadout
+                                  formula={rule.latest.expression ?? ''}
+                                  resolve={resolveRef}
+                                  compact
+                                  className="mt-1"
+                                />
+                              </>
                             ) : (
                               <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
                                 {rule.latest?.statementText}
@@ -874,6 +923,10 @@ export function ReportRulesStep({
                       onChange={(e) => setForm({ ...form, expression: e.target.value })}
                       placeholder="[mqt:14] + [mqt:15]"
                     />
+                    {/* The keys stay in the box — they are the identity — and
+                        this line says what each one is, so the formula can be
+                        checked against the sentence it came from. */}
+                    <FormulaReadout formula={form.expression} resolve={resolveRef} />
                     {check && (
                       <div className={cn(
                         'rounded-md border p-2 text-xs',
@@ -932,13 +985,47 @@ export function ReportRulesStep({
                   />
                 </div>
               ) : (
-                <textarea
-                  className="w-full rounded-md border border-input bg-background p-3 text-sm"
-                  rows={5}
-                  value={form.statementText}
-                  onChange={(e) => setForm({ ...form, statementText: e.target.value })}
-                  placeholder="Write the rule exactly as the psychometrician stated it. It reaches the model unparaphrased."
-                />
+                <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_260px]">
+                  <div className="space-y-2">
+                    <textarea
+                      ref={statementRef}
+                      className="w-full rounded-md border border-input bg-background p-3 text-sm"
+                      rows={5}
+                      value={form.statementText}
+                      onChange={(e) => setForm({ ...form, statementText: e.target.value })}
+                      placeholder="Write the rule exactly as the psychometrician stated it. It reaches the model unparaphrased."
+                    />
+                    <StatementMentions text={form.statementText} resolve={resolveRef} />
+                    <p className="text-[11px] text-muted-foreground">
+                      Click a score, question or rule on the right to name it exactly. It goes in
+                      as its name and its key — <code>Internal Drive [mqt:14]</code> — so the
+                      sentence stays readable and nobody has to guess which one you meant.
+                    </p>
+                  </div>
+
+                  {/* The same catalog the formula box inserts from. In prose
+                      ANY rule may be named, plain-language ones included —
+                      only a formula needs the other side to compute. */}
+                  <ColumnCatalog
+                    columns={columns}
+                    onInsert={insertNamed}
+                    className="max-h-80"
+                    sections={[{
+                      label: 'Other rules',
+                      hint: 'Name another rule in your sentence.',
+                      items: rules
+                        .filter((r) => r.assessmentId === assessmentId
+                          && r.status === 'ACTIVE'
+                          && r.reportRuleId !== form.id)
+                        .map((r) => ({
+                          key: String(r.reportRuleId),
+                          label: r.name,
+                          token: `[rule:${r.slug}]`,
+                          code: `rule:${r.slug}`,
+                        })),
+                    }]}
+                  />
+                </div>
               )}
 
               <label className="space-y-1 block">
@@ -989,6 +1076,7 @@ export function ReportRulesStep({
           assessmentId={assessmentId}
           rules={rules.filter((r) => r.assessmentId === assessmentId && r.status === 'ACTIVE')}
           columns={columns}
+          resolveRef={resolveRef}
           initialRuleIds={translating}
           onClose={() => setTranslating(null)}
           onApplied={(count) => {

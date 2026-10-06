@@ -26,6 +26,8 @@ import {
   type ReportRuleResponse,
   type RuleResultType,
 } from './reportRulesApi';
+import { buildRefResolver } from './formula-refs';
+import { FormulaReadout } from './formula-readout';
 
 const errorText = (e: any, fallback: string) =>
   e?.response?.data?.message || e?.message || fallback;
@@ -155,6 +157,12 @@ export default function ReportRulesPage() {
         (r.description ?? '').toLowerCase().includes(q),
     );
   }, [rules, search]);
+
+  /** Names for the keys in the formula being edited, on the chosen assessment. */
+  const resolveRef = useMemo(
+    () => buildRefResolver(columns, rules.filter((r) => r.status === 'ACTIVE')),
+    [columns, rules],
+  );
 
   const groupedColumns = useMemo(() => {
     const q = columnSearch.trim().toLowerCase();
@@ -541,6 +549,15 @@ export default function ReportRulesPage() {
                         onChange={(e) => setForm({ ...form, expression: e.target.value })}
                         spellCheck={false}
                       />
+                      {/* Only once the assessment's columns are in — before
+                          that every key would read "not found". */}
+                      {columns.length > 0 && (
+                        <FormulaReadout
+                          formula={form.expression}
+                          resolve={resolveRef}
+                          className="mt-2"
+                        />
+                      )}
                       {check && (
                         <div
                           className={cn(
