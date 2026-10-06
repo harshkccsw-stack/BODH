@@ -20,12 +20,24 @@ public interface DemographicResponseRepository extends JpaRepository<Demographic
     void deleteByRespondent_IdAndAssessment_AssessmentId(Long respondentUserId, Long assessmentId);
 
     /**
-     * How many demographic answers one respondent holds per assessment — the
-     * report info popup, in one query for the whole popup.
+     * How many demographic FIELDS one respondent answered per assessment — the
+     * report info popup, in one query for the whole popup. Distinct fields,
+     * not rows: a checklist stores one row per tick (V39), and three ticks are
+     * still one answered field.
      */
-    @Query("select d.assessment.assessmentId, count(d) from DemographicResponse d "
+    @Query("select d.assessment.assessmentId, count(distinct d.demographicField.demographicFieldId) "
+            + "from DemographicResponse d "
             + "where d.respondent.id = :respondentUserId group by d.assessment.assessmentId")
     List<Object[]> tallyDemographicsByAssessment(Long respondentUserId);
+
+    /**
+     * Every value anyone has given this field, across all assessments — what
+     * a field edit checks before it lets an option be renamed or removed.
+     * Only read when an edit actually drops a choice, which is rare.
+     */
+    @Query("select distinct d.responseValue from DemographicResponse d "
+            + "where d.demographicField.demographicFieldId = :demographicFieldId")
+    List<String> findAnsweredValues(Long demographicFieldId);
 
     /**
      * Export fetch — every demographic response of the given respondents for

@@ -14,6 +14,7 @@ import {
   parseAnswerKey,
   type PortalAnswerEntry,
   type PortalAssessmentDetail,
+  type PortalDemographicEntry,
   type PortalQuestion,
 } from '@/lib/api';
 import { TermsStep } from './terms-step';
@@ -257,11 +258,7 @@ export default function TakePage() {
 
   // Begin the attempt: store the form, record consent, flip to ONGOING.
   // Thrown errors surface inside the demographics step's error box.
-  const saveDemographics = async (clean: Record<string, string>) => {
-    const entries = Object.entries(clean).map(([fieldId, value]) => ({
-      demographicFieldId: Number(fieldId),
-      value,
-    }));
+  const saveDemographics = async (entries: PortalDemographicEntry[]) => {
     try {
       await portalAssessmentsApi.begin(detail.respondentAssessmentMappingId, entries);
     } catch (e) {

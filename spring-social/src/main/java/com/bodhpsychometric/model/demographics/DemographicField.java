@@ -1,6 +1,7 @@
 package com.bodhpsychometric.model.demographics;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 
 import com.bodhpsychometric.model.demographics.enums.DemographicFieldType;
@@ -63,6 +64,16 @@ public class DemographicField implements java.io.Serializable {
     @Column(name = "optionValue", nullable = false, length = 255)
     private List<String> options = new ArrayList<>();
 
+    /**
+     * The write-in choice ("Other (please specify)") on a DROPDOWN or
+     * CHECKLIST — NULL when the field has none. Deliberately NOT one of
+     * {@link #options}: it is always delivered last, and picking it requires
+     * the respondent to type, which lands in DemographicResponse.otherText.
+     * A plain "Other" with no text box is just an ordinary option.
+     */
+    @Column(name = "otherOptionLabel", length = 255)
+    private String otherOptionLabel;
+
     public Long getDemographicFieldId() {
         return demographicFieldId;
     }
@@ -101,5 +112,45 @@ public class DemographicField implements java.io.Serializable {
 
     public void setOptions(List<String> options) {
         this.options = options;
+    }
+
+    public String getOtherOptionLabel() {
+        return otherOptionLabel;
+    }
+
+    public void setOtherOptionLabel(String otherOptionLabel) {
+        this.otherOptionLabel = otherOptionLabel;
+    }
+
+    /**
+     * Every pickable choice in display order: the options, then the write-in
+     * last. Empty for the free-input types. Readers order a checklist's ticks
+     * by this, so the same ticks always print the same way.
+     */
+    public List<String> choices() {
+        if (!fieldType.hasChoices()) {
+            return List.of();
+        }
+        List<String> choices = new ArrayList<>(options);
+        if (otherOptionLabel != null) {
+            choices.add(otherOptionLabel);
+        }
+        return choices;
+    }
+
+    /**
+     * Stored values in this field's own choice order (the write-in last), so
+     * the same ticks always print the same way. A value that is no longer a
+     * choice keeps its place after them rather than vanishing; on a
+     * single-value field this is just its one value.
+     */
+    public List<String> inChoiceOrder(List<String> values) {
+        List<String> choices = choices();
+        return values.stream()
+                .sorted(Comparator.comparingInt(v -> {
+                    int at = choices.indexOf(v);
+                    return at < 0 ? Integer.MAX_VALUE : at;
+                }))
+                .toList();
     }
 }

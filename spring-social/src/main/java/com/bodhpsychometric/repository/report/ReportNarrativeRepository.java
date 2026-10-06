@@ -34,4 +34,15 @@ public interface ReportNarrativeRepository extends JpaRepository<ReportNarrative
     @Modifying
     @Query("delete from ReportNarrative n where n.computation.reportComputationId = :id")
     int deleteByComputationId(@Param("id") Long id);
+
+    /**
+     * Narratives written about these attempts. fkRnAttempt BLOCKS deleting an
+     * attempt row, so removing a respondent's allotments has to clear these
+     * first — the respondent delete warns about them by this count.
+     */
+    long countByRespondentAssessmentMappingIdIn(List<Long> respondentAssessmentMappingIds);
+
+    @Modifying
+    @Query("delete from ReportNarrative n where n.respondentAssessmentMappingId in :ids")
+    int deleteByAttemptIds(@Param("ids") List<Long> ids);
 }

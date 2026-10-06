@@ -142,6 +142,21 @@ re-read a file before editing; expect it to have changed):
   marks it with `otherOption` = the option NUMBER. Export sheet and Data
   Studio print the cell as `AssessmentAnswer.displayText()` — `Other: what
   they typed` — so the text is visible and the choice stays countable.
+- Demographic CHECKLIST + write-in "Other" (2026-10-01, `V39`,
+  `docs/demographic-other-and-checklist-plan.md`): CHECKLIST ticks any number
+  of options, which live in `demographic_field_option` like a Dropdown's. The
+  write-in is `DemographicField.otherOptionLabel` (NULL = none), NOT an option
+  row, and is delivered last; picking it requires `otherText` (≤255,
+  `other_text` on that one row). A plain "Other" with no box is just an option.
+  **A checklist answer is ONE ROW PER TICK** in `demographic_response`; the
+  unique key is (respondent, assessment, field, `option_value`), where
+  `option_value` is `''` on every non-checklist row, so single-value fields
+  keep their DB-enforced one answer. Never read demographic rows into a map
+  by field (the last tick silently wins) — collect a list, order it with
+  `DemographicField.inChoiceOrder`. Answers lock a field: its type, and any
+  choice somebody picked (rename/remove → 409, Dropdowns too). Excel: one
+  1/0 column per checklist choice + a `(specified)` column; Data Studio:
+  `demo:<id>:opt:<choice>` and `demo:<id>:other`.
 - Question upload + sections switch (2026-09-30):
   * An MCQ needs **at least ONE option** everywhere — `QuestionController.validateType`,
     the question form, the sheet parser and the AI expander (which used to skip
@@ -314,6 +329,31 @@ re-read a file before editing; expect it to have changed):
     trade as 2026-08-24: rejected by column name before upload, not as one
     issue per line. The sheet's `dialCode()` is lenient (`+91`, `0091`, `91`)
     because a spreadsheet eats a leading '+'.
+- People & access (2026-10-05, `RespondentDeleteAndAccessTest`):
+  * Respondent delete removes every UNTOUCHED allotment with the respondent
+    (NOT_STARTED, no answers, no demographic rows — what a Reports Hub reset
+    leaves) plus report narratives about them (fkRnAttempt blocks otherwise).
+    A started/completed attempt still 409s, "reset it first" — a delete never
+    discards answers by itself. `GET /api/respondents/delete-check/{id}` feeds
+    the warning popup, same rules as the delete.
+  * Dashboard login gate = superadmin OR practitioner profile OR a role group
+    (`DashboardAuthService.hasDashboardAccess`). Assign Role Group lists EVERY
+    identity (`findAllForAccess`) with practitioner/respondent flags, so a
+    respondent can be made an admin without a practitioner profile.
+  * Full access, two equivalent ways (for internal staff, so nobody shares
+    the seeded superadmin login): Assign Role Group's "Super admin" option
+    (`PUT /api/user-access/assign-superadmin|revoke-superadmin/{userId}`, any
+    identity, clears the group, last superadmin can't be revoked), or a role
+    whose paths include exactly `/*` (role editor's "Full access" checkbox).
+    Both reach the four SUPERADMIN_ONLY_PATHS — `canAccess` admits `/*`, and
+    the activity-log API checks `User.hasFullAccess()` live. A section
+    wildcard like `/admin/*` still does NOT.
+  * The bulk respondent sheet ATTACHES a profile to an existing identity with
+    no respondent profile and a matching dob (was "Email already exists"),
+    like the single create. Second respondent / dob mismatch stay issues.
+  * Org drill-in: members show an Info button (`member-info-modal.tsx`):
+    consent, assessments with Reset (the SAME `/reports/resetAssessment`),
+    and Unassign with confirm.
 - Organization: profile-level M:1 (PractitionerUser/RespondentUser each carry
   a nullable organizationId; one org per member). Carries TWO optional inline
   base64 logos (see the ContentType exception above).
@@ -408,8 +448,8 @@ re-read a file before editing; expect it to have changed):
 
 ## Verification loop (do this EVERY change)
 
-1. Backend: `cd spring-social && ./mvnw -B test` (468 tests green as of
-   2026-09-30). Tightening a DTO's validation breaks the fixtures that post
+1. Backend: `cd spring-social && ./mvnw -B test` (478 tests green as of
+   2026-10-05). Tightening a DTO's validation breaks the fixtures that post
    that shape — fix the payloads, do not relax the rule. If every Spring test
    errors with `BeanDefinitionOverrideException` on repositories, the IDE has
    written stale class files into `target/classes`; run `./mvnw -B clean test`.

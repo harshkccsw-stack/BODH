@@ -86,6 +86,25 @@ function updateRespondent(id: number, respondent: RespondentPayload) {
   return api.put<RespondentResponse>(`/respondents/update/${id}`, respondent);
 }
 
+/**
+ * Matches RespondentDeleteCheck on the backend — what a delete would take
+ * with it. untouchedAssessments go with the respondent; startedAssessments
+ * block it until each is reset in the Reports Hub.
+ */
+export interface RespondentDeleteCheck {
+  respondentUserId: number;
+  untouchedAssessments: string[];
+  startedAssessments: string[];
+  reportNarratives: number;
+  keepsLogin: boolean;
+  deletable: boolean;
+}
+
+function getDeleteCheck(id: number) {
+  return api.get<RespondentDeleteCheck>(`/respondents/delete-check/${id}`);
+}
+
+/** 409 while any assessment is started or completed — reset it first. */
 function deleteRespondent(id: number) {
   return api.delete<void>(`/respondents/delete/${id}`);
 }
@@ -100,6 +119,7 @@ export const respondentApis = {
   getRespondentById,
   createRespondent,
   updateRespondent,
+  getDeleteCheck,
   deleteRespondent,
   getAllOrganizations,
 };

@@ -7,6 +7,7 @@ import {
   ChevronDown,
   ClipboardList,
   Hash,
+  ListChecks,
   Loader2,
   Pencil,
   Plus,
@@ -20,6 +21,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import {
   demographicsApi,
+  hasChoices,
   type DemographicFieldPayload,
   type DemographicFieldResponse,
   type DemographicFieldType,
@@ -30,7 +32,11 @@ const FIELD_TYPES: Array<{ value: DemographicFieldType; label: string; icon: typ
   { value: 'NUMBER', label: 'Number', icon: Hash },
   { value: 'DATE', label: 'Date', icon: Calendar },
   { value: 'DROPDOWN', label: 'Dropdown', icon: ChevronDown },
+  { value: 'CHECKLIST', label: 'Checklist', icon: ListChecks },
 ];
+
+/** What a new write-in starts as; the admin may relabel it. */
+const DEFAULT_OTHER_LABEL = 'Other (please specify)';
 
 const typeMeta = (t: DemographicFieldType) => FIELD_TYPES.find((f) => f.value === t) ?? FIELD_TYPES[0];
 
@@ -40,9 +46,36 @@ interface FieldForm {
   fieldType: DemographicFieldType;
   placeholder: string;
   options: string[];
+  /** The write-in "Other" choice is switched on, labelled otherLabel. */
+  otherEnabled: boolean;
+  otherLabel: string;
 }
 
-const EMPTY_FORM: FieldForm = { id: null, label: '', fieldType: 'TEXT', placeholder: '', options: [] };
+const EMPTY_FORM: FieldForm = {
+  id: null, label: '', fieldType: 'TEXT', placeholder: '', options: [], otherEnabled: false, otherLabel: DEFAULT_OTHER_LABEL,
+};
+
+/**
+ * The server's choice rules (DemographicFieldController.choiceProblem),
+ * checked here first so the admin sees them before saving: options distinct
+ * ignoring case, the write-in not repeating one, and no ']' in a checklist
+ * choice — it would end a Data Studio column reference early.
+ */
+function choiceProblem(type: DemographicFieldType, options: string[], otherLabel: string | null): string | null {
+  if (options.length === 0) return type === 'CHECKLIST' ? 'A checklist needs at least one option' : 'A dropdown needs at least one option';
+  const seen = new Set<string>();
+  for (const o of options) {
+    if (seen.has(o.toLowerCase())) return `"${o}" is listed twice — each option must be different`;
+    seen.add(o.toLowerCase());
+  }
+  if (otherLabel && seen.has(otherLabel.toLowerCase())) {
+    return `"${otherLabel}" is already one of the options — remove that option or give the Other choice a different label`;
+  }
+  if (type === 'CHECKLIST' && [...options, otherLabel ?? ''].some((o) => o.includes(']'))) {
+    return 'A checklist choice can\'t contain "]" — Data Studio formulas use it to end a column name';
+  }
+  return null;
+}
 
 export default function DemographicsPage() {
   const [fields, setFields] = useState<DemographicFieldResponse[]>([]);
@@ -76,7 +109,10 @@ export default function DemographicsPage() {
     if (!search) return fields;
     const s = search.toLowerCase();
     return fields.filter(
-      (f) => f.label.toLowerCase().includes(s) || f.options.some((o) => o.toLowerCase().includes(s)),
+      (f) =>
+        f.label.toLowerCase().includes(s) ||
+        f.options.some((o) => o.toLowerCase().includes(s)) ||
+        (f.otherOptionLabel ?? '').toLowerCase().includes(s),
     );
   }, [fields, search]);
 
@@ -92,12 +128,14 @@ export default function DemographicsPage() {
       fieldType: f.fieldType,
       placeholder: f.placeholder || '',
       options: [...f.options],
+      otherEnabled: f.otherOptionLabel != null,
+      otherLabel: f.otherOptionLabel ?? DEFAULT_OTHER_LABEL,
     });
     setFormError('');
     setModalOpen(true);
   };
 
-  // --- Option list editing (DROPDOWN only) ---
+  // --- Option list editing (DROPDOWN / CHECKLIST) ---
   const setOption = (i: number, value: string) =>
     setForm((p) => ({ ...p, options: p.options.map((o, j) => (j === i ? value : o)) }));
   const addOption = () => setForm((p) => ({ ...p, options: [...p.options, ''] }));
@@ -115,18 +153,25 @@ export default function DemographicsPage() {
   const submit = async () => {
     const label = form.label.trim();
     if (!label) { setFormError('Label is required'); return; }
-    const options = form.options.map((o) => o.trim()).filter(Boolean);
-    if (form.fieldType === 'DROPDOWN' && options.length === 0) {
-      setFormError('A dropdown needs at least one option');
+    const choices = hasChoices(form.fieldType);
+    const options = choices ? form.options.map((o) => o.trim()).filter(Boolean) : [];
+    const otherOptionLabel = choices && form.otherEnabled ? form.otherLabel.trim() || null : null;
+    if (choices && form.otherEnabled && !otherOptionLabel) {
+      setFormError('Give the Other choice a label, or switch it off');
       return;
     }
-    // Payload mirrors the backend's DemographicFieldRequest; options are only
-    // read for DROPDOWN fields.
+    if (choices) {
+      const problem = choiceProblem(form.fieldType, options, otherOptionLabel);
+      if (problem) { setFormError(problem); return; }
+    }
+    // Payload mirrors the backend's DemographicFieldRequest; options and the
+    // write-in are only read for DROPDOWN / CHECKLIST fields.
     const payload: DemographicFieldPayload = {
       label,
       fieldType: form.fieldType,
       placeholder: form.placeholder.trim() || null,
       options,
+      otherOptionLabel,
     };
     setSaving(true);
     try {
@@ -190,8 +235,8 @@ export default function DemographicsPage() {
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
         <Card><CardContent className="p-5"><p className="text-sm text-muted-foreground">Fields Defined</p><p className="text-2xl font-semibold mt-1">{fields.length}</p></CardContent></Card>
-        <Card><CardContent className="p-5"><p className="text-sm text-muted-foreground">Dropdowns</p><p className="text-2xl font-semibold mt-1">{fields.filter((f) => f.fieldType === 'DROPDOWN').length}</p></CardContent></Card>
-        <Card><CardContent className="p-5"><p className="text-sm text-muted-foreground">Free Inputs</p><p className="text-2xl font-semibold mt-1">{fields.filter((f) => f.fieldType !== 'DROPDOWN').length}</p></CardContent></Card>
+        <Card><CardContent className="p-5"><p className="text-sm text-muted-foreground">Dropdowns &amp; Checklists</p><p className="text-2xl font-semibold mt-1">{fields.filter((f) => hasChoices(f.fieldType)).length}</p></CardContent></Card>
+        <Card><CardContent className="p-5"><p className="text-sm text-muted-foreground">Free Inputs</p><p className="text-2xl font-semibold mt-1">{fields.filter((f) => !hasChoices(f.fieldType)).length}</p></CardContent></Card>
       </div>
 
       <div className="relative max-w-md">
@@ -249,9 +294,10 @@ export default function DemographicsPage() {
                     <p className="text-sm font-medium truncate">{f.label}</p>
                     <div className="flex items-center gap-3 mt-0.5 text-xs text-muted-foreground">
                       {f.placeholder && <span className="truncate italic">"{f.placeholder}"</span>}
-                      {f.fieldType === 'DROPDOWN' && (
+                      {hasChoices(f.fieldType) && (
                         <span className="truncate shrink-0">
                           {f.options.length} option{f.options.length !== 1 ? 's' : ''}: {f.options.slice(0, 4).join(', ')}{f.options.length > 4 ? '…' : ''}
+                          {f.otherOptionLabel && <> + <span className="italic">{f.otherOptionLabel}</span> (write-in)</>}
                         </span>
                       )}
                     </div>
@@ -313,7 +359,7 @@ export default function DemographicsPage() {
               </div>
               <div className="space-y-1.5">
                 <label className="text-sm font-medium">Type *</label>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
                   {FIELD_TYPES.map((t) => {
                     const Icon = t.icon;
                     return (
@@ -340,20 +386,33 @@ export default function DemographicsPage() {
                 <input
                   value={form.placeholder}
                   onChange={(e) => setForm({ ...form, placeholder: e.target.value })}
-                  placeholder="Optional hint shown inside the empty input"
+                  placeholder={
+                    hasChoices(form.fieldType)
+                      ? 'Optional hint inside the Other text box (default: "Please specify")'
+                      : 'Optional hint shown inside the empty input'
+                  }
                   className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
                 />
               </div>
-              {form.fieldType === 'DROPDOWN' && (
+              {hasChoices(form.fieldType) && (
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between">
-                    <label className="text-sm font-medium">Options *</label>
+                    <div>
+                      <label className="text-sm font-medium">Options *</label>
+                      <p className="text-xs text-muted-foreground">
+                        {form.fieldType === 'CHECKLIST'
+                          ? 'Respondents can tick any number of these.'
+                          : 'Respondents pick exactly one.'}
+                      </p>
+                    </div>
                     <Button variant="outline" size="sm" onClick={addOption}>
                       <Plus className="h-3 w-3" /> Add option
                     </Button>
                   </div>
                   {form.options.length === 0 ? (
-                    <p className="text-xs text-muted-foreground italic">No options yet — a dropdown needs at least one.</p>
+                    <p className="text-xs text-muted-foreground italic">
+                      No options yet — a {form.fieldType === 'CHECKLIST' ? 'checklist' : 'dropdown'} needs at least one.
+                    </p>
                   ) : (
                     <div className="space-y-1.5">
                       {form.options.map((opt, i) => (
@@ -377,6 +436,33 @@ export default function DemographicsPage() {
                       ))}
                     </div>
                   )}
+                  <div className="mt-3 rounded-lg border border-dashed border-border p-3 space-y-2">
+                    <label className="flex items-start gap-2 text-sm cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={form.otherEnabled}
+                        onChange={(e) => setForm({ ...form, otherEnabled: e.target.checked })}
+                        className="mt-0.5"
+                      />
+                      <span>
+                        <span className="font-medium">Add an "Other" choice with a text box</span>
+                        <span className="block text-xs text-muted-foreground">
+                          Always shown last. Respondents who {form.fieldType === 'CHECKLIST' ? 'tick' : 'pick'} it
+                          must type their answer (up to 255 characters). For a plain "Other" with no text box, add it
+                          as an ordinary option instead.
+                        </span>
+                      </span>
+                    </label>
+                    {form.otherEnabled && (
+                      <input
+                        value={form.otherLabel}
+                        onChange={(e) => setForm({ ...form, otherLabel: e.target.value })}
+                        placeholder={DEFAULT_OTHER_LABEL}
+                        maxLength={255}
+                        className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                      />
+                    )}
+                  </div>
                 </div>
               )}
             </CardContent>

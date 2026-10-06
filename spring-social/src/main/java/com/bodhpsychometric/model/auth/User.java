@@ -138,6 +138,21 @@ public class User implements java.io.Serializable {
         this.superAdmin = superAdmin;
     }
 
+    /** The every-page pattern a "Full access" role stores. */
+    public static final String FULL_ACCESS_PATH = "/*";
+
+    /**
+     * Superadmin-equivalent: the flag, OR a role group holding a "Full
+     * access" role (2026-10-05). Both reach the access-admin pages and the
+     * activity log, so internal staff can be given full control without
+     * sharing the seeded superadmin login. Touches the lazy group — call
+     * inside a transaction.
+     */
+    public boolean hasFullAccess() {
+        return superAdmin
+                || (roleGroup != null && roleGroup.allUrlPaths().contains(FULL_ACCESS_PATH));
+    }
+
     public OffsetDateTime getLastLoginAt() {
         return lastLoginAt;
     }

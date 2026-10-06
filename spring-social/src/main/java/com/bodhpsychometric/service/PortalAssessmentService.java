@@ -36,6 +36,7 @@ import com.bodhpsychometric.model.auth.RespondentUser;
 import com.bodhpsychometric.model.demographics.DemographicField;
 import com.bodhpsychometric.model.demographics.DemographicResponse;
 import com.bodhpsychometric.model.demographics.QuestionnaireDemographicField;
+import com.bodhpsychometric.model.demographics.enums.DemographicFieldType;
 import com.bodhpsychometric.model.question.enums.ContentType;
 import com.bodhpsychometric.model.question.enums.QuestionType;
 import com.bodhpsychometric.model.question.enums.SelectionRule;
@@ -135,9 +136,9 @@ public class PortalAssessmentService {
                 (a, b) -> a, LinkedHashMap::new));
 
         // Pass 1 — validate every entry before writing anything.
-        Map<Long, String> values = new LinkedHashMap<>();
+        Map<Long, FieldAnswer> values = new LinkedHashMap<>();
         for (PortalBeginRequest.DemographicEntry entry : entries) {
-            if (entry.demographicFieldId() == null || entry.value() == null || entry.value().isBlank()) {
+            if (entry.demographicFieldId() == null) {
                 throw badRequest("Each demographic entry needs a demographicFieldId and a non-blank value");
             }
             QuestionnaireDemographicField qdf = byFieldId.get(entry.demographicFieldId());
@@ -148,31 +149,11 @@ public class PortalAssessmentService {
             if (values.containsKey(entry.demographicFieldId())) {
                 throw badRequest("Duplicate value for demographic field " + entry.demographicFieldId());
             }
-            String value = entry.value().trim();
             DemographicField field = qdf.getDemographicField();
-            switch (field.getFieldType()) {
-                case NUMBER -> {
-                    try {
-                        Double.parseDouble(value);
-                    } catch (NumberFormatException e) {
-                        throw badRequest("\"" + field.getLabel() + "\" must be a number");
-                    }
-                }
-                case DATE -> {
-                    try {
-                        LocalDate.parse(value);
-                    } catch (DateTimeParseException e) {
-                        throw badRequest("\"" + field.getLabel() + "\" must be a date (yyyy-MM-dd)");
-                    }
-                }
-                case DROPDOWN -> {
-                    if (!field.getOptions().contains(value)) {
-                        throw badRequest("\"" + value + "\" is not one of \"" + field.getLabel() + "\"'s choices");
-                    }
-                }
-                default -> { /* TEXT — anything non-blank */ }
-            }
-            values.put(entry.demographicFieldId(), value);
+            List<String> picked = field.getFieldType() == DemographicFieldType.CHECKLIST
+                    ? checklistTicks(field, entry)
+                    : List.of(singleValue(field, entry));
+            values.put(entry.demographicFieldId(), new FieldAnswer(picked, otherText(field, entry, picked)));
         }
 
         List<String> missing = mapped.stream()
@@ -186,17 +167,26 @@ public class PortalAssessmentService {
 
         // Pass 2 — replace-all write of the pair's demographic set. Flush the
         // deletes before inserting, or Hibernate orders the inserts first and
-        // trips the unique tuple when the form is re-entered.
+        // trips the unique tuple when the form is re-entered. A checklist is
+        // one row per tick, optionValue naming the tick; every other type is
+        // one row with optionValue '' — which is what keeps the database's
+        // one-answer-per-field guarantee for them (V39).
         demographicResponses.deleteByRespondent_IdAndAssessment_AssessmentId(
                 mapping.getRespondent().getId(), mapping.getAssessment().getAssessmentId());
         demographicResponses.flush();
-        for (Map.Entry<Long, String> e : values.entrySet()) {
-            DemographicResponse row = new DemographicResponse();
-            row.setRespondent(mapping.getRespondent());
-            row.setAssessment(mapping.getAssessment());
-            row.setDemographicField(byFieldId.get(e.getKey()).getDemographicField());
-            row.setResponseValue(e.getValue());
-            demographicResponses.save(row);
+        for (Map.Entry<Long, FieldAnswer> e : values.entrySet()) {
+            DemographicField field = byFieldId.get(e.getKey()).getDemographicField();
+            boolean checklist = field.getFieldType() == DemographicFieldType.CHECKLIST;
+            for (String value : e.getValue().values()) {
+                DemographicResponse row = new DemographicResponse();
+                row.setRespondent(mapping.getRespondent());
+                row.setAssessment(mapping.getAssessment());
+                row.setDemographicField(field);
+                row.setResponseValue(value);
+                row.setOptionValue(checklist ? value : "");
+                row.setOtherText(value.equals(field.getOtherOptionLabel()) ? e.getValue().otherText() : null);
+                demographicResponses.save(row);
+            }
         }
 
         RespondentUser respondent = mapping.getRespondent();
@@ -545,6 +535,106 @@ public class PortalAssessmentService {
      * clearing the envelope is what ends this state (COMPLETED then takes
      * over); a practitioner reset clears it the discarding way.
      */
+    /** What one demographic field was answered with: its value(s), and any write-in text. */
+    private record FieldAnswer(List<String> values, String otherText) {
+    }
+
+    /** The cap on a write-in, matching demographic_response.other_text (V39). */
+    private static final int OTHER_TEXT_MAX = 255;
+
+    /**
+     * A Text / Number / Date / Dropdown answer: exactly one non-blank value,
+     * checked against the field's type. A list of values is a checklist's
+     * shape and is refused here rather than quietly ignored.
+     */
+    private String singleValue(DemographicField field, PortalBeginRequest.DemographicEntry entry) {
+        if (entry.values() != null && !entry.values().isEmpty()) {
+            throw badRequest("\"" + field.getLabel() + "\" takes one value, not a list");
+        }
+        if (entry.value() == null || entry.value().isBlank()) {
+            throw badRequest("Each demographic entry needs a demographicFieldId and a non-blank value");
+        }
+        String value = entry.value().trim();
+        switch (field.getFieldType()) {
+            case NUMBER -> {
+                try {
+                    Double.parseDouble(value);
+                } catch (NumberFormatException e) {
+                    throw badRequest("\"" + field.getLabel() + "\" must be a number");
+                }
+            }
+            case DATE -> {
+                try {
+                    LocalDate.parse(value);
+                } catch (DateTimeParseException e) {
+                    throw badRequest("\"" + field.getLabel() + "\" must be a date (yyyy-MM-dd)");
+                }
+            }
+            case DROPDOWN -> {
+                if (!field.choices().contains(value)) {
+                    throw badRequest("\"" + value + "\" is not one of \"" + field.getLabel() + "\"'s choices");
+                }
+            }
+            default -> { /* TEXT — anything non-blank */ }
+        }
+        return value;
+    }
+
+    /**
+     * A checklist's ticks: at least one, every one an exact choice of the
+     * field, repeats collapsed, returned in the field's own choice order (the
+     * write-in last) so the same ticks always store the same way. Repeats are
+     * collapsed rather than refused — but they MUST be collapsed, or the
+     * second row breaches the unique key and the attempt 500s at commit.
+     * An optional checklist left blank is sent as no entry at all.
+     */
+    private List<String> checklistTicks(DemographicField field, PortalBeginRequest.DemographicEntry entry) {
+        if (entry.value() != null && !entry.value().isBlank()) {
+            throw badRequest("\"" + field.getLabel() + "\" is a checklist — send the ticked options as values");
+        }
+        Set<String> ticked = new LinkedHashSet<>();
+        for (String tick : entry.values() == null ? List.<String>of() : entry.values()) {
+            if (tick == null || tick.isBlank()) {
+                continue;
+            }
+            String value = tick.trim();
+            if (!field.choices().contains(value)) {
+                throw badRequest("\"" + value + "\" is not one of \"" + field.getLabel() + "\"'s choices");
+            }
+            ticked.add(value);
+        }
+        if (ticked.isEmpty()) {
+            throw badRequest("Tick at least one option for \"" + field.getLabel() + "\"");
+        }
+        return field.choices().stream().filter(ticked::contains).toList();
+    }
+
+    /**
+     * The write-in text: required (trimmed, at most 255 characters) when the
+     * field's "Other" choice was picked or ticked, refused when it was not —
+     * text with no choice behind it would sit on a row that does not say
+     * "Other". Blank text counts as none.
+     */
+    private String otherText(DemographicField field, PortalBeginRequest.DemographicEntry entry, List<String> picked) {
+        String text = entry.otherText() == null || entry.otherText().isBlank() ? null : entry.otherText().trim();
+        String otherLabel = field.getOtherOptionLabel();
+        boolean pickedOther = field.getFieldType().hasChoices() && otherLabel != null && picked.contains(otherLabel);
+        if (!pickedOther) {
+            if (text != null) {
+                throw badRequest("\"" + field.getLabel() + "\" only takes typed text when its Other choice is picked");
+            }
+            return null;
+        }
+        if (text == null) {
+            throw badRequest("Please specify your answer for \"" + field.getLabel() + "\"");
+        }
+        if (text.codePointCount(0, text.length()) > OTHER_TEXT_MAX) {
+            throw badRequest("Your answer for \"" + field.getLabel() + "\" must be at most "
+                    + OTHER_TEXT_MAX + " characters");
+        }
+        return text;
+    }
+
     private void refuseWhilePending(Long mappingId) {
         if (redis.hasPendingSubmission(mappingId)) {
             throw conflict("This assessment has been submitted and is being processed");

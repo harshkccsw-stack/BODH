@@ -215,9 +215,15 @@ export interface PortalSection {
 export interface PortalDemographicField {
   demographicFieldId: number;
   label: string;
-  fieldType: 'TEXT' | 'NUMBER' | 'DATE' | 'DROPDOWN';
+  /** DROPDOWN picks one option; CHECKLIST ticks any number. */
+  fieldType: 'TEXT' | 'NUMBER' | 'DATE' | 'DROPDOWN' | 'CHECKLIST';
   placeholder: string | null;
   options: string[];
+  /**
+   * The write-in "Other" choice on a DROPDOWN / CHECKLIST, shown after the
+   * options; picking it requires typed text. null = none.
+   */
+  otherOptionLabel: string | null;
   required: boolean;
   sortOrder: number;
 }
@@ -268,10 +274,14 @@ export interface PortalAssessmentDetail {
    */
   savedAnswers: PortalAnswerEntry[] | null;
 }
-// Matches PortalBeginRequest.DemographicEntry on the backend.
+// Matches PortalBeginRequest.DemographicEntry on the backend. A CHECKLIST
+// sends its ticks in `values`; every other type sends `value`. `otherText` is
+// what was typed for the write-in "Other" — only when that choice is picked.
 export interface PortalDemographicEntry {
   demographicFieldId: number;
-  value: string;
+  value?: string;
+  values?: string[];
+  otherText?: string;
 }
 // Matches PortalSubmitRequest.AnswerEntry on the backend.
 export interface PortalAnswerEntry {

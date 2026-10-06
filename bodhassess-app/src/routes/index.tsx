@@ -1,6 +1,7 @@
 import { AppShell } from '@/components/app-shell';
 import { PrivateRoute } from '@/components/guards/private-route';
 import { PublicRoute } from '@/components/guards/public-route';
+import { RouteError } from '@/components/route-error';
 import { ScreenLoader } from '@/components/screen-loader';
 import { PractitionerAuthProvider } from '@/lib/practitioner-auth';
 import { lazy, Suspense, type ComponentType } from 'react';
@@ -183,6 +184,9 @@ const WhiteLabelTenants  = lazyPage(() => import('@/pages/white-label/tenants'))
 const routes: RouteObject[] = [
   {
     element: <Root />,
+    // Catches every route below: a stale page chunk reloads once, anything
+    // else gets a real error screen instead of React Router's developer one.
+    errorElement: <RouteError />,
     children: [
       { path: '/', element: <HomePage /> },
 

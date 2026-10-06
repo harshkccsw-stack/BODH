@@ -4,12 +4,12 @@ import {
   Building2,
   Check,
   ClipboardList,
+  Info,
   Loader2,
   Mail,
   Pencil,
   Plus,
   Search,
-  ShieldCheck,
   Stethoscope,
   Trash2,
   UserMinus,
@@ -30,6 +30,7 @@ import {
   type UnassignedPeopleResponse,
 } from './organizationApis';
 import OrganizationWizard from './OrganizationWizard';
+import MemberInfoModal from './member-info-modal';
 
 const STATUS_BADGE: Record<string, string> = {
   ACTIVE:
@@ -61,6 +62,8 @@ export default function OrganizationsPage() {
   const [detailError, setDetailError] = useState('');
   // Which detail row's unassign is in flight — 'p-3' / 'r-5' style keys.
   const [unassignBusy, setUnassignBusy] = useState<string | null>(null);
+  // Member Info popup (consent, assessments + reset, unassign) over the drill-in.
+  const [memberInfo, setMemberInfo] = useState<OrgMemberRef | null>(null);
 
   // Full assessment catalog — lazily loaded for the map-assessments modal.
   const [allAssessments, setAllAssessments] = useState<AssessmentRef[] | null>(null);
@@ -229,8 +232,9 @@ export default function OrganizationsPage() {
     }
   };
 
-  const doUnassign = async (kind: 'practitioner' | 'respondent', profileId: number) => {
-    if (!detailTarget) return;
+  /** Resolves to the error message (also shown in the drill-in), or null. */
+  const doUnassign = async (kind: 'practitioner' | 'respondent', profileId: number): Promise<string | null> => {
+    if (!detailTarget) return 'No organization open';
     const key = `${kind === 'practitioner' ? 'p' : 'r'}-${profileId}`;
     setDetailError('');
     setUnassignBusy(key);
@@ -241,8 +245,11 @@ export default function OrganizationsPage() {
       });
       setDetail(res.data);
       await refresh();
+      return null;
     } catch (e: any) {
-      setDetailError(e?.response?.data?.message || e?.message || 'Failed to unassign');
+      const message = e?.response?.data?.message || e?.message || 'Failed to unassign';
+      setDetailError(message);
+      return message;
     } finally {
       setUnassignBusy(null);
     }
@@ -1025,27 +1032,15 @@ export default function OrganizationsPage() {
                               <p className="text-xs text-muted-foreground truncate">{m.email}</p>
                             </div>
                             <div className="flex items-center gap-1.5 shrink-0">
-                              {m.isConsented ? (
-                                <span className="inline-flex items-center gap-1 rounded-full border border-green-300 bg-green-50 dark:border-green-900 dark:bg-green-950/30 px-2 py-0.5 text-[0.6875rem] font-medium text-green-700 dark:text-green-400">
-                                  <ShieldCheck className="h-3 w-3" />
-                                  Consented
-                                </span>
-                              ) : (
-                                <span className="inline-flex items-center rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[0.6875rem] font-medium text-muted-foreground">
-                                  No consent
-                                </span>
-                              )}
                               <Button
                                 variant="outline"
                                 size="sm"
-                                onClick={() => doUnassign('respondent', m.respondentUserId)}
+                                onClick={() => setMemberInfo(m)}
                                 disabled={unassignBusy !== null}
-                                title="Remove from this organization"
+                                title="Consent, assessments (reset) and unassign"
                               >
-                                {unassignBusy === `r-${m.respondentUserId}`
-                                  ? <Loader2 className="h-3 w-3 animate-spin" />
-                                  : <UserMinus className="h-3 w-3" />}
-                                Unassign
+                                <Info className="h-3 w-3" />
+                                Info
                               </Button>
                             </div>
                           </li>
@@ -1061,6 +1056,15 @@ export default function OrganizationsPage() {
             </div>
           </Card>
         </div>
+      )}
+
+      {memberInfo && detailTarget && (
+        <MemberInfoModal
+          member={memberInfo}
+          organizationName={detailTarget.name}
+          onUnassign={() => doUnassign('respondent', memberInfo.respondentUserId)}
+          onClose={() => setMemberInfo(null)}
+        />
       )}
 
       {/* Delete confirmation */}
