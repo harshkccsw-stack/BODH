@@ -183,9 +183,14 @@ public record PortalQuestionnaireContent(
                 questions);
     }
 
-    /** Authored order, sortOrder = authored position — shuffling is assembly's. */
+    /**
+     * Authored order, sortOrder = authored position — shuffling is assembly's.
+     * Choices only: a short answer's generated text slot is not one (see
+     * Question.choiceOptions), so the portal and MemoryMesh's import still see
+     * a short answer with no options. The submit writer attaches it.
+     */
     private static List<PortalOption> authoredOptions(Question question) {
-        List<Option> authored = question.getOptions().stream()
+        List<Option> authored = question.choiceOptions().stream()
                 .sorted(Comparator.comparingInt(Option::getSortOrder))
                 .toList();
         List<PortalOption> out = new ArrayList<>(authored.size());

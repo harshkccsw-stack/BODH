@@ -328,6 +328,33 @@ public class Question implements Serializable {
         return options;
     }
 
+    /**
+     * The options a respondent CHOOSES between — every option, except on a
+     * SHORT_ANSWER, whose one option is the generated text slot (see
+     * {@link #textAnswerOption()}) and is never offered as a choice. Every
+     * payload that LISTS options (dashboard, portal, MemoryMesh import) goes
+     * through this, so a short answer still reads as "no options" everywhere.
+     */
+    public List<Option> choiceOptions() {
+        return questionType == QuestionType.SHORT_ANSWER ? List.of() : options;
+    }
+
+    /**
+     * The generated option a SHORT_ANSWER's typed answer is stored on (V40,
+     * 2026-10-06): one FREE_TEXT row with no label, created by the question
+     * flow, never authored or shown. It gives the answer row an optionId like
+     * every other answer, for Data Studio and the reports. Empty on every
+     * other type, and on a short answer saved around the question flow.
+     */
+    public java.util.Optional<Option> textAnswerOption() {
+        if (questionType != QuestionType.SHORT_ANSWER) {
+            return java.util.Optional.empty();
+        }
+        return options.stream()
+                .filter(o -> o.getContentType() == ContentType.FREE_TEXT)
+                .findFirst();
+    }
+
     public void setOptions(List<Option> options) {
         this.options = options;
     }

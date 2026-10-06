@@ -76,7 +76,13 @@ public class AssessmentAnswer implements java.io.Serializable {
             foreignKey = @ForeignKey(name = "fkAaQuestion"))
     private Question question;
 
-    /** The chosen option; null for formats without options (FREE_TEXT). */
+    /**
+     * The chosen option. On a SHORT_ANSWER it is the question's generated,
+     * unlabelled text slot (V40), with the typed answer in answerText — the
+     * same shape as an "Other…" answer. Null only on rows written before V40's
+     * backfill could reach them, or on a short answer saved around the
+     * question flow.
+     */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "optionId",
             foreignKey = @ForeignKey(name = "fkAaOption"))

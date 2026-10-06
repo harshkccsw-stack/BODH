@@ -12,12 +12,20 @@ package com.bodhpsychometric.model.question.enums;
  *               mapped to MQTs and the point picked IS the score
  * LIKERT_GRID   rows (each naming its own MQTs) x columns (ordinary options
  *               carrying the scores) — one pick per row
- * SHORT_ANSWER  free text, the first type with NO options: the answer lands in
- *               AssessmentAnswer.answerText and the question-level MQT score
- *               (if any) is earned for answering, not for what was written
+ * SHORT_ANSWER  free text, the first type with NO options to choose: the
+ *               answer lands in AssessmentAnswer.answerText, on the question's
+ *               one hidden, generated text slot (V40), and the question-level
+ *               MQT score (if any) is earned for answering, not for what was
+ *               written
  * PARAGRAPH     long answer — RESERVED. Listed so that widening the MySQL enum
  *               (a table rebuild) is already paid for; QuestionController
  *               refuses it until the UI exists.
+ * GAMES         a game-based item (2026-10-06) — RESERVED, behaviour not yet
+ *               specified. Unlike PARAGRAPH it is NOT in the MySQL enum: whoever
+ *               builds it widens `question.question_type` in a new migration
+ *               (APPEND it — inserting mid-list renumbers stored rows) along
+ *               with whatever columns a game needs. Until then QuestionController
+ *               refuses it, so nothing can write a value the column would reject.
  * </pre>
  *
  * MCQ is the default and is exactly what every question meant before this
@@ -30,5 +38,6 @@ public enum QuestionType {
     LINEAR_SCALE,
     LIKERT_GRID,
     SHORT_ANSWER,
-    PARAGRAPH
+    PARAGRAPH,
+    GAMES
 }

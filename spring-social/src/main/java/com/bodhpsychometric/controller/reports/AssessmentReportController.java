@@ -47,13 +47,17 @@ public class AssessmentReportController {
         return assessmentReportService.organizationOptions(search, page, size);
     }
 
-    /** Assessment dropdown — paged, searchable by name. */
+    /**
+     * Assessment dropdown — paged, searchable by name. With organizationId,
+     * only the assessments mapped into that org's catalog; without, all.
+     */
     @GetMapping("/getAssessments")
     public ReportPageResponse<ReportAssessmentOption> getAssessments(
+            @RequestParam(required = false) Long organizationId,
             @RequestParam(required = false) String search,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size) {
-        return assessmentReportService.assessmentOptions(search, page, size);
+        return assessmentReportService.assessmentOptions(organizationId, search, page, size);
     }
 
     /**

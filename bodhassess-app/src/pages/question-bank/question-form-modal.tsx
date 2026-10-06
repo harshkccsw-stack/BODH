@@ -953,7 +953,7 @@ export function QuestionFormFields({
           className="w-full h-9 rounded-lg border border-border bg-background px-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
         >
           {QUESTION_TYPES.map((t) => (
-            <option key={t.value} value={t.value}>{t.label}</option>
+            <option key={t.value} value={t.value} disabled={t.disabled}>{t.label}</option>
           ))}
         </select>
         <p className="text-[0.6875rem] text-muted-foreground">

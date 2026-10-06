@@ -54,8 +54,8 @@ function useDebounced<T>(value: T, delayMs: number): T {
 // ── Paginated filter dropdown ───────────────────────────────────────────────
 // Same control as the Reports Hub's, duplicated deliberately: both pages keep
 // their chrome self-contained, and extracting it would touch a page another
-// flow may be editing. Nothing selected IS a valid state here — it means
-// "all organizations" / "any assessment", and the page polls either way.
+// flow may be editing. Nothing selected means nothing is fetched: the page
+// waits for an organization or an assessment rather than tracking everyone.
 
 interface DropdownItem {
   id: number;
@@ -273,7 +273,7 @@ export default function LiveTrackingPage() {
 
   // ── Tracking data ──
   const [result, setResult] = useState<LiveTrackingResult | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [page, setPage] = useState(0);
   const [size, setSize] = useState(25);
@@ -308,13 +308,19 @@ export default function LiveTrackingPage() {
     return () => { cancelled = true; };
   }, [orgOpened, debouncedOrgSearch, orgPage]);
 
+  // With an organization picked, only the assessments mapped into its catalog.
   useEffect(() => {
     if (!asmtOpened) return;
     let cancelled = false;
     setAsmtLoading(true);
     setAsmtError('');
     reportApis
-      .getAssessments({ search: debouncedAsmtSearch.trim() || undefined, page: asmtPage, size: DROPDOWN_PAGE_SIZE })
+      .getAssessments({
+        organizationId: selectedOrg?.id,
+        search: debouncedAsmtSearch.trim() || undefined,
+        page: asmtPage,
+        size: DROPDOWN_PAGE_SIZE,
+      })
       .then((res) => {
         if (cancelled) return;
         setAsmtData({
@@ -331,14 +337,24 @@ export default function LiveTrackingPage() {
       })
       .finally(() => { if (!cancelled) setAsmtLoading(false); });
     return () => { cancelled = true; };
-  }, [asmtOpened, debouncedAsmtSearch, asmtPage]);
+  }, [asmtOpened, debouncedAsmtSearch, asmtPage, selectedOrg?.id]);
 
   // ── The poll ──
   // 5s while the tab is visible, paused entirely while hidden (a hidden
   // dashboard asking every 5s would be pure waste), refreshed immediately on
   // return. `inflight` skips a tick rather than piling requests; `cancelled`
-  // stops a late response from clobbering fresher state.
+  // stops a late response from clobbering fresher state. No organization and
+  // no assessment means no poll at all — opening the page fetches nothing.
+  const filtersApplied = selectedOrg !== null || selectedAsmt !== null;
+
   useEffect(() => {
+    if (!filtersApplied) {
+      setResult(null);
+      setError('');
+      setLastUpdated(null);
+      setLoading(false);
+      return;
+    }
     let cancelled = false;
     let timer: number | null = null;
     const fetchRows = async () => {
@@ -377,9 +393,21 @@ export default function LiveTrackingPage() {
       stop();
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [selectedOrg?.id, selectedAsmt?.id, page, size]);
+  }, [filtersApplied, selectedOrg?.id, selectedAsmt?.id, page, size]);
 
-  const pickOrg = (item: DropdownItem | null) => { setSelectedOrg(item); setPage(0); };
+  // A different organization has a different catalog, so the assessment picked
+  // under the old one may not be in it — drop it and reload the list from page
+  // 1. Clearing the organization widens the list, so the pick stays valid.
+  const pickOrg = (item: DropdownItem | null) => {
+    if (item && item.id !== selectedOrg?.id) {
+      setSelectedAsmt(null);
+      setAsmtData(null);
+      setAsmtSearch('');
+    }
+    setAsmtPage(0);
+    setSelectedOrg(item);
+    setPage(0);
+  };
   const pickAsmt = (item: DropdownItem | null) => { setSelectedAsmt(item); setPage(0); };
 
   const summary = result?.summary;
@@ -430,7 +458,7 @@ export default function LiveTrackingPage() {
           <div className="flex flex-col md:flex-row gap-3">
             <FilterDropdown
               icon={Building2}
-              placeholder="All organizations"
+              placeholder="Select an organization"
               searchPlaceholder="Search organizations…"
               selected={selectedOrg}
               onSelect={pickOrg}
@@ -445,8 +473,8 @@ export default function LiveTrackingPage() {
             />
             <FilterDropdown
               icon={ClipboardCheck}
-              placeholder="Any assessment"
-              searchPlaceholder="Search assessments…"
+              placeholder="Select an assessment"
+              searchPlaceholder={selectedOrg ? `Search ${selectedOrg.label}'s assessments…` : 'Search assessments…'}
               selected={selectedAsmt}
               onSelect={pickAsmt}
               open={asmtOpen}
@@ -528,7 +556,9 @@ export default function LiveTrackingPage() {
                 {rows.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="px-5 py-10 text-center text-sm text-muted-foreground">
-                      {loading ? 'Loading respondents…' : 'No allotted respondents match these filters.'}
+                      {!filtersApplied
+                        ? 'Select an organization or an assessment to start tracking.'
+                        : loading ? 'Loading respondents…' : 'No allotted respondents match these filters.'}
                     </td>
                   </tr>
                 ) : rows.map((r) => {

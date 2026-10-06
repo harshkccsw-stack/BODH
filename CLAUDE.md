@@ -142,6 +142,21 @@ re-read a file before editing; expect it to have changed):
   marks it with `otherOption` = the option NUMBER. Export sheet and Data
   Studio print the cell as `AssessmentAnswer.displayText()` — `Other: what
   they typed` — so the text is visible and the choice stays countable.
+- Short-answer text slot (2026-10-06, `V40`): a SHORT_ANSWER answer row
+  carries an `option_id` too, for Data Studio and the reports — same shape as
+  an "Other…" answer. Each SHORT_ANSWER question owns ONE generated option,
+  FREE_TEXT with NO label, made by `QuestionController.desiredOptions` on
+  every save (identical each time, so an answered short answer stays
+  editable) and shared by every respondent. It is HIDDEN: `Question.choiceOptions()`
+  is what the dashboard, portal and MemoryMesh payloads list, so every client
+  still sees "no options" and still submits text only; the two writers
+  (`AssessmentSubmissionWriter`, `MemoryMeshAttemptSyncService`) attach it via
+  `Question.textAnswerOption()` / `OptionRepository.findTextAnswerOptions`.
+  No label means `displayText()` prints the text alone. V40 backfilled the
+  slot and the answer rows, guarded against a short answer owning any other
+  option. `option_id` is still NULLABLE: making it NOT NULL needs PARAGRAPH
+  to get the same slot first. `rank_order` is KEPT (user's decision), reserved
+  for a future RANKING type and written by nothing yet.
 - Demographic CHECKLIST + write-in "Other" (2026-10-01, `V39`,
   `docs/demographic-other-and-checklist-plan.md`): CHECKLIST ticks any number
   of options, which live in `demographic_field_option` like a Dropdown's. The
@@ -427,6 +442,17 @@ re-read a file before editing; expect it to have changed):
   is now dead and needs rewriting the way `V12` rewrote the mapping rename
   (no rows exist on this branch's local DB, so no migration was written).
   Translation screen: see plan §3.7.
+- Rule references read as names (2026-10-06): formulas STILL store keys
+  (`[mqt:14]`) — names are display only, never written into a formula (MQT
+  names are not unique; a rename would silently change a stored name).
+  `formula-refs.ts` (pure, no `@/` imports) resolves a key to name + qualifier
+  (`own score` / `whole branch` / `MQ total` / `answer` / `rule`; a duplicate
+  MQT name gets its parent in front) and cuts a formula the way the server
+  lexer does (strings are text, bare identifiers are refs).
+  `formula-readout.tsx` draws the "Reads as" line under every formula (Setup
+  list + editor, each AI draft, library editor) and "Mentions" under plain
+  language. The plain-language box has the same picker, inserting
+  `Name [key]` — both AI prompts already list every key with its label.
 
 ## Frontend conventions
 

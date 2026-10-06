@@ -69,8 +69,8 @@ export interface LiveTrackingQuery {
   size?: number;
 }
 
-// axios drops undefined params — omitted filters mean all organizations /
-// any assessment, which is a valid (and the broadest) view of this page.
+// axios drops undefined params — an omitted filter means all organizations /
+// any assessment. The page never sends both omitted: it waits for one.
 function getLiveTracking(query: LiveTrackingQuery) {
   return api.get<LiveTrackingResult>(`/reports/liveTracking`, { params: query });
 }

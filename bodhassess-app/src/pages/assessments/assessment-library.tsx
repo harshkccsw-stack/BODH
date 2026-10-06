@@ -50,6 +50,17 @@ const statusChip = (s: AssessmentStatus) =>
     ? 'border-green-300 bg-green-50 text-green-700 dark:border-green-900 dark:bg-green-950/40 dark:text-green-400'
     : 'border-border bg-muted/40 text-muted-foreground';
 
+// List order, picked in the filter row. Ids are IDENTITY, so a higher id was
+// created later; names compare case-insensitively with numbers in order.
+type SortKey = 'NEWEST' | 'OLDEST' | 'AZ' | 'ZA';
+const SORTS: { value: SortKey; label: string }[] = [
+  { value: 'NEWEST', label: 'Newest first' },
+  { value: 'OLDEST', label: 'Oldest first' },
+  { value: 'AZ', label: 'Name A–Z' },
+  { value: 'ZA', label: 'Name Z–A' },
+];
+const byName = (a: string, b: string) => a.localeCompare(b, undefined, { sensitivity: 'base', numeric: true });
+
 export default function AssessmentLibraryPage() {
   const navigate = useNavigate();
   const [items, setItems] = useState<AssessmentResponse[]>([]);
@@ -60,6 +71,7 @@ export default function AssessmentLibraryPage() {
   const [filterStatus, setFilterStatus] = useState<string>('ALL');
   // 'ALL' or a questionnaireId as string.
   const [filterQid, setFilterQid] = useState('ALL');
+  const [sort, setSort] = useState<SortKey>('NEWEST');
 
   const [confirmDelete, setConfirmDelete] = useState<AssessmentResponse | null>(null);
   const [deleteError, setDeleteError] = useState('');
@@ -109,8 +121,12 @@ export default function AssessmentLibraryPage() {
           a.questionnaireName.toLowerCase().includes(s),
       );
     }
-    return list;
-  }, [items, filterStatus, filterQid, search]);
+    return [...list].sort((a, b) => {
+      if (sort === 'AZ') return byName(a.name, b.name) || b.assessmentId - a.assessmentId;
+      if (sort === 'ZA') return byName(b.name, a.name) || b.assessmentId - a.assessmentId;
+      return sort === 'OLDEST' ? a.assessmentId - b.assessmentId : b.assessmentId - a.assessmentId;
+    });
+  }, [items, filterStatus, filterQid, search, sort]);
 
   const totalAttempts = useMemo(() => items.reduce((a, x) => a + x.respondentCount, 0), [items]);
 
@@ -207,6 +223,14 @@ export default function AssessmentLibraryPage() {
           {questionnaires.map((q) => (
             <option key={q.questionnaireId} value={q.questionnaireId}>{q.name}</option>
           ))}
+        </select>
+        <select
+          value={sort}
+          onChange={(e) => setSort(e.target.value as SortKey)}
+          aria-label="Sort"
+          className="h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:border-ring"
+        >
+          {SORTS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
         </select>
       </div>
 
