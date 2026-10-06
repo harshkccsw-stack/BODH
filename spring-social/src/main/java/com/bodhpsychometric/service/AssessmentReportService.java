@@ -169,19 +169,31 @@ public class AssessmentReportService {
         }
 
         Map<Long, Long> answered = tallyByAssessment(answers.tallyAnswersByAssessment(respondentUserId));
+        Map<Long, Long> answeredOptional =
+                tallyByAssessment(answers.tallyOptionalAnswersByAssessment(respondentUserId));
         Map<Long, Long> demographics =
                 tallyByAssessment(demographicResponses.tallyDemographicsByAssessment(respondentUserId));
 
         Map<Long, Long> questionsPerQuestionnaire = new HashMap<>();
+        Map<Long, Long> optionalPerQuestionnaire = new HashMap<>();
         List<ReportRespondentAssessmentRow> rows = new ArrayList<>();
         for (RespondentAssessmentMapping mapping : allotments.findForReportDetail(respondentUserId)) {
             Long assessmentId = mapping.getAssessment().getAssessmentId();
             Long questionnaireId = mapping.getAssessment().getQuestionnaire().getQuestionnaireId();
             long totalQuestions = questionsPerQuestionnaire.computeIfAbsent(questionnaireId,
                     placements::countByQuestionnaireQuestionnaireId);
+            // Only a finished attempt has skipped anything; before that an
+            // unanswered optional question may simply not be reached yet.
+            long skippedOptional = 0L;
+            if (mapping.getAssessmentStatus() == RespondentAssessmentStatus.COMPLETED) {
+                long optionalPlaced = optionalPerQuestionnaire.computeIfAbsent(questionnaireId,
+                        placements::countByQuestionnaireQuestionnaireIdAndOptionalTrue);
+                skippedOptional = Math.max(0L, optionalPlaced - answeredOptional.getOrDefault(assessmentId, 0L));
+            }
             rows.add(ReportRespondentAssessmentRow.from(mapping,
                     answered.getOrDefault(assessmentId, 0L),
                     totalQuestions,
+                    skippedOptional,
                     demographics.getOrDefault(assessmentId, 0L)));
         }
         return Optional.of(ReportRespondentDetail.from(respondent, rows));
@@ -533,7 +545,7 @@ public class AssessmentReportService {
 
         long totalQuestions = placements.countByQuestionnaireQuestionnaireId(
                 saved.getAssessment().getQuestionnaire().getQuestionnaireId());
-        return Optional.of(ReportRespondentAssessmentRow.from(saved, 0L, totalQuestions, 0L));
+        return Optional.of(ReportRespondentAssessmentRow.from(saved, 0L, totalQuestions, 0L, 0L));
     }
 
     // ── Live Tracking ─────────────────────────────────────────────────────

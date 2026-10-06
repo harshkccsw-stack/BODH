@@ -52,7 +52,8 @@ import com.bodhpsychometric.service.MqtScoringService;
  * <h2>Why unfinished attempts score blank, not zero</h2>
  * {@link MqtScoringService} returns 0 for a trait nobody scored on, and for a
  * COMPLETED attempt that 0 is real — the respondent answered and earned
- * nothing. For an attempt that never started it is not a measurement at all,
+ * nothing, or skipped an optional question, which scores 0 by decision. An
+ * {@code ans:} column, by contrast, is null for a skipped optional question. For an attempt that never started it is not a measurement at all,
  * and letting it into a column would drag every average and z-score toward
  * zero by exactly the number of people who have not turned up yet. So score
  * columns are NULL outside COMPLETED, and the formula engine skips nulls when

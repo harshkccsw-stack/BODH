@@ -13,6 +13,11 @@ import com.bodhpsychometric.model.assessment.enums.RespondentAssessmentStatus;
  * answeredQuestions/demographicResponses are counted off the (respondent,
  * assessment) pair, which is where both sets hang — see AssessmentAnswer.
  * They are what a reset wipes.
+ *
+ * skippedOptionalQuestions: on a COMPLETED attempt, how many of the
+ * questionnaire's optional questions were left blank — so "answered 8 of 10"
+ * next to a Completed badge reads as finished, not as lost answers. Always 0
+ * before completion: an unanswered question there is not a skip yet.
  */
 public record ReportRespondentAssessmentRow(
         Long respondentAssessmentMappingId,
@@ -25,10 +30,12 @@ public record ReportRespondentAssessmentRow(
         boolean isPersisted,
         long answeredQuestions,
         long totalQuestions,
+        long skippedOptionalQuestions,
         long demographicResponses) {
 
     public static ReportRespondentAssessmentRow from(RespondentAssessmentMapping mapping,
-            long answeredQuestions, long totalQuestions, long demographicResponses) {
+            long answeredQuestions, long totalQuestions, long skippedOptionalQuestions,
+            long demographicResponses) {
         return new ReportRespondentAssessmentRow(
                 mapping.getRespondentAssessmentMappingId(),
                 mapping.getAssessment().getAssessmentId(),
@@ -40,6 +47,7 @@ public record ReportRespondentAssessmentRow(
                 mapping.isPersisted(),
                 answeredQuestions,
                 totalQuestions,
+                skippedOptionalQuestions,
                 demographicResponses);
     }
 }

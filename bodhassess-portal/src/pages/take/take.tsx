@@ -77,13 +77,41 @@ function questionSatisfied(
   });
 }
 
+/** Any tick or any typed text at all — mirrors the runner's isQuestionTouched. */
+function questionTouched(
+  q: PortalQuestion,
+  answers: Record<string, number[]>,
+  textAnswers: Record<string, string>,
+): boolean {
+  if (q.questionType === 'SHORT_ANSWER') {
+    return (textAnswers[answerKey(q.questionId)] ?? '').trim().length > 0;
+  }
+  const slots =
+    q.questionType === 'LIKERT_GRID'
+      ? q.rows.map((r) => answerKey(q.questionId, r.questionRowId))
+      : [answerKey(q.questionId)];
+  return slots.some((slot) => (answers[slot] ?? []).length > 0);
+}
+
 function firstUnansweredIndex(
   questions: PortalQuestion[],
   answers: Record<string, number[]>,
   textAnswers: Record<string, string>,
   optionTexts: Record<string, string>,
 ): number {
-  const idx = questions.findIndex((q) => !questionSatisfied(q, answers, textAnswers, optionTexts));
+  // A blank OPTIONAL question behind the furthest one they touched was passed
+  // by on purpose — landing them back on it would make the skip look like a
+  // mistake. One beyond that point they have not reached yet, so it counts.
+  // With no optional questions this is the plain "first unanswered".
+  let furthest = -1;
+  questions.forEach((q, i) => {
+    if (questionTouched(q, answers, textAnswers)) furthest = i;
+  });
+  const idx = questions.findIndex(
+    (q, i) =>
+      !questionSatisfied(q, answers, textAnswers, optionTexts)
+      && (!q.optional || i > furthest || questionTouched(q, answers, textAnswers)),
+  );
   // Everything answered (they quit right before submitting): land on the last
   // question, where the Submit button lives.
   return idx === -1 ? Math.max(0, questions.length - 1) : idx;

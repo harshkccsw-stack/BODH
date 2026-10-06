@@ -17,8 +17,10 @@ import com.bodhpsychometric.model.question.enums.SelectionRule;
  * MIN n         n    optionCount
  * </pre>
  *
- * The floor is never 0: every placed question stays mandatory, so "up to 3"
- * means 1—3. Optional questions would be a separate feature.
+ * The floor is never 0, so "up to 3" means 1—3. Optional is a different
+ * axis — QuestionnaireQuestion.optional, per placement — and means "blank, or
+ * within these bounds": a skipped optional question picks nothing at all, it
+ * does not lower the floor.
  */
 public record SelectionBounds(int floor, int cap) {
 

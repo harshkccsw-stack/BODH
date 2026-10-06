@@ -3,8 +3,9 @@ package com.bodhpsychometric.dto;
 import java.util.List;
 
 /**
- * Payload for the once-and-for-all answer submission: one entry per question,
- * every placed question answered. Elements are validated in pass 1 before
+ * Payload for the once-and-for-all answer submission: one entry per selected
+ * option (or written answer), every REQUIRED question answered — an optional
+ * question is simply absent when skipped. Elements are validated in pass 1 before
  * anything is written (bulk convention — @Valid cannot reach list elements).
  *
  * {@code popUpCount} is the attempt-level tally of inactivity "focus" popups

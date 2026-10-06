@@ -133,6 +133,12 @@ export interface QuestionnaireQuestionEntry {
   questionId: number;
   sectionId: number | null;
   sortOrder: number;
+  /**
+   * May the respondent leave it blank? Omitted = keep what the placement had
+   * (a question new to the questionnaire starts required). Once anyone has
+   * started an assessment of it, optional → required is a 409.
+   */
+  optional?: boolean;
 }
 
 /** Replace-all: attaches listed bank questions, detaches everything else. */

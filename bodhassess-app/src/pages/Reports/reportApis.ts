@@ -60,6 +60,11 @@ export interface RespondentAssessmentRow {
   isPersisted: boolean;
   answeredQuestions: number;
   totalQuestions: number;
+  /**
+   * COMPLETED attempts only (0 otherwise): optional questions left blank, so
+   * "answered 8 of 10" on a finished attempt reads as finished.
+   */
+  skippedOptionalQuestions: number;
   demographicResponses: number;
 }
 

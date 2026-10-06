@@ -211,7 +211,8 @@ export interface UsedInRef {
  * (getByQuestionnaireId) — they are that questionnaire's placement,
  * meaningless in bank-wide reads. questionTag is the placement's report
  * identifier ("Section_A_Q_1" / "Q_1"), stamped by the questions PUT; null
- * on placements saved before tags existed.
+ * on placements saved before tags existed. optional is placement context too:
+ * may the respondent leave it blank in THIS questionnaire (null bank-wide).
  */
 export interface QuestionResponse {
   questionId: number;
@@ -219,6 +220,7 @@ export interface QuestionResponse {
   sectionId: number | null;
   sortOrder: number | null;
   questionTag: string | null;
+  optional: boolean | null;
   contentType: QuestionContentType;
   questionType: QuestionType;
   stem: string;

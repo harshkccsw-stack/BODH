@@ -10,6 +10,7 @@ import com.bodhpsychometric.dto.PortalSubmitRequest.AnswerEntry;
 import com.bodhpsychometric.model.assessment.Assessment;
 import com.bodhpsychometric.model.assessment.AssessmentTerms;
 import com.bodhpsychometric.model.assessment.RespondentAssessmentMapping;
+import com.bodhpsychometric.model.assessment.enums.QuestionLayout;
 import com.bodhpsychometric.model.assessment.enums.RespondentAssessmentStatus;
 import com.bodhpsychometric.model.demographics.enums.DemographicFieldType;
 import com.bodhpsychometric.model.question.enums.ContentType;
@@ -43,8 +44,11 @@ public record PortalAssessmentDetailResponse(
          * the portal never has to decide what the terms say.
          */
         String termsAndConditions,
+        /** Auto-advance after a pick. ONE_PER_PAGE only — the portal ignores it per section. */
         boolean autoNext,
         boolean showQuestionIndex,
+        /** One question per page, or a whole section per scrollable page. */
+        QuestionLayout questionLayout,
         /**
          * Arms the portal's attention timer: each focus popup carries a
          * 10-minute countdown, and letting one run out abandons the attempt
@@ -109,6 +113,12 @@ public record PortalAssessmentDetailResponse(
             Long questionId,
             Long sectionId,
             int sortOrder,
+            /**
+             * May be left blank. When it is answered it still has to satisfy
+             * min/maxSelections, and a grid is every row or none — "optional"
+             * means blank OR valid, never half-answered.
+             */
+            boolean optional,
             ContentType contentType,
             QuestionType questionType,
             String stem,
@@ -194,6 +204,7 @@ public record PortalAssessmentDetailResponse(
                 AssessmentTerms.effective(assessment.getTermsAndConditions()),
                 assessment.isAutoNext(),
                 assessment.isShowQuestionIndex(),
+                assessment.getQuestionLayout(),
                 assessment.isAttentionTimer(),
                 assessment.isSavePartialAnswers(),
                 content.questionnaireId(),
@@ -214,6 +225,7 @@ public record PortalAssessmentDetailResponse(
                 q.questionId(),
                 q.sectionId(),
                 q.sortOrder(),
+                q.optional(),
                 q.contentType(),
                 q.questionType(),
                 q.stem(),

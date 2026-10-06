@@ -180,6 +180,7 @@ export default function MemberInfoModal({ member, organizationName, onUnassign, 
                       </div>
                       <p className="text-xs text-muted-foreground mt-0.5">
                         Answered {a.answeredQuestions} of {a.totalQuestions}
+                        {a.skippedOptionalQuestions > 0 && ` with ${a.skippedOptionalQuestions} optional skipped`}
                       </p>
                     </div>
                     <Button

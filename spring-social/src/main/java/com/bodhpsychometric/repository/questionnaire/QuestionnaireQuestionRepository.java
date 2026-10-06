@@ -92,5 +92,8 @@ public interface QuestionnaireQuestionRepository extends JpaRepository<Questionn
 
     long countByQuestionnaireQuestionnaireId(Long questionnaireId);
 
+    /** How many of a questionnaire's placements may be left blank — the "x optional skipped" base. */
+    long countByQuestionnaireQuestionnaireIdAndOptionalTrue(Long questionnaireId);
+
     boolean existsByQuestionQuestionId(Long questionId);
 }

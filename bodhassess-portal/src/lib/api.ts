@@ -152,6 +152,12 @@ export interface PortalQuestion {
   questionId: number;
   sectionId: number | null;
   sortOrder: number;
+  /**
+   * May be left blank. Answered, it still has to satisfy min/maxSelections,
+   * and a grid is every row or none — blank OR valid, never half-answered.
+   * Exactly the rule the submit validator applies.
+   */
+  optional: boolean;
   contentType: PortalContentType;
   questionType: PortalQuestionType;
   stem: string | null;
@@ -229,6 +235,9 @@ export interface PortalDemographicField {
 }
 // Matches PortalAssessmentDetailResponse on the backend. Deliberately carries
 // no scoring data — the server never sends it to respondents.
+/** Matches QuestionLayout on the backend. */
+export type PortalQuestionLayout = 'ONE_PER_PAGE' | 'SECTION_PER_PAGE';
+
 export interface PortalAssessmentDetail {
   respondentAssessmentMappingId: number;
   assessmentStatus: 'NOT_STARTED' | 'ONGOING' | 'COMPLETED';
@@ -242,8 +251,11 @@ export interface PortalAssessmentDetail {
    * assessments without their own text get the server's default.
    */
   termsAndConditions: string;
+  /** Auto-advance after a pick — ONE_PER_PAGE only; a section page never moves on its own. */
   autoNext: boolean;
   showQuestionIndex: boolean;
+  /** One question per screen, or a whole section on one scrollable page. */
+  questionLayout: PortalQuestionLayout;
   /**
    * Arms the attention timer: each inactivity popup carries its own
    * ATTENTION_BUDGET_MS countdown, and letting one run out abandons the

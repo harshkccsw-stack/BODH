@@ -8,6 +8,7 @@ import {
   LayoutGrid,
   Timer,
   TimerOff,
+  X,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -23,6 +24,24 @@ import {
   type PortalAssessmentDetail,
   type PortalQuestion,
 } from '@/lib/api';
+
+// Two layouts share this runner (the assessment's questionLayout):
+// ONE_PER_PAGE — the original: one question per screen, Previous/Next, with
+// auto-advance when the assessment asks for it. SECTION_PER_PAGE — a whole
+// section on one scrollable page, Back/Next between sections and Submit on
+// the last; no auto-advance (a page never moves on its own), and Next on a
+// page with a required question still blank scrolls to it and marks it
+// instead of being greyed out. A flat questionnaire is one section, so it
+// becomes a single page. Underneath, both walk the same PAGES — one question
+// each, or one section each — and render every question through the same
+// renderQuestion, so the two can never answer differently.
+//
+// Optional questions (PortalQuestion.optional) may be left blank: Next is
+// open on them untouched, and they never hold Submit back. Touched, they are
+// held to their rule like any other — blank OR valid, the submit validator's
+// rule — so a half-rated grid or an "Other" with nothing typed still blocks
+// until it is finished or cleared. That is what isQuestionBlocking means, and
+// it is what "pending" counts.
 
 // Answers are keyed by SLOT — answerKey(questionId) for an ordinary question,
 // answerKey(questionId, rowId) for one row of a grid — and hold every selected
@@ -68,10 +87,18 @@ function ScaleSlider({
   question,
   selectedOptionId,
   onPick,
+  onClear,
 }: {
   question: PortalQuestion;
   selectedOptionId: number | undefined;
   onPick: (optionId: number) => void;
+  /**
+   * Back to UNSET. A slider has no other way back: once the thumb has moved,
+   * every position on the track is a value, so without this a stray tap on a
+   * question the respondent meant to leave (optional) or to think about
+   * (required) could never be undone — only changed into another number.
+   */
+  onClear: () => void;
 }) {
   const points = question.options;
   const valueOf = (text: string | null) => Number(text);
@@ -146,9 +173,21 @@ function ScaleSlider({
         </div>
       </div>
 
-      <p className="text-xs text-muted-foreground">
-        {unset ? 'Drag the slider to answer' : <>You chose <span className="font-semibold text-primary">{selectedValue}</span></>}
-      </p>
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-xs text-muted-foreground">
+          {unset ? 'Drag the slider to answer' : <>You chose <span className="font-semibold text-primary">{selectedValue}</span></>}
+        </p>
+        {!unset && (
+          <button
+            type="button"
+            onClick={onClear}
+            className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline"
+          >
+            <X className="h-3 w-3" />
+            Clear
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -219,21 +258,101 @@ export function QuestionRunner({
   attentionResetError?: string;
 }) {
   const questions = detail.questions;
-  const startAt = Math.max(0, Math.min(questions.length - 1, initialIndex));
-  const [index, setIndex] = useState(startAt);
   const total = questions.length;
+  const sectionMode = detail.questionLayout === 'SECTION_PER_PAGE';
+
+  // Group questions into ordered sections (preserving first-appearance order),
+  // keeping each question's absolute index so navigation still works. Flat
+  // questionnaires collapse to a single untitled group.
+  //
+  // First appearance IS section order: the server delivers every question of
+  // section 1, then every question of section 2 — so each group's indices are
+  // one contiguous run.
+  const sectionById = new Map(detail.sections.map((s) => [s.sectionId, s]));
+  const sections: {
+    key: string;
+    title: string | null;
+    instruction: string | null;
+    repeatInstruction: boolean;
+    indices: number[];
+  }[] = [];
+  const sectionByKey = new Map<string, number>();
+  questions.forEach((qq, qi) => {
+    const key = qq.sectionId !== null ? String(qq.sectionId) : '__none__';
+    let pos = sectionByKey.get(key);
+    if (pos === undefined) {
+      const section = qq.sectionId !== null ? sectionById.get(qq.sectionId) : undefined;
+      pos = sections.length;
+      sectionByKey.set(key, pos);
+      sections.push({
+        key,
+        title: section?.name?.trim() || null,
+        // isBlankRichText, not trim(): an author who emptied the editor left
+        // "<p><br></p>" behind, which would draw an empty section banner.
+        instruction: isBlankRichText(section?.instruction) ? null : (section?.instruction ?? null),
+        repeatInstruction: section?.showInstructionOnEachQuestion ?? false,
+        indices: [],
+      });
+    }
+    sections[pos].indices.push(qi);
+  });
+  const hasSections = sections.some((s) => s.title);
+
+  // What one screen shows: a single question, or a whole section. Every
+  // question sits on exactly one page, and pages are contiguous runs, so a
+  // page is entered at its first question.
+  const pages: number[][] = sectionMode ? sections.map((s) => s.indices) : questions.map((_, qi) => [qi]);
+  const pageOfQuestion = new Map<number, number>();
+  pages.forEach((p, pi) => p.forEach((qi) => pageOfQuestion.set(qi, pi)));
+  const pageStartOf = (qi: number): number => pages[pageOfQuestion.get(qi) ?? 0][0];
+
+  const firstOpen = Math.max(0, Math.min(questions.length - 1, initialIndex));
+  // `index` is the question the screen is ON: in section mode, always the
+  // first question of the page shown (the page's anchor — what the heartbeat,
+  // the header and partial saving read). A resume lands on the page holding
+  // the first unanswered question and scrolls to it.
+  const startAt = sectionMode ? pageStartOf(firstOpen) : firstOpen;
+  const [index, setIndex] = useState(startAt);
+  const pageIdx = pageOfQuestion.get(index) ?? 0;
+  const pageIndices = pages[pageIdx] ?? [index];
+  const isLastPage = pageIdx === pages.length - 1;
   // Absolute indices the respondent has actually landed on. Leaving one
   // unanswered is what makes it a SKIP rather than a question not reached yet
-  // — the navigator marks the two differently, so this has to be tracked.
-  const [visited, setVisited] = useState<Set<number>>(() => new Set([startAt]));
+  // — the navigator marks the two differently, so this has to be tracked. A
+  // section page lands on every question it shows.
+  const [visited, setVisited] = useState<Set<number>>(
+    () => new Set(sectionMode ? pages[pageOfQuestion.get(startAt) ?? 0] : [startAt]),
+  );
   // Cleanup mode: forward has had to jump BACKWARDS at least once, so the
   // paper is no longer being read in order. Raised further down, where the
   // wrap is detected; from then on EVERY unanswered question is marked,
   // visited or not, and the pending banner names them.
   const [sweeping, setSweeping] = useState(false);
   useEffect(() => {
-    setVisited((seen) => (seen.has(index) ? seen : new Set(seen).add(index)));
+    const landed = pages[pageOfQuestion.get(index) ?? 0] ?? [index];
+    setVisited((seen) => {
+      if (landed.every((qi) => seen.has(qi))) return seen;
+      const next = new Set(seen);
+      landed.forEach((qi) => next.add(qi));
+      return next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [index]);
+
+  // Section mode only: the questions a Next or Submit press found still
+  // blocking on THIS page, outlined until they are answered. Replaced on
+  // every page change, so a mark never follows the respondent elsewhere.
+  const [flagged, setFlagged] = useState<Set<number>>(() => new Set());
+  // Each question's card on a section page, so a press of Next, a navigator
+  // jump or a resume can bring one into view.
+  const cardRefs = useRef(new Map<number, HTMLDivElement>());
+  const scrollToCard = (qi: number) =>
+    cardRefs.current.get(qi)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  // A question to bring into view once the page it is on has rendered —
+  // set by a jump to a page other than the one showing. Null = top of page.
+  const pendingScroll = useRef<number | null>(
+    sectionMode && firstOpen !== startAt ? firstOpen : null,
+  );
 
   // Every question starts at the top of the page. Without this the browser
   // keeps the scroll offset from the question just left, so answering an
@@ -243,27 +362,19 @@ export function QuestionRunner({
   // they all funnel through setIndex. 'auto' deliberately overrides the
   // smooth scroll-behavior on <html> (styles.css): a page that glides back
   // up between every question reads as lag on an 80-question paper.
+  // A section page opened by a jump to one of its LATER questions scrolls to
+  // that question instead.
   useEffect(() => {
+    const target = pendingScroll.current;
+    pendingScroll.current = null;
+    if (target !== null && cardRefs.current.has(target)) {
+      cardRefs.current.get(target)?.scrollIntoView({ block: 'center', behavior: 'auto' });
+      return;
+    }
     window.scrollTo({ top: 0, behavior: 'auto' });
   }, [index]);
 
-  const q = questions[index];
-  const progress = Math.round(((index + 1) / total) * 100);
-  const isScale = q.questionType === 'LINEAR_SCALE';
-  // Columns for the phone-only stacked grid below. Up to five points sit on one
-  // line; beyond that they split over two balanced lines rather than shrinking
-  // every label past reading.
-  const gridColumns = q.options.length <= 5 ? Math.max(1, q.options.length) : Math.ceil(q.options.length / 2);
-  // The same points folded onto two lines on a phone-width screen — but only
-  // when the labels need it. Five columns give each point about 48px of text at
-  // 390px: enough for "Agree" or a number, not for "Sometimes", which would
-  // have to break mid-word. Short scales therefore stay one line at every
-  // width. Read by .scale-grid in styles.css.
-  const longestOptionLabel = q.options.reduce((n, o) => Math.max(n, (o.optionText ?? '').length), 0);
-  const gridColumnsNarrow =
-    gridColumns <= 3 || longestOptionLabel <= 6 ? gridColumns : Math.ceil(gridColumns / 2);
-  const isGrid = q.questionType === 'LIKERT_GRID';
-  const isText = q.questionType === 'SHORT_ANSWER';
+  const progress = Math.round(((pageIdx + 1) / pages.length) * 100);
   // Every slot this question must fill: one per grid row, otherwise one for
   // the question itself. Mirrors slotsOf() in PortalAssessmentService.
   const slotsOf = (qq: PortalQuestion): string[] =>
@@ -293,20 +404,11 @@ export function QuestionRunner({
     return n >= qq.minSelections && n <= qq.maxSelections && freeTextFilled(qq, slot, a, ot);
   };
 
-  // The non-grid slot, for the code paths that only ever see one.
-  const selected = picked(answerKey(q.questionId));
-  const multi = q.maxSelections > 1;
-  const hint = isGrid ? null : selectionHint(q);
-  // "Answered" means the rule is SATISFIED for EVERY slot, not merely
-  // touched — anything looser and the navigator would show a green tick on a
-  // question the server is about to reject, and a half-filled grid would sail
-  // past Next.
-  const answered = slotsOf(q).every((slot) => slotSatisfied(q, slot));
-  const atCap = selected.length >= q.maxSelections;
   const isLast = index === total - 1;
   // Per-assessment setting: advance to the next question automatically a beat
   // after an option is picked (never an auto-submit on the last question).
-  const autoNext = detail.autoNext;
+  // One question per page only: a section page never moves on its own.
+  const autoNext = detail.autoNext && !sectionMode;
 
   // Pending auto-advance timer. Cleared on any manual navigation, on a fresh
   // selection, and on unmount so it can never fire against a stale question.
@@ -479,16 +581,37 @@ export function QuestionRunner({
   }, []);
 
   // Flashes when a tick is refused for being over the cap; cleared on any
-  // successful change and on leaving the question.
-  const [capWarning, setCapWarning] = useState(false);
+  // successful change and on leaving the question. Holds WHICH question it
+  // is for — a section page shows several, and only the one tapped warns.
+  const [capWarning, setCapWarning] = useState<number | null>(null);
 
-  const goTo = (qi: number) => {
+  /**
+   * Go to a question. One per page: it becomes the screen. Section mode: its
+   * page opens (at the top when it is the page's first question, scrolled to
+   * it otherwise), or — already on that page — the page scrolls to it.
+   * `flag` marks questions on the page being opened as still to answer.
+   */
+  const goTo = (qi: number, flag: number[] = []) => {
     clearAdvance();
-    setCapWarning(false);
-    setIndex(Math.max(0, Math.min(total - 1, qi)));
+    setCapWarning(null);
+    const target = Math.max(0, Math.min(total - 1, qi));
+    if (!sectionMode) {
+      setIndex(target);
+      return;
+    }
+    const start = pageStartOf(target);
+    setFlagged(new Set(flag));
+    if (start === index) {
+      scrollToCard(target);
+      return;
+    }
+    pendingScroll.current = target === start ? null : target;
+    setIndex(start);
   };
 
-  const selectOption = (optionId: number, questionRowId?: number) => {
+  const selectOption = (qi: number, optionId: number, questionRowId?: number) => {
+    const q = questions[qi];
+    const isScale = q.questionType === 'LINEAR_SCALE';
     const slot = answerKey(q.questionId, questionRowId);
     const selected = picked(slot);
     const atCap = selected.length >= q.maxSelections;
@@ -503,12 +626,12 @@ export function QuestionRunner({
       // Past the cap the tick is BLOCKED, never swapped for an earlier one:
       // silently dropping a selection they made produces an answer set the
       // respondent never intended and nothing downstream can detect.
-      setCapWarning(true);
+      setCapWarning(qi);
       return;
     } else {
       next = [...selected, optionId];
     }
-    setCapWarning(false);
+    setCapWarning(null);
     const updated = { ...answers, [slot]: next };
     setAnswers(updated);
     // Auto-advance needs an interaction that is ATOMIC AND TERMINAL: one
@@ -540,11 +663,9 @@ export function QuestionRunner({
     // is blank any more, and then it stays put: auto-advance exists to carry
     // someone through work, not through finished work, and the bar is already
     // offering Submit. Being last is not the end condition — blanks can lie
-    // in front of the last question.
-    const after = questions
-      .map((_, qi) => qi)
-      .filter((qi) => !isQuestionAnswered(qi, updated, textAnswers, optionTexts));
-    const target = nextPendingFrom(index, after);
+    // in front of the last question. "Blank" is the same walk Next takes:
+    // an optional question not reached yet counts, one already passed does not.
+    const target = nextPendingFrom(index, walkPending(updated, textAnswers, optionTexts));
     if (target === null) return;
     clearAdvance();
     advanceTimer.current = window.setTimeout(() => {
@@ -553,6 +674,10 @@ export function QuestionRunner({
     }, 350);
   };
 
+  // "Answered" means the rule is SATISFIED for EVERY slot, not merely
+  // touched — anything looser and the navigator would show a green tick on a
+  // question the server is about to reject, and a half-filled grid would sail
+  // past Next.
   const isQuestionAnswered = (
     qi: number,
     a: Record<string, number[]> = answers,
@@ -564,6 +689,92 @@ export function QuestionRunner({
     return slotsOf(qq).every((slot) => slotSatisfied(qq, slot, a, t, ot));
   };
   const answeredCount = questions.reduce((n, _, i) => n + (isQuestionAnswered(i) ? 1 : 0), 0);
+
+  /** Has the respondent started this one at all — any tick, or any typed text? */
+  const isQuestionTouched = (
+    qi: number,
+    a: Record<string, number[]> = answers,
+    t: Record<string, string> = textAnswers,
+  ): boolean => {
+    const qq = questions[qi];
+    if (qq === undefined) return false;
+    if (qq.questionType === 'SHORT_ANSWER') {
+      return (t[answerKey(qq.questionId)] ?? '').trim().length > 0;
+    }
+    return slotsOf(qq).some((slot) => (a[slot] ?? []).length > 0);
+  };
+
+  /**
+   * Holds the respondent up: a required question not answered yet, or an
+   * optional one started and left unfinished — a half-rated grid, too few
+   * ticks, an "Other" with nothing typed. Blank or valid is the optional
+   * rule, exactly the submit validator's, so nothing this calls clear can
+   * come back as a 400.
+   */
+  const isQuestionBlocking = (
+    qi: number,
+    a: Record<string, number[]> = answers,
+    t: Record<string, string> = textAnswers,
+    ot: Record<string, string> = optionTexts,
+  ): boolean => {
+    const qq = questions[qi];
+    if (qq === undefined || isQuestionAnswered(qi, a, t, ot)) return false;
+    return !qq.optional || isQuestionTouched(qi, a, t);
+  };
+
+  /**
+   * Where forward walks on a one-per-page paper: everything still blocking,
+   * plus any optional question not reached yet. Without the second half, Next
+   * would jump straight over an optional question nobody had seen, because a
+   * blank optional question never blocks.
+   */
+  const walkPending = (
+    a: Record<string, number[]> = answers,
+    t: Record<string, string> = textAnswers,
+    ot: Record<string, string> = optionTexts,
+  ): number[] =>
+    questions
+      .map((_, qi) => qi)
+      .filter((qi) =>
+        isQuestionBlocking(qi, a, t, ot)
+        || (questions[qi].optional && !isQuestionAnswered(qi, a, t, ot) && !visited.has(qi)),
+      );
+
+  /**
+   * Back to blank: every slot's ticks, any "Other…" text riding on them, or
+   * the written answer. Offered on optional questions (and by the slider, on
+   * any), because blank is a real answer there and a stray tap must not be
+   * permanent.
+   */
+  const clearQuestion = (qi: number) => {
+    clearAdvance();
+    setCapWarning(null);
+    const qq = questions[qi];
+    if (qq.questionType === 'SHORT_ANSWER') {
+      setTextAnswers({ ...textAnswers, [answerKey(qq.questionId)]: '' });
+      return;
+    }
+    const slots = slotsOf(qq);
+    const nextAnswers = { ...answers };
+    slots.forEach((slot) => {
+      nextAnswers[slot] = [];
+    });
+    setAnswers(nextAnswers);
+    // The text goes with its tick: left behind, it would reappear the moment
+    // the "Other" row was picked again, typed by nobody.
+    const nextTexts = { ...optionTexts };
+    let textsChanged = false;
+    for (const slot of slots) {
+      for (const o of qq.options) {
+        const k = optionTextKey(slot, o.optionId);
+        if (k in nextTexts) {
+          delete nextTexts[k];
+          textsChanged = true;
+        }
+      }
+    }
+    if (textsChanged) setOptionTexts(nextTexts);
+  };
 
   // ── Live-tracking heartbeat ─────────────────────────────────────────────
   // Tells the admin tracking page where this respondent is: an immediate
@@ -628,43 +839,6 @@ export function QuestionRunner({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [answeredCount]);
 
-  // Group questions into ordered sections (preserving first-appearance order),
-  // keeping each question's absolute index so navigation still works. Flat
-  // questionnaires collapse to a single untitled group.
-  //
-  // First appearance IS section order: the server delivers every question of
-  // section 1, then every question of section 2 — so each group's indices are
-  // one contiguous run.
-  const sectionById = new Map(detail.sections.map((s) => [s.sectionId, s]));
-  const sections: {
-    key: string;
-    title: string | null;
-    instruction: string | null;
-    repeatInstruction: boolean;
-    indices: number[];
-  }[] = [];
-  const sectionByKey = new Map<string, number>();
-  questions.forEach((qq, qi) => {
-    const key = qq.sectionId !== null ? String(qq.sectionId) : '__none__';
-    let pos = sectionByKey.get(key);
-    if (pos === undefined) {
-      const section = qq.sectionId !== null ? sectionById.get(qq.sectionId) : undefined;
-      pos = sections.length;
-      sectionByKey.set(key, pos);
-      sections.push({
-        key,
-        title: section?.name?.trim() || null,
-        // isBlankRichText, not trim(): an author who emptied the editor left
-        // "<p><br></p>" behind, which would draw an empty section banner.
-        instruction: isBlankRichText(section?.instruction) ? null : (section?.instruction ?? null),
-        repeatInstruction: section?.showInstructionOnEachQuestion ?? false,
-        indices: [],
-      });
-    }
-    sections[pos].indices.push(qi);
-  });
-  const hasSections = sections.some((s) => s.title);
-
   // Absolute index → where that question sits INSIDE its section, which is
   // how it is NUMBERED. A placement's sortOrder is per-section on the backend
   // and the authoring wizard numbers each section from 1, so a global running
@@ -704,35 +878,53 @@ export function QuestionRunner({
     if (place === undefined) return `Q${qi + 1}`;
     return place.title ? `${place.title} · Q${place.pos + 1}` : `Q${place.pos + 1}`;
   };
-  // Every question still short of its rule, in delivery order. Recomputed
-  // each render, so the pending banner shrinks as they fill them in and
-  // disappears on its own once nothing is left.
-  const pending = questions.map((_, qi) => qi).filter((qi) => !isQuestionAnswered(qi));
-  // Marked amber in the navigator: left unanswered after being visited, or —
-  // once the sweep has started — anything still unanswered, including blanks
+  // Every question still holding the respondent up, in delivery order — a
+  // required one short of its rule, or an optional one started and not
+  // finished. Recomputed each render, so the pending banner shrinks as they
+  // fill them in and disappears on its own once nothing is left.
+  const pending = questions.map((_, qi) => qi).filter((qi) => isQuestionBlocking(qi));
+  // On the section page being worked on, nothing is "skipped" yet — they are
+  // looking at it. One per page has no such case: the current square is
+  // drawn as current whatever its state.
+  const onScreen = (qi: number): boolean => sectionMode && pageIndices.includes(qi);
+  // Marked amber in the navigator: left blocking after being visited, or —
+  // once the sweep has started — anything still blocking, including blanks
   // that were jumped straight over and never opened.
   const isSkipped = (qi: number): boolean =>
-    !isQuestionAnswered(qi) && (sweeping || visited.has(qi));
+    isQuestionBlocking(qi) && (sweeping || visited.has(qi)) && !onScreen(qi);
+  // The third state: an optional question passed by and left blank. Not a
+  // problem, so not amber — but not "not answered yet" either.
+  const isOptionalSkipped = (qi: number): boolean =>
+    questions[qi].optional && !isQuestionTouched(qi) && (sweeping || visited.has(qi)) && !onScreen(qi);
+  const anyOptional = questions.some((qq) => qq.optional);
   const PENDING_SHOWN = 5;
-  // Where forward goes. While ANYTHING is blank it means "the next blank",
-  // wrapping past the end so a question skipped early is still reached from
-  // the last one. Once nothing is blank it is the ordinary next question
-  // again, so a finished paper can still be paged through for review.
-  const nextTarget = pending.length > 0
-    ? nextPendingFrom(index, pending)
+  // Where forward goes (one per page). While ANYTHING is blank it means "the
+  // next blank", wrapping past the end so a question skipped early is still
+  // reached from the last one; an optional question not reached yet counts as
+  // blank, one already passed does not (walkPending). Once nothing is blank it
+  // is the ordinary next question again, so a finished paper can still be
+  // paged through for review.
+  const walk = walkPending();
+  const nextTarget = walk.length > 0
+    ? nextPendingFrom(index, walk)
     : isLast ? null : index + 1;
   const showNext = nextTarget !== null;
-  // Submit exists only when the paper is complete. It is never rendered and
+  // Submit exists only when nothing is blocking. It is never rendered and
   // then refused: an unfinished assessment simply has no Submit button, and
-  // Next is what walks them to the state where one appears.
+  // Next is what walks them to the state where one appears. Optional
+  // questions never hold it back.
   const showSubmit = pending.length === 0;
+  // Can the respondent move on from the question on screen? Blocked only by
+  // a required blank or a half-finished optional answer — an untouched
+  // optional question lets Next through.
+  const blockingHere = isQuestionBlocking(index);
   // Forward is about to jump BACKWARDS — everything ahead is answered and only
   // earlier blanks are left. That is the moment the missing Submit button
   // needs explaining, so the banner is raised on ARRIVING at this state, not
   // on pressing anything. Sticky for the rest of the sweep: a banner that
   // vanished whenever the next blank happened to lie ahead would flicker on
   // and off between hops.
-  const wrapping = nextTarget !== null && nextTarget < index;
+  const wrapping = !sectionMode && nextTarget !== null && nextTarget < index;
   useEffect(() => {
     if (wrapping) setSweeping(true);
   }, [wrapping]);
@@ -746,6 +938,39 @@ export function QuestionRunner({
   const trySubmit = () => {
     if (pending.length > 0) {
       goTo(pending[0]);
+      return;
+    }
+    onSubmit();
+  };
+
+  // ── Section pages ───────────────────────────────────────────────────────
+  // Next and Submit are never greyed out here: on a long page a dead button
+  // with no reason is a puzzle. Pressed with something still blocking, they
+  // outline every such question on the page and scroll to the first instead.
+  const pageBlocking = pageIndices.filter((qi) => isQuestionBlocking(qi));
+  const flaggedHere = pageIndices.filter((qi) => flagged.has(qi) && isQuestionBlocking(qi));
+  const holdOnPage = (): boolean => {
+    if (pageBlocking.length === 0) return false;
+    setFlagged(new Set(pageBlocking));
+    scrollToCard(pageBlocking[0]);
+    return true;
+  };
+  const nextPage = () => {
+    if (holdOnPage() || isLastPage) return;
+    goTo(pages[pageIdx + 1][0]);
+  };
+  const previousPage = () => {
+    if (pageIdx > 0) goTo(pages[pageIdx - 1][0]);
+  };
+  const submitFromPage = () => {
+    if (holdOnPage()) return;
+    // This page is done but an earlier one is not — reachable only by
+    // jumping ahead from the index. Take them to it, marked, and keep the
+    // pending list on screen until it is cleared.
+    if (pending.length > 0) {
+      setSweeping(true);
+      const first = pending[0];
+      goTo(first, pages[pageOfQuestion.get(first) ?? 0].filter((qi) => isQuestionBlocking(qi)));
       return;
     }
     onSubmit();
@@ -784,9 +1009,15 @@ export function QuestionRunner({
                     use. */}
                 {sec.indices.map((qi, pos) => {
                   const qq = questions[qi];
-                  const isCurrent = qi === index;
+                  // One per page: THE question on screen, drawn solid. A
+                  // section page shows several, so its squares keep their
+                  // answered/blank colours and gain a ring instead — solid
+                  // primary on a whole page would hide what is left to do.
+                  const isCurrent = !sectionMode && qi === index;
+                  const isOnPage = onScreen(qi);
                   const isAnswered = isQuestionAnswered(qi);
                   const skipped = isSkipped(qi);
+                  const optionalSkipped = !skipped && isOptionalSkipped(qi);
                   return (
                     <button
                       key={qq.questionId}
@@ -798,7 +1029,15 @@ export function QuestionRunner({
                         setNavOpen(false);
                       }}
                       title={`${sec.title ? `${sec.title} · ` : ''}Question ${pos + 1}${
-                        isAnswered ? ' — answered' : skipped ? ' — not answered' : ''
+                        qq.optional ? ' (optional)' : ''
+                      }${
+                        isAnswered
+                          ? ' — answered'
+                          : skipped
+                            ? ' — not answered'
+                            : optionalSkipped
+                              ? ' — left blank'
+                              : ''
                       }`}
                       className={cn(
                         'h-9 lg:h-8 w-full rounded-md text-xs font-medium border transition-colors',
@@ -808,7 +1047,10 @@ export function QuestionRunner({
                             ? 'border-green-500/40 bg-green-500/10 text-green-700 dark:text-green-400 hover:bg-green-500/20'
                             : skipped
                               ? 'border-amber-500/50 bg-amber-500/10 text-amber-700 dark:text-amber-400 hover:bg-amber-500/20'
-                              : 'border-border bg-background text-muted-foreground hover:border-primary/40',
+                              : optionalSkipped
+                                ? 'border-dashed border-muted-foreground/40 bg-muted text-muted-foreground hover:border-primary/40'
+                                : 'border-border bg-background text-muted-foreground hover:border-primary/40',
+                        isOnPage && 'ring-2 ring-primary ring-offset-1 ring-offset-card',
                       )}
                     >
                       {pos + 1}
@@ -822,7 +1064,15 @@ export function QuestionRunner({
       </div>
       <div className="mt-3 pt-3 border-t border-border space-y-1.5 text-[0.6875rem] text-muted-foreground">
         <div className="flex items-center gap-1.5">
-          <span className="inline-block h-3 w-3 rounded-sm bg-primary" /> Current
+          {sectionMode ? (
+            <>
+              <span className="inline-block h-3 w-3 rounded-sm border border-border bg-background ring-2 ring-primary ring-offset-1 ring-offset-card" /> This page
+            </>
+          ) : (
+            <>
+              <span className="inline-block h-3 w-3 rounded-sm bg-primary" /> Current
+            </>
+          )}
         </div>
         <div className="flex items-center gap-1.5">
           <span className="inline-block h-3 w-3 rounded-sm bg-green-500/20 border border-green-500/40" /> Answered
@@ -830,12 +1080,403 @@ export function QuestionRunner({
         <div className="flex items-center gap-1.5">
           <span className="inline-block h-3 w-3 rounded-sm bg-amber-500/20 border border-amber-500/50" /> Skipped
         </div>
+        {anyOptional && (
+          <div className="flex items-center gap-1.5">
+            <span className="inline-block h-3 w-3 rounded-sm border border-dashed border-muted-foreground/40 bg-muted" /> Optional, left blank
+          </div>
+        )}
         <div className="flex items-center gap-1.5">
           <span className="inline-block h-3 w-3 rounded-sm border border-border bg-background" /> Not answered
         </div>
       </div>
     </>
   );
+
+  /**
+   * One question's card body — stem, help text, media, hints and the answer
+   * control. Shared by both layouts: the single card of a one-per-page
+   * screen, and every card of a section page. Everything it reads is keyed
+   * by `qi`, never by the screen's `index`, which is what lets a section page
+   * hold several at once.
+   */
+  const renderQuestion = (qi: number) => {
+    const q = questions[qi];
+    const isScale = q.questionType === 'LINEAR_SCALE';
+    const isGrid = q.questionType === 'LIKERT_GRID';
+    const isText = q.questionType === 'SHORT_ANSWER';
+    // Columns for the phone-only stacked grid below. Up to five points sit on one
+    // line; beyond that they split over two balanced lines rather than shrinking
+    // every label past reading.
+    const gridColumns = q.options.length <= 5 ? Math.max(1, q.options.length) : Math.ceil(q.options.length / 2);
+    // The same points folded onto two lines on a phone-width screen — but only
+    // when the labels need it. Five columns give each point about 48px of text at
+    // 390px: enough for "Agree" or a number, not for "Sometimes", which would
+    // have to break mid-word. Short scales therefore stay one line at every
+    // width. Read by .scale-grid in styles.css.
+    const longestOptionLabel = q.options.reduce((n, o) => Math.max(n, (o.optionText ?? '').length), 0);
+    const gridColumnsNarrow =
+      gridColumns <= 3 || longestOptionLabel <= 6 ? gridColumns : Math.ceil(gridColumns / 2);
+    // The non-grid slot, for the code paths that only ever see one.
+    const selected = picked(answerKey(q.questionId));
+    const multi = q.maxSelections > 1;
+    const hint = isGrid ? null : selectionHint(q);
+    const answered = isQuestionAnswered(qi);
+    const atCap = selected.length >= q.maxSelections;
+    const place = placeOf.get(qi);
+    // A section page numbers its cards (the header names the section); a
+    // one-per-page screen needs the row only to say "Optional".
+    const showMeta = sectionMode || q.optional;
+    // The slider brings its own Clear, on required questions too.
+    const canClear = q.optional && !isScale && isQuestionTouched(qi);
+    return (
+      <>
+      {showMeta && (
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            {sectionMode && (
+              <span className="text-xs font-semibold tabular-nums text-muted-foreground">
+                Q{(place?.pos ?? qi) + 1}
+              </span>
+            )}
+            {q.optional && (
+              <span className="rounded-full border border-border bg-muted px-2 py-0.5 text-[0.6875rem] font-medium text-muted-foreground">
+                Optional
+              </span>
+            )}
+          </div>
+          {canClear && (
+            <button
+              type="button"
+              onClick={() => clearQuestion(qi)}
+              className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline"
+            >
+              <X className="h-3 w-3" />
+              Clear answer
+            </button>
+          )}
+        </div>
+      )}
+      {q.stem && <p className="text-[0.9375rem] sm:text-base font-medium leading-relaxed">{q.stem}</p>}
+      {/* The author's help text. Deliberately quieter than the stem
+          and pulled tight under it (-mt-2 against the container's
+          space-y): it qualifies the question rather than adding a
+          second one, and reading as a separate paragraph would make a
+          respondent look for something to answer in it. */}
+      {q.description && (
+        <p className="-mt-2 sm:-mt-3 text-sm text-muted-foreground leading-relaxed">
+          {q.description}
+        </p>
+      )}
+      <Media url={q.mediaUrl ?? undefined} type={mediaTypeFor(q.contentType, q.mediaUrl)} />
+
+      {isGrid && (
+        /* Every row needs a pick (an optional grid: every row or none),
+           so the count is the thing to show: on a long grid an unrated
+           row is easy to scroll past. */
+        <div
+          className={cn(
+            'flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-lg border px-3 py-2 text-xs font-medium',
+            answered
+              ? 'border-green-500/40 bg-green-500/5 text-green-700 dark:text-green-400'
+              : 'border-primary/30 bg-primary/5 text-primary',
+          )}
+        >
+          <span>Pick one for every row</span>
+          <span className="shrink-0 text-muted-foreground">
+            {q.rows.filter((r) => slotSatisfied(q, answerKey(q.questionId, r.questionRowId))).length}
+            {' of '}{q.rows.length} rated
+          </span>
+        </div>
+      )}
+
+      {hint && (
+        <div
+          className={cn(
+            'flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-lg border px-3 py-2 text-xs font-medium transition-colors',
+            capWarning === qi
+              ? 'border-amber-400 bg-amber-50 text-amber-700 dark:border-amber-600 dark:bg-amber-950/30 dark:text-amber-400'
+              : 'border-primary/30 bg-primary/5 text-primary',
+          )}
+        >
+          <span>{capWarning === qi ? `${hint} — untick one to change your answer` : hint}</span>
+          <span className="shrink-0 text-muted-foreground">
+            {selected.length} selected
+          </span>
+        </div>
+      )}
+
+      {isGrid ? (
+        <>
+          {/* PHONE — one block per statement, its scale laid out left
+              to right underneath it. The table below needs a sideways
+              swipe to reach the last column on a 390px screen, and a
+              column the respondent never scrolled to is a column they
+              never considered. Stacking keeps every point on screen
+              and still reads in scale order, which is the one thing a
+              Likert row cannot lose. */}
+          <div className="sm:hidden space-y-2.5">
+            {q.rows.map((row, ri) => {
+              const slot = answerKey(q.questionId, row.questionRowId);
+              const rowPicked = picked(slot);
+              const rowDone = slotSatisfied(q, slot);
+              return (
+                <div
+                  key={row.questionRowId}
+                  className={cn(
+                    'rounded-lg border p-3',
+                    rowDone ? 'border-border bg-background' : 'border-primary/30 bg-primary/[0.03]',
+                  )}
+                >
+                  <p className="flex gap-2 text-sm">
+                    <span className="shrink-0 text-xs text-muted-foreground">{ri + 1}.</span>
+                    <span>{row.rowText}</span>
+                  </p>
+                  {/* An even grid rather than flex-wrap: wrapping
+                      stretched the leftover option across the whole
+                      second line, which read as a bigger, different
+                      kind of choice than the four beside it. */}
+                  <div
+                    className="scale-grid mt-2.5 gap-1.5"
+                    style={
+                      {
+                        '--scale-cols': gridColumns,
+                        '--scale-cols-narrow': gridColumnsNarrow,
+                      } as CSSProperties
+                    }
+                  >
+                    {q.options.map((opt, oi) => {
+                      const on = rowPicked.includes(opt.optionId);
+                      return (
+                        <button
+                          key={opt.optionId}
+                          type="button"
+                          onClick={() => selectOption(qi, opt.optionId, row.questionRowId)}
+                          aria-pressed={on}
+                          className={cn(
+                            // break-words is the backstop: the column
+                            // count already gives each point room for
+                            // an ordinary label, but nothing stops an
+                            // author writing one long word.
+                            'min-h-11 rounded-md border px-1 py-1.5 text-[0.625rem] font-medium leading-tight break-words transition-colors',
+                            on
+                              ? 'border-primary bg-primary text-primary-foreground'
+                              : 'border-border bg-background text-muted-foreground',
+                          )}
+                        >
+                          {opt.optionText || `Option ${oi + 1}`}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* TABLET AND UP — rows x shared columns, one pick per row.
+             Every row is mandatory, so an unanswered one is marked
+             rather than left to be discovered by the Next button. The
+             table scrolls sideways rather than wrapping, because a
+             Likert row is only readable in scale order. */}
+          <div className="hidden sm:block overflow-x-auto overscroll-x-contain -mx-2 px-2">
+            <table className="w-full border-separate border-spacing-0 text-sm">
+              <thead>
+                <tr>
+                  <th className="sticky left-0 z-10 bg-card text-left pb-2 pr-3 font-normal text-xs text-muted-foreground">
+                    &nbsp;
+                  </th>
+                  {q.options.map((opt, oi) => (
+                    <th
+                      key={opt.optionId}
+                      className="px-2 pb-2 text-center align-bottom font-medium text-xs text-muted-foreground whitespace-nowrap"
+                    >
+                      {opt.optionText || `Option ${oi + 1}`}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {q.rows.map((row, ri) => {
+                  const slot = answerKey(q.questionId, row.questionRowId);
+                  const rowPicked = picked(slot);
+                  const rowDone = slotSatisfied(q, slot);
+                  return (
+                    <tr key={row.questionRowId}>
+                      <td
+                        className={cn(
+                          'sticky left-0 z-10 bg-card border-t border-border py-3 pr-3 align-middle',
+                          !rowDone && 'text-foreground',
+                        )}
+                      >
+                        <span className="flex items-start gap-2">
+                          <span className="text-xs text-muted-foreground mt-0.5 shrink-0">{ri + 1}.</span>
+                          <span className="text-sm">{row.rowText}</span>
+                        </span>
+                      </td>
+                      {q.options.map((opt) => {
+                        const on = rowPicked.includes(opt.optionId);
+                        return (
+                          <td key={opt.optionId} className="border-t border-border px-2 py-3 text-center">
+                            <button
+                              type="button"
+                              onClick={() => selectOption(qi, opt.optionId, row.questionRowId)}
+                              aria-label={`${row.rowText ?? `Row ${ri + 1}`}: ${opt.optionText ?? ''}`}
+                              aria-pressed={on}
+                              className={cn(
+                                'inline-flex h-6 w-6 items-center justify-center rounded-full border transition-colors',
+                                on
+                                  ? 'border-primary bg-primary text-primary-foreground'
+                                  : 'border-border hover:border-primary/60',
+                              )}
+                            >
+                              {on && <Check className="h-3.5 w-3.5" />}
+                            </button>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
+      ) : isText ? (
+        /* Free text. No auto-advance: there is no moment that says
+           "done" while someone is typing, and sliding the page away
+           mid-sentence is the worst thing this screen could do. */
+        <textarea
+          rows={3}
+          value={textAnswers[answerKey(q.questionId)] ?? ''}
+          onChange={(e) =>
+            setTextAnswers({ ...textAnswers, [answerKey(q.questionId)]: e.target.value })
+          }
+          placeholder="Type your answer…"
+          className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+        />
+      ) : isScale ? (
+        /* A slider, not a row of buttons — which is what lets the
+           author pick any range: 0—100 is unusable as a hundred
+           buttons and natural as a track.
+
+           It starts UNSET, and that is the important part. A thumb
+           parked at the midpoint would make an untouched question
+           look answered, and every respondent who skipped it would
+           silently record the middle — invisible in the data
+           afterwards. Until they interact there is no value, and
+           Next stays closed.
+
+           Underneath it is still an ordinary cap-1 question: the
+           value maps to the option whose text is that number and
+           goes through selectOption, so submitting is unchanged. */
+        <ScaleSlider
+          question={q}
+          selectedOptionId={selected[0]}
+          onPick={(optionId) => selectOption(qi, optionId)}
+          onClear={() => clearQuestion(qi)}
+        />
+      ) : (
+      <div className="space-y-2">
+        {q.options.map((opt, oi) => {
+          const on = selected.includes(opt.optionId);
+          const isOther = opt.contentType === 'FREE_TEXT';
+          const otherKey = optionTextKey(answerKey(q.questionId), opt.optionId);
+          const rowClass = cn(
+            'w-full text-left rounded-lg border p-3.5 sm:p-4 transition-colors',
+            on ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40',
+            // At the cap the unticked options are visibly inert —
+            // the tick is refused, so it must not look available.
+            multi && atCap && !on && 'opacity-60',
+          );
+          const marker = (
+            <span
+              className={cn(
+                'mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center border',
+                multi ? 'rounded' : 'rounded-full',
+                on ? 'border-primary bg-primary text-primary-foreground' : 'border-border',
+              )}
+            >
+              {on && <Check className="h-3 w-3" />}
+            </span>
+          );
+          if (isOther) {
+            // The "Other…" row, Google-Forms style: the label and an
+            // ALWAYS-VISIBLE box on one line, so it reads as a
+            // different kind of option before anyone touches it.
+            // The row is a div, not a button — an input inside a
+            // button is invalid HTML and every keystroke would toggle
+            // the tick — so the marker+label is the button and the
+            // box beside it selects the option on focus, the way
+            // typing into Google's "Other" ticks its radio. No
+            // auto-advance ever fires on that pick (selectOption);
+            // Enter in the box IS Next.
+            return (
+              <div key={opt.optionId} className={cn(rowClass, 'flex items-start gap-3')}>
+                <button
+                  type="button"
+                  onClick={() => selectOption(qi, opt.optionId)}
+                  className="flex shrink-0 items-start gap-3 text-left"
+                >
+                  {marker}
+                  <span className="text-sm">{opt.optionText || 'Other'}</span>
+                </button>
+                <input
+                  type="text"
+                  value={optionTexts[otherKey] ?? ''}
+                  onFocus={() => {
+                    if (!on) selectOption(qi, opt.optionId);
+                  }}
+                  onChange={(e) => setOptionTexts({ ...optionTexts, [otherKey]: e.target.value })}
+                  onKeyDown={(e) => {
+                    if (e.key !== 'Enter') return;
+                    e.preventDefault();
+                    // Same gate as the Next button: nothing to press
+                    // until the question is answered, and where it
+                    // goes is wherever Next would go. A section page
+                    // holds other questions below — Enter there only
+                    // ends the typing; it never turns the page.
+                    if (!sectionMode && answered && nextTarget !== null) goTo(nextTarget);
+                  }}
+                  placeholder="Type your answer…"
+                  aria-label={`${opt.optionText || 'Other'} — your answer`}
+                  /* Underline only, like Google's: a boxed input inside
+                     a boxed row is a frame in a frame. */
+                  className="min-w-0 flex-1 border-0 border-b border-border bg-transparent px-1 pb-1 text-sm outline-none transition-colors placeholder:text-muted-foreground/70 focus:border-primary"
+                />
+              </div>
+            );
+          }
+          return (
+            <button
+              key={opt.optionId}
+              type="button"
+              onClick={() => selectOption(qi, opt.optionId)}
+              className={rowClass}
+            >
+              <div className="flex items-start gap-3">
+                {marker}
+                <div className="flex-1 space-y-2">
+                  <p className="text-sm">{opt.optionText || `Option ${oi + 1}`}</p>
+                  {/* space-y-2 would put this as far from its own
+                      label as the label is from the next option, so
+                      it is pulled back up — help text has to read as
+                      part of the choice it qualifies. */}
+                  {opt.description && (
+                    <p className="-mt-1 text-xs text-muted-foreground leading-relaxed">
+                      {opt.description}
+                    </p>
+                  )}
+                  <Media url={opt.mediaUrl ?? undefined} type={mediaTypeFor(opt.contentType, opt.mediaUrl)} />
+                </div>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+      )}
+      </>
+    );
+  };
 
   return (
     // min-h-dvh, not min-h-screen: 100vh on a mobile browser counts the
@@ -863,11 +1504,21 @@ export function QuestionRunner({
             {/* A phone has no room for "Section B · Question 3 of 40" beside
                 the assessment name, so the wording shortens to the part that
                 matters rather than wrapping or truncating. */}
+            {/* A section page counts PAGES — "Question 4 of 40" would name
+                only the first card on screen. One page is just its size. */}
             <span className="hidden sm:inline">
-              {here?.title ? `${here.title} · ` : ''}Question {index + 1} of {total}
+              {!sectionMode
+                ? `${here?.title ? `${here.title} · ` : ''}Question ${index + 1} of ${total}`
+                : pages.length === 1
+                  ? `${total} question${total === 1 ? '' : 's'}`
+                  : `${here?.title ? `${here.title} · ` : ''}Page ${pageIdx + 1} of ${pages.length}`}
             </span>
             <span className="sm:hidden font-medium tabular-nums">
-              {index + 1} / {total}
+              {!sectionMode
+                ? `${index + 1} / ${total}`
+                : pages.length === 1
+                  ? `${total} question${total === 1 ? '' : 's'}`
+                  : `${pageIdx + 1} / ${pages.length}`}
             </span>
           </div>
         )}
@@ -925,338 +1576,75 @@ export function QuestionRunner({
         )}
 
         <main>
-          {/* The section's own instruction: on the question that opens the
-              section — the respondent's signal that they have crossed from
-              one section into the next — and, when the author turned on
-              "Show instruction on each question", above every question of
-              that section. Same banner either way. Authored per section in
-              the wizard; sections without one show nothing. */}
-          {here?.instruction && (
-            <div className="mb-5 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3">
-              {here.title && (
-                <p className="text-xs font-semibold uppercase tracking-wider text-primary">{here.title}</p>
-              )}
-              <RichText value={here.instruction} className="mt-1 text-sm text-foreground" />
-            </div>
-          )}
-          <Card>
-            <CardContent className="p-4 sm:p-6 space-y-4 sm:space-y-5">
-              {q.stem && <p className="text-[0.9375rem] sm:text-base font-medium leading-relaxed">{q.stem}</p>}
-              {/* The author's help text. Deliberately quieter than the stem
-                  and pulled tight under it (-mt-2 against the container's
-                  space-y): it qualifies the question rather than adding a
-                  second one, and reading as a separate paragraph would make a
-                  respondent look for something to answer in it. */}
-              {q.description && (
-                <p className="-mt-2 sm:-mt-3 text-sm text-muted-foreground leading-relaxed">
-                  {q.description}
-                </p>
-              )}
-              <Media url={q.mediaUrl ?? undefined} type={mediaTypeFor(q.contentType, q.mediaUrl)} />
-
-              {isGrid && (
-                /* Every row is mandatory, so the count is the thing to show:
-                   on a long grid an unrated row is easy to scroll past. */
-                <div
-                  className={cn(
-                    'flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-lg border px-3 py-2 text-xs font-medium',
-                    answered
-                      ? 'border-green-500/40 bg-green-500/5 text-green-700 dark:text-green-400'
-                      : 'border-primary/30 bg-primary/5 text-primary',
+          {sectionMode ? (
+            <>
+              {/* The page IS the section, so its name and instruction head the
+                  page once, above every card — the per-question repeat that
+                  "Show instruction on each question" asks for on a one-per-page
+                  paper is already true of a page that keeps it on screen. */}
+              {(sections[pageIdx]?.title || sections[pageIdx]?.instruction) && (
+                <div className="mb-5 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3">
+                  {sections[pageIdx]?.title && (
+                    <p className="text-xs font-semibold uppercase tracking-wider text-primary">
+                      {sections[pageIdx].title}
+                    </p>
                   )}
-                >
-                  <span>Pick one for every row</span>
-                  <span className="shrink-0 text-muted-foreground">
-                    {q.rows.filter((r) => slotSatisfied(q, answerKey(q.questionId, r.questionRowId))).length}
-                    {' of '}{q.rows.length} rated
-                  </span>
+                  {sections[pageIdx]?.instruction && (
+                    <RichText value={sections[pageIdx].instruction} className="mt-1 text-sm text-foreground" />
+                  )}
                 </div>
               )}
-
-              {hint && (
-                <div
-                  className={cn(
-                    'flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-lg border px-3 py-2 text-xs font-medium transition-colors',
-                    capWarning
-                      ? 'border-amber-400 bg-amber-50 text-amber-700 dark:border-amber-600 dark:bg-amber-950/30 dark:text-amber-400'
-                      : 'border-primary/30 bg-primary/5 text-primary',
-                  )}
-                >
-                  <span>{capWarning ? `${hint} — untick one to change your answer` : hint}</span>
-                  <span className="shrink-0 text-muted-foreground">
-                    {selected.length} selected
-                  </span>
-                </div>
-              )}
-
-              {isGrid ? (
-                <>
-                  {/* PHONE — one block per statement, its scale laid out left
-                      to right underneath it. The table below needs a sideways
-                      swipe to reach the last column on a 390px screen, and a
-                      column the respondent never scrolled to is a column they
-                      never considered. Stacking keeps every point on screen
-                      and still reads in scale order, which is the one thing a
-                      Likert row cannot lose. */}
-                  <div className="sm:hidden space-y-2.5">
-                    {q.rows.map((row, ri) => {
-                      const slot = answerKey(q.questionId, row.questionRowId);
-                      const rowPicked = picked(slot);
-                      const rowDone = slotSatisfied(q, slot);
-                      return (
-                        <div
-                          key={row.questionRowId}
-                          className={cn(
-                            'rounded-lg border p-3',
-                            rowDone ? 'border-border bg-background' : 'border-primary/30 bg-primary/[0.03]',
-                          )}
-                        >
-                          <p className="flex gap-2 text-sm">
-                            <span className="shrink-0 text-xs text-muted-foreground">{ri + 1}.</span>
-                            <span>{row.rowText}</span>
-                          </p>
-                          {/* An even grid rather than flex-wrap: wrapping
-                              stretched the leftover option across the whole
-                              second line, which read as a bigger, different
-                              kind of choice than the four beside it. */}
-                          <div
-                            className="scale-grid mt-2.5 gap-1.5"
-                            style={
-                              {
-                                '--scale-cols': gridColumns,
-                                '--scale-cols-narrow': gridColumnsNarrow,
-                              } as CSSProperties
-                            }
-                          >
-                            {q.options.map((opt, oi) => {
-                              const on = rowPicked.includes(opt.optionId);
-                              return (
-                                <button
-                                  key={opt.optionId}
-                                  type="button"
-                                  onClick={() => selectOption(opt.optionId, row.questionRowId)}
-                                  aria-pressed={on}
-                                  className={cn(
-                                    // break-words is the backstop: the column
-                                    // count already gives each point room for
-                                    // an ordinary label, but nothing stops an
-                                    // author writing one long word.
-                                    'min-h-11 rounded-md border px-1 py-1.5 text-[0.625rem] font-medium leading-tight break-words transition-colors',
-                                    on
-                                      ? 'border-primary bg-primary text-primary-foreground'
-                                      : 'border-border bg-background text-muted-foreground',
-                                  )}
-                                >
-                                  {opt.optionText || `Option ${oi + 1}`}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  {/* TABLET AND UP — rows x shared columns, one pick per row.
-                     Every row is mandatory, so an unanswered one is marked
-                     rather than left to be discovered by the Next button. The
-                     table scrolls sideways rather than wrapping, because a
-                     Likert row is only readable in scale order. */}
-                  <div className="hidden sm:block overflow-x-auto overscroll-x-contain -mx-2 px-2">
-                    <table className="w-full border-separate border-spacing-0 text-sm">
-                      <thead>
-                        <tr>
-                          <th className="sticky left-0 z-10 bg-card text-left pb-2 pr-3 font-normal text-xs text-muted-foreground">
-                            &nbsp;
-                          </th>
-                          {q.options.map((opt, oi) => (
-                            <th
-                              key={opt.optionId}
-                              className="px-2 pb-2 text-center align-bottom font-medium text-xs text-muted-foreground whitespace-nowrap"
-                            >
-                              {opt.optionText || `Option ${oi + 1}`}
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {q.rows.map((row, ri) => {
-                          const slot = answerKey(q.questionId, row.questionRowId);
-                          const rowPicked = picked(slot);
-                          const rowDone = slotSatisfied(q, slot);
-                          return (
-                            <tr key={row.questionRowId}>
-                              <td
-                                className={cn(
-                                  'sticky left-0 z-10 bg-card border-t border-border py-3 pr-3 align-middle',
-                                  !rowDone && 'text-foreground',
-                                )}
-                              >
-                                <span className="flex items-start gap-2">
-                                  <span className="text-xs text-muted-foreground mt-0.5 shrink-0">{ri + 1}.</span>
-                                  <span className="text-sm">{row.rowText}</span>
-                                </span>
-                              </td>
-                              {q.options.map((opt) => {
-                                const on = rowPicked.includes(opt.optionId);
-                                return (
-                                  <td key={opt.optionId} className="border-t border-border px-2 py-3 text-center">
-                                    <button
-                                      type="button"
-                                      onClick={() => selectOption(opt.optionId, row.questionRowId)}
-                                      aria-label={`${row.rowText ?? `Row ${ri + 1}`}: ${opt.optionText ?? ''}`}
-                                      aria-pressed={on}
-                                      className={cn(
-                                        'inline-flex h-6 w-6 items-center justify-center rounded-full border transition-colors',
-                                        on
-                                          ? 'border-primary bg-primary text-primary-foreground'
-                                          : 'border-border hover:border-primary/60',
-                                      )}
-                                    >
-                                      {on && <Check className="h-3.5 w-3.5" />}
-                                    </button>
-                                  </td>
-                                );
-                              })}
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </>
-              ) : isText ? (
-                /* Free text. No auto-advance: there is no moment that says
-                   "done" while someone is typing, and sliding the page away
-                   mid-sentence is the worst thing this screen could do. */
-                <textarea
-                  rows={3}
-                  value={textAnswers[answerKey(q.questionId)] ?? ''}
-                  onChange={(e) =>
-                    setTextAnswers({ ...textAnswers, [answerKey(q.questionId)]: e.target.value })
-                  }
-                  placeholder="Type your answer…"
-                  className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-                />
-              ) : isScale ? (
-                /* A slider, not a row of buttons — which is what lets the
-                   author pick any range: 0—100 is unusable as a hundred
-                   buttons and natural as a track.
-
-                   It starts UNSET, and that is the important part. A thumb
-                   parked at the midpoint would make an untouched question
-                   look answered, and every respondent who skipped it would
-                   silently record the middle — invisible in the data
-                   afterwards. Until they interact there is no value, and
-                   Next stays closed.
-
-                   Underneath it is still an ordinary cap-1 question: the
-                   value maps to the option whose text is that number and
-                   goes through selectOption, so submitting is unchanged. */
-                <ScaleSlider
-                  question={q}
-                  selectedOptionId={selected[0]}
-                  onPick={(optionId) => selectOption(optionId)}
-                />
-              ) : (
-              <div className="space-y-2">
-                {q.options.map((opt, oi) => {
-                  const on = selected.includes(opt.optionId);
-                  const isOther = opt.contentType === 'FREE_TEXT';
-                  const otherKey = optionTextKey(answerKey(q.questionId), opt.optionId);
-                  const rowClass = cn(
-                    'w-full text-left rounded-lg border p-3.5 sm:p-4 transition-colors',
-                    on ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40',
-                    // At the cap the unticked options are visibly inert —
-                    // the tick is refused, so it must not look available.
-                    multi && atCap && !on && 'opacity-60',
-                  );
-                  const marker = (
-                    <span
-                      className={cn(
-                        'mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center border',
-                        multi ? 'rounded' : 'rounded-full',
-                        on ? 'border-primary bg-primary text-primary-foreground' : 'border-border',
-                      )}
-                    >
-                      {on && <Check className="h-3 w-3" />}
-                    </span>
-                  );
-                  if (isOther) {
-                    // The "Other…" row, Google-Forms style: the label and an
-                    // ALWAYS-VISIBLE box on one line, so it reads as a
-                    // different kind of option before anyone touches it.
-                    // The row is a div, not a button — an input inside a
-                    // button is invalid HTML and every keystroke would toggle
-                    // the tick — so the marker+label is the button and the
-                    // box beside it selects the option on focus, the way
-                    // typing into Google's "Other" ticks its radio. No
-                    // auto-advance ever fires on that pick (selectOption);
-                    // Enter in the box IS Next.
-                    return (
-                      <div key={opt.optionId} className={cn(rowClass, 'flex items-start gap-3')}>
-                        <button
-                          type="button"
-                          onClick={() => selectOption(opt.optionId)}
-                          className="flex shrink-0 items-start gap-3 text-left"
-                        >
-                          {marker}
-                          <span className="text-sm">{opt.optionText || 'Other'}</span>
-                        </button>
-                        <input
-                          type="text"
-                          value={optionTexts[otherKey] ?? ''}
-                          onFocus={() => {
-                            if (!on) selectOption(opt.optionId);
-                          }}
-                          onChange={(e) => setOptionTexts({ ...optionTexts, [otherKey]: e.target.value })}
-                          onKeyDown={(e) => {
-                            if (e.key !== 'Enter') return;
-                            e.preventDefault();
-                            // Same gate as the Next button: nothing to press
-                            // until the question is answered, and where it
-                            // goes is wherever Next would go.
-                            if (answered && nextTarget !== null) goTo(nextTarget);
-                          }}
-                          placeholder="Type your answer…"
-                          aria-label={`${opt.optionText || 'Other'} — your answer`}
-                          /* Underline only, like Google's: a boxed input inside
-                             a boxed row is a frame in a frame. */
-                          className="min-w-0 flex-1 border-0 border-b border-border bg-transparent px-1 pb-1 text-sm outline-none transition-colors placeholder:text-muted-foreground/70 focus:border-primary"
-                        />
-                      </div>
-                    );
-                  }
+              <div className="space-y-4">
+                {pageIndices.map((qi) => {
+                  // Outlined after a Next/Submit press found it blocking, and
+                  // only until it stops blocking — answering clears the mark.
+                  const needsAnswer = flagged.has(qi) && isQuestionBlocking(qi);
                   return (
-                    <button
-                      key={opt.optionId}
-                      type="button"
-                      onClick={() => selectOption(opt.optionId)}
-                      className={rowClass}
+                    <div
+                      key={questions[qi].questionId}
+                      ref={(el) => {
+                        if (el) cardRefs.current.set(qi, el);
+                        else cardRefs.current.delete(qi);
+                      }}
                     >
-                      <div className="flex items-start gap-3">
-                        {marker}
-                        <div className="flex-1 space-y-2">
-                          <p className="text-sm">{opt.optionText || `Option ${oi + 1}`}</p>
-                          {/* space-y-2 would put this as far from its own
-                              label as the label is from the next option, so
-                              it is pulled back up — help text has to read as
-                              part of the choice it qualifies. */}
-                          {opt.description && (
-                            <p className="-mt-1 text-xs text-muted-foreground leading-relaxed">
-                              {opt.description}
+                      <Card className={cn(needsAnswer && 'border-red-400 ring-2 ring-red-400/30 dark:border-red-700')}>
+                        <CardContent className="p-4 sm:p-6 space-y-4 sm:space-y-5">
+                          {renderQuestion(qi)}
+                          {needsAnswer && (
+                            <p className="text-xs font-medium text-red-700 dark:text-red-400">
+                              {questions[qi].optional
+                                ? 'Finish this answer, or clear it to leave the question blank.'
+                                : 'This question needs an answer.'}
                             </p>
                           )}
-                          <Media url={opt.mediaUrl ?? undefined} type={mediaTypeFor(opt.contentType, opt.mediaUrl)} />
-                        </div>
-                      </div>
-                    </button>
+                        </CardContent>
+                      </Card>
+                    </div>
                   );
                 })}
               </div>
+            </>
+          ) : (
+            <>
+              {/* The section's own instruction: on the question that opens the
+                  section — the respondent's signal that they have crossed from
+                  one section into the next — and, when the author turned on
+                  "Show instruction on each question", above every question of
+                  that section. Same banner either way. Authored per section in
+                  the wizard; sections without one show nothing. */}
+              {here?.instruction && (
+                <div className="mb-5 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3">
+                  {here.title && (
+                    <p className="text-xs font-semibold uppercase tracking-wider text-primary">{here.title}</p>
+                  )}
+                  <RichText value={here.instruction} className="mt-1 text-sm text-foreground" />
+                </div>
               )}
-            </CardContent>
-          </Card>
+              <Card>
+                <CardContent className="p-4 sm:p-6 space-y-4 sm:space-y-5">{renderQuestion(index)}</CardContent>
+              </Card>
+            </>
+          )}
 
           {/* Raised once forward starts jumping backwards, and cleared by
               answering — the list is live, so it shrinks as they work through
@@ -1272,7 +1660,9 @@ export function QuestionRunner({
                   <button
                     key={questions[qi].questionId}
                     type="button"
-                    onClick={() => goTo(qi)}
+                    /* On a section page the chip outlines its question too,
+                       the way a refused Next or Submit does. */
+                    onClick={() => goTo(qi, [qi])}
                     className="rounded-md border border-red-300 dark:border-red-800 bg-background px-2 py-1 text-[0.6875rem] font-medium text-red-700 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors"
                   >
                     {labelOf(qi)}
@@ -1287,7 +1677,7 @@ export function QuestionRunner({
               {/* The chips only reach the first few; the button reaches all of
                   them, one at a time. Said here because this is where they
                   are reading when it changes under them. */}
-              {showNext && (
+              {showNext && !sectionMode && (
                 <p className="mt-2 text-[0.6875rem] text-red-700/80 dark:text-red-400/80">
                   Next takes you to the next pending question.
                 </p>
@@ -1299,10 +1689,25 @@ export function QuestionRunner({
               in the bar under them rather than at the end of the paper. Only
               away from the last question — there Submit is where it has
               always been and needs no announcement. */}
-          {pending.length === 0 && !isLast && (
+          {!sectionMode && pending.length === 0 && !isLast && (
             <div className="mt-5 flex items-center gap-2 rounded-lg border border-green-500/40 bg-green-500/5 px-3 py-2 text-xs font-medium text-green-700 dark:text-green-400">
               <Check className="h-3.5 w-3.5 shrink-0" />
-              <span>All {total} questions answered — you can submit now.</span>
+              <span>
+                {answeredCount === total
+                  ? `All ${total} questions answered — you can submit now.`
+                  : 'Every required question is answered — you can submit now, or carry on with the optional ones.'}
+              </span>
+            </div>
+          )}
+
+          {/* Section page: what the last Next/Submit press stopped on, kept in
+              words beside the button so the outlined cards above have a reason
+              even once they have scrolled out of view. */}
+          {sectionMode && flaggedHere.length > 0 && (
+            <div className="mt-5 rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-3 py-2 text-xs font-medium text-red-700 dark:text-red-400">
+              {flaggedHere.length === 1
+                ? '1 question on this page still needs an answer.'
+                : `${flaggedHere.length} questions on this page still need an answer.`}
             </div>
           )}
 
@@ -1319,6 +1724,39 @@ export function QuestionRunner({
               fixed, so it still comes to rest at the end of the content, and
               the safe-area inset keeps it clear of the home indicator. */}
           <div className="sticky bottom-0 z-10 -mx-4 mt-5 flex items-center gap-3 border-t border-border bg-background/95 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:static sm:mx-0 sm:justify-between sm:border-0 sm:bg-transparent sm:p-0 sm:backdrop-blur-none">
+            {sectionMode ? (
+              /* Back and Next between sections; Submit takes Next's place on
+                 the last. Never disabled for a blank — pressing explains it
+                 (holdOnPage). */
+              <>
+                <Button
+                  variant="outline"
+                  onClick={previousPage}
+                  disabled={pageIdx === 0}
+                  className="h-11 flex-1 sm:h-8.5 sm:flex-none"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  Back
+                </Button>
+                {isLastPage ? (
+                  <Button
+                    variant="primary"
+                    onClick={submitFromPage}
+                    disabled={submitting}
+                    className="h-11 flex-1 sm:h-8.5 sm:flex-none"
+                  >
+                    {submitting ? 'Submitting...' : 'Submit Assessment'}
+                    <Check className="h-4 w-4" />
+                  </Button>
+                ) : (
+                  <Button variant="primary" onClick={nextPage} className="h-11 flex-1 sm:h-8.5 sm:flex-none">
+                    Next
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                )}
+              </>
+            ) : (
+            <>
             {/* All three buttons show in one state only — a cleared sweep,
                 mid-paper — and there Previous drops its label on a phone so
                 the two that matter keep a full-width target. */}
@@ -1341,7 +1779,7 @@ export function QuestionRunner({
                    assessment. */
                 variant={showSubmit ? 'outline' : 'primary'}
                 onClick={() => goTo(nextTarget)}
-                disabled={!answered}
+                disabled={blockingHere}
                 className="h-11 flex-1 sm:h-8.5 sm:flex-none"
               >
                 Next
@@ -1352,7 +1790,7 @@ export function QuestionRunner({
               <Button
                 variant="primary"
                 onClick={trySubmit}
-                disabled={!answered || submitting}
+                disabled={blockingHere || submitting}
                 className="h-11 flex-1 sm:h-8.5 sm:flex-none"
               >
                 {submitting ? 'Submitting...' : (
@@ -1362,6 +1800,8 @@ export function QuestionRunner({
                 )}
                 <Check className="h-4 w-4" />
               </Button>
+            )}
+            </>
             )}
           </div>
         </main>

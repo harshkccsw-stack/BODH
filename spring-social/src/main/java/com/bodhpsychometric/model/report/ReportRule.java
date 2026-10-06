@@ -54,8 +54,9 @@ public class ReportRule implements java.io.Serializable {
      *
      * <p>The workbook's steps 0 (data capture) and 2 (reverse scoring) are
      * absent on purpose — neither is a report rule. Step 0 is the platform:
-     * answers already exist per attempt, and "every item answered" is the
-     * COMPLETED filter the dataset applies. Step 2 belongs upstream in the
+     * answers already exist per attempt, and "every REQUIRED item answered"
+     * is the COMPLETED filter the dataset applies (an optional item may be
+     * blank; it scores 0). Step 2 belongs upstream in the
      * question bank, because {@code MqtScoringService} sums
      * {@code OptionMqtScore} — reversing at report time would make
      * {@code mqt:} mean one thing in a sheet and another in a report.

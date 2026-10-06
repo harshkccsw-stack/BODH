@@ -267,7 +267,8 @@ public class PortalAssessmentService {
     }
 
     /**
-     * The submission: one answer per placed question, every option verified
+     * The submission: an answer for every required question (an optional one
+     * may be absent), every option verified
      * to belong to its question, then handed off Redis-FIRST — the validated
      * set is staged as a 7-day envelope, the partial snapshot is dropped, and
      * the respondent gets their 200 with {@code submissionPending=true} while
@@ -454,11 +455,16 @@ public class PortalAssessmentService {
             }
         }
 
-        // Every placed question still has to be answered — and every ROW of
+        // Every REQUIRED question still has to be answered — and every ROW of
         // every grid, which is what makes a half-filled grid a 400 rather
         // than a quietly incomplete answer set. A slot with no selections
         // never entered the map, so the floor of 1 that every rule shares
         // needs no separate check.
+        //
+        // An OPTIONAL question may be left untouched. Touched, it is held to
+        // the same rule as a required one: a grid is every row or none, and
+        // the bounds loop below checks whatever was picked. Blank or valid,
+        // never half-answered.
         //
         // Named the way the respondent's question index names them, and a SET
         // so a grid missing three rows is reported once, as the one question
@@ -468,9 +474,12 @@ public class PortalAssessmentService {
             // A short answer fills no slot — its answer is text, and it is
             // present or it is not.
             if (question.questionType() == QuestionType.SHORT_ANSWER) {
-                if (!typed.containsKey(question.questionId())) {
+                if (!question.optional() && !typed.containsKey(question.questionId())) {
                     unanswered.add(labels.get(question.questionId()));
                 }
+                continue;
+            }
+            if (question.optional() && slotsOf(question).stream().noneMatch(chosen::containsKey)) {
                 continue;
             }
             for (AnswerSlot slot : slotsOf(question)) {

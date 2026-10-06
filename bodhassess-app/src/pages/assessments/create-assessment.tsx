@@ -18,6 +18,7 @@ import {
   assessmentsApi,
   type AssessmentPayload,
   type AssessmentStatus,
+  type QuestionLayout,
 } from './assessmentApis';
 import {
   questionnairesApi,
@@ -37,6 +38,7 @@ interface AssessmentForm {
   showTermsAndConditions: boolean;
   autoNext: boolean;
   showQuestionIndex: boolean;
+  questionLayout: QuestionLayout;
   attentionTimer: boolean;
   savePartialAnswers: boolean;
   startDate: string; // '' = not set; otherwise 'YYYY-MM-DD'
@@ -52,6 +54,7 @@ const EMPTY_FORM: AssessmentForm = {
   showTermsAndConditions: true,
   autoNext: false,
   showQuestionIndex: true,
+  questionLayout: 'ONE_PER_PAGE',
   attentionTimer: false,
   savePartialAnswers: false,
   startDate: '',
@@ -67,14 +70,21 @@ function ToggleRow({
   hint,
   checked,
   onChange,
+  disabled = false,
 }: {
   label: string;
   hint?: string;
   checked: boolean;
   onChange: (v: boolean) => void;
+  disabled?: boolean;
 }) {
   return (
-    <label className="flex items-start justify-between gap-4 py-3 cursor-pointer">
+    <label
+      className={cn(
+        'flex items-start justify-between gap-4 py-3',
+        disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer',
+      )}
+    >
       <div className="min-w-0">
         <p className="text-sm font-medium">{label}</p>
         {hint && <p className="text-xs text-muted-foreground mt-0.5">{hint}</p>}
@@ -82,6 +92,7 @@ function ToggleRow({
       <Switch
         checked={checked}
         onCheckedChange={onChange}
+        disabled={disabled}
         className="mt-0.5 shrink-0"
       />
     </label>
@@ -136,6 +147,7 @@ export default function CreateAssessmentPage() {
             showTermsAndConditions: a.showTermsAndConditions,
             autoNext: a.autoNext,
             showQuestionIndex: a.showQuestionIndex,
+            questionLayout: a.questionLayout,
             attentionTimer: a.attentionTimer,
             savePartialAnswers: a.savePartialAnswers,
             startDate: a.startDate ?? '',
@@ -194,8 +206,11 @@ export default function CreateAssessmentPage() {
       // cleared the box and retyped it gets the browser's own <div> line
       // breaks, which the API refuses.
       termsAndConditions: normalizeEditorHtml(form.termsAndConditions),
+      // Kept as set even under SECTION_PER_PAGE, where the portal ignores
+      // it — switching back to one per page restores the author's choice.
       autoNext: form.autoNext,
       showQuestionIndex: form.showQuestionIndex,
+      questionLayout: form.questionLayout,
       attentionTimer: form.attentionTimer,
       savePartialAnswers: form.savePartialAnswers,
       // Empty input clears the stored date — send null, not ''.
@@ -345,11 +360,35 @@ export default function CreateAssessmentPage() {
                     </div>
                   )}
                 </div>
+                <div className="flex items-start justify-between gap-4 py-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium">Question layout</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      One question per page, or every question of a section on one
+                      scrollable page with Next and Back between sections. A
+                      questionnaire without sections becomes a single page.
+                    </p>
+                  </div>
+                  <select
+                    value={form.questionLayout}
+                    onChange={(e) => setForm({ ...form, questionLayout: e.target.value as QuestionLayout })}
+                    aria-label="Question layout"
+                    className="h-9 shrink-0 rounded-md border border-input bg-background px-2.5 text-sm focus:outline-none focus:border-ring focus:ring-[3px] focus:ring-ring/30 transition-shadow"
+                  >
+                    <option value="ONE_PER_PAGE">One question per page</option>
+                    <option value="SECTION_PER_PAGE">One section per page</option>
+                  </select>
+                </div>
                 <ToggleRow
                   label="Auto-advance to the next question"
-                  hint="Moves on as soon as a choice question is answered. Sliders and typed answers always wait for Next."
+                  hint={
+                    form.questionLayout === 'SECTION_PER_PAGE'
+                      ? 'Not used with one section per page — respondents move between sections with Next and Back.'
+                      : 'Moves on as soon as a choice question is answered. Sliders and typed answers always wait for Next.'
+                  }
                   checked={form.autoNext}
                   onChange={(v) => setForm({ ...form, autoNext: v })}
+                  disabled={form.questionLayout === 'SECTION_PER_PAGE'}
                 />
                 <ToggleRow
                   label="Show question index"

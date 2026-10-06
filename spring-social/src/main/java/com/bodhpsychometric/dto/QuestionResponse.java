@@ -26,6 +26,9 @@ import com.bodhpsychometric.model.question.enums.SelectionRule;
  * per-point scores (a null range means 1—5). On a LIKERT_GRID the options are
  * the shared columns and rows are the items, each naming the MQTs it measures;
  * rows is empty on every other type. A SHORT_ANSWER has neither.
+ *
+ * optional is placement context like sectionId: whether THIS questionnaire
+ * lets the respondent leave the question blank. Null in bank-wide reads.
  */
 public record QuestionResponse(
         Long questionId,
@@ -33,6 +36,7 @@ public record QuestionResponse(
         Long sectionId,
         Integer sortOrder,
         String questionTag,
+        Boolean optional,
         ContentType contentType,
         QuestionType questionType,
         String stem,
@@ -56,14 +60,15 @@ public record QuestionResponse(
     }
 
     public static QuestionResponse from(Question q, List<UsedInRef> usedIn, Long sectionId, Integer sortOrder,
-            String questionTag, List<QuestionOptionResponse> options, List<QuestionRowResponse> rows,
-            List<MqtScoreResponse> mqtScores) {
+            String questionTag, Boolean optional, List<QuestionOptionResponse> options,
+            List<QuestionRowResponse> rows, List<MqtScoreResponse> mqtScores) {
         return new QuestionResponse(
                 q.getQuestionId(),
                 usedIn,
                 sectionId,
                 sortOrder,
                 questionTag,
+                optional,
                 q.getContentType(),
                 q.getQuestionType(),
                 q.getQuestionTexString(),

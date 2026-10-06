@@ -32,6 +32,18 @@ public interface AssessmentAnswerRepository extends JpaRepository<AssessmentAnsw
     List<Object[]> tallyAnswersByAssessment(Long respondentUserId);
 
     /**
+     * The same tally restricted to questions the assessment's questionnaire
+     * places as OPTIONAL — subtracted from the optional placement count, it
+     * is how many optional questions a completed attempt skipped.
+     */
+    @Query("select a.assessment.assessmentId, count(distinct a.question.questionId) "
+            + "from AssessmentAnswer a, QuestionnaireQuestion qq "
+            + "where a.respondent.id = :respondentUserId "
+            + "and qq.questionnaire = a.assessment.questionnaire and qq.question = a.question "
+            + "and qq.optional = true group by a.assessment.assessmentId")
+    List<Object[]> tallyOptionalAnswersByAssessment(Long respondentUserId);
+
+    /**
      * Export fetch — every marked answer of the given respondents for one
      * assessment, with question, (nullable) option and (nullable) grid row
      * eager so the sheet builder never lazy-loads. One row per selected

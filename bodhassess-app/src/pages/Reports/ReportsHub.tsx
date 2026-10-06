@@ -884,6 +884,9 @@ export default function ReportsHubPage() {
                     <span>
                       Answered <span className="font-medium text-foreground">{a.answeredQuestions}</span> of{' '}
                       {a.totalQuestions} question{a.totalQuestions === 1 ? '' : 's'}
+                      {a.skippedOptionalQuestions > 0 && (
+                        <> with {a.skippedOptionalQuestions} optional skipped</>
+                      )}
                     </span>
                     <span>
                       {a.demographicResponses} demographic answer{a.demographicResponses === 1 ? '' : 's'}

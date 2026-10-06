@@ -3,6 +3,7 @@ package com.bodhpsychometric.dto;
 import java.time.LocalDate;
 
 import com.bodhpsychometric.model.assessment.enums.AssessmentStatus;
+import com.bodhpsychometric.model.assessment.enums.QuestionLayout;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -30,6 +31,9 @@ public record AssessmentRequest(
         // Show the portal question index/navigator during the attempt.
         // Null falls back to the entity default (true).
         Boolean showQuestionIndex,
+        // One question per page, or a whole section per scrollable page.
+        // Null falls back to the entity default (ONE_PER_PAGE).
+        QuestionLayout questionLayout,
         // Give the portal's focus popup a 10-minute deadline and abandon the
         // attempt if one is left unanswered that long. Null falls back to the
         // entity default (false) — an omitted field must never arm the timer.

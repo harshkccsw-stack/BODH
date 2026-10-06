@@ -110,6 +110,12 @@ interface DraftQuestion {
   baseline: string;
   usedIn: Array<{ questionnaireId: number; name: string }>;
   expanded: boolean;
+  /**
+   * Placement, not question: may the respondent leave it blank in THIS
+   * questionnaire. Saved with the placement PUT, never with the bank
+   * question, so the same question can be required elsewhere.
+   */
+  optional: boolean;
 }
 
 const newDraft = (sectionId: number | null): DraftQuestion => ({
@@ -120,6 +126,7 @@ const newDraft = (sectionId: number | null): DraftQuestion => ({
   baseline: '',
   usedIn: [],
   expanded: true,
+  optional: false,
 });
 
 /**
@@ -130,6 +137,9 @@ const draftFromQuestion = (
   q: QuestionResponse,
   sectionId: number | null,
   copy = false,
+  // Only a read of THIS questionnaire's placements passes it: a question
+  // imported or uploaded is new here, and new placements start required.
+  optional = false,
 ): DraftQuestion => {
   const form = formFrom(q);
   if (copy) form.id = null;
@@ -141,6 +151,7 @@ const draftFromQuestion = (
     baseline: copy ? '' : JSON.stringify(form),
     usedIn: copy ? [] : q.usedIn,
     expanded: false,
+    optional,
   };
 };
 
@@ -248,7 +259,7 @@ export default function CreateAssessmentPage() {
       // inside each. Re-sorting by sortOrder here would BRAID the sections
       // back together: sortOrder is per-section, so every section's first
       // question shares the value 0.
-      setDrafts(mine.data.map((q) => draftFromQuestion(q, q.sectionId)));
+      setDrafts(mine.data.map((q) => draftFromQuestion(q, q.sectionId, false, q.optional ?? false)));
       setLoadedForQid(qid);
     } catch (e: any) {
       setStep2Error(e?.response?.data?.message || e?.message || 'Failed to load this questionnaire’s questions');
@@ -871,7 +882,12 @@ export default function CreateAssessmentPage() {
       const scope = String(useSections ? d.sectionId : 'flat');
       const sortOrder = counters.get(scope) ?? 0;
       counters.set(scope, sortOrder + 1);
-      return { questionId: d.questionId as number, sectionId: useSections ? d.sectionId : null, sortOrder };
+      return {
+        questionId: d.questionId as number,
+        sectionId: useSections ? d.sectionId : null,
+        sortOrder,
+        optional: d.optional,
+      };
     });
   };
 
@@ -1003,6 +1019,21 @@ export default function CreateAssessmentPage() {
                   {sharedWith.length > 0 && ` · shared with ${sharedWith.length} other questionnaire${sharedWith.length !== 1 ? 's' : ''} — edits apply there too`}
                 </p>
               </button>
+              {/* Per placement, saved with the questionnaire. Once anyone has
+                  started an assessment of it, only required → optional is
+                  accepted — the save says so if it is refused. */}
+              <label
+                className="mt-0.5 flex h-6 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border border-border bg-background px-2 text-xs"
+                title="Optional questions can be left blank. Required ones must be answered before the assessment can be submitted."
+              >
+                <input
+                  type="checkbox"
+                  className="rounded"
+                  checked={d.optional}
+                  onChange={(e) => patchDraft(d.key, { optional: e.target.checked })}
+                />
+                Optional
+              </label>
               {useSections && qSections.length > 0 && (
                 <select
                   value={d.sectionId ?? ''}
