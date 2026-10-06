@@ -140,12 +140,27 @@ export interface PortalOption {
   contentType: PortalContentType;
   mediaUrl: string | null;
   sortOrder: number;
+  /**
+   * GAMES questions only — the game this option launches; null on every other
+   * option. `code` is what src/games/registry.ts maps to a component.
+   * Optional so a payload from before games existed still type-checks.
+   */
+  game?: PortalGame | null;
+}
+// Matches GameRef on the backend — the game behind a GAMES question's option.
+export interface PortalGame {
+  gameId: number;
+  code: string;
+  name: string;
+  /** Recorded with every result, so two versions' numbers are never pooled. */
+  version: number;
 }
 // How many options may be picked. Matches SelectionRule on the backend.
 export type PortalSelectionRule = 'MIN' | 'MAX' | 'EQUALS';
 // What shape the question is. Matches QuestionType on the backend — RENDERING
 // only: a LINEAR_SCALE is an ordinary cap-1 question whose options are the
-// points 1—5, so every gate still reads min/maxSelections.
+// points 1—5, so every gate still reads min/maxSelections. A GAMES question is
+// one too: its single option is picked by FINISHING the game, never by a tap.
 export type PortalQuestionType = 'MCQ' | 'LINEAR_SCALE' | 'LIKERT_GRID' | 'SHORT_ANSWER' | 'PARAGRAPH' | 'GAMES';
 // Matches PortalAssessmentDetailResponse.PortalQuestion on the backend.
 export interface PortalQuestion {
@@ -273,6 +288,43 @@ export interface PortalAssessmentDetail {
    * which case the runner starts from question 1 exactly as before.
    */
   savedAnswers: PortalAnswerEntry[] | null;
+  /**
+   * The same snapshot's finished-game numbers, so a resumed attempt keeps
+   * them beside the game answers they belong to. Null with savedAnswers, and
+   * on a snapshot saved before game results were.
+   */
+  savedGameResults?: PortalGameResultEntry[] | null;
+}
+// Matches PortalSubmitRequest.GamePartEntry on the backend — one PART of a
+// finished game, in game_result's column shape (one row per part). The six
+// core metrics are required; the rest are null/absent when the part does not
+// measure them. Times in ms; timestamps ISO strings from the browser clock.
+export interface PortalGamePart {
+  partCode: string;
+  /** Correct responses. */
+  hits: number;
+  /** Responses with nothing to respond to. */
+  falseAlarms: number;
+  /** Targets let go by. */
+  omissions: number;
+  /** Time spent playing the part, pauses excluded. */
+  durationMs: number;
+  mouseDistancePx: number;
+  mouseIdleSeconds: number;
+  instructionTimeMs?: number | null;
+  groupNumber?: number | null;
+  groupName?: string | null;
+  pauseCount?: number | null;
+  pauseDurationMs?: number | null;
+  startedAt?: string | null;
+  endedAt?: string | null;
+}
+// Matches PortalSubmitRequest.GameResultEntry on the backend: one finished
+// game, by the GAMES question it answered. gameId/gameVersion are filled in by
+// the server from the delivered content; the portal never needs to send them.
+export interface PortalGameResultEntry {
+  questionId: number;
+  parts: PortalGamePart[];
 }
 // Matches PortalBeginRequest.DemographicEntry on the backend. A CHECKLIST
 // sends its ticks in `values`; every other type sends `value`. `otherText` is
@@ -402,19 +454,27 @@ export const portalAssessmentsApi = {
   // Partial-answer snapshot: the FULL set of answers marked so far, replacing
   // the previous snapshot in Redis. Fire-and-forget from the runner — a
   // failure (or saved=false) costs a future backfill, never data.
-  saveProgress: (mappingId: number | string, answers: PortalAnswerEntry[]) =>
+  // Finished games' numbers ride along, so a resume keeps them.
+  saveProgress: (mappingId: number | string, answers: PortalAnswerEntry[], gameResults: PortalGameResultEntry[] = []) =>
     jsonFetch<{ saved: boolean; answerCount: number }>(
       `/portal/assessments/progress/${encodeURIComponent(mappingId)}`,
-      { method: 'PUT', body: JSON.stringify({ answers }) },
+      { method: 'PUT', body: JSON.stringify({ answers, gameResults }) },
     ),
   // The once-and-for-all submission: every answer at once. Redis-staged (the
   // digest lands it in MySQL moments later — submissionPending=true) or, with
   // Redis away, written synchronously as before (→ COMPLETED immediately).
   // popUpCount is the attempt-level inactivity-popup tally (defaults to 0).
-  submit: (mappingId: number | string, answers: PortalAnswerEntry[], popUpCount = 0) =>
+  // gameResults are the finished games' numbers — written to game_result in
+  // the SAME transaction as the answers, never by a call of their own.
+  submit: (
+    mappingId: number | string,
+    answers: PortalAnswerEntry[],
+    popUpCount = 0,
+    gameResults: PortalGameResultEntry[] = [],
+  ) =>
     jsonFetch<PortalAttemptStatus>(`/portal/assessments/submit/${encodeURIComponent(mappingId)}`, {
       method: 'POST',
-      body: JSON.stringify({ answers, popUpCount }),
+      body: JSON.stringify({ answers, popUpCount, gameResults }),
     }),
 };
 

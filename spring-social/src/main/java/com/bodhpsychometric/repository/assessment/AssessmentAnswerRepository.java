@@ -12,6 +12,9 @@ public interface AssessmentAnswerRepository extends JpaRepository<AssessmentAnsw
 
     boolean existsByQuestionQuestionId(Long questionId);
 
+    /** True when any question launching this game has been answered — the game-code lock. */
+    boolean existsByOptionGameGameId(Long gameId);
+
     /** Does this (respondent, assessment) pair hold its answer set yet? */
     boolean existsByRespondent_IdAndAssessment_AssessmentId(Long respondentUserId, Long assessmentId);
 

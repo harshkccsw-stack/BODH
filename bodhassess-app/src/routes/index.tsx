@@ -141,6 +141,7 @@ const QuestionBankQuestions    = lazyPage(() => import('@/pages/question-bank/qu
 const QuestionBankCalibration  = lazyPage(() => import('@/pages/question-bank/calibration'));
 const QuestionBankCreate       = lazyPage(() => import('@/pages/question-bank/create-questionnaire'));
 const QuestionBankNorms        = lazyPage(() => import('@/pages/question-bank/norms'));
+const QuestionBankGames        = lazyPage(() => import('@/pages/question-bank/games'));
 
 // One catalog page serves /questionnaires and the vertical-preset routes —
 // it reads the pathname to pre-filter. Versioning (parents/versions) is gone.
@@ -323,6 +324,7 @@ const routes: RouteObject[] = [
       { path: '/question-bank/calibration', element: <QuestionBankCalibration /> },
       { path: '/question-bank/create', element: <QuestionBankCreate /> },
       { path: '/question-bank/norms', element: <QuestionBankNorms /> },
+      { path: '/question-bank/games', element: <QuestionBankGames /> },
 
       { path: '/questionnaires', element: <Questionnaires /> },
       { path: '/questionnaires/clinical', element: <Questionnaires /> },

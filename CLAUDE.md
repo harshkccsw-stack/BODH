@@ -453,6 +453,50 @@ re-read a file before editing; expect it to have changed):
   list + editor, each AI draft, library editor) and "Mentions" under plain
   language. The plain-language box has the same picker, inserting
   `Name [key]` — both AI prompts already list every key with its label.
+- Games, phase 1 (2026-10-06, `V41`, `V42`): `Game` catalog (`/api/games`,
+  code unique + stored UPPER, name, description, active, version) and
+  `QuestionOption.game` MANY-TO-ONE: any number of GAMES questions, in one
+  questionnaire or many, may launch the same game, each through its own single
+  option (V41 shipped it one-to-one; V42 swapped `uqQuestionOptionGame` for the
+  plain `idxQuestionOptionGame`, index first — errno 1553). `GameResponse`
+  lists `usedByQuestionIds`; a game in use cannot be deleted. A `GAMES` question takes
+  `QuestionRequest.gameId` and NO options — `desiredOptions` generates its one
+  unlabelled option and `rebuildOptions` links the game (scale-points pattern);
+  `optionsChanged` compares the game, so a swap is frozen once answered and
+  the game's CODE is locked too. Retired (`active=false`) games are refused for
+  new questions but keep working on existing ones. V41 seeds `BASELINE` and
+  `COLOR_CLASH_MACKWORTH`. Portal: `PortalOption.game` carries code/name/version;
+  `src/games/registry.ts` maps code → file (ONE GAME = ONE FILE, all settings
+  inside it); `game-renderer.tsx` renders it full screen on the same page
+  (portalled overlay + browser fullscreen, runner `inert`, Back swallowed by
+  `useBlocker`, `beforeunload` prompt, inactivity popup paused). Finishing the
+  game ticks its option — the only thing submitted. Results are NOT saved yet:
+  console + `localStorage['bodh.gameRecords']` only, until the saving phase.
+  The dashboard's original game files are parked in
+  `bodh/deleted/games-dashboard-originals/`. Catalog page: Question Bank →
+  Games (`/question-bank/games`, `games.tsx` + `gamesApi.ts`).
+  `PORTAL_GAME_CODES` in `gamesApi.ts` is a deliberate copy of the portal
+  registry's keys (no shared module) — used only to WARN about a code with no
+  game file; add a code there whenever a game file lands in the portal.
+- Game results (2026-10-06, `V43`, `game_result` / `GameResult`): ONE ROW PER
+  GAME PART (Baseline = `BASELINE`; combined game = `COLOR_CLASH` +
+  `MACKWORTH_CLOCK`), shared columns, research terms: `hits`, `false_alarms`,
+  `omissions`, `duration_ms` (pauses excluded), `mouse_distance_px`,
+  `mouse_idle_seconds`, nullable `instruction_time_ms`, `group_number/name`
+  (on BOTH combined rows), `pause_count/pause_duration_ms` (null = the group had
+  no Pause button), `started_at/ended_at` (browser clock). FK to the ANSWER row
+  with DB `ON DELETE CASCADE` (+ `@OnDelete` for H2) — submit replace-all,
+  reset and MemoryMesh sync all delete answers; FK to `game`; `game_version`
+  copied at submit. NEVER a call of its own: `PortalSubmitRequest.gameResults`
+  rides the submit → validated beside the answers (`validateGameResults`;
+  gameId/version resolved from CONTENT, client values ignored; a result needs
+  its question answered with the game option; a MISSING result is accepted —
+  the answer row records completion) → `StagedSubmission` (Redis) → digest /
+  sync fallback → `AssessmentSubmissionWriter` inserts after the answers, same
+  transaction. Partial save carries them too (`PortalProgressRequest`,
+  `PortalPartialAnswers`, `savedGameResults` on resume); the runner saves a
+  snapshot the moment a game finishes. Each game FILE emits `{ parts: [...] }`
+  in the column shape; part codes are not validated per game server-side.
 
 ## Frontend conventions
 

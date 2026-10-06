@@ -20,12 +20,13 @@ package com.bodhpsychometric.model.question.enums;
  * PARAGRAPH     long answer — RESERVED. Listed so that widening the MySQL enum
  *               (a table rebuild) is already paid for; QuestionController
  *               refuses it until the UI exists.
- * GAMES         a game-based item (2026-10-06) — RESERVED, behaviour not yet
- *               specified. Unlike PARAGRAPH it is NOT in the MySQL enum: whoever
- *               builds it widens `question.question_type` in a new migration
- *               (APPEND it — inserting mid-list renumbers stored rows) along
- *               with whatever columns a game needs. Until then QuestionController
- *               refuses it, so nothing can write a value the column would reject.
+ * GAMES         a browser game (V41, 2026-10-06): exactly ONE option, GENERATED
+ *               from QuestionRequest.gameId and linked to a catalog Game, which
+ *               any number of questions may share (V42). The portal shows it
+ *               with a Launch button and renders the
+ *               game whose code the option carries; finishing the game picks the
+ *               option, so the answer row is an ordinary optionId. What a game's
+ *               results store is not decided yet — the portal only logs them.
  * </pre>
  *
  * MCQ is the default and is exactly what every question meant before this
