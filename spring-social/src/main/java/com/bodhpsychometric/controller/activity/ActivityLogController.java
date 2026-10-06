@@ -21,11 +21,13 @@ import com.bodhpsychometric.dto.ReportPageResponse;
 import com.bodhpsychometric.model.activity.ActivityLog;
 import com.bodhpsychometric.model.activity.enums.ActivityOutcome;
 import com.bodhpsychometric.repository.activity.ActivityLogRepository;
+import com.bodhpsychometric.repository.auth.UserRepository;
 import com.bodhpsychometric.security.ActorFilter;
 import com.bodhpsychometric.security.RequestActor;
 
 /**
- * Reads the activity trail. Super-admin only.
+ * Reads the activity trail. Full access only — the superadmin flag or a
+ * "Full access" (/*) role, see {@link com.bodhpsychometric.model.auth.User#hasFullAccess()}.
  *
  * This endpoint enforces its own gate REGARDLESS of app.security.require-auth.
  * That flag is a rollout control for the API as a whole; this table is not
@@ -52,6 +54,9 @@ public class ActivityLogController {
 
     @Autowired
     private ActivityLogRepository activityLogRepository;
+
+    @Autowired
+    private UserRepository userRepository;
 
     /**
      * The viewer's one query. Every filter is optional; search matches the
@@ -101,9 +106,12 @@ public class ActivityLogController {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(Map.of("message", "Sign in to continue"));
         }
-        if (!actor.superAdmin()) {
+        // The token's flag answers the common case without a query; a role
+        // holder is looked up live, so revoking the role takes effect at once.
+        if (!actor.superAdmin() && !userRepository.findById(actor.userId())
+                .map(com.bodhpsychometric.model.auth.User::hasFullAccess).orElse(false)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body(Map.of("message", "The activity log is restricted to super admins"));
+                    .body(Map.of("message", "The activity log is restricted to full-access users"));
         }
         return null;
     }

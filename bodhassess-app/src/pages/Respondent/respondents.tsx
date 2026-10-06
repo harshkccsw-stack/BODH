@@ -27,6 +27,7 @@ import {
   respondentApis,
   type Gender,
   type OrganizationResponse,
+  type RespondentDeleteCheck,
   type RespondentPayload,
   type RespondentResponse,
 } from './respondentApis';
@@ -104,6 +105,22 @@ export default function RespondentsPage() {
 
   const [confirmDelete, setConfirmDelete] = useState<RespondentResponse | null>(null);
   const [deleteError, setDeleteError] = useState('');
+  // What the delete would take with it — read when the popup opens so the
+  // warning names the assessments instead of guessing.
+  const [deleteCheck, setDeleteCheck] = useState<RespondentDeleteCheck | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  useEffect(() => {
+    setDeleteCheck(null);
+    if (!confirmDelete) return;
+    let cancelled = false;
+    respondentApis.getDeleteCheck(confirmDelete.respondentUserId)
+      .then((res) => { if (!cancelled) setDeleteCheck(res.data); })
+      .catch((e: any) => {
+        if (!cancelled) setDeleteError(e?.response?.data?.message || e?.message || 'Failed to check this respondent');
+      });
+    return () => { cancelled = true; };
+  }, [confirmDelete]);
 
   const refresh = async (showLoading = false) => {
     setLoadError('');
@@ -234,12 +251,15 @@ export default function RespondentsPage() {
   const doDelete = async () => {
     if (!confirmDelete) return;
     setDeleteError('');
+    setDeleting(true);
     try {
       await respondentApis.deleteRespondent(confirmDelete.respondentUserId);
       setConfirmDelete(null);
       await refresh();
     } catch (e: any) {
       setDeleteError(e?.response?.data?.message || e?.message || 'Failed to delete');
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -566,13 +586,58 @@ export default function RespondentsPage() {
               )}
               <p className="text-sm">
                 Remove <strong>{confirmDelete.name}</strong> ({confirmDelete.email})?
-                Their account is removed too. Respondents who already have
-                assessment attempts cannot be deleted.
+                This cannot be undone.
               </p>
+              {!deleteCheck && !deleteError && (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Checking assessments…
+                </div>
+              )}
+              {deleteCheck && !deleteCheck.deletable && (
+                <div className="rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-3 py-2 text-xs text-red-700 dark:text-red-400 space-y-1">
+                  <p className="font-medium">Reset these first, in the Reports Hub:</p>
+                  <ul className="list-disc pl-4">
+                    {deleteCheck.startedAssessments.map((a, i) => <li key={i}>{a}</li>)}
+                  </ul>
+                  <p>Started and completed attempts are only discarded by a reset.</p>
+                </div>
+              )}
+              {deleteCheck && deleteCheck.deletable && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30 px-3 py-2 text-xs text-amber-800 dark:text-amber-300 space-y-1">
+                  <p className="font-medium flex items-center gap-1.5">
+                    <AlertTriangle className="h-3.5 w-3.5" /> This will also delete:
+                  </p>
+                  <ul className="list-disc pl-4">
+                    {deleteCheck.untouchedAssessments.length > 0 && (
+                      <li>
+                        {deleteCheck.untouchedAssessments.length} assigned assessment
+                        {deleteCheck.untouchedAssessments.length === 1 ? '' : 's'}:{' '}
+                        {deleteCheck.untouchedAssessments.join(', ')}
+                      </li>
+                    )}
+                    {deleteCheck.reportNarratives > 0 && (
+                      <li>
+                        {deleteCheck.reportNarratives} stored report narrative
+                        {deleteCheck.reportNarratives === 1 ? '' : 's'}
+                      </li>
+                    )}
+                    <li>
+                      {deleteCheck.keepsLogin
+                        ? 'Their respondent profile only — the login stays, because they are also a practitioner or hold a role.'
+                        : 'Their login account.'}
+                    </li>
+                  </ul>
+                </div>
+              )}
               <div className="flex justify-end gap-2">
                 <Button variant="outline" onClick={() => setConfirmDelete(null)}>Cancel</Button>
-                <Button variant="primary" onClick={doDelete} className="bg-red-600 hover:bg-red-700 text-white">
-                  <Trash2 className="h-3.5 w-3.5" /> Delete
+                <Button
+                  variant="primary"
+                  onClick={doDelete}
+                  disabled={!deleteCheck?.deletable || deleting}
+                  className="bg-red-600 hover:bg-red-700 text-white"
+                >
+                  {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />} Delete
                 </Button>
               </div>
             </CardContent>

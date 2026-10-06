@@ -7,19 +7,12 @@ import {
   Database,
   Library,
   Server,
-  TrendingUp,
   Users,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ProgressCircle } from '@/components/ui/progress';
-import { getHealth, type HealthStatus, type AssessmentSummary } from '@/lib/api';
-import {
-  getRespondents,
-  getPractitioners,
-  countByVertical,
-} from '@/lib/data-store';
-import { assessmentsApi, getQuestionnairesCatalog as fetchQuestionnaires } from '@/lib/api';
+import { dashboardApis, type DashboardAllotment } from './dashboardApis';
 
 const verticalLabels: Record<string, string> = {
   clinical: 'Clinical Psychology',
@@ -37,78 +30,14 @@ const verticalTerminology: Record<string, { respondent: string; practitioner: st
   whitelabel: { respondent: 'Users', practitioner: 'Administrators' },
 };
 
-const ACTIVITY_WINDOW_DAYS = 14;
-
-/** Bucket a list of ISO dates into the last `days` calendar days (oldest → newest). */
-function buildDailyBuckets(dates: Array<string | undefined>, days: number) {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  const buckets = Array.from({ length: days }, (_, i) => {
-    const d = new Date(today);
-    d.setDate(today.getDate() - (days - 1 - i));
-    return { date: d, count: 0 };
-  });
-  const indexByDay = new Map(buckets.map((b, i) => [b.date.toDateString(), i]));
-
-  for (const raw of dates) {
-    if (!raw) continue;
-    const dt = new Date(raw);
-    if (Number.isNaN(dt.getTime())) continue;
-    dt.setHours(0, 0, 0, 0);
-    const idx = indexByDay.get(dt.toDateString());
-    if (idx !== undefined) buckets[idx].count += 1;
-  }
-  return buckets;
-}
-
-/**
- * Lightweight inline-SVG area sparkline. Matches the hand-rolled chart
- * convention used elsewhere in the app (theme tokens, no chart library).
- */
-function ActivitySparkline({ buckets }: { buckets: Array<{ date: Date; count: number }> }) {
-  const W = 100;
-  const H = 36;
-  const max = Math.max(1, ...buckets.map((b) => b.count));
-  const n = buckets.length;
-
-  const points = buckets.map((b, i) => {
-    const x = n === 1 ? 0 : (i / (n - 1)) * W;
-    const y = H - (b.count / max) * H;
-    return { x, y };
-  });
-
-  const line = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(2)} ${p.y.toFixed(2)}`).join(' ');
-  const area = `${line} L ${W} ${H} L 0 ${H} Z`;
-  const total = buckets.reduce((sum, b) => sum + b.count, 0);
-
-  return (
-    <svg
-      viewBox={`0 0 ${W} ${H}`}
-      preserveAspectRatio="none"
-      className="h-24 w-full"
-      role="img"
-      aria-label={`${total} assessments completed over the last ${n} days`}
-    >
-      <path d={area} fill="hsl(var(--primary))" fillOpacity={0.12} />
-      <path
-        d={line}
-        fill="none"
-        stroke="hsl(var(--primary))"
-        strokeWidth={1.5}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        vectorEffect="non-scaling-stroke"
-      />
-    </svg>
-  );
-}
-
 const statusStyles: Record<string, string> = {
   Completed: 'bg-green-500',
-  Active: 'bg-blue-500',
-  'Pending Review': 'bg-yellow-500',
+  'In progress': 'bg-blue-500',
+  'Not started': 'bg-muted-foreground/50',
 };
+
+/** One allotment, tagged with its questionnaire's vertical for the filter. */
+type Session = DashboardAllotment & { vertical: string | null };
 
 function DashboardContent() {
   const searchParams = useSearchParams();
@@ -119,52 +48,57 @@ function DashboardContent() {
   const label = verticalLabels[vertical] || 'Clinical Psychology';
   const terms = verticalTerminology[vertical] || verticalTerminology.clinical;
 
-  const [health, setHealth] = useState<HealthStatus | null>(null);
+  // null = still loading, false = the API did not answer.
+  const [connected, setConnected] = useState<boolean | null>(null);
   const [respondentCount, setRespondentCount] = useState(0);
   const [practitionerCount, setPractitionerCount] = useState(0);
   const [questionnaireCount, setQuestionnaireCount] = useState(0);
-  const [sessions, setSessions] = useState<AssessmentSummary[]>([]);
+  const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    getHealth().then(setHealth).catch(() => setHealth(null));
-  }, []);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     (async () => {
-      // Dashboard reads only the slim /assessments/summaries projection
-      // (id, respondent, instrument, vertical, status, score, createdAt) —
-      // enough for the KPI cards and overview charts, without pulling the
-      // full session payload (answers, mqt scores, demographics).
-      const [allRespondents, allPractitioners, allQuestionnaires, allSummaries] = await Promise.all([
-        getRespondents(),
-        getPractitioners(),
-        fetchQuestionnaires().catch(() => []),
-        assessmentsApi.listSummaries().catch(() => []),
-      ]);
-      if (cancelled) return;
+      try {
+        const [respondents, practitioners, questionnaires, assessments, allotments] = await Promise.all([
+          dashboardApis.getRespondents(),
+          dashboardApis.getPractitioners(),
+          dashboardApis.getQuestionnaires(),
+          dashboardApis.getAssessments(),
+          dashboardApis.getAllotments(),
+        ]);
+        if (cancelled) return;
 
-      const verticalSessions = vertical === 'whitelabel'
-        ? allSummaries
-        : allSummaries.filter((s) => String(s.vertical || '').toLowerCase() === vertical);
-      setSessions(verticalSessions);
+        // An allotment has no vertical of its own: it inherits its
+        // questionnaire's, through the assessment.
+        const verticalByQuestionnaire = new Map(
+          questionnaires.data.map((q) => [q.questionnaireId, q.vertical]));
+        const verticalByAssessment = new Map(assessments.data.map((a) =>
+          [a.assessmentId, verticalByQuestionnaire.get(a.questionnaireId) ?? null]));
+        const all: Session[] = allotments.data.map((m) => ({
+          ...m,
+          vertical: verticalByAssessment.get(m.assessmentId)?.toLowerCase() ?? null,
+        }));
 
-      if (vertical === 'whitelabel') {
-        setRespondentCount(allRespondents.length);
-        setPractitionerCount(allPractitioners.length);
-        setQuestionnaireCount(allQuestionnaires.length);
-      } else {
-        setQuestionnaireCount(countByVertical(allQuestionnaires as any, vertical));
-        setRespondentCount(allRespondents.length);
+        const inVertical = <T extends { vertical: string | null }>(items: T[]) =>
+          vertical === 'whitelabel' ? items : items.filter((i) => i.vertical?.toLowerCase() === vertical);
+
+        setSessions(inVertical(all));
+        setQuestionnaireCount(inVertical(questionnaires.data.map((q) => ({ vertical: q.vertical }))).length);
+        // Respondents carry no vertical — every view counts them all.
+        setRespondentCount(respondents.data.length);
         setPractitionerCount(
-          allPractitioners.filter((p) =>
-            !p.verticals?.length || p.verticals.map((v) => v.toLowerCase()).some((v) => v.startsWith(vertical.slice(0, 4))),
-          ).length,
+          vertical === 'whitelabel'
+            ? practitioners.data.length
+            : practitioners.data.filter((p) => !p.vertical || p.vertical.toLowerCase() === vertical).length,
         );
+        setConnected(true);
+      } catch {
+        if (!cancelled) setConnected(false);
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-      setLoading(false);
     })();
     return () => {
       cancelled = true;
@@ -173,28 +107,17 @@ function DashboardContent() {
 
   const metrics = useMemo(() => {
     const total = sessions.length;
-    const activeCount = sessions.filter((s) => s.status === 'Active').length;
-    const completedCount = sessions.filter((s) => s.status === 'Completed').length;
-    const pendingReviewCount = sessions.filter((s) => s.status === 'Pending Review').length;
+    const ongoingCount = sessions.filter((s) => s.assessmentStatus === 'ONGOING').length;
+    const completedCount = sessions.filter((s) => s.assessmentStatus === 'COMPLETED').length;
+    const notStartedCount = sessions.filter((s) => s.assessmentStatus === 'NOT_STARTED').length;
     const completionRate = total ? Math.round((completedCount / total) * 100) : 0;
-    return { total, activeCount, completedCount, pendingReviewCount, completionRate };
+    return { total, ongoingCount, completedCount, notStartedCount, completionRate };
   }, [sessions]);
-
-  // Completions over time — bucket each completed session by its completedAt
-  // (created sessions that aren't finished yet don't carry one).
-  const activityBuckets = useMemo(
-    () => buildDailyBuckets(sessions.map((s) => s.completedAt), ACTIVITY_WINDOW_DAYS),
-    [sessions],
-  );
-  const activityTotal = useMemo(
-    () => activityBuckets.reduce((sum, b) => sum + b.count, 0),
-    [activityBuckets],
-  );
 
   const topInstruments = useMemo(() => {
     const counts = new Map<string, number>();
     for (const s of sessions) {
-      const key = s.instrument || 'Unspecified';
+      const key = s.assessmentName || 'Unspecified';
       counts.set(key, (counts.get(key) || 0) + 1);
     }
     return [...counts.entries()]
@@ -204,32 +127,40 @@ function DashboardContent() {
   }, [sessions]);
 
   const stats = [
-    { label: 'Active Assessments', value: metrics.activeCount, icon: Activity, change: `${metrics.total} total in this vertical` },
+    { label: 'In Progress', value: metrics.ongoingCount, icon: Activity, change: `${metrics.notStartedCount} not started · ${metrics.total} assigned` },
     { label: 'Completed', value: metrics.completedCount, icon: ClipboardCheck, change: `${metrics.completionRate}% completion rate` },
     { label: `${terms.respondent} Registered`, value: respondentCount, icon: Users, change: `${practitionerCount} ${terms.practitioner.toLowerCase()}` },
-    { label: 'Questionnaires Available', value: questionnaireCount || 0, icon: Library, change: metrics.pendingReviewCount > 0 ? `${metrics.pendingReviewCount} pending review` : 'Includes library + custom' },
+    { label: 'Questionnaires Available', value: questionnaireCount, icon: Library, change: 'In the questionnaire library' },
   ];
 
   const statusBreakdown = [
     { label: 'Completed', count: metrics.completedCount },
-    { label: 'Active', count: metrics.activeCount },
-    { label: 'Pending Review', count: metrics.pendingReviewCount },
+    { label: 'In progress', count: metrics.ongoingCount },
+    { label: 'Not started', count: metrics.notStartedCount },
   ];
 
   const maxInstrumentCount = Math.max(1, ...topInstruments.map((i) => i.count));
 
   return (
     <div className="p-5 lg:p-7.5 space-y-7">
-      {/* API Status Banner */}
-      {health && (
+      {/* API Status Banner — the page's own reads are the health check. */}
+      {connected === true && (
         <div className="flex items-center gap-3 rounded-lg border border-green-200 bg-green-50 dark:border-green-900 dark:bg-green-950/30 px-4 py-3">
           <Server className="h-4 w-4 text-green-600" />
           <span className="text-sm text-green-700 dark:text-green-400">
-            <strong>API Connected</strong> — {health.service} {health.version}
+            <strong>API Connected</strong> — live data from the server
           </span>
           <span className="text-xs text-green-600 dark:text-green-500 flex items-center gap-1 ml-auto">
-            <Database className="h-3 w-3" /> MySQL {health.database ? 'healthy' : 'down'}
+            <Database className="h-3 w-3" /> MySQL healthy
             <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse ml-1" />
+          </span>
+        </div>
+      )}
+      {connected === false && (
+        <div className="flex items-center gap-3 rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-4 py-3">
+          <Server className="h-4 w-4 text-red-600" />
+          <span className="text-sm text-red-700 dark:text-red-400">
+            <strong>API unreachable</strong> — the figures below could not be loaded.
           </span>
         </div>
       )}
@@ -298,42 +229,48 @@ function DashboardContent() {
           </CardContent>
         </Card>
 
-        {/* Activity Trend */}
+        {/* Assignment progress. Allotments carry no completion date yet, so
+            this is the overall split rather than a per-day trend. */}
         <Card className="lg:col-span-2">
           <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-base">Completions</CardTitle>
-              <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                <TrendingUp className="h-3.5 w-3.5" /> Last {ACTIVITY_WINDOW_DAYS} days
-              </span>
-            </div>
+            <CardTitle className="text-base">Assignment Progress</CardTitle>
           </CardHeader>
           <CardContent>
             {loading ? (
               <Skeleton className="h-24 w-full" />
-            ) : activityTotal === 0 ? (
+            ) : metrics.total === 0 ? (
               <div className="flex h-24 items-center justify-center text-sm text-muted-foreground">
-                No completions in the last {ACTIVITY_WINDOW_DAYS} days.
+                No assessments assigned yet.
               </div>
             ) : (
-              <>
-                <ActivitySparkline buckets={activityBuckets} />
-                <div className="mt-2 flex justify-between text-xs text-muted-foreground">
-                  <span>{activityBuckets[0]?.date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
-                  <span>{activityBuckets[activityBuckets.length - 1]?.date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
+              <div className="space-y-3">
+                <div className="flex h-3 w-full overflow-hidden rounded-full bg-secondary">
+                  {statusBreakdown.map((row) => (
+                    <div
+                      key={row.label}
+                      className={statusStyles[row.label]}
+                      style={{ width: `${(row.count / metrics.total) * 100}%` }}
+                      title={`${row.label}: ${row.count}`}
+                    />
+                  ))}
                 </div>
-              </>
+                <p className="text-sm text-muted-foreground">
+                  <span className="font-medium text-foreground tabular-nums">{metrics.completedCount}</span> of{' '}
+                  <span className="tabular-nums">{metrics.total}</span> assigned assessments completed,{' '}
+                  <span className="tabular-nums">{metrics.ongoingCount}</span> in progress.
+                </p>
+              </div>
             )}
           </CardContent>
         </Card>
       </div>
 
-      {/* Top Questionnaires */}
+      {/* Top assessments, by how many people they are assigned to */}
       <Card>
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
-            <CardTitle className="text-base">Top Questionnaires</CardTitle>
-            <a href="/assessments" className="text-sm text-primary hover:underline">View all</a>
+            <CardTitle className="text-base">Most Assigned Assessments</CardTitle>
+            <a href="/assessment-library/assessments" className="text-sm text-primary hover:underline">View all</a>
           </div>
         </CardHeader>
         <CardContent>

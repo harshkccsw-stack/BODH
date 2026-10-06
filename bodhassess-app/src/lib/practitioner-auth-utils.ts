@@ -27,8 +27,10 @@ export const PERMISSION_ERROR_PATH = '/permission-error';
 
 // Managing roles is not a grantable page — it is the thing that grants pages.
 // Anyone holding /admin/* would otherwise inherit the ability to widen their
-// own access, so these three are reserved for super admins no matter what a
-// role says, and the page catalog never offers them.
+// own access, so these are reserved for super admins — and, since 2026-10-05,
+// for a "Full access" role (exactly '/*'), which is the deliberate way to make
+// someone superadmin-equivalent. A section wildcard like /admin/* still does
+// NOT reach them, and the page catalog never offers them as single pages.
 //
 // This is a navigation rule, not a security boundary: the API itself is still
 // unauthenticated, so it only closes properly when the JWT filter lands.
@@ -72,7 +74,7 @@ export function canAccess(
   // "Return to dashboard" button goes, and the backend grants it to every
   // dashboard user anyway — this is the belt to that braces.
   if (pathname === PERMISSION_ERROR_PATH || pathname === DASHBOARD_PATH) return true;
-  if (isSuperAdminOnlyPath(pathname)) return isSuperAdmin;
+  if (isSuperAdminOnlyPath(pathname)) return isSuperAdmin || urlPaths.includes('/*');
   if (isSuperAdmin) return true;
   return urlPaths.some((p) => pathMatchesPattern(pathname, p));
 }

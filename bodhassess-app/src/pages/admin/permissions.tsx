@@ -25,6 +25,13 @@ type FormState = { name: string; description: string; paths: string[] };
 
 const EMPTY: FormState = { name: '', description: '', paths: [] };
 
+/**
+ * The every-page pattern. A role holding it is superadmin-equivalent: the
+ * whole dashboard INCLUDING the access-admin pages (SUPERADMIN_ONLY_PATHS)
+ * and the activity log — the server checks the same thing (User.hasFullAccess).
+ */
+const FULL_ACCESS = '/*';
+
 /** Does an already-selected prefix cover this page path? */
 function coveredByPrefix(path: string, selected: string[]): string | null {
   for (const s of selected) {
@@ -123,7 +130,8 @@ export default function PermissionsPage() {
     setError('');
   };
 
-  const customPaths = form.paths.filter((p) => !CATALOG_PATHS.includes(p));
+  const fullAccess = form.paths.includes(FULL_ACCESS);
+  const customPaths = form.paths.filter((p) => p !== FULL_ACCESS && !CATALOG_PATHS.includes(p));
 
   const submit = async () => {
     const name = form.name.trim();
@@ -347,6 +355,26 @@ export default function PermissionsPage() {
                   <label className="text-sm font-medium">Pages *</label>
                   <span className="text-xs text-muted-foreground">{form.paths.length} selected</span>
                 </div>
+                <label className="flex items-start gap-2.5 rounded-lg border border-purple-200 bg-purple-50 dark:border-purple-900 dark:bg-purple-950/30 px-3 py-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={fullAccess}
+                    onChange={() => setForm((f) => ({ ...f, paths: fullAccess ? [] : [FULL_ACCESS] }))}
+                    className="mt-0.5 h-3.5 w-3.5 rounded border-border"
+                  />
+                  <span className="text-sm">
+                    <span className="font-medium flex items-center gap-1.5">
+                      <Shield className="h-3.5 w-3.5 text-purple-600" /> Full access — every page
+                      <span className="font-mono text-xs text-muted-foreground">/*</span>
+                    </span>
+                    <span className="block text-xs text-muted-foreground mt-0.5">
+                      Same as super admin: every page, including pages added later, Roles, Role
+                      Groups, Assign Role Group and the Activity Log — so this person can manage who
+                      gets access. Give it only to people inside the organization.
+                    </span>
+                  </span>
+                </label>
+                {!fullAccess && (
                 <div className="rounded-lg border border-border divide-y divide-border max-h-72 overflow-y-auto">
                   {PAGE_CATALOG.map((section) => {
                     const prefixOn = section.prefix ? form.paths.includes(section.prefix) : false;
@@ -396,6 +424,7 @@ export default function PermissionsPage() {
                     );
                   })}
                 </div>
+                )}
               </div>
 
               {customPaths.length > 0 && (

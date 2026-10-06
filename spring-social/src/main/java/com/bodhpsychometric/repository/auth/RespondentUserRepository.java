@@ -23,6 +23,8 @@ public interface RespondentUserRepository extends JpaRepository<RespondentUser, 
     /** Does this identity also hold a respondent profile? */
     boolean existsByUser_Id(Long userId);
 
+    java.util.Optional<RespondentUser> findByUser_Id(Long userId);
+
     /** Portal sign-in fetch — user + organization eagerly, so the auth DTO never lazy-loads. */
     @Query("select r from RespondentUser r join fetch r.user u left join fetch r.organization where u.id = :userId")
     Optional<RespondentUser> findByUserIdForPortal(Long userId);
