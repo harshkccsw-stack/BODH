@@ -205,7 +205,7 @@ public record PortalQuestionnaireContent(
         for (int i = 0; i < authored.size(); i++) {
             Option o = authored.get(i);
             out.add(new PortalOption(o.getOptionId(), o.getOptionText(), o.getDescription(),
-                    o.getContentType(), o.getMediaUrl(), i, GameRef.from(o.getGame())));
+                    o.getContentType(), o.getMediaUrl(), i));
         }
         return out;
     }

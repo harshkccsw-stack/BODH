@@ -32,7 +32,6 @@ import com.bodhpsychometric.dto.QuestionRequest;
 import com.bodhpsychometric.dto.QuestionResponse;
 import com.bodhpsychometric.dto.QuestionRowRequest;
 import com.bodhpsychometric.dto.QuestionRowResponse;
-import com.bodhpsychometric.model.game.Game;
 import com.bodhpsychometric.model.question.Option;
 import com.bodhpsychometric.model.question.Question;
 import com.bodhpsychometric.model.question.QuestionRow;
@@ -45,7 +44,6 @@ import com.bodhpsychometric.model.scoring.QuestionRowMqt;
 import com.bodhpsychometric.model.taxonomy.MeasuredQuality;
 import com.bodhpsychometric.model.taxonomy.MeasuredQualityType;
 import com.bodhpsychometric.repository.assessment.AssessmentAnswerRepository;
-import com.bodhpsychometric.repository.game.GameRepository;
 import com.bodhpsychometric.repository.measures.MeasuredQualityRepository;
 import com.bodhpsychometric.repository.measures.MeasuredQualityTypeRepository;
 import com.bodhpsychometric.repository.question.QuestionRepository;
@@ -120,10 +118,6 @@ public class QuestionController {
     @Autowired
     private QuestionnaireQuestionRepository questionnaireQuestionRepository;
 
-    // GAMES questions (V41): the catalog a question's one option links to.
-    @Autowired
-    private GameRepository gameRepository;
-
     // A bank question edit changes what every questionnaire placing it
     // delivers, so update evicts their Redis content entries. Delete needs no
     // hook: a placed question cannot be deleted (the 409 below), so a delete
@@ -161,9 +155,6 @@ public class QuestionController {
             return unknownMqt();
         }
         String problem = firstProblem(request);
-        if (problem == null) {
-            problem = gameProblem(request, null);
-        }
         if (problem != null) {
             return ResponseEntity.badRequest().body(Map.of("message", problem));
         }
@@ -214,9 +205,6 @@ public class QuestionController {
                 continue;
             }
             String problem = firstProblem(request);
-            if (problem == null) {
-                problem = gameProblem(request, null);
-            }
             if (problem != null) {
                 problems.add(new BatchProblem(i, problem));
                 continue;
@@ -373,9 +361,6 @@ public class QuestionController {
                 continue;
             }
             String problem = firstProblem(q);
-            if (problem == null) {
-                problem = gameProblem(q, null);
-            }
             if (problem != null) {
                 problems.add(new BatchProblem(i, problem));
             }
@@ -528,9 +513,6 @@ public class QuestionController {
             return unknownMqt();
         }
         String problem = firstProblem(request);
-        if (problem == null) {
-            problem = gameProblem(request, question);
-        }
         if (problem != null) {
             return ResponseEntity.badRequest().body(Map.of("message", problem));
         }
@@ -948,11 +930,7 @@ public class QuestionController {
             Option h = have.get(i);
             if (!Objects.equals(w.optionText(), h.getOptionText())
                     || contentTypeOf(w) != h.getContentType()
-                    || !Objects.equals(w.mediaUrl(), h.getMediaUrl())
-                    // The game is part of a game option's identity: swapping it
-                    // is a different option (and frozen once answered), keeping
-                    // it is no change at all.
-                    || !Objects.equals(i == 0 ? desiredGameId(request) : null, gameIdOf(h))) {
+                    || !Objects.equals(w.mediaUrl(), h.getMediaUrl())) {
                 return true;
             }
         }
@@ -984,13 +962,6 @@ public class QuestionController {
     private void rebuildOptions(Question question, QuestionRequest request) {
         question.getOptions().clear();
         List<QuestionOptionRequest> want = desiredOptions(request);
-        // A GAMES question's one generated option is the game. Validated
-        // before any write (gameProblem), so a miss here is a race — thrown,
-        // which rolls the whole write back rather than storing a game question
-        // with no game.
-        Game game = desiredGameId(request) == null ? null
-                : gameRepository.findById(desiredGameId(request))
-                        .orElseThrow(() -> conflict("the chosen game no longer exists"));
         for (int i = 0; i < want.size(); i++) {
             QuestionOptionRequest w = want.get(i);
             Option option = new Option();
@@ -999,44 +970,8 @@ public class QuestionController {
             option.setContentType(contentTypeOf(w));
             option.setMediaUrl(w.mediaUrl());
             option.setSortOrder(i);
-            option.setGame(i == 0 ? game : null);
             question.addOption(option);
         }
-    }
-
-    /** The game the payload's one option is to launch — GAMES only, null on every other type. */
-    private Long desiredGameId(QuestionRequest request) {
-        return typeOf(request) == QuestionType.GAMES ? request.gameId() : null;
-    }
-
-    /** The game a stored question launches, if any. */
-    private static Long gameIdOf(Option option) {
-        return option.getGame() == null ? null : option.getGame().getGameId();
-    }
-
-    /**
-     * GAMES only, the half of the game rules that needs the database — null
-     * when fine, else the message (a 400). The game must exist and be offered
-     * (active), EXCEPT when it is the game this question already launches:
-     * retiring a game withdraws it from new questions, never from the ones
-     * built on it, so editing such a question's stem must still save.
-     * {@code current} is null on a create.
-     */
-    private String gameProblem(QuestionRequest request, Question current) {
-        Long gameId = desiredGameId(request);
-        if (gameId == null) {
-            return null;
-        }
-        Game game = gameRepository.findById(gameId).orElse(null);
-        if (game == null) {
-            return "game " + gameId + " does not exist";
-        }
-        boolean alreadyHere = current != null
-                && current.getOptions().stream().anyMatch(o -> gameId.equals(gameIdOf(o)));
-        if (!game.isActive() && !alreadyHere) {
-            return "the game \"" + game.getName() + "\" is retired — pick an active game";
-        }
-        return null;
     }
 
     /**
@@ -1065,16 +1000,7 @@ public class QuestionController {
         if (type == QuestionType.SHORT_ANSWER) {
             return List.of(new QuestionOptionRequest(null, null, ContentType.FREE_TEXT, null, List.of()));
         }
-        if (type == QuestionType.GAMES) {
-            // V41: exactly ONE generated option, whatever the caller sent — the
-            // one the game launches. No label (the portal names it by its game)
-            // and no scores of its own. The game link itself is not part of
-            // QuestionOptionRequest: rebuildOptions attaches it from gameId,
-            // and optionsChanged compares it, so a game swap is a change and
-            // the same game is not.
-            return List.of(new QuestionOptionRequest(null, null, ContentType.TEXT, null, List.of()));
-        }
-        if (type == QuestionType.PARAGRAPH) {
+        if (type == QuestionType.PARAGRAPH || type == QuestionType.GAMES) {
             return List.of();
         }
         if (type != QuestionType.LINEAR_SCALE) {
@@ -1125,11 +1051,6 @@ public class QuestionController {
         // deliberately not widened for it (V36), so this is the guard.
         if (request.contentType() == ContentType.FREE_TEXT) {
             return "a question stem cannot be a short-answer box — FREE_TEXT is an option type";
-        }
-        // Only a game question names a game: on any other type the id would be
-        // silently dropped, and the caller would believe it was stored.
-        if (type != QuestionType.GAMES && request.gameId() != null) {
-            return "gameId is only for a game question (questionType GAMES)";
         }
         if (type == QuestionType.LINEAR_SCALE) {
             // A scale is one pick by definition: "choose 2 points on a 1—5
@@ -1188,26 +1109,10 @@ public class QuestionController {
             return "long-answer questions are not available yet";
         }
         if (type == QuestionType.GAMES) {
-            // One option, generated from gameId — nothing else to author. The
-            // game itself (exists, active) needs the database and is checked
-            // by gameProblem, next to this. Any number of questions may launch
-            // the same game (V42).
-            if (request.gameId() == null) {
-                return "a game question needs a game — send its gameId";
-            }
-            if (request.selectionRule() != null || request.selectionCount() != null) {
-                return "a game question has one option — it cannot have a selection rule";
-            }
-            if (Boolean.TRUE.equals(request.shuffleOptions())) {
-                return "a game question has one option — there is nothing to shuffle";
-            }
-            if (!sanitized(request.options()).isEmpty()) {
-                return "a game question's option is generated from its game — send gameId, not options";
-            }
-            if (request.rows() != null && !request.rows().isEmpty()) {
-                return "a game question has no rows";
-            }
-            return null;
+            // Reserved in the dashboard's type list while its behaviour is
+            // specified. Refused here rather than stored: the MySQL enum does
+            // not list it yet, and the portal has nothing to render it with.
+            return "games questions are not available yet";
         }
         if (type == QuestionType.LIKERT_GRID) {
             // One pick per row for now. The rule PLUMBING is per-row already

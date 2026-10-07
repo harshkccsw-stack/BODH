@@ -163,16 +163,15 @@ class ShortAnswerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("not available yet")));
 
-        // GAMES is built (V41) but takes a game, never authored options — a
-        // payload with neither a gameId nor anything else to go on is refused.
-        // The rest of its rules live in GamesTest.
+        // GAMES is reserved too (2026-10-06) and, unlike PARAGRAPH, is not even
+        // in the MySQL enum yet — options or none, the server refuses it.
         mvc.perform(post("/api/questions/create").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"contentType\":\"TEXT\",\"questionType\":\"GAMES\","
                                 + "\"stem\":\"__smoke__ games\",\"mediaUrl\":null,\"riskFlag\":false,"
                                 + "\"options\":[{\"optionText\":\"Play\",\"contentType\":\"TEXT\","
                                 + "\"mediaUrl\":null,\"mqtScores\":[]}],\"rows\":[],\"mqtScores\":[]}"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("needs a game")));
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("games questions")));
     }
 
     @Test

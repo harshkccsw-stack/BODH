@@ -14,9 +14,7 @@ public record QuestionOptionResponse(
         ContentType contentType,
         String mediaUrl,
         int sortOrder,
-        List<MqtScoreResponse> mqtScores,
-        /** The game this option launches — GAMES questions only, null elsewhere. */
-        GameRef game) {
+        List<MqtScoreResponse> mqtScores) {
 
     public static QuestionOptionResponse from(Option o, List<MqtScoreResponse> mqtScores) {
         return new QuestionOptionResponse(
@@ -26,7 +24,6 @@ public record QuestionOptionResponse(
                 o.getContentType(),
                 o.getMediaUrl(),
                 o.getSortOrder(),
-                mqtScores,
-                GameRef.from(o.getGame()));
+                mqtScores);
     }
 }

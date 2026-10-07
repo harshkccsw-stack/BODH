@@ -125,44 +125,6 @@ export interface QuestionColumn {
 }
 
 /**
- * Matches ExportSheetResponse.GameColumn on the backend — one PART of one game
- * question (Baseline is one part; Color Clash + Mackworth Clock two). `key`
- * (`<questionTag>_<partCode>`, e.g. Q_2_COLOR_CLASH) is what row cells are
- * looked up by and the prefix of every header in the part's column block.
- */
-export interface GameColumn {
-  key: string;
-  questionTag: string;
-  questionId: number;
-  gameCode: string;
-  gameName: string;
-  partCode: string;
-  partOrder: number;
-}
-
-/**
- * Matches ExportSheetResponse.GamePartCell on the backend — one game_result
- * row, column for column. Nulls are things the part does not measure (no
- * pause button, no group, no instruction timing).
- */
-export interface GamePartCell {
-  gameVersion: number;
-  hits: number;
-  falseAlarms: number;
-  omissions: number;
-  durationMs: number;
-  mouseDistancePx: number;
-  mouseIdleSeconds: number;
-  instructionTimeMs: number | null;
-  groupNumber: number | null;
-  groupName: string | null;
-  pauseCount: number | null;
-  pauseDurationMs: number | null;
-  startedAt: string | null;
-  endedAt: string | null;
-}
-
-/**
  * Matches ExportSheetResponse.ScoringKeyEntry on the backend — one scoring
  * edge, spelled out. optionText is null for a question-level score (it lands
  * once the question is answered, whatever was picked); rowText is null outside
@@ -219,10 +181,8 @@ export interface ExportRow {
   demographicSelections: Record<string, string[]>;
   /** fieldId → what was typed for the field's write-in "Other". */
   demographicOtherTexts: Record<string, string>;
-  /** questionTag → chosen option text ("A; B" when multi-select); a game question → the game's name. */
+  /** questionTag → chosen option text ("A; B" when multi-select). */
   answers: Record<string, string>;
-  /** GameColumn.key → that game part's numbers. Absent = no result for it. */
-  gameParts?: Record<string, GamePartCell>;
   /** measuredQualityTypeId → that node's own score (JSON object keys arrive as strings). */
   mqtScores: Record<string, number>;
   /** measuredQualityTypeId → own score + every descendant's. */
@@ -238,8 +198,6 @@ export interface ExportSheet {
   organizationId: number | null;
   demographicColumns: DemographicColumn[];
   questionColumns: QuestionColumn[];
-  /** Every game part with results in these rows, question order then part order. */
-  gameColumns?: GameColumn[];
   /** MQs this questionnaire measures; empty when nothing in it is scored. */
   mqColumns: MqColumn[];
   /** MQTs this questionnaire measures, MQ by MQ, depth-first in tree order. */
@@ -350,53 +308,6 @@ function demographicCells(columns: DemographicColumn[]): Array<{ header: string;
 }
 
 /**
- * The columns of one game part's block, in game_result's column order. The
- * header suffix is the stored column's name, so `Q_2_COLOR_CLASH_false_alarms`
- * reads straight across to the database; `label` heads the long sheet.
- */
-const GAME_METRICS: Array<{ suffix: string; label: string; value: (c: GamePartCell) => string | number | null }> = [
-  { suffix: 'game_version', label: 'Game Version', value: (c) => c.gameVersion },
-  { suffix: 'hits', label: 'Hits', value: (c) => c.hits },
-  { suffix: 'false_alarms', label: 'False Alarms', value: (c) => c.falseAlarms },
-  { suffix: 'omissions', label: 'Omissions', value: (c) => c.omissions },
-  { suffix: 'duration_ms', label: 'Duration (ms)', value: (c) => c.durationMs },
-  { suffix: 'mouse_distance_px', label: 'Mouse Distance (px)', value: (c) => c.mouseDistancePx },
-  { suffix: 'mouse_idle_seconds', label: 'Mouse Idle (s)', value: (c) => c.mouseIdleSeconds },
-  { suffix: 'instruction_time_ms', label: 'Instruction Time (ms)', value: (c) => c.instructionTimeMs },
-  { suffix: 'group_number', label: 'Group', value: (c) => c.groupNumber },
-  { suffix: 'group_name', label: 'Group Name', value: (c) => c.groupName },
-  { suffix: 'pause_count', label: 'Pause Count', value: (c) => c.pauseCount },
-  { suffix: 'pause_duration_ms', label: 'Pause Duration (ms)', value: (c) => c.pauseDurationMs },
-  { suffix: 'started_at', label: 'Started At', value: (c) => c.startedAt },
-  { suffix: 'ended_at', label: 'Ended At', value: (c) => c.endedAt },
-];
-
-/**
- * The question block of the Raw Data matrix, as header + cell pairs: each
- * question's own column (a game question's names the game), then — for a game
- * question — one block of GAME_METRICS columns per part, right beside it. A
- * missing value is a blank cell, never 0: "not measured" and "measured zero"
- * stay distinct, the rule the demographic checklist columns follow.
- */
-function questionCells(sheet: ExportSheet): Array<{ header: string; cell: (r: ExportRow) => string | number }> {
-  const games = sheet.gameColumns ?? [];
-  return sheet.questionColumns.flatMap((q) => [
-    { header: q.questionTag, cell: (r: ExportRow) => r.answers[q.questionTag] ?? '' },
-    ...games
-      .filter((g) => g.questionTag === q.questionTag)
-      .flatMap((g) =>
-        GAME_METRICS.map((m) => ({
-          header: `${g.key}_${m.suffix}`,
-          cell: (r: ExportRow) => {
-            const part = r.gameParts?.[g.key];
-            return part ? (m.value(part) ?? '') : '';
-          },
-        })),
-      ),
-  ]);
-}
-
-/**
  * Turn an ExportSheet into an .xlsx and trigger the browser download. Parsed
  * in the browser (dynamic import so the ~400 KB xlsx lib is only fetched when
  * someone actually exports).
@@ -405,8 +316,7 @@ function questionCells(sheet: ExportSheet): Array<{ header: string; cell: (r: Ex
  * 1. "Raw Data"       — the matrix: respondent columns, one per demographic
  *                       label (one per choice on a checklist, plus a
  *                       "(specified)" column for a write-in "Other"), one per
- *                       questionTag — each game question followed by its
- *                       parts' result columns — then the MQ/MQT scores.
+ *                       questionTag, then the MQ/MQT scores.
  *                       One respondent stays ONE row, which is what a pivot
  *                       table or an SPSS import needs.
  * 2. "MQ-MQT Scores"  — the same numbers long-format, one row per respondent ×
@@ -415,11 +325,8 @@ function questionCells(sheet: ExportSheet): Array<{ header: string; cell: (r: Ex
  * 4. "Questions"      — the tag → question-stem legend.
  * 5. "Scoring Key"    — every scoring edge, so any total can be audited back
  *                       to the option that produced it.
- * 6. "Game Results"   — the game numbers long-format, one row per respondent ×
- *                       game part: the game_result table as stored.
  *
- * Sheets 2, 3 and 5 are skipped when the questionnaire scores nothing; sheet 6
- * when no game in these rows has results.
+ * Sheets 1-3 and 5 are skipped entirely when the questionnaire scores nothing.
  */
 export async function downloadExportSheet(sheet: ExportSheet, fileName?: string): Promise<void> {
   const XLSX = await import('xlsx');
@@ -443,17 +350,16 @@ export async function downloadExportSheet(sheet: ExportSheet, fileName?: string)
   ];
 
   const demographics = demographicCells(sheet.demographicColumns);
-  const questions = questionCells(sheet);
   const header = [
     'Serial ID', 'Name', 'Email', 'Organization', 'Status', 'Pop-up Count',
     ...demographics.map((d) => d.header),
-    ...questions.map((q) => q.header),
+    ...sheet.questionColumns.map((c) => c.questionTag),
     ...scoreHeaders,
   ];
   const body = sheet.rows.map((r) => [
     r.serialId ?? '', r.name ?? '', r.email, r.organizationName ?? '', r.status, r.popUpCount ?? 0,
     ...demographics.map((d) => d.cell(r)),
-    ...questions.map((q) => q.cell(r)),
+    ...sheet.questionColumns.map((c) => r.answers[c.questionTag] ?? ''),
     ...scoreCells(r),
   ]);
 
@@ -502,28 +408,6 @@ export async function downloadExportSheet(sheet: ExportSheet, fileName?: string)
         e.questionTag, e.stem, e.rowText ?? '', e.optionText ?? '(any answer)', e.mqtPath, e.score,
       ]),
     ]), 'Scoring Key');
-  }
-
-  const games = sheet.gameColumns ?? [];
-  if (games.length > 0) {
-    // Long format — one row per respondent × game part that has a result.
-    const stemByTag = new Map(sheet.questionColumns.map((c) => [c.questionTag, c.stem]));
-    const gameRows = sheet.rows.flatMap((r) =>
-      games
-        .filter((g) => r.gameParts?.[g.key])
-        .map((g) => {
-          const part = r.gameParts![g.key];
-          return [
-            r.serialId ?? '', r.name ?? '', r.email, r.organizationName ?? '',
-            g.questionTag, stemByTag.get(g.questionTag) ?? '', g.gameName, g.gameCode, g.partCode, g.partOrder,
-            ...GAME_METRICS.map((m) => m.value(part) ?? ''),
-          ];
-        }));
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
-      ['Serial ID', 'Name', 'Email', 'Organization', 'Question Tag', 'Question', 'Game', 'Game Code',
-        'Part', 'Part Order', ...GAME_METRICS.map((m) => m.label)],
-      ...gameRows,
-    ]), 'Game Results');
   }
 
   XLSX.writeFile(wb, fileName ?? rawDataFileName([sheet.assessment.name || 'assessment']));

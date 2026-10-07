@@ -45,10 +45,13 @@ export const QUESTION_TYPES: Array<{ value: QuestionType; label: string; hint: s
     label: 'Short answer',
     hint: 'Respondents type an answer. Nothing to pick, so nothing to score per option — a question-level MQT score, if you set one, is earned for answering.',
   },
+  // GAMES is reserved: its behaviour is still being specified, the backend
+  // refuses it, and the MySQL enum does not list it yet. Shown, never pickable.
   {
     value: 'GAMES',
-    label: 'Game',
-    hint: 'Respondents launch a game full screen and play it to the end. Pick the game below — the same game can be used by any number of questions.',
+    label: 'Games (coming soon)',
+    hint: 'A game-based question. Not available yet — how it works is still being decided.',
+    disabled: true,
   },
   // PARAGRAPH is in the backend enum but not offered: nothing may write it
   // until the long-answer UI exists.
@@ -162,12 +165,6 @@ export interface QuestionPayload {
   /** LIKERT_GRID only — the statements. Ignored on every other type. */
   rows: QuestionRowPayload[];
   mqtScores: MqtScorePayload[];
-  /**
-   * GAMES only — the catalog game the question's one option launches. The
-   * backend GENERATES that option from this, so a game question sends no
-   * options. Null on every other type (the backend refuses it there).
-   */
-  gameId: number | null;
 }
 
 /**
@@ -199,16 +196,6 @@ export interface QuestionOptionResponse {
   mediaUrl: string | null;
   sortOrder: number;
   mqtScores: MqtScoreView[];
-  /** GAMES questions only — the game this option launches; null elsewhere. */
-  game?: GameRef | null;
-}
-
-/** Matches GameRef on the backend — the game behind a GAMES question's option. */
-export interface GameRef {
-  gameId: number;
-  code: string;
-  name: string;
-  version: number;
 }
 
 /** One questionnaire that uses a bank question. */

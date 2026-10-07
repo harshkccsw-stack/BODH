@@ -1,6 +1,5 @@
 package com.bodhpsychometric.dto;
 
-import java.time.OffsetDateTime;
 import java.util.List;
 
 /**
@@ -13,17 +12,7 @@ import java.util.List;
  * dismissed in the portal — nullable/optional (treated as 0 when absent), so
  * older clients that never send it keep working.
  */
-public record PortalSubmitRequest(
-        List<AnswerEntry> answers,
-        Integer popUpCount,
-        /**
-         * What each finished game measured — at most one entry per GAMES
-         * question, and only for a question answered with its game option
-         * (the answer IS the proof the game was finished). Optional: absent,
-         * null or missing for a game is accepted, the answer row still stands.
-         * Written in the SAME transaction as the answers (V43 game_result).
-         */
-        List<GameResultEntry> gameResults) {
+public record PortalSubmitRequest(List<AnswerEntry> answers, Integer popUpCount) {
 
     /**
      * {@code questionRowId} is which grid ROW this rating answers. Nullable,
@@ -38,37 +27,5 @@ public record PortalSubmitRequest(
      * a second is a 400 rather than a silent overwrite.
      */
     public record AnswerEntry(Long questionId, Long optionId, Long questionRowId, String answerText) {
-    }
-
-    /**
-     * One finished game: the GAMES question it answered, and one entry per
-     * PART of the game in the order played. {@code gameId} and
-     * {@code gameVersion} are filled by the SERVER from the content the
-     * attempt was delivered — whatever a client sends there is overwritten —
-     * so the staged envelope carries them to the writer.
-     */
-    public record GameResultEntry(Long questionId, Long gameId, Integer gameVersion, List<GamePartEntry> parts) {
-    }
-
-    /**
-     * One part of a game, in game_result's column shape. The six core
-     * metrics are required; the rest are null when the part does not measure
-     * them. Times are milliseconds, timestamps the browser's clock.
-     */
-    public record GamePartEntry(
-            String partCode,
-            Integer hits,
-            Integer falseAlarms,
-            Integer omissions,
-            Long durationMs,
-            Long mouseDistancePx,
-            Integer mouseIdleSeconds,
-            Long instructionTimeMs,
-            Integer groupNumber,
-            String groupName,
-            Integer pauseCount,
-            Long pauseDurationMs,
-            OffsetDateTime startedAt,
-            OffsetDateTime endedAt) {
     }
 }

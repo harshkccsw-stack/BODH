@@ -15,21 +15,6 @@ import com.bodhpsychometric.model.question.enums.QuestionType;
 
 public interface OptionRepository extends JpaRepository<Option, Long> {
 
-    /** True when some option launches this game — the delete pre-check. */
-    boolean existsByGameGameId(Long gameId);
-
-    /**
-     * Every option launching this game, question fetched — one per GAMES
-     * question using it (many-to-one since V42), in question order.
-     */
-    @Query("select o from Option o join fetch o.question where o.game.gameId = :gameId "
-            + "order by o.question.questionId")
-    List<Option> findByGameIdWithQuestion(@Param("gameId") Long gameId);
-
-    /** Every option that launches a game, question and game fetched — the catalog's "used by". */
-    @Query("select o from Option o join fetch o.question join fetch o.game")
-    List<Option> findAllGameOptions();
-
     @Query("select o from Option o where o.question.questionId in :questionIds "
             + "and o.question.questionType = :type and o.contentType = :kind")
     List<Option> findByQuestionIdsTypeAndKind(@Param("questionIds") Collection<Long> questionIds,

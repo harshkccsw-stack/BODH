@@ -28,9 +28,6 @@ import com.bodhpsychometric.dto.PortalQuestionnaireContent;
 import com.bodhpsychometric.dto.PortalQuestionnaireContent.ContentQuestion;
 import com.bodhpsychometric.dto.PortalSubmitRequest;
 import com.bodhpsychometric.dto.PortalSubmitRequest.AnswerEntry;
-import com.bodhpsychometric.dto.PortalSubmitRequest.GamePartEntry;
-import com.bodhpsychometric.dto.PortalSubmitRequest.GameResultEntry;
-import com.bodhpsychometric.dto.GameRef;
 import com.bodhpsychometric.dto.StagedSubmission;
 import com.bodhpsychometric.model.assessment.RespondentAssessmentMapping;
 import com.bodhpsychometric.model.assessment.enums.AssessmentStatus;
@@ -105,16 +102,14 @@ public class PortalAssessmentService {
         PortalQuestionnaireContent questionnaire = content.contentOf(
                 mapping.getAssessment().getQuestionnaire().getQuestionnaireId());
         List<AnswerEntry> savedAnswers = null;
-        List<GameResultEntry> savedGameResults = null;
         if (mapping.getAssessmentStatus() == RespondentAssessmentStatus.ONGOING) {
             // Read regardless of the savePartialAnswers toggle: a snapshot
             // written before the toggle was switched off is still the
             // respondent's work, and backfilling it costs nothing.
             PortalPartialAnswers partial = redis.readPartial(mappingId);
             savedAnswers = partial == null ? null : partial.answers();
-            savedGameResults = partial == null ? null : partial.gameResults();
         }
-        return PortalAssessmentDetailResponse.from(mapping, questionnaire, savedAnswers, savedGameResults);
+        return PortalAssessmentDetailResponse.from(mapping, questionnaire, savedAnswers);
     }
 
     /**
@@ -266,12 +261,8 @@ public class PortalAssessmentService {
                 throw badRequest("Each answer needs a questionId");
             }
         }
-        // Kept as sent — partial by nature, like the answers; submit is where
-        // a game's numbers are validated and resolved.
-        List<GameResultEntry> games =
-                request == null || request.gameResults() == null ? List.of() : request.gameResults();
         boolean saved = redis.writePartial(mappingId,
-                new PortalPartialAnswers(mappingId, entries, System.currentTimeMillis(), games));
+                new PortalPartialAnswers(mappingId, entries, System.currentTimeMillis()));
         return new PortalProgressResponse(saved, entries.size());
     }
 
@@ -313,8 +304,6 @@ public class PortalAssessmentService {
         List<AnswerEntry> entries =
                 request == null || request.answers() == null ? List.of() : request.answers();
         List<AnswerEntry> normalized = validate(questionnaire, entries);
-        List<GameResultEntry> games = validateGameResults(questionnaire, normalized,
-                request == null || request.gameResults() == null ? List.of() : request.gameResults());
 
         Integer popUpCount = request == null ? null : request.popUpCount();
         int popUps = popUpCount == null ? 0 : Math.max(0, popUpCount);
@@ -322,7 +311,7 @@ public class PortalAssessmentService {
         StagedSubmission staged = StagedSubmission.of(mappingId,
                 mapping.getRespondent().getId(),
                 mapping.getAssessment().getAssessmentId(),
-                normalized, popUps, games);
+                normalized, popUps);
         if (redis.stageSubmission(staged)) {
             redis.deletePartial(mappingId);
             redis.deleteHeartbeat(mappingId);
@@ -332,7 +321,7 @@ public class PortalAssessmentService {
         }
 
         // Redis would not hold the envelope — the original synchronous path.
-        RespondentAssessmentMapping saved = writer.persist(mappingId, normalized, popUps, games);
+        RespondentAssessmentMapping saved = writer.persist(mappingId, normalized, popUps);
         redis.deletePartial(mappingId);
         redis.deleteHeartbeat(mappingId);
         return PortalAttemptStatusResponse.from(saved);
@@ -675,132 +664,6 @@ public class PortalAssessmentService {
      * per-question length limit by design, only this storage fact.
      */
     private static final int MAX_ANSWER_TEXT_BYTES = 65_535;
-
-    // Bounds on a game's numbers. They catch a broken or tampered client, not
-    // a fast player: a day of play, a million responses, a billion pixels.
-    private static final long MAX_GAME_MS = 24L * 60 * 60 * 1000;
-    private static final long MAX_GAME_COUNT = 1_000_000L;
-    private static final long MAX_GAME_MOUSE_PX = 1_000_000_000L;
-    private static final int MAX_GAME_PARTS = 20;
-    private static final int MAX_GROUP_NAME = 30;
-    /** A part code is named by the game file; the column is varchar(40). */
-    private static final java.util.regex.Pattern GAME_PART_CODE = java.util.regex.Pattern.compile("^[A-Z0-9_]{1,40}$");
-
-    /**
-     * The finished games' numbers, checked against the delivered content and
-     * against the ANSWERS just validated — the answer row is the proof a game
-     * was finished (the portal ticks the game's option only on completion),
-     * so a result for a question not answered with its game option is
-     * refused. The reverse is accepted: an answered game with no result is a
-     * valid submission (the answer alone records completion).
-     *
-     * <p>Part codes are not checked against the game: a game's parts are
-     * defined by its file in the portal, and a third copy of that list here
-     * would drift. Only their shape and the numbers' bounds are checked.
-     *
-     * <p>Returns the entries with {@code gameId}/{@code gameVersion} taken
-     * from the CONTENT (whatever the client sent there is ignored), part codes
-     * upper-cased and the group name trimmed — the shape the writer stores.
-     */
-    private List<GameResultEntry> validateGameResults(PortalQuestionnaireContent questionnaire,
-            List<AnswerEntry> answers, List<GameResultEntry> results) {
-        if (results.isEmpty()) {
-            return List.of();
-        }
-        Map<Long, ContentQuestion> questionsById = questionnaire.questions().stream()
-                .collect(Collectors.toMap(ContentQuestion::questionId, q -> q, (a, b) -> a));
-        Map<Long, String> labels = navigatorLabels(questionnaire);
-        Set<String> answered = answers.stream()
-                .filter(a -> a.optionId() != null)
-                .map(a -> a.questionId() + ":" + a.optionId())
-                .collect(Collectors.toSet());
-
-        Set<Long> seen = new LinkedHashSet<>();
-        List<GameResultEntry> out = new ArrayList<>();
-        for (GameResultEntry result : results) {
-            if (result == null || result.questionId() == null) {
-                throw badRequest("Each game result needs a questionId");
-            }
-            ContentQuestion question = questionsById.get(result.questionId());
-            if (question == null) {
-                throw badRequest("Question " + result.questionId() + " is not part of this assessment");
-            }
-            String label = labels.get(question.questionId());
-            GameRef game = question.questionType() == QuestionType.GAMES && !question.options().isEmpty()
-                    ? question.options().get(0).game() : null;
-            if (game == null) {
-                throw badRequest(label + " is not a game question — it has no game results");
-            }
-            if (!answered.contains(question.questionId() + ":" + question.options().get(0).optionId())) {
-                throw badRequest("The game in " + label + " was not finished — its results cannot be recorded");
-            }
-            if (!seen.add(question.questionId())) {
-                throw badRequest(label + " has two sets of game results");
-            }
-            List<GamePartEntry> parts = result.parts() == null ? List.of() : result.parts();
-            if (parts.isEmpty()) {
-                throw badRequest("The game results for " + label + " have no parts");
-            }
-            if (parts.size() > MAX_GAME_PARTS) {
-                throw badRequest("The game results for " + label + " have more than " + MAX_GAME_PARTS + " parts");
-            }
-            Set<String> codes = new LinkedHashSet<>();
-            List<GamePartEntry> clean = new ArrayList<>(parts.size());
-            for (GamePartEntry part : parts) {
-                clean.add(validGamePart(part, label, codes));
-            }
-            out.add(new GameResultEntry(question.questionId(), game.gameId(), game.version(), clean));
-        }
-        return out;
-    }
-
-    /** One part's numbers: the six core metrics required, every number in bounds. */
-    private static GamePartEntry validGamePart(GamePartEntry part, String label, Set<String> codes) {
-        if (part == null) {
-            throw badRequest("The game results for " + label + " contain an empty part");
-        }
-        String code = part.partCode() == null ? "" : part.partCode().trim().toUpperCase(java.util.Locale.ROOT);
-        if (!GAME_PART_CODE.matcher(code).matches()) {
-            throw badRequest("A game part in " + label
-                    + " needs a partCode of letters, digits and underscores (at most 40)");
-        }
-        if (!codes.add(code)) {
-            throw badRequest(label + " reports the game part " + code + " twice");
-        }
-        String where = label + " · " + code;
-        gameNumber(part.hits(), true, MAX_GAME_COUNT, "hits", where);
-        gameNumber(part.falseAlarms(), true, MAX_GAME_COUNT, "falseAlarms", where);
-        gameNumber(part.omissions(), true, MAX_GAME_COUNT, "omissions", where);
-        gameNumber(part.durationMs(), true, MAX_GAME_MS, "durationMs", where);
-        gameNumber(part.mouseDistancePx(), true, MAX_GAME_MOUSE_PX, "mouseDistancePx", where);
-        gameNumber(part.mouseIdleSeconds(), true, MAX_GAME_MS / 1000, "mouseIdleSeconds", where);
-        gameNumber(part.instructionTimeMs(), false, MAX_GAME_MS, "instructionTimeMs", where);
-        gameNumber(part.groupNumber(), false, MAX_GAME_COUNT, "groupNumber", where);
-        gameNumber(part.pauseCount(), false, MAX_GAME_COUNT, "pauseCount", where);
-        gameNumber(part.pauseDurationMs(), false, MAX_GAME_MS, "pauseDurationMs", where);
-        String groupName = part.groupName() == null || part.groupName().isBlank() ? null : part.groupName().trim();
-        if (groupName != null && groupName.length() > MAX_GROUP_NAME) {
-            throw badRequest(where + ": groupName is at most " + MAX_GROUP_NAME + " characters");
-        }
-        if (part.startedAt() != null && part.endedAt() != null && part.endedAt().isBefore(part.startedAt())) {
-            throw badRequest(where + ": endedAt is before startedAt");
-        }
-        return new GamePartEntry(code, part.hits(), part.falseAlarms(), part.omissions(), part.durationMs(),
-                part.mouseDistancePx(), part.mouseIdleSeconds(), part.instructionTimeMs(), part.groupNumber(),
-                groupName, part.pauseCount(), part.pauseDurationMs(), part.startedAt(), part.endedAt());
-    }
-
-    private static void gameNumber(Number value, boolean required, long max, String field, String where) {
-        if (value == null) {
-            if (required) {
-                throw badRequest(where + ": " + field + " is required");
-            }
-            return;
-        }
-        if (value.longValue() < 0 || value.longValue() > max) {
-            throw badRequest(where + ": " + field + " must be between 0 and " + max);
-        }
-    }
 
     /** Every slot a question must fill: one per grid row, otherwise just one. */
     private static List<AnswerSlot> slotsOf(ContentQuestion question) {

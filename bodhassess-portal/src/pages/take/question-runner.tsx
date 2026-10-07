@@ -22,11 +22,8 @@ import {
   optionTextKey,
   portalAssessmentsApi,
   type PortalAssessmentDetail,
-  type PortalOption,
   type PortalQuestion,
 } from '@/lib/api';
-import { GameLaunchCard, GameRenderer, requestGameFullscreen } from '@/games/game-renderer';
-import type { GameResult } from '@/games/registry';
 
 // Two layouts share this runner (the assessment's questionLayout):
 // ONE_PER_PAGE — the original: one question per screen, Previous/Next, with
@@ -223,7 +220,6 @@ export function QuestionRunner({
   onFocusPopup,
   onAttentionTimeout,
   onRestart,
-  onGameResult,
   attentionResetError,
 }: {
   detail: PortalAssessmentDetail;
@@ -258,12 +254,6 @@ export function QuestionRunner({
   onAttentionTimeout: () => void;
   /** Leave the stopped attempt — back to the respondent's dashboard. */
   onRestart: () => void;
-  /**
-   * A game finished: its numbers, by the GAMES question it answers. take.tsx
-   * keeps them beside the answers and sends them with the partial save and
-   * the submit — never on their own.
-   */
-  onGameResult: (questionId: number, result: GameResult) => void;
   /** Set when the abandon call failed, shown inside the stopped modal. */
   attentionResetError?: string;
 }) {
@@ -384,29 +374,7 @@ export function QuestionRunner({
     window.scrollTo({ top: 0, behavior: 'auto' });
   }, [index]);
 
-<<<<<<< HEAD
   const progress = Math.round(((pageIdx + 1) / pages.length) * 100);
-=======
-  const q = questions[index];
-  const progress = Math.round(((index + 1) / total) * 100);
-  const isScale = q.questionType === 'LINEAR_SCALE';
-  // Columns for the phone-only stacked grid below. Up to five points sit on one
-  // line; beyond that they split over two balanced lines rather than shrinking
-  // every label past reading.
-  const gridColumns = q.options.length <= 5 ? Math.max(1, q.options.length) : Math.ceil(q.options.length / 2);
-  // The same points folded onto two lines on a phone-width screen — but only
-  // when the labels need it. Five columns give each point about 48px of text at
-  // 390px: enough for "Agree" or a number, not for "Sometimes", which would
-  // have to break mid-word. Short scales therefore stay one line at every
-  // width. Read by .scale-grid in styles.css.
-  const longestOptionLabel = q.options.reduce((n, o) => Math.max(n, (o.optionText ?? '').length), 0);
-  const gridColumnsNarrow =
-    gridColumns <= 3 || longestOptionLabel <= 6 ? gridColumns : Math.ceil(gridColumns / 2);
-  const isGrid = q.questionType === 'LIKERT_GRID';
-  const isText = q.questionType === 'SHORT_ANSWER';
-  // One option, picked by FINISHING the game it launches — never by a tap.
-  const isGame = q.questionType === 'GAMES';
->>>>>>> 09c9c51f57e70deacae2854a4f2eab6cfa62feaf
   // Every slot this question must fill: one per grid row, otherwise one for
   // the question itself. Mirrors slotsOf() in PortalAssessmentService.
   const slotsOf = (qq: PortalQuestion): string[] =>
@@ -474,10 +442,6 @@ export function QuestionRunner({
   // Ref mirror of the modal state so timer/visibility callbacks read it without
   // being re-created — while the popup is up, activity must NOT reset anything.
   const modalOpenRef = useRef(false);
-  // True while a game covers the page. The game is supervised activity of its
-  // own — a 5-minute vigilance task can legitimately go two minutes without
-  // a click — so the inactivity countdown is OFF for its whole length.
-  const gameOpenRef = useRef(false);
 
   // ── Attention timer (per-assessment) ────────────────────────────────────
   // With attentionTimer on, the popup carries a deadline: ten minutes to
@@ -577,11 +541,9 @@ export function QuestionRunner({
     }, INACTIVITY_MS);
   };
   // Any respondent activity restarts the countdown — unless the popup is up,
-  // when the only way forward is the Resume button — or a game is running:
-  // its input still bubbles up the React tree from the portal, and the
-  // countdown is off for the game's whole length anyway (see launchGame).
+  // when the only way forward is the Resume button.
   const noteActivity = () => {
-    if (modalOpenRef.current || gameOpenRef.current) return;
+    if (modalOpenRef.current) return;
     armFocusTimer();
   };
   const dismissFocusPopup = () => {
@@ -604,7 +566,7 @@ export function QuestionRunner({
       // is itself the inattention it is watching for. Nothing to do on the
       // way out, then — and on the way back, only catch the case where the
       // deadline passed while a throttled or frozen timer never fired.
-      if (document.hidden || modalOpenRef.current || gameOpenRef.current) return;
+      if (document.hidden || modalOpenRef.current) return;
       if (focusDeadline.current !== null && Date.now() >= focusDeadline.current) {
         openFocusPopup();
       }
@@ -728,7 +690,6 @@ export function QuestionRunner({
   };
   const answeredCount = questions.reduce((n, _, i) => n + (isQuestionAnswered(i) ? 1 : 0), 0);
 
-<<<<<<< HEAD
   /** Has the respondent started this one at all — any tick, or any typed text? */
   const isQuestionTouched = (
     qi: number,
@@ -815,57 +776,6 @@ export function QuestionRunner({
     if (textsChanged) setOptionTexts(nextTexts);
   };
 
-=======
-  // ── Games ───────────────────────────────────────────────────────────────
-  // A GAMES question's one option launches its game full screen, on this same
-  // page (src/games/game-renderer.tsx). The respondent cannot leave until the
-  // game ends; finishing it ticks the option, which is what gets submitted.
-  // The result itself is only logged for now (console + localStorage).
-  const [activeGame, setActiveGame] = useState<{ questionId: number; option: PortalOption } | null>(null);
-  // A game runs for minutes; the answers it finishes into are read at the END,
-  // not as they were when it was launched.
-  const answersRef = useRef(answers);
-  answersRef.current = answers;
-
-  const launchGame = (option: PortalOption) => {
-    if (!option.game) return;
-    // Inside the click: fullscreen needs the gesture, and the overlay that
-    // mounts next has none left.
-    requestGameFullscreen();
-    clearAdvance();
-    gameOpenRef.current = true;
-    clearFocusTimer();
-    setActiveGame({ questionId: q.questionId, option });
-  };
-
-  const closeGame = () => {
-    gameOpenRef.current = false;
-    setActiveGame(null);
-    armFocusTimer();
-  };
-
-  // Finishing IS the answer. Set directly rather than through selectOption:
-  // there is nothing to toggle, and no auto-advance — the respondent comes back
-  // to the question showing "Completed" and moves on with Next. The numbers go
-  // up beside it, and a partial save follows (below): a game is minutes of
-  // work, too much to leave to the every-few-answers trigger.
-  const [gameSaveDue, setGameSaveDue] = useState(0);
-  const finishGame = (result: GameResult) => {
-    if (activeGame) {
-      onGameResult(activeGame.questionId, result);
-      setAnswers({ ...answersRef.current, [answerKey(activeGame.questionId)]: [activeGame.option.optionId] });
-      setGameSaveDue((n) => n + 1);
-    }
-    closeGame();
-  };
-  // Runs after the render that carries the new answer AND result, so the
-  // snapshot take.tsx builds has both. No-op with partial saving off.
-  useEffect(() => {
-    if (gameSaveDue > 0) onPartialSave?.();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gameSaveDue]);
-
->>>>>>> 09c9c51f57e70deacae2854a4f2eab6cfa62feaf
   // ── Live-tracking heartbeat ─────────────────────────────────────────────
   // Tells the admin tracking page where this respondent is: an immediate
   // ping on every question change plus one every 10s in between. Redis-only
@@ -1580,10 +1490,6 @@ export function QuestionRunner({
          whole word with one "Unidentified" keydown or none — `input` fires
          per change regardless. */
       onInput={noteActivity}
-      /* While a game runs, nothing behind it can take focus or a click — a
-         Tab-then-Space must not press Next under the overlay. The game is
-         portalled to <body>, outside this element, so it stays live. */
-      inert={activeGame !== null}
     >
       <BrandHeader
         title={title}
@@ -1688,283 +1594,11 @@ export function QuestionRunner({
                   )}
                 </div>
               )}
-<<<<<<< HEAD
               <div className="space-y-4">
                 {pageIndices.map((qi) => {
                   // Outlined after a Next/Submit press found it blocking, and
                   // only until it stops blocking — answering clears the mark.
                   const needsAnswer = flagged.has(qi) && isQuestionBlocking(qi);
-=======
-
-              {hint && (
-                <div
-                  className={cn(
-                    'flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-lg border px-3 py-2 text-xs font-medium transition-colors',
-                    capWarning
-                      ? 'border-amber-400 bg-amber-50 text-amber-700 dark:border-amber-600 dark:bg-amber-950/30 dark:text-amber-400'
-                      : 'border-primary/30 bg-primary/5 text-primary',
-                  )}
-                >
-                  <span>{capWarning ? `${hint} — untick one to change your answer` : hint}</span>
-                  <span className="shrink-0 text-muted-foreground">
-                    {selected.length} selected
-                  </span>
-                </div>
-              )}
-
-              {isGrid ? (
-                <>
-                  {/* PHONE — one block per statement, its scale laid out left
-                      to right underneath it. The table below needs a sideways
-                      swipe to reach the last column on a 390px screen, and a
-                      column the respondent never scrolled to is a column they
-                      never considered. Stacking keeps every point on screen
-                      and still reads in scale order, which is the one thing a
-                      Likert row cannot lose. */}
-                  <div className="sm:hidden space-y-2.5">
-                    {q.rows.map((row, ri) => {
-                      const slot = answerKey(q.questionId, row.questionRowId);
-                      const rowPicked = picked(slot);
-                      const rowDone = slotSatisfied(q, slot);
-                      return (
-                        <div
-                          key={row.questionRowId}
-                          className={cn(
-                            'rounded-lg border p-3',
-                            rowDone ? 'border-border bg-background' : 'border-primary/30 bg-primary/[0.03]',
-                          )}
-                        >
-                          <p className="flex gap-2 text-sm">
-                            <span className="shrink-0 text-xs text-muted-foreground">{ri + 1}.</span>
-                            <span>{row.rowText}</span>
-                          </p>
-                          {/* An even grid rather than flex-wrap: wrapping
-                              stretched the leftover option across the whole
-                              second line, which read as a bigger, different
-                              kind of choice than the four beside it. */}
-                          <div
-                            className="scale-grid mt-2.5 gap-1.5"
-                            style={
-                              {
-                                '--scale-cols': gridColumns,
-                                '--scale-cols-narrow': gridColumnsNarrow,
-                              } as CSSProperties
-                            }
-                          >
-                            {q.options.map((opt, oi) => {
-                              const on = rowPicked.includes(opt.optionId);
-                              return (
-                                <button
-                                  key={opt.optionId}
-                                  type="button"
-                                  onClick={() => selectOption(opt.optionId, row.questionRowId)}
-                                  aria-pressed={on}
-                                  className={cn(
-                                    // break-words is the backstop: the column
-                                    // count already gives each point room for
-                                    // an ordinary label, but nothing stops an
-                                    // author writing one long word.
-                                    'min-h-11 rounded-md border px-1 py-1.5 text-[0.625rem] font-medium leading-tight break-words transition-colors',
-                                    on
-                                      ? 'border-primary bg-primary text-primary-foreground'
-                                      : 'border-border bg-background text-muted-foreground',
-                                  )}
-                                >
-                                  {opt.optionText || `Option ${oi + 1}`}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  {/* TABLET AND UP — rows x shared columns, one pick per row.
-                     Every row is mandatory, so an unanswered one is marked
-                     rather than left to be discovered by the Next button. The
-                     table scrolls sideways rather than wrapping, because a
-                     Likert row is only readable in scale order. */}
-                  <div className="hidden sm:block overflow-x-auto overscroll-x-contain -mx-2 px-2">
-                    <table className="w-full border-separate border-spacing-0 text-sm">
-                      <thead>
-                        <tr>
-                          <th className="sticky left-0 z-10 bg-card text-left pb-2 pr-3 font-normal text-xs text-muted-foreground">
-                            &nbsp;
-                          </th>
-                          {q.options.map((opt, oi) => (
-                            <th
-                              key={opt.optionId}
-                              className="px-2 pb-2 text-center align-bottom font-medium text-xs text-muted-foreground whitespace-nowrap"
-                            >
-                              {opt.optionText || `Option ${oi + 1}`}
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {q.rows.map((row, ri) => {
-                          const slot = answerKey(q.questionId, row.questionRowId);
-                          const rowPicked = picked(slot);
-                          const rowDone = slotSatisfied(q, slot);
-                          return (
-                            <tr key={row.questionRowId}>
-                              <td
-                                className={cn(
-                                  'sticky left-0 z-10 bg-card border-t border-border py-3 pr-3 align-middle',
-                                  !rowDone && 'text-foreground',
-                                )}
-                              >
-                                <span className="flex items-start gap-2">
-                                  <span className="text-xs text-muted-foreground mt-0.5 shrink-0">{ri + 1}.</span>
-                                  <span className="text-sm">{row.rowText}</span>
-                                </span>
-                              </td>
-                              {q.options.map((opt) => {
-                                const on = rowPicked.includes(opt.optionId);
-                                return (
-                                  <td key={opt.optionId} className="border-t border-border px-2 py-3 text-center">
-                                    <button
-                                      type="button"
-                                      onClick={() => selectOption(opt.optionId, row.questionRowId)}
-                                      aria-label={`${row.rowText ?? `Row ${ri + 1}`}: ${opt.optionText ?? ''}`}
-                                      aria-pressed={on}
-                                      className={cn(
-                                        'inline-flex h-6 w-6 items-center justify-center rounded-full border transition-colors',
-                                        on
-                                          ? 'border-primary bg-primary text-primary-foreground'
-                                          : 'border-border hover:border-primary/60',
-                                      )}
-                                    >
-                                      {on && <Check className="h-3.5 w-3.5" />}
-                                    </button>
-                                  </td>
-                                );
-                              })}
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </>
-              ) : isGame ? (
-                /* The game's card and its Launch button, in place of an option
-                   list. The option is never tapped: it is picked by finishing
-                   the game, so an unplayed game can never read as answered. */
-                <div className="space-y-2">
-                  {q.options.map((opt) => (
-                    <GameLaunchCard
-                      key={opt.optionId}
-                      option={opt}
-                      completed={selected.includes(opt.optionId)}
-                      onLaunch={() => launchGame(opt)}
-                    />
-                  ))}
-                </div>
-              ) : isText ? (
-                /* Free text. No auto-advance: there is no moment that says
-                   "done" while someone is typing, and sliding the page away
-                   mid-sentence is the worst thing this screen could do. */
-                <textarea
-                  rows={3}
-                  value={textAnswers[answerKey(q.questionId)] ?? ''}
-                  onChange={(e) =>
-                    setTextAnswers({ ...textAnswers, [answerKey(q.questionId)]: e.target.value })
-                  }
-                  placeholder="Type your answer…"
-                  className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-                />
-              ) : isScale ? (
-                /* A slider, not a row of buttons — which is what lets the
-                   author pick any range: 0—100 is unusable as a hundred
-                   buttons and natural as a track.
-
-                   It starts UNSET, and that is the important part. A thumb
-                   parked at the midpoint would make an untouched question
-                   look answered, and every respondent who skipped it would
-                   silently record the middle — invisible in the data
-                   afterwards. Until they interact there is no value, and
-                   Next stays closed.
-
-                   Underneath it is still an ordinary cap-1 question: the
-                   value maps to the option whose text is that number and
-                   goes through selectOption, so submitting is unchanged. */
-                <ScaleSlider
-                  question={q}
-                  selectedOptionId={selected[0]}
-                  onPick={(optionId) => selectOption(optionId)}
-                />
-              ) : (
-              <div className="space-y-2">
-                {q.options.map((opt, oi) => {
-                  const on = selected.includes(opt.optionId);
-                  const isOther = opt.contentType === 'FREE_TEXT';
-                  const otherKey = optionTextKey(answerKey(q.questionId), opt.optionId);
-                  const rowClass = cn(
-                    'w-full text-left rounded-lg border p-3.5 sm:p-4 transition-colors',
-                    on ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40',
-                    // At the cap the unticked options are visibly inert —
-                    // the tick is refused, so it must not look available.
-                    multi && atCap && !on && 'opacity-60',
-                  );
-                  const marker = (
-                    <span
-                      className={cn(
-                        'mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center border',
-                        multi ? 'rounded' : 'rounded-full',
-                        on ? 'border-primary bg-primary text-primary-foreground' : 'border-border',
-                      )}
-                    >
-                      {on && <Check className="h-3 w-3" />}
-                    </span>
-                  );
-                  if (isOther) {
-                    // The "Other…" row, Google-Forms style: the label and an
-                    // ALWAYS-VISIBLE box on one line, so it reads as a
-                    // different kind of option before anyone touches it.
-                    // The row is a div, not a button — an input inside a
-                    // button is invalid HTML and every keystroke would toggle
-                    // the tick — so the marker+label is the button and the
-                    // box beside it selects the option on focus, the way
-                    // typing into Google's "Other" ticks its radio. No
-                    // auto-advance ever fires on that pick (selectOption);
-                    // Enter in the box IS Next.
-                    return (
-                      <div key={opt.optionId} className={cn(rowClass, 'flex items-start gap-3')}>
-                        <button
-                          type="button"
-                          onClick={() => selectOption(opt.optionId)}
-                          className="flex shrink-0 items-start gap-3 text-left"
-                        >
-                          {marker}
-                          <span className="text-sm">{opt.optionText || 'Other'}</span>
-                        </button>
-                        <input
-                          type="text"
-                          value={optionTexts[otherKey] ?? ''}
-                          onFocus={() => {
-                            if (!on) selectOption(opt.optionId);
-                          }}
-                          onChange={(e) => setOptionTexts({ ...optionTexts, [otherKey]: e.target.value })}
-                          onKeyDown={(e) => {
-                            if (e.key !== 'Enter') return;
-                            e.preventDefault();
-                            // Same gate as the Next button: nothing to press
-                            // until the question is answered, and where it
-                            // goes is wherever Next would go.
-                            if (answered && nextTarget !== null) goTo(nextTarget);
-                          }}
-                          placeholder="Type your answer…"
-                          aria-label={`${opt.optionText || 'Other'} — your answer`}
-                          /* Underline only, like Google's: a boxed input inside
-                             a boxed row is a frame in a frame. */
-                          className="min-w-0 flex-1 border-0 border-b border-border bg-transparent px-1 pb-1 text-sm outline-none transition-colors placeholder:text-muted-foreground/70 focus:border-primary"
-                        />
-                      </div>
-                    );
-                  }
->>>>>>> 09c9c51f57e70deacae2854a4f2eab6cfa62feaf
                   return (
                     <div
                       key={questions[qi].questionId}
@@ -2244,17 +1878,6 @@ export function QuestionRunner({
             )}
           </Card>
         </div>
-      )}
-
-      {activeGame?.option.game && (
-        <GameRenderer
-          game={activeGame.option.game}
-          attemptId={detail.respondentAssessmentMappingId}
-          questionId={activeGame.questionId}
-          optionId={activeGame.option.optionId}
-          onFinished={finishGame}
-          onUnavailable={closeGame}
-        />
       )}
     </div>
   );

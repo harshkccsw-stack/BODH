@@ -1,6 +1,5 @@
 package com.bodhpsychometric.service;
 
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -12,19 +11,14 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import com.bodhpsychometric.dto.PortalSubmitRequest.AnswerEntry;
-import com.bodhpsychometric.dto.PortalSubmitRequest.GamePartEntry;
-import com.bodhpsychometric.dto.PortalSubmitRequest.GameResultEntry;
 import com.bodhpsychometric.model.assessment.AssessmentAnswer;
 import com.bodhpsychometric.model.assessment.RespondentAssessmentMapping;
 import com.bodhpsychometric.model.assessment.enums.RespondentAssessmentStatus;
-import com.bodhpsychometric.model.game.Game;
-import com.bodhpsychometric.model.game.GameResult;
 import com.bodhpsychometric.model.question.Option;
 import com.bodhpsychometric.model.question.Question;
 import com.bodhpsychometric.model.question.QuestionRow;
 import com.bodhpsychometric.repository.assessment.AssessmentAnswerRepository;
 import com.bodhpsychometric.repository.assessment.RespondentAssessmentMappingRepository;
-import com.bodhpsychometric.repository.game.GameResultRepository;
 import com.bodhpsychometric.repository.question.OptionRepository;
 
 import jakarta.persistence.EntityManager;
@@ -49,18 +43,15 @@ public class AssessmentSubmissionWriter {
     private final RespondentAssessmentMappingRepository mappings;
     private final AssessmentAnswerRepository assessmentAnswers;
     private final OptionRepository options;
-    private final GameResultRepository gameResults;
 
     @PersistenceContext
     private EntityManager entityManager;
 
     public AssessmentSubmissionWriter(RespondentAssessmentMappingRepository mappings,
-            AssessmentAnswerRepository assessmentAnswers, OptionRepository options,
-            GameResultRepository gameResults) {
+            AssessmentAnswerRepository assessmentAnswers, OptionRepository options) {
         this.mappings = mappings;
         this.assessmentAnswers = assessmentAnswers;
         this.options = options;
-        this.gameResults = gameResults;
     }
 
     /**
@@ -71,8 +62,7 @@ public class AssessmentSubmissionWriter {
      * deleted since staging, which the digest treats as terminal.
      */
     @Transactional
-    public RespondentAssessmentMapping persist(Long mappingId, List<AnswerEntry> entries, int popUpCount,
-            List<GameResultEntry> games) {
+    public RespondentAssessmentMapping persist(Long mappingId, List<AnswerEntry> entries, int popUpCount) {
         RespondentAssessmentMapping mapping = mappings.findForPortalDelivery(mappingId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
                         "Assessment attempt " + mappingId + " not found"));
@@ -84,8 +74,7 @@ public class AssessmentSubmissionWriter {
         Long assessmentId = mapping.getAssessment().getAssessmentId();
         // Replace-all write of the pair's single answer set. Flush the deletes
         // before inserting, or Hibernate orders the inserts first and trips
-        // the unique tuple on a re-attempt. The previous set's game results
-        // go with it — game_result cascades on delete in the database (V43).
+        // the unique tuple on a re-attempt.
         assessmentAnswers.deleteByRespondent_IdAndAssessment_AssessmentId(respondentUserId, assessmentId);
         assessmentAnswers.flush();
 
@@ -99,9 +88,6 @@ public class AssessmentSubmissionWriter {
                 .collect(Collectors.toSet());
         Map<Long, Option> textSlots = options.findTextAnswerOptions(textOnly);
 
-        // The row each game question was answered with — a GAMES question has
-        // exactly one — for its results to hang off.
-        Map<Long, AssessmentAnswer> answerByQuestion = new HashMap<>();
         for (AnswerEntry entry : entries) {
             AssessmentAnswer answer = new AssessmentAnswer();
             answer.setRespondent(mapping.getRespondent());
@@ -119,7 +105,6 @@ public class AssessmentSubmissionWriter {
                 answer.setAnswerText(entry.answerText());
             }
             assessmentAnswers.save(answer);
-            answerByQuestion.putIfAbsent(entry.questionId(), answer);
         }
         // Force the answer inserts now, so isPersisted is only ever set after
         // the rows have actually reached MySQL — a failure here rolls the
@@ -127,51 +112,9 @@ public class AssessmentSubmissionWriter {
         // happened.
         assessmentAnswers.flush();
 
-        // The finished games' numbers, one row per part, each attached to the
-        // answer its game produced — inside this same transaction, so a game's
-        // results never land without its answer or the answer without them.
-        // The submit validator already tied every result to an answered game
-        // question; a result with no answer here could only come from an
-        // envelope tampered with in Redis, and is skipped rather than allowed
-        // to fail the digest forever.
-        for (GameResultEntry game : games == null ? List.<GameResultEntry>of() : games) {
-            AssessmentAnswer answer = answerByQuestion.get(game.questionId());
-            if (answer == null || game.gameId() == null || game.parts() == null) {
-                continue;
-            }
-            for (int i = 0; i < game.parts().size(); i++) {
-                gameResults.save(toRow(answer, game, game.parts().get(i), i + 1));
-            }
-        }
-        gameResults.flush();
-
         mapping.setAssessmentStatus(RespondentAssessmentStatus.COMPLETED);
         mapping.setPersisted(true);
         mapping.setPopUpCount(Math.max(0, popUpCount));
         return mappings.save(mapping);
-    }
-
-    /** One game part as its game_result row; the entry was validated at submit. */
-    private GameResult toRow(AssessmentAnswer answer, GameResultEntry game, GamePartEntry part, int order) {
-        GameResult row = new GameResult();
-        row.setAnswer(answer);
-        row.setGame(entityManager.getReference(Game.class, game.gameId()));
-        row.setGameVersion(game.gameVersion() == null ? 1 : game.gameVersion());
-        row.setPartCode(part.partCode());
-        row.setPartOrder(order);
-        row.setHits(part.hits());
-        row.setFalseAlarms(part.falseAlarms());
-        row.setOmissions(part.omissions());
-        row.setDurationMs(part.durationMs());
-        row.setMouseDistancePx(part.mouseDistancePx());
-        row.setMouseIdleSeconds(part.mouseIdleSeconds());
-        row.setInstructionTimeMs(part.instructionTimeMs());
-        row.setGroupNumber(part.groupNumber());
-        row.setGroupName(part.groupName());
-        row.setPauseCount(part.pauseCount());
-        row.setPauseDurationMs(part.pauseDurationMs());
-        row.setStartedAt(part.startedAt());
-        row.setEndedAt(part.endedAt());
-        return row;
     }
 }

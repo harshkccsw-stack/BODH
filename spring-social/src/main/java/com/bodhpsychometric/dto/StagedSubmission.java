@@ -3,7 +3,6 @@ package com.bodhpsychometric.dto;
 import java.util.List;
 
 import com.bodhpsychometric.dto.PortalSubmitRequest.AnswerEntry;
-import com.bodhpsychometric.dto.PortalSubmitRequest.GameResultEntry;
 
 /**
  * A VALIDATED final submission parked in Redis (7-day TTL) until the digest
@@ -15,11 +14,6 @@ import com.bodhpsychometric.dto.PortalSubmitRequest.GameResultEntry;
  * <p>{@code answers} are already normalized by the submit validator — deduped
  * per (question, row, option), text trimmed — so the digest writes them
  * verbatim; the unique answer tuple in MySQL is the only re-check it needs.
- *
- * <p>{@code gameResults} travel in the same envelope, validated the same way
- * and written by the same writer in the same transaction — a game's numbers
- * can never land without its answer, nor the answer without them. Null in an
- * envelope staged before games were saved, which writes no results.
  *
  * <p>{@code attempts}/{@code lastError} are digest bookkeeping: incremented
  * per failed try, and after {@code SubmissionDigestService.MAX_ATTEMPTS} the
@@ -34,24 +28,23 @@ public record StagedSubmission(
         int popUpCount,
         long submittedAtMillis,
         int attempts,
-        String lastError,
-        List<GameResultEntry> gameResults) {
+        String lastError) {
 
     public static StagedSubmission of(Long mappingId, Long respondentUserId, Long assessmentId,
-            List<AnswerEntry> answers, int popUpCount, List<GameResultEntry> gameResults) {
+            List<AnswerEntry> answers, int popUpCount) {
         return new StagedSubmission(mappingId, respondentUserId, assessmentId, answers,
-                popUpCount, System.currentTimeMillis(), 0, null, gameResults);
+                popUpCount, System.currentTimeMillis(), 0, null);
     }
 
     /** The same submission with one more failed digest attempt recorded. */
     public StagedSubmission withFailure(String error) {
         return new StagedSubmission(mappingId, respondentUserId, assessmentId, answers,
-                popUpCount, submittedAtMillis, attempts + 1, error, gameResults);
+                popUpCount, submittedAtMillis, attempts + 1, error);
     }
 
     /** Reset for a manual requeue — three fresh attempts. */
     public StagedSubmission requeued() {
         return new StagedSubmission(mappingId, respondentUserId, assessmentId, answers,
-                popUpCount, submittedAtMillis, 0, lastError, gameResults);
+                popUpCount, submittedAtMillis, 0, lastError);
     }
 }

@@ -15,10 +15,8 @@ import {
   type PortalAnswerEntry,
   type PortalAssessmentDetail,
   type PortalDemographicEntry,
-  type PortalGameResultEntry,
   type PortalQuestion,
 } from '@/lib/api';
-import type { GameResult } from '@/games/registry';
 import { TermsStep } from './terms-step';
 import { DemographicsStep } from './demographics-step';
 import { InstructionsStep } from './instructions-step';
@@ -152,10 +150,6 @@ export default function TakePage() {
   // that is not selected is kept here (a mis-tap should not eat a sentence)
   // but never sent: buildEntries only reads it for selected options.
   const [optionTexts, setOptionTexts] = useState<Record<string, string>>({});
-  // What each finished game measured, by the GAMES question it answers. Kept
-  // beside the answers, never sent on its own: it rides the partial save and
-  // the submit, and the server writes it in the submit's own transaction.
-  const [gameResults, setGameResults] = useState<Record<number, GameResult>>({});
   const [loadError, setLoadError] = useState('');
   // Applicable steps, frozen at load so mid-flow state changes can never
   // resync stepIndex to a now-shorter list.
@@ -206,12 +200,6 @@ export default function TakePage() {
           setAnswers(seeded.answers);
           setTextAnswers(seeded.textAnswers);
           setOptionTexts(seeded.optionTexts);
-          // The snapshot's game numbers come back beside the game answers they
-          // belong to — without them a resumed game would read "Completed"
-          // with nothing to submit for it.
-          setGameResults(
-            Object.fromEntries((d.savedGameResults ?? []).map((g) => [g.questionId, { parts: g.parts }])),
-          );
           setStartIndex(firstUnansweredIndex(d.questions, seeded.answers, seeded.textAnswers, seeded.optionTexts));
           setBegun(true);
           setDetail(d);
@@ -355,20 +343,12 @@ export default function TakePage() {
     return entries;
   };
 
-  // One entry per finished game whose question is still answered — the
-  // answer is the server's proof the game was finished, so a result is never
-  // sent without it. Shared by submit and the partial save, like the answers.
-  const buildGameResults = (): PortalGameResultEntry[] =>
-    Object.entries(gameResults)
-      .filter(([questionId]) => (answers[answerKey(Number(questionId))] ?? []).length > 0)
-      .map(([questionId, result]) => ({ questionId: Number(questionId), parts: result.parts }));
-
   // Partial-answer snapshot — fire-and-forget: a failed save costs a future
   // backfill, never data, so the respondent is never interrupted over it.
   const savePartialAnswers = () => {
     if (!detail.savePartialAnswers || !begun) return;
     portalAssessmentsApi
-      .saveProgress(detail.respondentAssessmentMappingId, buildEntries(), buildGameResults())
+      .saveProgress(detail.respondentAssessmentMappingId, buildEntries())
       .catch(() => {
         /* skipped save — the next section change tries again */
       });
@@ -381,12 +361,7 @@ export default function TakePage() {
       // 200 means the submission is in — either staged in Redis with the
       // digest landing it in MySQL moments later (submissionPending), or
       // already written synchronously. The respondent's flow is identical.
-      await portalAssessmentsApi.submit(
-        detail.respondentAssessmentMappingId,
-        buildEntries(),
-        popUpCount,
-        buildGameResults(),
-      );
+      await portalAssessmentsApi.submit(detail.respondentAssessmentMappingId, buildEntries(), popUpCount);
       setDone(true);
     } catch (e) {
       setSubmitError(e instanceof ApiError ? e.serverMessage : 'Failed to submit — please try again.');
@@ -447,7 +422,6 @@ export default function TakePage() {
           onFocusPopup={() => setPopUpCount((n) => n + 1)}
           onAttentionTimeout={abandonAttempt}
           onRestart={backToList}
-          onGameResult={(questionId, result) => setGameResults((prev) => ({ ...prev, [questionId]: result }))}
           attentionResetError={attentionResetError}
         />
       );

@@ -112,19 +112,13 @@ public class AssessmentAnswer implements java.io.Serializable {
      * every other "print the answer" path show. An ordinary option is its
      * label; a short answer is its text; an "Other…" (FREE_TEXT) option is
      * {@code label: text}, so the sheet shows what the respondent WROTE while
-     * the choice stays countable. A GAMES answer — its generated option has no
-     * label — prints the game's NAME: the row exists only because the game was
-     * finished, and what it measured lives in game_result. Null when there is
-     * nothing to print.
+     * the choice stays countable. Null when there is nothing to print.
      */
     public String displayText() {
         if (option == null) {
             return answerText;
         }
         if (answerText == null || answerText.isBlank()) {
-            if (option.getOptionText() == null && option.getGame() != null) {
-                return option.getGame().getName();
-            }
             return option.getOptionText();
         }
         return (option.getOptionText() == null ? "" : option.getOptionText() + ": ") + answerText;

@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   Flag,
-  Gamepad2,
   Grid3x3,
   HelpCircle,
   ListChecks,
@@ -355,7 +354,7 @@ export default function QuestionsPage() {
                       </span>
                       {q.options.length > 0 && (
                         <span className="truncate">
-                          {q.options.slice(0, 4).map((o) => o.optionText || o.game?.name || `[${o.contentType.toLowerCase()}]`).join(' · ')}{q.options.length > 4 ? ' …' : ''}
+                          {q.options.slice(0, 4).map((o) => o.optionText || `[${o.contentType.toLowerCase()}]`).join(' · ')}{q.options.length > 4 ? ' …' : ''}
                         </span>
                       )}
                     </div>
@@ -382,14 +381,6 @@ export default function QuestionsPage() {
                       >
                         <SlidersHorizontal className="h-3 w-3" />
                         {q.scaleFrom ?? DEFAULT_SCALE_FROM}–{q.scaleTo ?? DEFAULT_SCALE_TO}
-                      </span>
-                    )}
-                    {q.questionType === 'GAMES' && (
-                      <span
-                        className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-2.5 py-0.5 text-xs font-medium text-primary"
-                        title="Game — respondents launch it full screen and play it to the end"
-                      >
-                        <Gamepad2 className="h-3 w-3" /> {q.options.find((o) => o.game)?.game?.name ?? 'game'}
                       </span>
                     )}
                     {q.questionType === 'SHORT_ANSWER' && (

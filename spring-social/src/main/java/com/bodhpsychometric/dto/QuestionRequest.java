@@ -24,9 +24,6 @@ import jakarta.validation.constraints.Size;
  * exactly as an MCQ's options are — and rows carry the items, each naming the
  * MQTs it measures. rows is ignored on every other type. A SHORT_ANSWER takes
  * neither options nor rows; only its stem and its question-level scores.
- * A GAMES question takes gameId (required there, refused everywhere else) and
- * no options: the backend GENERATES its one option and links it to that game,
- * the way a scale's points are generated from its range.
  *
  * shuffleOptions randomises the order the options are DELIVERED in — MCQ only
  * (a scale's points and a grid's columns are ordinal, and both are refused).
@@ -63,11 +60,5 @@ public record QuestionRequest(
         String scaleHighLabel,
         List<QuestionOptionRequest> options,
         List<QuestionRowRequest> rows,
-        List<MqtScoreRequest> mqtScores,
-        /**
-         * GAMES only: the catalog game the question's one option launches.
-         * Omitted on every other type — a payload written before games existed
-         * keeps meaning exactly what it meant.
-         */
-        Long gameId) {
+        List<MqtScoreRequest> mqtScores) {
 }
