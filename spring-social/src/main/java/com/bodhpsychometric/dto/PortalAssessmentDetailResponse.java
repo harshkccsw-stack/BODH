@@ -7,6 +7,7 @@ import java.util.Random;
 
 import com.bodhpsychometric.dto.PortalQuestionnaireContent.ContentQuestion;
 import com.bodhpsychometric.dto.PortalSubmitRequest.AnswerEntry;
+import com.bodhpsychometric.dto.PortalSubmitRequest.GameResultEntry;
 import com.bodhpsychometric.model.assessment.Assessment;
 import com.bodhpsychometric.model.assessment.AssessmentTerms;
 import com.bodhpsychometric.model.assessment.RespondentAssessmentMapping;
@@ -77,7 +78,13 @@ public record PortalAssessmentDetailResponse(
          * none — a fresh attempt, the toggle off, or Redis unavailable — and
          * the portal starts from question 1 exactly as before.
          */
-        List<AnswerEntry> savedAnswers) {
+        List<AnswerEntry> savedAnswers,
+        /**
+         * The same snapshot's finished-game numbers, so a resumed attempt
+         * keeps them beside the game answers they belong to. Null whenever
+         * savedAnswers is, and in a snapshot saved before games were saved.
+         */
+        List<GameResultEntry> savedGameResults) {
 
     /**
      * A named question group; only present when the questionnaire hasSections.
@@ -166,7 +173,14 @@ public record PortalAssessmentDetailResponse(
             String description,
             ContentType contentType,
             String mediaUrl,
-            int sortOrder) {
+            int sortOrder,
+            /**
+             * GAMES questions only (V41): the game this option launches —
+             * {@code code} is the key the portal's game registry renders by.
+             * Null on every other option, and on a cache entry written before
+             * the field existed (no GAMES question could exist then).
+             */
+            GameRef game) {
     }
 
     /**
@@ -187,7 +201,8 @@ public record PortalAssessmentDetailResponse(
 
     public static PortalAssessmentDetailResponse from(RespondentAssessmentMapping mapping,
             PortalQuestionnaireContent content,
-            List<AnswerEntry> savedAnswers) {
+            List<AnswerEntry> savedAnswers,
+            List<GameResultEntry> savedGameResults) {
         Assessment assessment = mapping.getAssessment();
 
         List<PortalQuestion> questions = content.questions().stream()
@@ -216,7 +231,8 @@ public record PortalAssessmentDetailResponse(
                 content.demographicFields(),
                 content.sections(),
                 questions,
-                savedAnswers);
+                savedAnswers,
+                savedGameResults);
     }
 
     /** The cached question re-shaped for THIS attempt — shuffle applied, flag dropped. */
@@ -285,7 +301,7 @@ public record PortalAssessmentDetailResponse(
         for (int i = 0; i < shuffled.size(); i++) {
             PortalOption o = shuffled.get(i);
             delivered.add(new PortalOption(o.optionId(), o.optionText(), o.description(),
-                    o.contentType(), o.mediaUrl(), i));
+                    o.contentType(), o.mediaUrl(), i, o.game()));
         }
         return delivered;
     }

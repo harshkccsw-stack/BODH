@@ -66,6 +66,7 @@ export const MENU_SIDEBAR: MenuConfig = [
     children: [
       { title: 'Questions', path: '/question-bank/questions' },
       { title: 'Measured Qualities', path: '/question-bank/qualities' },
+      { title: 'Games', path: '/question-bank/games' },
       { title: 'IRT Calibration', path: '/question-bank/calibration' },
       { title: 'Norm Tables', path: '/question-bank/norms' },
     ],

@@ -3,6 +3,7 @@ package com.bodhpsychometric.dto;
 import java.util.List;
 
 import com.bodhpsychometric.dto.PortalSubmitRequest.AnswerEntry;
+import com.bodhpsychometric.dto.PortalSubmitRequest.GameResultEntry;
 
 /**
  * One attempt's partial-answer snapshot as Redis stores it (1-day TTL): the
@@ -19,5 +20,7 @@ import com.bodhpsychometric.dto.PortalSubmitRequest.AnswerEntry;
 public record PortalPartialAnswers(
         Long respondentAssessmentMappingId,
         List<AnswerEntry> answers,
-        long savedAtMillis) {
+        long savedAtMillis,
+        /** Finished games' numbers so far; null in a snapshot written before games were saved. */
+        List<GameResultEntry> gameResults) {
 }
