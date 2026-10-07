@@ -27,15 +27,24 @@ import type { GameProps } from './registry';
        falseAlarms         responses with no jump to catch
        omissions           double jumps let go by
      and on BOTH rows:
-       durationMs          that part's play time, pauses excluded
+       durationMs          that part's play time, breaks and time
+                           away from the screen excluded
        mouseDistancePx, mouseIdleSeconds   during that part
        instructionTimeMs   time on that part's "How to play" and
-                           group instruction pages, every visit summed
+                           group instruction pages, every visit
+                           summed, time away excluded
        groupNumber / groupName   the group picked at the start
        pauseCount / pauseDurationMs   breaks taken in that part —
                            null for groups with no Pause button
        startedAt / endedAt the browser clock at the part's start and
-                           end (pauses inside the span)
+                           end (breaks and time away inside the span)
+
+   AWAY FROM THE SCREEN (`suspended`): the running part freezes
+   exactly as for a break, the 3-2-1 starts again from 3, and the
+   instruction timer stops — but it is NOT a break: never counted in
+   pauseCount / pauseDurationMs. A break taken and then left keeps
+   its full length as pause time; the part resumes only once the
+   respondent is back AND has pressed the break's own Resume.
    ============================================================ */
 
 /** What a part measures itself; the journey adds its code, group and instruction time. */
@@ -103,6 +112,7 @@ const COLORS: ColorDef[] = [
   { name: 'ORANGE', css: '#f97316' },
 ];
 
+const OPTION_COUNT = 4; // colour buttons per round — always the ink AND the word's colour among them
 const ROUND_MS = 3000; // how often the word + options change
 const BLANK_MS = 250; // how long the blank flash lasts
 const CLASH_SECONDS = 70; // Color Clash length
@@ -391,7 +401,7 @@ const INSTRUCTION_VIEWS: Partial<Record<View, 'clash' | 'clock'>> = {
   instructions2: 'clock',
 };
 
-export default function ColorClashMackworth({ onComplete }: GameProps) {
+export default function ColorClashMackworth({ onComplete, suspended }: GameProps) {
   const [view, setView] = useState<View>('select');
   const [group, setGroup] = useState<number | null>(null);
   const [countdown, setCountdown] = useState(COUNTDOWN_SECONDS);
@@ -468,9 +478,12 @@ export default function ColorClashMackworth({ onComplete }: GameProps) {
 
   /* ---------- The 3-second countdown, whenever we enter that view ----------
      The transition happens in the interval body, not inside a state
-     updater: updaters must stay pure (StrictMode calls them twice). */
+     updater: updaters must stay pure (StrictMode calls them twice).
+     Away from the screen it stops, and starts again from the top on
+     the way back — nobody returns to a part already under way. */
   useEffect(() => {
-    if (view !== 'countdown') return;
+    if (view !== 'countdown' || suspended) return;
+    setCountdown(COUNTDOWN_SECONDS);
     const deadline = Date.now() + COUNTDOWN_SECONDS * 1000;
     countdownRef.current = setInterval(() => {
       const remaining = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
@@ -485,19 +498,21 @@ export default function ColorClashMackworth({ onComplete }: GameProps) {
       if (countdownRef.current) clearInterval(countdownRef.current);
       countdownRef.current = null;
     };
-  }, [view]);
+  }, [view, suspended]);
 
   /* Hidden instruction timer: runs while a part's instruction screen is up;
      the cleanup adds the visit to that part's total when the respondent
-     leaves it by any button — Back and a return visit included. */
+     leaves it by any button — Back and a return visit included. Time away
+     from the screen is not reading time: leaving closes the stretch, coming
+     back opens a new one. */
   useEffect(() => {
     const part = INSTRUCTION_VIEWS[view];
-    if (!part) return;
+    if (!part || suspended) return;
     const startedAt = performance.now();
     return () => {
       instructionMsRef.current[part] += performance.now() - startedAt;
     };
-  }, [view]);
+  }, [view, suspended]);
 
   /* Every screen opens at the top, so a long instruction page doesn't start
      halfway down because the previous one was scrolled. scrollIntoView
@@ -563,7 +578,9 @@ export default function ColorClashMackworth({ onComplete }: GameProps) {
       </div>
     );
   } else if (view === 'clash') {
-    screen = <ColorClash showHud={showHud} allowPause={allowPause} onProceed={handleClashDone} />;
+    screen = (
+      <ColorClash showHud={showHud} allowPause={allowPause} suspended={suspended} onProceed={handleClashDone} />
+    );
   } else if (view === 'preview2') {
     /* ---------- Annotated still of the Mackworth Clock ----------
        No Back button: Color Clash is over and can't be returned to. */
@@ -595,7 +612,9 @@ export default function ColorClashMackworth({ onComplete }: GameProps) {
     );
   } else {
     /* ---------- Mackworth Clock — its Next ends the whole game ---------- */
-    screen = <MackworthClock showHud={showHud} allowPause={allowPause} onProceed={handleClockDone} />;
+    screen = (
+      <MackworthClock showHud={showHud} allowPause={allowPause} suspended={suspended} onProceed={handleClockDone} />
+    );
   }
 
   return <div ref={topRef}>{screen}</div>;
@@ -612,6 +631,7 @@ export default function ColorClashMackworth({ onComplete }: GameProps) {
    showHud: the countdown and running score in the header.
    allowPause: a Pause button; pausing freezes the countdown,
    the current round and the telemetry, and hides the stage.
+   suspended: away from the screen — the same freeze, not a break.
    Clicking an option gives no right/wrong feedback: the clicked
    button just looks pressed until the next round.
    ============================================================ */
@@ -639,7 +659,12 @@ function getColorCss(name: string): string {
   return COLORS.find((c) => c.name === name)?.css ?? '#1a1a1a';
 }
 
-/** One round: a printed word + a different ink colour + 4 shuffled options. */
+/**
+ * One round: a printed word + a different ink colour + OPTION_COUNT shuffled
+ * options. The options ALWAYS hold both colours on screen — the ink (the
+ * right answer) and the colour the word names (the one to resist) — so every
+ * round is a real clash; the rest are drawn from the other colours.
+ */
 function buildRound() {
   const wordChoice = pickRandom(COLORS, 1)[0];
   let inkChoice: ColorDef;
@@ -647,15 +672,15 @@ function buildRound() {
     inkChoice = pickRandom(COLORS, 1)[0];
   } while (inkChoice.name === wordChoice.name);
   // The correct answer is the INK colour — read the colour, not the word.
-  const distractors = pickRandom(
-    COLORS.filter((c) => c.name !== inkChoice.name),
-    3,
+  const others = pickRandom(
+    COLORS.filter((c) => c.name !== inkChoice.name && c.name !== wordChoice.name),
+    OPTION_COUNT - 2,
   ).map((c) => c.name);
   return {
     wordText: wordChoice.name,
     inkCss: inkChoice.css,
     correctAnswer: inkChoice.name,
-    options: shuffle([inkChoice.name, ...distractors]),
+    options: shuffle([inkChoice.name, wordChoice.name, ...others]),
   };
 }
 
@@ -663,10 +688,12 @@ function ColorClash({
   onProceed,
   showHud,
   allowPause,
+  suspended,
 }: {
   onProceed: (result: PartNumbers) => void;
   showHud: boolean;
   allowPause: boolean;
+  suspended: boolean;
 }) {
   // --- What's on screen ---
   const [wordText, setWordText] = useState('RED');
@@ -696,10 +723,13 @@ function ColorClash({
   const roundTimerRef = useRef<PausableInterval | null>(null);
   const countdownRef = useRef<PausableInterval | null>(null);
   const blankTimerRef = useRef<PausableTimeout | null>(null);
-  const pausedRef = useRef(false);
+  const pausedRef = useRef(false); // on a break the respondent took
   const pauseStartedAtRef = useRef(0);
+  const suspendedRef = useRef(suspended); // away from the screen
+  const frozenRef = useRef(false); // timers stopped — for a break, for being away, or both
+  const frozenAtRef = useRef(0);
   const gameOverRef = useRef(false);
-  const startTimeRef = useRef(0); // shifted forward by every pause
+  const startTimeRef = useRef(0); // shifted forward by every freeze
   const elapsedMsRef = useRef(0); // frozen the moment the part ends
   const telemetryRef = useRef(new PointerTelemetry());
   // Breaks taken, and the browser clock at the part's start and end.
@@ -731,9 +761,9 @@ function ColorClash({
     }, BLANK_MS);
   }, [newRound]);
 
-  /** One of the 4 option buttons was clicked. */
+  /** One of the option buttons was clicked. */
   const handleAnswer = (chosen: string) => {
-    if (answeredRef.current || pausedRef.current) return; // extra clicks, and any while paused
+    if (answeredRef.current || frozenRef.current) return; // extra clicks, and any while frozen
     answeredRef.current = true;
     setSelected(chosen);
     if (chosen === correctAnswerRef.current) setScore((s) => s + 1);
@@ -762,6 +792,7 @@ function ColorClash({
     setBlank(false);
     blankTimerRef.current?.stop();
     pausedRef.current = false;
+    frozenRef.current = false;
     setPaused(false);
     gameOverRef.current = false;
     startTimeRef.current = Date.now();
@@ -810,32 +841,56 @@ function ColorClash({
 
   const displayTime = Math.max(0, timeLeft);
 
+  /** Stop every timer where it stands. Shared by a break and by being away. */
+  const freeze = () => {
+    if (frozenRef.current || gameOverRef.current) return;
+    frozenRef.current = true;
+    frozenAtRef.current = Date.now();
+    roundTimerRef.current?.pause();
+    countdownRef.current?.pause();
+    blankTimerRef.current?.pause();
+    telemetryRef.current.pause();
+  };
+
+  /** Carry on exactly where the part stood; the frozen stretch is out of the game time and idle time. */
+  const thaw = () => {
+    if (!frozenRef.current) return;
+    frozenRef.current = false;
+    const frozenFor = Date.now() - frozenAtRef.current;
+    startTimeRef.current += frozenFor;
+    telemetryRef.current.resume(frozenFor);
+    roundTimerRef.current?.resume();
+    countdownRef.current?.resume();
+    blankTimerRef.current?.resume();
+  };
+
+  // Away from the screen, and back. Declared after the start-up effect, so a
+  // part mounted while away starts, then freezes at once.
+  useEffect(() => {
+    suspendedRef.current = suspended;
+    if (suspended) freeze();
+    else if (!pausedRef.current) thaw(); // a break still on stays on
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [suspended]);
+
   /** Pause: freeze every timer where it is and cover the stage. */
   const pauseGame = () => {
     if (pausedRef.current || gameOverRef.current) return;
     pausedRef.current = true;
     pauseStartedAtRef.current = Date.now();
     pauseCountRef.current += 1;
-    roundTimerRef.current?.pause();
-    countdownRef.current?.pause();
-    blankTimerRef.current?.pause();
-    telemetryRef.current.pause();
+    freeze();
     setPaused(true);
   };
 
   /** Resume: carry on exactly where the part left off. */
   const resumeGame = () => {
     if (!pausedRef.current) return;
-    const pausedFor = Date.now() - pauseStartedAtRef.current;
-    // The pause is excluded from the game time and from idle time.
-    startTimeRef.current += pausedFor;
-    pausedMsRef.current += pausedFor;
-    telemetryRef.current.resume(pausedFor);
+    // The break as the respondent took it, any time away during it included.
+    pausedMsRef.current += Date.now() - pauseStartedAtRef.current;
     pausedRef.current = false;
     setPaused(false);
-    roundTimerRef.current?.resume();
-    countdownRef.current?.resume();
-    blankTimerRef.current?.resume();
+    if (!suspendedRef.current) thaw();
   };
 
   /** Next clicked: show the button pressed, then hand the numbers over. */
@@ -975,6 +1030,7 @@ function ColorClash({
    allowPause: a Pause button; pausing freezes the pointer, the
    countdown, any open response window and the telemetry, and
    hides the clock. Spacebar presses are ignored while paused.
+   suspended: away from the screen — the same freeze, not a break.
    ============================================================ */
 
 /** Formats seconds as m:ss, e.g. 245 -> "4:05". */
@@ -1007,10 +1063,12 @@ function MackworthClock({
   onProceed,
   showHud,
   allowPause,
+  suspended,
 }: {
   onProceed: (result: PartNumbers) => void;
   showHud: boolean;
   allowPause: boolean;
+  suspended: boolean;
 }) {
   // The elapsed seconds live in a ref; the per-second re-render is driven by
   // setPointerStep, so the HUD timer updates every tick anyway.
@@ -1037,7 +1095,7 @@ function MackworthClock({
   const responseTimeoutRef = useRef<PausableTimeout | null>(null);
   const pressTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mainIntervalRef = useRef<PausableInterval | null>(null);
-  const startTimeRef = useRef(0); // shifted forward by every pause
+  const startTimeRef = useRef(0); // shifted forward by every freeze
   const elapsedMsRef = useRef(0); // frozen the moment the part ends
   // Breaks taken, and the browser clock at the part's start and end.
   const pauseCountRef = useRef(0);
@@ -1049,12 +1107,15 @@ function MackworthClock({
   const telemetryRef = useRef(new PointerTelemetry());
   // Live copies for the keyboard listener, which is attached once.
   const phaseRef = useRef<ClockPhase>('running');
-  const pausedRef = useRef(false);
+  const pausedRef = useRef(false); // on a break the respondent took
   const pauseStartedAtRef = useRef(0);
+  const suspendedRef = useRef(suspended); // away from the screen
+  const frozenRef = useRef(false); // clock stopped — for a break, for being away, or both
+  const frozenAtRef = useRef(0);
 
   /* ---------- A response: button or Spacebar ---------- */
   const registerResponse = useCallback(() => {
-    if (phaseRef.current !== 'running' || pausedRef.current) return;
+    if (phaseRef.current !== 'running' || frozenRef.current) return;
     const now = Date.now();
 
     // Visual acknowledgement only, for every response right or wrong: the
@@ -1146,32 +1207,56 @@ function MackworthClock({
   const angleDeg = (pointerStep % TICKS_PER_REVOLUTION) * (360 / TICKS_PER_REVOLUTION);
   const timeLeft = CLOCK_SECONDS - secondsElapsedRef.current;
 
+  /** Stop the pointer, any open window and the telemetry where they stand. Shared by a break and by being away. */
+  const freeze = () => {
+    if (frozenRef.current || phaseRef.current !== 'running') return;
+    frozenRef.current = true;
+    frozenAtRef.current = Date.now();
+    mainIntervalRef.current?.pause();
+    responseTimeoutRef.current?.pause();
+    telemetryRef.current.pause();
+    setPressed(false);
+  };
+
+  /** Carry on exactly where the part stood; the frozen stretch is out of the game time, idle time and the open window. */
+  const thaw = () => {
+    if (!frozenRef.current) return;
+    frozenRef.current = false;
+    const frozenFor = Date.now() - frozenAtRef.current;
+    startTimeRef.current += frozenFor;
+    telemetryRef.current.resume(frozenFor);
+    if (awaitingRef.current) awaitingRef.current.jumpTime += frozenFor;
+    mainIntervalRef.current?.resume();
+    responseTimeoutRef.current?.resume();
+  };
+
+  // Away from the screen, and back. Declared after the set-up effect, so a
+  // part mounted while away starts, then freezes at once.
+  useEffect(() => {
+    suspendedRef.current = suspended;
+    if (suspended) freeze();
+    else if (!pausedRef.current) thaw(); // a break still on stays on
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [suspended]);
+
   /** Pause: freeze the pointer, the countdown, any open window and the telemetry. */
   const pauseGame = () => {
     if (pausedRef.current || phaseRef.current !== 'running') return;
     pausedRef.current = true;
     pauseStartedAtRef.current = Date.now();
     pauseCountRef.current += 1;
-    mainIntervalRef.current?.pause();
-    responseTimeoutRef.current?.pause();
-    telemetryRef.current.pause();
-    setPressed(false);
+    freeze();
     setPaused(true);
   };
 
   /** Resume: carry on exactly where the part left off. */
   const resumeGame = () => {
     if (!pausedRef.current) return;
-    const pausedFor = Date.now() - pauseStartedAtRef.current;
-    // The pause is excluded from the game time, idle time and the open window.
-    startTimeRef.current += pausedFor;
-    pausedMsRef.current += pausedFor;
-    telemetryRef.current.resume(pausedFor);
-    if (awaitingRef.current) awaitingRef.current.jumpTime += pausedFor;
+    // The break as the respondent took it, any time away during it included.
+    pausedMsRef.current += Date.now() - pauseStartedAtRef.current;
     pausedRef.current = false;
     setPaused(false);
-    mainIntervalRef.current?.resume();
-    responseTimeoutRef.current?.resume();
+    if (!suspendedRef.current) thaw();
   };
 
   /** Next clicked: show the button pressed, then hand the numbers over. */

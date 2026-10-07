@@ -495,7 +495,16 @@ re-read a file before editing; expect it to have changed):
   `src/games/registry.ts` maps code → file (ONE GAME = ONE FILE, all settings
   inside it); `game-renderer.tsx` renders it full screen on the same page
   (portalled overlay + browser fullscreen, runner `inert`, Back swallowed by
-  `useBlocker`, `beforeunload` prompt, inactivity popup paused). Finishing the
+  `useBlocker`, `beforeunload` prompt, inactivity popup paused). LEAVING THE
+  SCREEN (2026-10-07): tab hidden, or window focus lost > 300 ms → the
+  renderer sets `GameProps.suspended` and covers the game with an opaque
+  "Game paused" warning until Resume (which re-enters full screen). Every game
+  file must freeze its clocks on `suspended` and leave the time out of
+  durationMs / idle / instruction time — it is NOT a break, never in
+  pauseCount. Browsers give no signal BEFORE a tab/app switch, so the only
+  pre-warnings are a notice on pointer-leaving-the-page and on full-screen
+  exit (non-blocking). Color Clash's 4 options always include the ink AND the
+  word's colour (2026-10-07). Finishing the
   game ticks its option — the only thing submitted. Results are NOT saved yet:
   console + `localStorage['bodh.gameRecords']` only, until the saving phase.
   The dashboard's original game files are parked in

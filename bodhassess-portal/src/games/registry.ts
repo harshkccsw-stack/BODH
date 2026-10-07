@@ -24,6 +24,17 @@ export interface GameProps {
    * has no way out but its own end.
    */
   onComplete: (result: GameResult) => void;
+  /**
+   * True while the respondent is AWAY from the game — the tab is hidden, the
+   * window has lost focus (another app, minimised) — and until they press
+   * Resume on the renderer's warning. While true a game must freeze
+   * everything that runs on time (rounds, countdowns, response windows,
+   * pointer telemetry) and leave that time out of what it reports. It is not
+   * a break the respondent chose: never counted in pauseCount /
+   * pauseDurationMs. The renderer covers the game meanwhile, so no clicks
+   * arrive — but a window-level key listener must ignore it too.
+   */
+  suspended: boolean;
 }
 
 // ── The registry ────────────────────────────────────────────────────────────

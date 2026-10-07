@@ -15,13 +15,20 @@ import type { GameProps } from './registry';
      hits               target letters clicked
      falseAlarms        non-target letters clicked
      omissions          targets still unclicked when their block closed
-     durationMs         round 1 start to round 2 end
+     durationMs         round 1 start to round 2 end, time away
+                        from the screen excluded
      mouseDistancePx    pointer travel during the rounds
      mouseIdleSeconds   seconds, during the rounds, with no pointer movement
      startedAt/endedAt  the browser clock at round 1 start / round 2 end
+                        (any time away inside the span)
    No pause, no group, no instruction timing — those columns stay
    empty. Handed over once, through onComplete, when the
    respondent presses Continue on the last screen.
+
+   Leaving the screen mid-round (`suspended`) freezes the round
+   where it stands — its clock, the block's 10 seconds, the
+   telemetry — until the respondent comes back and resumes. It is
+   not a pause: nothing records it but the shorter durationMs.
    ============================================================ */
 
 /** The one part this game reports. */
@@ -87,6 +94,17 @@ class PointerTelemetry {
 
   stop() {
     this.tracking = false;
+  }
+
+  pause() {
+    this.tracking = false;
+  }
+
+  /** Time away is not idle time, and the jump from where the pointer was before it is not travel. */
+  resume(pausedForMs: number) {
+    this.lastMoveAt += pausedForMs;
+    this.lastPos = null;
+    this.tracking = true;
   }
 
   /** Called once a second by the round clock: a second with no movement is an idle second. */
@@ -205,7 +223,7 @@ function generateGrid(previousTarget: string | null): Block {
    Every counter lives in a ref: nothing on screen reads them, so
    counting never costs a render.
    ============================================================ */
-export default function Baseline({ onComplete }: GameProps) {
+export default function Baseline({ onComplete, suspended }: GameProps) {
   const [phase, setPhase] = useState<Phase>('intro');
   const [block, setBlock] = useState<Block>(() => generateGrid(null));
   const [clickedIds, setClickedIds] = useState<Set<string>>(new Set());
@@ -223,10 +241,16 @@ export default function Baseline({ onComplete }: GameProps) {
   const gridTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const deadlineRef = useRef(0); // wall-clock end of the current round
+  const gridDueAtRef = useRef(0); // wall-clock moment the block on screen auto-advances
   const countsRef = useRef({ correct: 0, incorrect: 0, missed: 0 });
   const startedAtRef = useRef<number | null>(null); // round 1 start
   const endedAtRef = useRef<number | null>(null); // round 2 end
   const telemetryRef = useRef(new PointerTelemetry());
+  // Away from the screen mid-round: everything above stands still.
+  const suspendedRef = useRef(suspended);
+  const frozenRef = useRef(false);
+  const frozenAtRef = useRef(0);
+  const frozenMsRef = useRef(0); // all time away during the rounds — out of durationMs
 
   const setBlockBoth = (b: Block) => {
     blockRef.current = b;
@@ -243,19 +267,50 @@ export default function Baseline({ onComplete }: GameProps) {
 
   /* ---------- Advance to a new block (refs only, so no stale closure) ---------- */
   const advanceGrid = useCallback(() => {
-    // Ignore a Next press that lands after the round clock has already stopped.
-    if (tickRef.current === null) return;
+    // Ignore a Next press that lands after the round clock has already
+    // stopped, or while the round is frozen.
+    if (tickRef.current === null || frozenRef.current) return;
 
     closeBlock();
     if (gridTimeoutRef.current) clearTimeout(gridTimeoutRef.current);
     clickedIdsRef.current = new Set();
     setClickedIds(new Set());
     setBlockBoth(generateGrid(blockRef.current.targetLetter));
+    gridDueAtRef.current = Date.now() + GRID_SECONDS * 1000;
     gridTimeoutRef.current = setTimeout(advanceGrid, GRID_SECONDS * 1000);
   }, []);
 
+  /* ---------- Away from the screen: freeze the running round, then thaw it ----------
+     The round's own interval keeps ticking but skips while frozen; the
+     deadline and the block's due time move on by the time away. */
+  const freeze = useCallback(() => {
+    if (frozenRef.current || tickRef.current === null) return; // only a running round has anything to stop
+    frozenRef.current = true;
+    frozenAtRef.current = Date.now();
+    if (gridTimeoutRef.current) clearTimeout(gridTimeoutRef.current);
+    gridTimeoutRef.current = null;
+    telemetryRef.current.pause();
+  }, []);
+
+  const thaw = useCallback(() => {
+    if (!frozenRef.current) return;
+    frozenRef.current = false;
+    const frozenFor = Date.now() - frozenAtRef.current;
+    frozenMsRef.current += frozenFor;
+    deadlineRef.current += frozenFor;
+    gridDueAtRef.current += frozenFor;
+    telemetryRef.current.resume(frozenFor);
+    gridTimeoutRef.current = setTimeout(advanceGrid, Math.max(0, gridDueAtRef.current - Date.now()));
+  }, [advanceGrid]);
+
+  useEffect(() => {
+    suspendedRef.current = suspended;
+    if (suspended) freeze();
+    else thaw();
+  }, [suspended, freeze, thaw]);
+
   const handleItemClick = (item: Item) => {
-    if (clickedIdsRef.current.has(item.id)) return;
+    if (frozenRef.current || clickedIdsRef.current.has(item.id)) return;
     clickedIdsRef.current.add(item.id);
     setClickedIds(new Set(clickedIdsRef.current));
     if (item.isTarget) countsRef.current.correct += 1;
@@ -296,18 +351,23 @@ export default function Baseline({ onComplete }: GameProps) {
     setClickedIds(new Set());
     setBlockBoth(generateGrid(blockRef.current.targetLetter));
 
+    gridDueAtRef.current = Date.now() + GRID_SECONDS * 1000;
     gridTimeoutRef.current = setTimeout(advanceGrid, GRID_SECONDS * 1000);
     tickRef.current = setInterval(() => {
+      if (frozenRef.current) return;
       telemetryRef.current.tickIdle();
       const remaining = Math.max(0, Math.ceil((deadlineRef.current - Date.now()) / 1000));
       if (remaining === 0) endTask();
     }, 1000);
+    // Cannot be away here today (the warning covers the Start button), but a
+    // round that starts while away must start frozen.
+    if (suspendedRef.current) freeze();
 
     return () => {
       if (gridTimeoutRef.current) clearTimeout(gridTimeoutRef.current);
       if (tickRef.current) clearInterval(tickRef.current);
     };
-  }, [phase, advanceGrid, endTask]);
+  }, [phase, advanceGrid, endTask, freeze]);
 
   /* ---------- Pointer tracking: attached for the life of the game ---------- */
   useEffect(() => {
@@ -333,7 +393,7 @@ export default function Baseline({ onComplete }: GameProps) {
       hits: countsRef.current.correct,
       falseAlarms: countsRef.current.incorrect,
       omissions: countsRef.current.missed,
-      durationMs: endedAt - startedAt,
+      durationMs: endedAt - startedAt - frozenMsRef.current,
       mouseDistancePx: Math.round(telemetry.distance),
       mouseIdleSeconds: telemetry.idleSeconds,
       startedAt: new Date(startedAt).toISOString(),
