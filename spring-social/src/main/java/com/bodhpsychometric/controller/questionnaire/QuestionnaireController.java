@@ -494,6 +494,38 @@ public class QuestionnaireController {
             resolved.add(question);
         }
 
+        // The optional flag survives the delete-and-recreate below: read it
+        // off the rows about to go, so an omitted flag can mean "unchanged".
+        Map<Long, Boolean> wasOptional = new java.util.HashMap<>();
+        for (QuestionnaireQuestion existing : questionnaireQuestionRepository.findInDisplayOrder(id)) {
+            wasOptional.put(existing.getQuestion().getQuestionId(), existing.isOptional());
+        }
+        List<Boolean> optional = new ArrayList<>();
+        int madeRequired = 0;
+        for (QuestionnaireQuestionRequest entry : entries) {
+            boolean before = wasOptional.getOrDefault(entry.questionId(), false);
+            boolean after = entry.optional() == null ? before : entry.optional();
+            if (before && !after) {
+                madeRequired++;
+            }
+            optional.add(after);
+        }
+        // Optional → required only while nobody has started: an attempt that
+        // was told it could skip the question would otherwise fail a submit
+        // it was promised would pass. Required → optional is always safe —
+        // it only ever lets more submissions through.
+        if (madeRequired > 0) {
+            long started = respondentAssessmentMappingRepository
+                    .countByAssessment_Questionnaire_QuestionnaireIdAndAssessmentStatusNot(
+                            id, RespondentAssessmentStatus.NOT_STARTED);
+            if (started > 0) {
+                return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("message",
+                        started + " respondent" + (started == 1 ? " has" : "s have")
+                                + " already started an assessment that uses this questionnaire — "
+                                + "an optional question can no longer be made required"));
+            }
+        }
+
         questionnaireQuestionRepository.deleteByQuestionnaireQuestionnaireId(id);
         // Flush the deletes now: Hibernate orders INSERTs before DELETEs at
         // commit, which would trip the unique (questionnaireId, questionId)
@@ -507,6 +539,7 @@ public class QuestionnaireController {
             row.setQuestion(resolved.get(i));
             row.setSection(entry.sectionId() == null ? null : sectionById.get(entry.sectionId()));
             row.setSortOrder(entry.sortOrder() == null ? i : entry.sortOrder());
+            row.setOptional(optional.get(i));
             rows.add(row);
         }
         assignQuestionTags(questionnaire.isHasSections(), sections, rows);

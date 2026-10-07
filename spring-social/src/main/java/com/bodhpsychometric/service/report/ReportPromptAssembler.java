@@ -339,9 +339,11 @@ public class ReportPromptAssembler {
                 ## 5. Respondent data available
 
                 Each respondent is a dict keyed by the column identifiers below. \
-                Values may be None — a respondent can skip a question, and a score \
-                for an unanswered item does not exist. Handle None everywhere; a \
-                crash on one respondent fails the whole batch.
+                Values may be None — an answer column is None when a respondent \
+                skipped an optional question, and every column is None for an \
+                unfinished attempt. A skipped optional question scores 0 in the \
+                score columns. Handle None everywhere; a crash on one respondent \
+                fails the whole batch.
 
                 Identity fields (name, email, ids) are deliberately NOT included and \
                 never will be. Do not reference them.

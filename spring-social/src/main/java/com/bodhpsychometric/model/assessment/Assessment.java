@@ -3,6 +3,7 @@ package com.bodhpsychometric.model.assessment;
 import java.time.LocalDate;
 
 import com.bodhpsychometric.model.assessment.enums.AssessmentStatus;
+import com.bodhpsychometric.model.assessment.enums.QuestionLayout;
 import com.bodhpsychometric.model.questionnaire.Questionnaire;
 
 import jakarta.persistence.Column;
@@ -69,6 +70,13 @@ public class Assessment implements java.io.Serializable {
     // shown before this became configurable.
     @Column(name = "showQuestionIndex", nullable = false)
     private boolean showQuestionIndex = true;
+
+    // Portal UX: one question per page (the original behaviour) or a whole
+    // section per scrollable page. See QuestionLayout; autoNext only applies
+    // to ONE_PER_PAGE.
+    @Enumerated(EnumType.STRING)
+    @Column(name = "questionLayout", nullable = false, length = 16)
+    private QuestionLayout questionLayout = QuestionLayout.ONE_PER_PAGE;
 
     // Portal UX: give the inactivity ("Focus on your assessment") popup a
     // 10-minute deadline. Every popup starts a fresh ten — nothing is banked
@@ -166,6 +174,14 @@ public class Assessment implements java.io.Serializable {
 
     public void setShowQuestionIndex(boolean showQuestionIndex) {
         this.showQuestionIndex = showQuestionIndex;
+    }
+
+    public QuestionLayout getQuestionLayout() {
+        return questionLayout;
+    }
+
+    public void setQuestionLayout(QuestionLayout questionLayout) {
+        this.questionLayout = questionLayout == null ? QuestionLayout.ONE_PER_PAGE : questionLayout;
     }
 
     public boolean isAttentionTimer() {

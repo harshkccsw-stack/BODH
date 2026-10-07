@@ -57,6 +57,19 @@ public class QuestionnaireQuestion implements java.io.Serializable {
     private int sortOrder;
 
     /**
+     * May the respondent submit without answering this placement? Per
+     * placement, like QuestionnaireDemographicField.required, so one bank
+     * question can be required here and optional elsewhere. Default false =
+     * required = the original rule. An optional question that IS answered
+     * still obeys its selection rule (and an optional grid is all rows or
+     * none); a skipped scored one scores 0. Once anyone has started an
+     * assessment of the questionnaire the flag may only go required →
+     * optional — QuestionnaireController.setQuestions holds that line.
+     */
+    @Column(name = "isOptional", nullable = false)
+    private boolean optional;
+
+    /**
      * Report identifier of this placement, unique within its questionnaire:
      * "Section_A_Q_1" on sectioned questionnaires, "Q_1" on flat ones. The
      * same bank question tags differently in every questionnaire it appears
@@ -104,6 +117,14 @@ public class QuestionnaireQuestion implements java.io.Serializable {
 
     public void setSortOrder(int sortOrder) {
         this.sortOrder = sortOrder;
+    }
+
+    public boolean isOptional() {
+        return optional;
+    }
+
+    public void setOptional(boolean optional) {
+        this.optional = optional;
     }
 
     public String getQuestionTag() {

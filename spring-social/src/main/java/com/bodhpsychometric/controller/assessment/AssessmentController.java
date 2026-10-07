@@ -208,6 +208,8 @@ public class AssessmentController {
         // Default true (like showTermsAndConditions): null keeps the index on.
         assessment.setShowQuestionIndex(
                 request.showQuestionIndex() == null || request.showQuestionIndex());
+        // Null → ONE_PER_PAGE (the setter's default), like every toggle here.
+        assessment.setQuestionLayout(request.questionLayout());
         // Default FALSE (like autoNext): an omitted field must not arm a timer
         // that can end a respondent's attempt.
         assessment.setAttentionTimer(Boolean.TRUE.equals(request.attentionTimer()));

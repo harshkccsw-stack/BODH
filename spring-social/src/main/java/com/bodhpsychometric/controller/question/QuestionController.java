@@ -691,6 +691,7 @@ public class QuestionController {
                 placement == null || placement.getSection() == null ? null : placement.getSection().getSectionId(),
                 placement == null ? null : placement.getSortOrder(),
                 placement == null ? null : placement.getQuestionTag(),
+                placement == null ? null : placement.isOptional(),
                 options, rows, questionScores);
     }
 
@@ -1145,9 +1146,9 @@ public class QuestionController {
             }
             return null;
         }
-        // MCQ. Every placed question is mandatory (SelectionBounds' floor is
-        // never 0), so one with nothing to pick would stop every respondent
-        // at it for good. A mistyped option header in an upload sheet was
+        // MCQ. A placement is required unless the questionnaire marks it
+        // optional (SelectionBounds' floor is never 0), so one with nothing
+        // to pick would stop every respondent at it for good. A mistyped option header in an upload sheet was
         // enough to produce one.
         List<QuestionOptionRequest> options = desiredOptions(request);
         if (options.isEmpty()) {

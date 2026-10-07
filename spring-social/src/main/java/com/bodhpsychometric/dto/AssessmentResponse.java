@@ -5,6 +5,7 @@ import java.time.LocalDate;
 import com.bodhpsychometric.model.assessment.Assessment;
 import com.bodhpsychometric.model.assessment.AssessmentTerms;
 import com.bodhpsychometric.model.assessment.enums.AssessmentStatus;
+import com.bodhpsychometric.model.assessment.enums.QuestionLayout;
 
 /**
  * Catalog view of an assessment. questionnaireName is denormalized for list
@@ -22,6 +23,8 @@ public record AssessmentResponse(
         AssessmentStatus status,
         boolean autoNext,
         boolean showQuestionIndex,
+        /** One question per page, or a whole section per scrollable page. */
+        QuestionLayout questionLayout,
         /** Focus popup on a 10-minute deadline; sitting one out abandons the attempt. */
         boolean attentionTimer,
         /** Redis partial-answer saving on section change; resume backfills. */
@@ -44,6 +47,7 @@ public record AssessmentResponse(
                 a.getStatus(),
                 a.isAutoNext(),
                 a.isShowQuestionIndex(),
+                a.getQuestionLayout(),
                 a.isAttentionTimer(),
                 a.isSavePartialAnswers(),
                 a.getStartDate(),

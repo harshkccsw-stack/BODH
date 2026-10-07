@@ -112,8 +112,9 @@ re-read a file before editing; expect it to have changed):
   every old upload sheet still means one option — no backfill). `SelectionBounds`
   is the ONLY place the pair becomes a floor/cap; the portal is sent the
   resolved `minSelections`/`maxSelections` so it cannot disagree with the
-  submit validator. The floor is never 0 — every placed question stays
-  mandatory, so MAX 3 means 1—3. Count is validated against the SANITIZED
+  submit validator. The floor is never 0, so MAX 3 means 1—3 (an OPTIONAL
+  placement — see below — means "blank, or within the bounds", it does not
+  lower the floor). Count is validated against the SANITIZED
   option list on every write. Submit takes one `AnswerEntry` per selected
   option and dedupes repeats in a Set — a repeated pair would breach
   `uqAaRespondentAssessmentQuestionOption` and 500 at commit. Scoring rule
@@ -157,6 +158,31 @@ re-read a file before editing; expect it to have changed):
   option. `option_id` is still NULLABLE: making it NOT NULL needs PARAGRAPH
   to get the same slot first. `rank_order` is KEPT (user's decision), reserved
   for a future RANKING type and written by nothing yet.
+- Optional questions + question layout (2026-10-06, `V41`):
+  * `QuestionnaireQuestion.optional` (`is_optional`, default 0 = required) is
+    per PLACEMENT, like demographics' `isRequired`. Polarity is load-bearing:
+    a stale Redis content entry reads the new flag as false = required.
+    Rule = blank OR valid: an untouched optional question may be absent at
+    submit; touched, it obeys its selection rule and a grid is ALL rows or
+    none (`PortalAssessmentService.validate`, mirrored by the portal's
+    `isQuestionBlocking`). Scored and risk-flagged questions may be optional;
+    a skipped scored one scores 0 (user's decision — no missing-data policy).
+  * The placement PUT carries `optional`; NULL/omitted = keep the old row's
+    flag (the PUT deletes and re-creates rows, so an unaware caller must not
+    reset it). Once any allotment of the questionnaire is past NOT_STARTED,
+    optional → required is a 409; required → optional always passes.
+  * Reports Hub / org member popup: `skippedOptionalQuestions` on COMPLETED
+    attempts ("Answered 1 of 4 with 3 optional skipped").
+  * `Assessment.questionLayout` (`question_layout` MySQL ENUM, append new
+    values at the END): ONE_PER_PAGE (original) | SECTION_PER_PAGE (a whole
+    section per scrollable page; a flat questionnaire = one page). Read live,
+    not cached. Section pages: Back/Next, Submit on the last page, never
+    auto-advance, Next/Submit never greyed — pressed with a blocking question
+    they outline it and scroll to it. One shared `renderQuestion(qi)` draws
+    a question in both layouts. Portal: "Optional" tag, a third navigator
+    state ("Optional, left blank"), "Clear answer" on optional questions, and
+    the slider's own Clear on every scale. `MemoryMeshAssessmentDetail` does
+    NOT carry the layout (the flag rides `PortalQuestionnaireContent`).
 - Demographic CHECKLIST + write-in "Other" (2026-10-01, `V39`,
   `docs/demographic-other-and-checklist-plan.md`): CHECKLIST ticks any number
   of options, which live in `demographic_field_option` like a Dropdown's. The
@@ -474,8 +500,8 @@ re-read a file before editing; expect it to have changed):
 
 ## Verification loop (do this EVERY change)
 
-1. Backend: `cd spring-social && ./mvnw -B test` (478 tests green as of
-   2026-10-05). Tightening a DTO's validation breaks the fixtures that post
+1. Backend: `cd spring-social && ./mvnw -B test` (485 tests green as of
+   2026-10-06). Tightening a DTO's validation breaks the fixtures that post
    that shape — fix the payloads, do not relax the rule. If every Spring test
    errors with `BeanDefinitionOverrideException` on repositories, the IDE has
    written stale class files into `target/classes`; run `./mvnw -B clean test`.

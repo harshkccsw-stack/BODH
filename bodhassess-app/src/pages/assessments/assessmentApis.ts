@@ -2,6 +2,13 @@ import { api } from '@/lib/apiClient';
 
 export type AssessmentStatus = 'ACTIVE' | 'INACTIVE';
 
+/**
+ * Matches QuestionLayout on the backend: one question per portal page, or a
+ * whole section per scrollable page (a questionnaire without sections is then
+ * a single page). Auto-advance applies to ONE_PER_PAGE only.
+ */
+export type QuestionLayout = 'ONE_PER_PAGE' | 'SECTION_PER_PAGE';
+
 // ── Wire shapes — mirror spring-social's DTOs 1:1 ──────────────────────────
 /** Matches AssessmentRequest on the backend. */
 export interface AssessmentPayload {
@@ -19,6 +26,7 @@ export interface AssessmentPayload {
   autoNext: boolean;
   /** Show the portal question index/navigator during the attempt. */
   showQuestionIndex: boolean;
+  questionLayout: QuestionLayout;
   /**
    * Give the portal's "Focus on your assessment" popup a 10-minute deadline.
    * Every popup starts a fresh ten, and leaving one unanswered that long
@@ -53,6 +61,7 @@ export interface AssessmentResponse {
   status: AssessmentStatus;
   autoNext: boolean;
   showQuestionIndex: boolean;
+  questionLayout: QuestionLayout;
   attentionTimer: boolean;
   savePartialAnswers: boolean;
   startDate: string | null;

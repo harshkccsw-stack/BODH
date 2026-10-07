@@ -64,6 +64,13 @@ public record PortalQuestionnaireContent(
             Long questionId,
             Long sectionId,
             int sortOrder,
+            /**
+             * The placement's "may be left blank" flag. A cache entry written
+             * before the flag existed deserialises it as false — required,
+             * which is exactly what every question was then — so the polarity
+             * is chosen to make a stale entry harmless.
+             */
+            boolean optional,
             ContentType contentType,
             QuestionType questionType,
             String stem,
@@ -133,6 +140,7 @@ public record PortalQuestionnaireContent(
                     question.getQuestionId(),
                     section == null ? null : section.getSectionId(),
                     placement.getSortOrder(),
+                    placement.isOptional(),
                     question.getContentType(),
                     question.getQuestionType(),
                     question.getQuestionTexString(),

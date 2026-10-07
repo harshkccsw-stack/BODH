@@ -137,8 +137,10 @@ public class MqtScoringService {
     /**
      * One respondent's numbers. Every involved MQT/MQ is present — a trait the
      * respondent scored nothing on is 0, not absent, because only COMPLETED
-     * attempts are ever scored, so the absence is a real zero and a blank
-     * would break any average taken over the column.
+     * attempts are ever scored and a blank would break any average taken over
+     * the column. That includes a skipped OPTIONAL question: by decision
+     * (2026-10-06) it contributes 0, exactly as an answer worth nothing does,
+     * so a 0 here does not prove the items were answered.
      */
     public record Scores(
             /** mqtId → the node's own score. */
