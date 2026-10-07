@@ -22,8 +22,11 @@ import {
   optionTextKey,
   portalAssessmentsApi,
   type PortalAssessmentDetail,
+  type PortalOption,
   type PortalQuestion,
 } from '@/lib/api';
+import { GameLaunchCard, GameRenderer, requestGameFullscreen } from '@/games/game-renderer';
+import type { GameResult } from '@/games/registry';
 
 // Two layouts share this runner (the assessment's questionLayout):
 // ONE_PER_PAGE — the original: one question per screen, Previous/Next, with
@@ -220,6 +223,7 @@ export function QuestionRunner({
   onFocusPopup,
   onAttentionTimeout,
   onRestart,
+  onGameResult,
   attentionResetError,
 }: {
   detail: PortalAssessmentDetail;
@@ -254,6 +258,12 @@ export function QuestionRunner({
   onAttentionTimeout: () => void;
   /** Leave the stopped attempt — back to the respondent's dashboard. */
   onRestart: () => void;
+  /**
+   * A game finished: its numbers, by the GAMES question it answers. take.tsx
+   * keeps them beside the answers and sends them with the partial save and
+   * the submit — never on their own.
+   */
+  onGameResult: (questionId: number, result: GameResult) => void;
   /** Set when the abandon call failed, shown inside the stopped modal. */
   attentionResetError?: string;
 }) {
@@ -442,6 +452,10 @@ export function QuestionRunner({
   // Ref mirror of the modal state so timer/visibility callbacks read it without
   // being re-created — while the popup is up, activity must NOT reset anything.
   const modalOpenRef = useRef(false);
+  // True while a game covers the page. The game is supervised activity of its
+  // own — a 5-minute vigilance task can legitimately go two minutes without
+  // a click — so the inactivity countdown is OFF for its whole length.
+  const gameOpenRef = useRef(false);
 
   // ── Attention timer (per-assessment) ────────────────────────────────────
   // With attentionTimer on, the popup carries a deadline: ten minutes to
@@ -541,9 +555,11 @@ export function QuestionRunner({
     }, INACTIVITY_MS);
   };
   // Any respondent activity restarts the countdown — unless the popup is up,
-  // when the only way forward is the Resume button.
+  // when the only way forward is the Resume button — or a game is running:
+  // its input still bubbles up the React tree from the portal, and the
+  // countdown is off for the game's whole length anyway (see launchGame).
   const noteActivity = () => {
-    if (modalOpenRef.current) return;
+    if (modalOpenRef.current || gameOpenRef.current) return;
     armFocusTimer();
   };
   const dismissFocusPopup = () => {
@@ -566,7 +582,7 @@ export function QuestionRunner({
       // is itself the inattention it is watching for. Nothing to do on the
       // way out, then — and on the way back, only catch the case where the
       // deadline passed while a throttled or frozen timer never fired.
-      if (document.hidden || modalOpenRef.current) return;
+      if (document.hidden || modalOpenRef.current || gameOpenRef.current) return;
       if (focusDeadline.current !== null && Date.now() >= focusDeadline.current) {
         openFocusPopup();
       }
@@ -689,6 +705,55 @@ export function QuestionRunner({
     return slotsOf(qq).every((slot) => slotSatisfied(qq, slot, a, t, ot));
   };
   const answeredCount = questions.reduce((n, _, i) => n + (isQuestionAnswered(i) ? 1 : 0), 0);
+
+  // ── Games ───────────────────────────────────────────────────────────────
+  // A GAMES question's one option launches its game full screen, on this same
+  // page (src/games/game-renderer.tsx). The respondent cannot leave until the
+  // game ends; finishing it ticks the option, which is what gets submitted,
+  // and hands its numbers up to take.tsx beside the answers.
+  const [activeGame, setActiveGame] = useState<{ questionId: number; option: PortalOption } | null>(null);
+  // A game runs for minutes; the answers it finishes into are read at the END,
+  // not as they were when it was launched.
+  const answersRef = useRef(answers);
+  answersRef.current = answers;
+
+  const launchGame = (qi: number, option: PortalOption) => {
+    if (!option.game) return;
+    // Inside the click: fullscreen needs the gesture, and the overlay that
+    // mounts next has none left.
+    requestGameFullscreen();
+    clearAdvance();
+    gameOpenRef.current = true;
+    clearFocusTimer();
+    setActiveGame({ questionId: questions[qi].questionId, option });
+  };
+
+  const closeGame = () => {
+    gameOpenRef.current = false;
+    setActiveGame(null);
+    armFocusTimer();
+  };
+
+  // Finishing IS the answer. Set directly rather than through selectOption:
+  // there is nothing to toggle, and no auto-advance — the respondent comes back
+  // to the question showing "Completed" and moves on with Next. The numbers go
+  // up beside it, and a partial save follows (below): a game is minutes of
+  // work, too much to leave to the every-few-answers trigger.
+  const [gameSaveDue, setGameSaveDue] = useState(0);
+  const finishGame = (result: GameResult) => {
+    if (activeGame) {
+      onGameResult(activeGame.questionId, result);
+      setAnswers({ ...answersRef.current, [answerKey(activeGame.questionId)]: [activeGame.option.optionId] });
+      setGameSaveDue((n) => n + 1);
+    }
+    closeGame();
+  };
+  // Runs after the render that carries the new answer AND result, so the
+  // snapshot take.tsx builds has both. No-op with partial saving off.
+  useEffect(() => {
+    if (gameSaveDue > 0) onPartialSave?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gameSaveDue]);
 
   /** Has the respondent started this one at all — any tick, or any typed text? */
   const isQuestionTouched = (
@@ -1104,6 +1169,8 @@ export function QuestionRunner({
     const isScale = q.questionType === 'LINEAR_SCALE';
     const isGrid = q.questionType === 'LIKERT_GRID';
     const isText = q.questionType === 'SHORT_ANSWER';
+    // One option, picked by FINISHING the game it launches — never by a tap.
+    const isGame = q.questionType === 'GAMES';
     // Columns for the phone-only stacked grid below. Up to five points sit on one
     // line; beyond that they split over two balanced lines rather than shrinking
     // every label past reading.
@@ -1126,8 +1193,10 @@ export function QuestionRunner({
     // A section page numbers its cards (the header names the section); a
     // one-per-page screen needs the row only to say "Optional".
     const showMeta = sectionMode || q.optional;
-    // The slider brings its own Clear, on required questions too.
-    const canClear = q.optional && !isScale && isQuestionTouched(qi);
+    // The slider brings its own Clear, on required questions too. A finished
+    // game is never cleared: it cannot be un-played, and clearing would only
+    // invite a second play of a timed task.
+    const canClear = q.optional && !isScale && !isGame && isQuestionTouched(qi);
     return (
       <>
       {showMeta && (
@@ -1341,6 +1410,20 @@ export function QuestionRunner({
             </table>
           </div>
         </>
+      ) : isGame ? (
+        /* The game's card and its Launch button, in place of an option
+           list. The option is never tapped: it is picked by finishing the
+           game, so an unplayed game can never read as answered. */
+        <div className="space-y-2">
+          {q.options.map((opt) => (
+            <GameLaunchCard
+              key={opt.optionId}
+              option={opt}
+              completed={selected.includes(opt.optionId)}
+              onLaunch={() => launchGame(qi, opt)}
+            />
+          ))}
+        </div>
       ) : isText ? (
         /* Free text. No auto-advance: there is no moment that says
            "done" while someone is typing, and sliding the page away
@@ -1490,6 +1573,10 @@ export function QuestionRunner({
          whole word with one "Unidentified" keydown or none — `input` fires
          per change regardless. */
       onInput={noteActivity}
+      /* While a game runs, nothing behind it can take focus or a click — a
+         Tab-then-Space must not press Next under the overlay. The game is
+         portalled to <body>, outside this element, so it stays live. */
+      inert={activeGame !== null}
     >
       <BrandHeader
         title={title}
@@ -1878,6 +1965,17 @@ export function QuestionRunner({
             )}
           </Card>
         </div>
+      )}
+
+      {activeGame?.option.game && (
+        <GameRenderer
+          game={activeGame.option.game}
+          attemptId={detail.respondentAssessmentMappingId}
+          questionId={activeGame.questionId}
+          optionId={activeGame.option.optionId}
+          onFinished={finishGame}
+          onUnavailable={closeGame}
+        />
       )}
     </div>
   );

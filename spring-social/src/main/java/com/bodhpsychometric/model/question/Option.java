@@ -1,5 +1,6 @@
 package com.bodhpsychometric.model.question;
 
+import com.bodhpsychometric.model.game.Game;
 import com.bodhpsychometric.model.question.enums.ContentType;
 
 import jakarta.persistence.Column;
@@ -11,6 +12,7 @@ import jakarta.persistence.ForeignKey;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
@@ -20,7 +22,8 @@ import jakarta.persistence.Table;
  * and would break DDL unless quoted on every statement.
  */
 @Entity
-@Table(name = "QuestionOption")
+@Table(name = "QuestionOption",
+        indexes = @Index(name = "idxQuestionOptionGame", columnList = "gameId"))
 public class Option implements java.io.Serializable {
     public static final long serialVersionUID = 1L;
 
@@ -63,6 +66,24 @@ public class Option implements java.io.Serializable {
     /** Asset location when contentType is not TEXT: uploaded file path for IMAGE/VIDEO, external link for URL. */
     @Column(name = "mediaUrl", columnDefinition = "TEXT")
     private String mediaUrl;
+
+    /**
+     * GAMES questions only (V42, 2026-10-06): the game this option launches.
+     * NULL on every other option.
+     *
+     * <p>MANY-TO-ONE (V43 relaxed V42's one-to-one): any number of GAMES
+     * questions may launch the same game, in one questionnaire or across many,
+     * each through its own single option. Never cascaded: a game is catalog
+     * data, independent of the options that point at it.
+     *
+     * <p>Not authored: QuestionController GENERATES a GAMES question's one
+     * option from {@code QuestionRequest.gameId}, as it generates a scale's
+     * points from its range. Picking the option is what completing the game
+     * submits, so the answer row has an optionId like every other answer.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "gameId", foreignKey = @ForeignKey(name = "fkQuestionOptionGame"))
+    private Game game;
 
 
     public Long getOptionId() {
@@ -121,5 +142,13 @@ public class Option implements java.io.Serializable {
         this.contentType = contentType;
     }
 
-    
+    public Game getGame() {
+        return game;
+    }
+
+    public void setGame(Game game) {
+        this.game = game;
+    }
+
+
 }

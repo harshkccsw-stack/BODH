@@ -1012,7 +1012,9 @@ export default function CreateAssessmentPage() {
                     ? <>{' · '}{rowCount} row{rowCount !== 1 ? 's' : ''} × {optionCount} column{optionCount !== 1 ? 's' : ''}</>
                     : d.form.questionType === 'SHORT_ANSWER'
                       ? <>{' · '}typed answer</>
-                      : <>{' · '}{optionCount} option{optionCount !== 1 ? 's' : ''}</>}
+                      : d.form.questionType === 'GAMES'
+                        ? <>{' · '}{d.form.gameId == null ? 'no game picked yet' : 'launches a game'}</>
+                        : <>{' · '}{optionCount} option{optionCount !== 1 ? 's' : ''}</>}
                   {d.questionId == null
                     ? ' · new — added to the question bank when you save'
                     : ` · bank question #${d.questionId}`}
@@ -1883,7 +1885,9 @@ export default function CreateAssessmentPage() {
                                 {q.stem || <span className="italic text-muted-foreground">(media question)</span>}
                               </p>
                               <p className="text-[0.6875rem] text-muted-foreground">
-                                {q.options.length} option{q.options.length !== 1 ? 's' : ''}
+                                {q.questionType === 'GAMES'
+                                  ? `game: ${q.options.find((o) => o.game)?.game?.name ?? '—'}`
+                                  : `${q.options.length} option${q.options.length !== 1 ? 's' : ''}`}
                                 {q.mqtScores.length > 0 && ` · ${q.mqtScores.length} question-level score${q.mqtScores.length !== 1 ? 's' : ''}`}
                                 {q.riskFlag && ' · risk flag'}
                                 {already && ' · already in this questionnaire'}
