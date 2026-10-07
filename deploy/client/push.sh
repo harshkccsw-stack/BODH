@@ -7,6 +7,13 @@
 #   deploy/client/push.sh api                    # build the jar, push, activate
 #   deploy/client/push.sh all                    # api + every SPA (SPAs only after the API gate passes)
 #   deploy/client/push.sh app portal             # SPAs only
+#
+# SPAs hosted on DigitalOcean App Platform (APP_PLATFORM_SPAS in the target
+# file) are not sent to the droplet: App Platform deploys them from the dist/
+# folders committed on GitHub. For those, "push" = build in production mode,
+# commit ONLY their dist/ folders, and git push APP_PLATFORM_BRANCH — after the
+# API (if included) has passed its health gate. Must be run on that branch,
+# up to date with origin. --dry-run builds and shows the commit, sends nothing.
 #   deploy/client/push.sh api --skip-build       # reuse target/*.jar from the last build
 #   deploy/client/push.sh api --jar path/to.jar  # push a jar built elsewhere
 #   deploy/client/push.sh app --dist path/dist   # push a dist folder built elsewhere
@@ -49,20 +56,37 @@ while [ $# -gt 0 ]; do
     --with-tests) WITH_TESTS=1; shift ;;
     -h|--help) usage; exit 0 ;;
     -*) die "unknown option $1 (see --help)" ;;
-    *) case " $SPAS " in *" $1 "*) WANT="$WANT $1" ;; *) die "unknown artifact '$1' (api${SPAS:+ $SPAS} all)" ;; esac; shift ;;
+    *) WANT="$WANT $1"; shift ;; # validated below, once the target says which SPAs exist
   esac
 done
 [ -n "$WANT" ] || { usage; exit 1; }
-case " $WANT " in *" all "*) WANT="api $SPAS" ;; esac
-# de-duplicate, keep order
-ARTIFACTS=""
-for a in $WANT; do case " $ARTIFACTS " in *" $a "*) ;; *) ARTIFACTS="$ARTIFACTS $a" ;; esac; done
-ARTIFACTS="${ARTIFACTS# }"
 
 [ -f "deploy/targets/$TARGET.env" ] || die "deploy/targets/$TARGET.env not found"
 # shellcheck source=../targets/production.env
 . "deploy/targets/$TARGET.env"
 : "${DEPLOY_HOST:?}" "${DEPLOY_USER:?}" "${REMOTE_DIR:?}"
+
+# SPAs come from two places: SPAS (project.env) are served by the droplet;
+# APP_PLATFORM_SPAS (the target file) are served by DigitalOcean App Platform.
+APP_PLATFORM_SPAS="${APP_PLATFORM_SPAS:-}"
+APP_PLATFORM_BRANCH="${APP_PLATFORM_BRANCH:-main}"
+ALL_SPAS="$(echo $SPAS $APP_PLATFORM_SPAS)"
+is_app_platform() { case " $APP_PLATFORM_SPAS " in *" $1 "*) return 0 ;; esac; return 1; }
+case " $WANT " in *" all "*) WANT="api $ALL_SPAS" ;; esac
+for a in $WANT; do
+  case " api $ALL_SPAS " in *" $a "*) ;; *) die "unknown artifact '$a' (api${ALL_SPAS:+ $ALL_SPAS} all)" ;; esac
+done
+# de-duplicate, keep order
+ARTIFACTS=""
+for a in $WANT; do case " $ARTIFACTS " in *" $a "*) ;; *) ARTIFACTS="$ARTIFACTS $a" ;; esac; done
+ARTIFACTS="${ARTIFACTS# }"
+# What travels to the droplet, and what is delivered through GitHub instead.
+DROPLET_ARTIFACTS=""; AP_ARTIFACTS=""
+for a in $ARTIFACTS; do
+  if [ "$a" != api ] && is_app_platform "$a"; then AP_ARTIFACTS="$AP_ARTIFACTS $a"; else DROPLET_ARTIFACTS="$DROPLET_ARTIFACTS $a"; fi
+done
+DROPLET_ARTIFACTS="${DROPLET_ARTIFACTS# }"; AP_ARTIFACTS="${AP_ARTIFACTS# }"
+[ -z "$AP_ARTIFACTS" ] || [ -z "$DIST" ] || die "--dist is not supported for App Platform SPAs ($AP_ARTIFACTS)"
 SSH_OPTS="${SSH_OPTS:-}"
 REMOTE="$DEPLOY_USER@$DEPLOY_HOST"
 ssh_() { # shellcheck disable=SC2086
@@ -106,21 +130,45 @@ for a in $ARTIFACTS; do
   [ "$a" = api ] && continue
   if [ -z "$DIST" ] && [ "$SKIP_BUILD" = 0 ]; then need npm; fi
 done
-ssh_ true || die "cannot ssh to $REMOTE (SSH_OPTS='$SSH_OPTS')"
 HAVE_RSYNC=0
-if command -v rsync >/dev/null 2>&1 && ssh_ 'command -v rsync >/dev/null'; then HAVE_RSYNC=1; fi
+if [ -n "$DROPLET_ARTIFACTS" ]; then
+  ssh_ true || die "cannot ssh to $REMOTE (SSH_OPTS='$SSH_OPTS')"
+  if command -v rsync >/dev/null 2>&1 && ssh_ 'command -v rsync >/dev/null'; then HAVE_RSYNC=1; fi
 
-# The receiver on the droplet must match this checkout: artifact pushes need
-# no `git pull` there, but changes to deploy/, compose or nginx do.
-local_sums()  { for f in deploy/project.env deploy/server/*; do printf '%s %s\n' "$(sha256_of "$f" | cut -d' ' -f1)" "$(basename "$f")"; done; }
-remote_sums() { ssh_ "cd '$REMOTE_DIR' && for f in deploy/project.env deploy/server/*; do printf '%s %s\n' \"\$(sha256sum \"\$f\" | cut -d' ' -f1)\" \"\$(basename \"\$f\")\"; done"; }
-if ! diff <(local_sums) <(remote_sums) >/dev/null 2>&1; then
-  if [ "$FORCE" = 1 ]; then
-    echo "   warning: deploy/ on the droplet differs from this checkout (--force given)"
-  else
-    diff <(local_sums) <(remote_sums) || true
-    die "deploy/ on the droplet differs from this checkout — git pull there first (or --force)"
+  # The receiver on the droplet must match this checkout: artifact pushes need
+  # no `git pull` there, but changes to deploy/, compose or nginx do.
+  local_sums()  { for f in deploy/project.env deploy/server/*; do printf '%s %s\n' "$(sha256_of "$f" | cut -d' ' -f1)" "$(basename "$f")"; done; }
+  remote_sums() { ssh_ "cd '$REMOTE_DIR' && for f in deploy/project.env deploy/server/*; do printf '%s %s\n' \"\$(sha256sum \"\$f\" | cut -d' ' -f1)\" \"\$(basename \"\$f\")\"; done"; }
+  if ! diff <(local_sums) <(remote_sums) >/dev/null 2>&1; then
+    if [ "$FORCE" = 1 ]; then
+      echo "   warning: deploy/ on the droplet differs from this checkout (--force given)"
+    else
+      diff <(local_sums) <(remote_sums) || true
+      die "deploy/ on the droplet differs from this checkout — git pull there first (or --force)"
+    fi
   fi
+fi
+
+# App Platform SPAs ship as a commit on APP_PLATFORM_BRANCH, so this checkout
+# must BE that branch and contain everything GitHub has — otherwise the push
+# would either go to the wrong place or be rejected after the API is live.
+if [ -n "$AP_ARTIFACTS" ]; then
+  CUR_BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
+  [ "$CUR_BRANCH" = "$APP_PLATFORM_BRANCH" ] \
+    || die "App Platform SPAs ($AP_ARTIFACTS) deploy from '$APP_PLATFORM_BRANCH' — you are on '$CUR_BRANCH'. git checkout $APP_PLATFORM_BRANCH first"
+  git fetch -q origin "$APP_PLATFORM_BRANCH" || die "git fetch origin $APP_PLATFORM_BRANCH failed"
+  git merge-base --is-ancestor "origin/$APP_PLATFORM_BRANCH" HEAD \
+    || die "your $APP_PLATFORM_BRANCH is behind origin/$APP_PLATFORM_BRANCH — git pull first"
+  echo "   app platform: $AP_ARTIFACTS via git push origin $APP_PLATFORM_BRANCH"
+  # Only dist/ is committed, so an uncommitted source edit goes live without
+  # its source reaching GitHub. Allowed (a hotfix is a hotfix), but said aloud.
+  for a in $AP_ARTIFACTS; do
+    spa_dir_var="SPA_${a}_DIR"; spa_dir="${!spa_dir_var:-}"
+    [ -n "$spa_dir" ] || continue
+    if [ -n "$(git status --porcelain -- "$spa_dir" ":(exclude)$spa_dir/dist" ":(exclude)$spa_dir/*.tsbuildinfo" 2>/dev/null)" ]; then
+      echo "   warning: $spa_dir has uncommitted changes — they go live in $a's dist/ but its source stays local until you commit it"
+    fi
+  done
 fi
 
 # ── Tag ──────────────────────────────────────────────────────────────────────
@@ -187,8 +235,29 @@ stage_spa() { # <name>
   echo "   staged $name: $(du -h "$STAGE/$name/dist.tar.gz" | cut -f1) from $dist"
 }
 
+# App Platform SPA: build its dist/ in place, with the SPA's own .env.production
+# (the URLs App Platform has always been built with). Built here, before
+# anything is sent, so a broken frontend stops the run before the droplet is
+# touched; committed and pushed only after the API gate (see the end).
+build_app_platform_spa() { # <name>
+  local name="$1" dir_var="SPA_$1_DIR" dir
+  dir="${!dir_var:-}"
+  [ -n "$dir" ] && [ -d "$dir" ] || die "SPA_${name}_DIR is not set to a directory in deploy/targets/$TARGET.env"
+  if [ "$SKIP_BUILD" = 0 ]; then
+    say "building $dir for App Platform (npm run build:production)"
+    [ -d "$dir/node_modules" ] || (cd "$dir" && npm ci --no-audit --no-fund)
+    (cd "$dir" && npm run build:production)
+    # tsc -b rewrites a tracked build cache; it is not part of the release.
+    git checkout -q -- "$dir"/*.tsbuildinfo 2>/dev/null || true
+  fi
+  [ -f "$dir/dist/index.html" ] || die "$dir/dist/index.html not found — build failed"
+  echo "   built $name: $(du -sh "$dir/dist" | cut -f1) in $dir/dist"
+}
+
 for a in $ARTIFACTS; do
-  if [ "$a" = api ]; then stage_api; else stage_spa "$a"; fi
+  if [ "$a" = api ]; then stage_api
+  elif is_app_platform "$a"; then build_app_platform_spa "$a"
+  else stage_spa "$a"; fi
 done
 
 # ── Transfer ─────────────────────────────────────────────────────────────────
@@ -204,20 +273,55 @@ transfer() { # <artifact>
   fi
   echo "   sent $1 -> $REMOTE:$dest"
 }
-say "transferring ($([ "$HAVE_RSYNC" = 1 ] && echo rsync || echo scp))"
-for a in $ARTIFACTS; do transfer "$a"; done
+if [ -n "$DROPLET_ARTIFACTS" ]; then
+  say "transferring ($([ "$HAVE_RSYNC" = 1 ] && echo rsync || echo scp))"
+  for a in $DROPLET_ARTIFACTS; do transfer "$a"; done
+fi
+
+# ── App Platform delivery ────────────────────────────────────────────────────
+# Commit ONLY the SPAs' dist/ folders (anything else staged or modified in the
+# checkout stays out of the commit), then push the branch App Platform deploys
+# from. A rejected push leaves the commit local and says how to finish.
+ap_dist_paths() { local a d; for a in $AP_ARTIFACTS; do d="SPA_${a}_DIR"; printf '%s/dist ' "${!d}"; done; }
+deliver_app_platform() {
+  local paths; paths="$(ap_dist_paths)"
+  # shellcheck disable=SC2086
+  if [ "$DRY" = 1 ]; then
+    printf '   [dry-run] would commit %s changed file(s) under %s\n' "$(git status --porcelain -- $paths | wc -l | tr -d ' ')" "$paths"
+    printf '   [dry-run] then: git push origin HEAD:%s (App Platform deploys from there)\n' "$APP_PLATFORM_BRANCH"
+    return 0
+  fi
+  # shellcheck disable=SC2086
+  git add -A -- $paths
+  # shellcheck disable=SC2086
+  if git diff --cached --quiet -- $paths; then
+    echo "   $AP_ARTIFACTS: dist/ unchanged since the last commit — nothing new to commit"
+  else
+    # shellcheck disable=SC2086
+    git commit -q -m "build($(echo $AP_ARTIFACTS | tr ' ' ',')): production build for App Platform ($TAG)" -- $paths
+    echo "   committed $(git rev-parse --short HEAD): dist/ of $AP_ARTIFACTS"
+  fi
+  if [ "$(git rev-list --count "origin/$APP_PLATFORM_BRANCH..HEAD")" = 0 ]; then
+    echo "   origin/$APP_PLATFORM_BRANCH already has this — nothing to push"
+    return 0
+  fi
+  git push origin "HEAD:$APP_PLATFORM_BRANCH" \
+    || die "git push failed — the frontend commit is still local: git pull --rebase && git push origin $APP_PLATFORM_BRANCH"
+  echo "   pushed to origin/$APP_PLATFORM_BRANCH — App Platform redeploys $AP_ARTIFACTS from it (usually a few minutes)"
+}
 
 # ── Activate ─────────────────────────────────────────────────────────────────
 if [ "$ACTIVATE" = 0 ]; then
-  say "not activating (--no-activate). Later, on the droplet:"
-  for a in $ARTIFACTS; do
-    if [ "$a" = api ]; then echo "   $REMOTE_DIR/deploy/server/deploy-api.sh --tag $TAG"
-    else echo "   $REMOTE_DIR/deploy/server/deploy-spa.sh $a --tag $TAG"; fi
+  say "not activating (--no-activate). Later:"
+  for a in $DROPLET_ARTIFACTS; do
+    if [ "$a" = api ]; then echo "   on the droplet: $REMOTE_DIR/deploy/server/deploy-api.sh --tag $TAG"
+    else echo "   on the droplet: $REMOTE_DIR/deploy/server/deploy-spa.sh $a --tag $TAG"; fi
   done
+  [ -z "$AP_ARTIFACTS" ] || echo "   here: git add -A $(ap_dist_paths)&& git commit -m 'build: frontends' && git push origin $APP_PLATFORM_BRANCH"
   exit 0
 fi
 # api first: SPAs that talk to a new API only go live if the API came up.
-for a in $ARTIFACTS; do
+for a in $DROPLET_ARTIFACTS; do
   say "activating $a $TAG on $DEPLOY_HOST"
   if [ "$a" = api ]; then
     remote "'$REMOTE_DIR/deploy/server/deploy-api.sh' --tag '$TAG'" || die "api $TAG failed on the droplet (exit $?) — see output above; the receiver rolled back if it could" "$?"
@@ -225,5 +329,9 @@ for a in $ARTIFACTS; do
     remote "'$REMOTE_DIR/deploy/server/deploy-spa.sh' '$a' --tag '$TAG'" || die "$a $TAG failed on the droplet (exit $?)" "$?"
   fi
 done
+if [ -n "$AP_ARTIFACTS" ]; then
+  say "delivering $AP_ARTIFACTS to App Platform"
+  deliver_app_platform
+fi
 say "done: $ARTIFACTS at $TAG"
-echo "   rollback: ssh $SSH_OPTS $REMOTE $REMOTE_DIR/deploy/server/rollback.sh api"
+case " $DROPLET_ARTIFACTS " in *" api "*) echo "   rollback: ssh $SSH_OPTS $REMOTE $REMOTE_DIR/deploy/server/rollback.sh api" ;; esac

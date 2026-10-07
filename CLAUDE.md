@@ -572,6 +572,15 @@ up). Rollback by hand: `ssh root@168.144.118.157
 the container, and `/app/uploads` is not a volume. `deploy/README.md` has the
 receiver contract; `deploy/server/` must stay identical to MemoryMesh's copy.
 
+The dashboard and portal are on DigitalOcean App Platform, which serves the
+`dist/` folders COMMITTED on GitHub `main` — it never builds. `push.sh all`
+(= api + app + portal) or `push.sh app portal` runs `npm run build:production`
+for each, commits ONLY the two `dist/` folders and pushes `main`, after the
+API's health gate (2026-10-07; config `APP_PLATFORM_SPAS` in
+`deploy/targets/production.env`, NOT project.env, which is checksummed against
+the droplet). Refuses off `main` or behind origin. So: never restore `dist/`
+after a production build — that build IS the frontend release.
+
 ## Working style
 
 - Deleted/parked files go to `bodh/deleted/` (recycle bin), never plain rm.
