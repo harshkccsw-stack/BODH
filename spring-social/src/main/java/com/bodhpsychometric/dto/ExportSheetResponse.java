@@ -1,9 +1,11 @@
 package com.bodhpsychometric.dto;
 
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
 
 import com.bodhpsychometric.model.assessment.enums.RespondentAssessmentStatus;
+import com.bodhpsychometric.model.game.GameResult;
 import com.bodhpsychometric.model.demographics.enums.DemographicFieldType;
 
 /**
@@ -32,6 +34,15 @@ public record ExportSheetResponse(
         Long organizationId,
         List<DemographicColumn> demographicColumns,
         List<QuestionColumn> questionColumns,
+        /**
+         * One entry per PART of every game question that has results in these
+         * rows, in question-column order then part order — Baseline is one
+         * part, Color Clash + Mackworth Clock two. The sheet lays each out as
+         * a block of columns right after its question's own column. Parts come
+         * from the data, not the question: a game's parts are defined by its
+         * file in the portal.
+         */
+        List<GameColumn> gameColumns,
         /** MQs this questionnaire measures, by name. Empty when nothing is scored. */
         List<MqColumn> mqColumns,
         /** MQTs this questionnaire measures, MQ by MQ, depth-first in tree order. */
@@ -78,6 +89,43 @@ public record ExportSheetResponse(
      */
     public record QuestionColumn(String questionTag, Long questionId, String stem,
             Long questionRowId, String rowText) {
+    }
+
+    /**
+     * One part of one game question. {@code key} — {@code <questionTag>_<partCode>},
+     * e.g. Q_2_COLOR_CLASH — is what row cells are looked up by and the prefix
+     * of every column header in the block (Q_2_COLOR_CLASH_hits …).
+     */
+    public record GameColumn(String key, String questionTag, Long questionId, String gameCode,
+            String gameName, String partCode, int partOrder) {
+    }
+
+    /**
+     * What one respondent's game part measured — one game_result row, column
+     * for column. Null fields are ones the part does not measure.
+     */
+    public record GamePartCell(
+            int gameVersion,
+            int hits,
+            int falseAlarms,
+            int omissions,
+            long durationMs,
+            long mouseDistancePx,
+            int mouseIdleSeconds,
+            Long instructionTimeMs,
+            Integer groupNumber,
+            String groupName,
+            Integer pauseCount,
+            Long pauseDurationMs,
+            OffsetDateTime startedAt,
+            OffsetDateTime endedAt) {
+
+        public static GamePartCell from(GameResult r) {
+            return new GamePartCell(r.getGameVersion(), r.getHits(), r.getFalseAlarms(), r.getOmissions(),
+                    r.getDurationMs(), r.getMouseDistancePx(), r.getMouseIdleSeconds(), r.getInstructionTimeMs(),
+                    r.getGroupNumber(), r.getGroupName(), r.getPauseCount(), r.getPauseDurationMs(),
+                    r.getStartedAt(), r.getEndedAt());
+        }
     }
 
     /** One MQ column; row totals are looked up by measuredQualityId. */
@@ -138,6 +186,8 @@ public record ExportSheetResponse(
             /** fieldId → what was typed for the field's write-in "Other". */
             Map<Long, String> demographicOtherTexts,
             Map<String, String> answers,
+            /** GameColumn.key → that game part's numbers. Absent = no result for that part. */
+            Map<String, GamePartCell> gameParts,
             /** measuredQualityTypeId → that node's own score. */
             Map<Long, Double> mqtScores,
             /** measuredQualityTypeId → own score + every descendant's. */

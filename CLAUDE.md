@@ -497,6 +497,13 @@ re-read a file before editing; expect it to have changed):
   `PortalPartialAnswers`, `savedGameResults` on resume); the runner saves a
   snapshot the moment a game finishes. Each game FILE emits `{ parts: [...] }`
   in the column shape; part codes are not validated per game server-side.
+  EXPORT: a game answer's `displayText()` is the GAME NAME (its option has no
+  label) — export sheet and Data Studio alike. `ExportSheetResponse.gameColumns`
+  (one per question × part, from the DATA, keyed `<tag>_<PART>`) +
+  `ExportRow.gameParts`; Raw Data puts each part's 14 columns
+  (`Q_2_COLOR_CLASH_hits` …, suffix = DB column name) right after the
+  question's own column, blank where not measured; a long "Game Results"
+  sheet mirrors the table. Builder tested in `Reports/__tests__/export-sheet.test.ts`.
 
 ## Frontend conventions
 

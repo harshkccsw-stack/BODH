@@ -42,7 +42,8 @@ public interface AssessmentAnswerRepository extends JpaRepository<AssessmentAnsw
      * same question, and a grid returns one per (row, selected column).
      */
     @Query("select a from AssessmentAnswer a "
-            + "join fetch a.question left join fetch a.option o left join fetch a.questionRow r "
+            + "join fetch a.question left join fetch a.option o left join fetch o.game "
+            + "left join fetch a.questionRow r "
             + "where a.assessment.assessmentId = :assessmentId "
             + "and a.respondent.id in :respondentUserIds "
             + "order by r.sortOrder asc, o.sortOrder asc, a.assessmentAnswerId asc")

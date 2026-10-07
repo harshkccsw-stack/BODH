@@ -431,6 +431,31 @@ class GamesTest {
         assertThat(clash.getEndedAt().toInstant()).isEqualTo(java.time.Instant.parse("2026-10-06T10:01:15Z"));
         assertThat(clock.getStartedAt()).isNull();
 
+        // The export sheet: a game question's own cell names the game (its
+        // option has no label), and each game part is a block of columns
+        // right after it, in question then part order — from the data, so the
+        // game answered without a result (Q_3) gets its cell but no block.
+        mvc.perform(get("/api/reports/export/assessment/" + assessmentId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.rows[0].answers.Q_1").value("Smoke Save One"))
+                .andExpect(jsonPath("$.rows[0].answers.Q_2").value("Smoke Save Two"))
+                .andExpect(jsonPath("$.rows[0].answers.Q_3").value("Smoke Save One"))
+                .andExpect(jsonPath("$.rows[0].answers.Q_4").value("A"))
+                .andExpect(jsonPath("$.gameColumns.length()").value(3))
+                .andExpect(jsonPath("$.gameColumns[0].key").value("Q_1_BASELINE"))
+                .andExpect(jsonPath("$.gameColumns[0].gameCode").value("SMOKE_SAVE_ONE"))
+                .andExpect(jsonPath("$.gameColumns[1].key").value("Q_2_COLOR_CLASH"))
+                .andExpect(jsonPath("$.gameColumns[2].key").value("Q_2_MACKWORTH_CLOCK"))
+                .andExpect(jsonPath("$.gameColumns[2].partOrder").value(2))
+                .andExpect(jsonPath("$.rows[0].gameParts.Q_1_BASELINE.hits").value(299))
+                .andExpect(jsonPath("$.rows[0].gameParts.Q_1_BASELINE.gameVersion").value(1))
+                .andExpect(jsonPath("$.rows[0].gameParts.Q_1_BASELINE.groupName").value(nullValue()))
+                .andExpect(jsonPath("$.rows[0].gameParts.Q_2_COLOR_CLASH.falseAlarms").value(5))
+                .andExpect(jsonPath("$.rows[0].gameParts.Q_2_COLOR_CLASH.groupName").value("IND-DIM"))
+                .andExpect(jsonPath("$.rows[0].gameParts.Q_2_COLOR_CLASH.pauseDurationMs").value(5000))
+                .andExpect(jsonPath("$.rows[0].gameParts.Q_2_MACKWORTH_CLOCK.durationMs").value(300000))
+                .andExpect(jsonPath("$.rows[0].gameParts.Q_2_MACKWORTH_CLOCK.instructionTimeMs").value(4000));
+
         // A practitioner reset deletes the answer set — and its game results with it.
         mvc.perform(post("/api/reports/resetAssessment/" + mappingId)).andExpect(status().isOk());
         assertThat(gameResults.findForRespondentAssessment((long) respondentUserId, (long) assessmentId)).isEmpty();
