@@ -178,6 +178,10 @@ public record ExportSheetResponse(
             Long organizationId,
             String organizationName,
             RespondentAssessmentStatus status,
+            /** First begin of the attempt (UTC); null when unknown. */
+            OffsetDateTime startedAt,
+            /** When the submit reached the server (UTC); null when unknown. */
+            OffsetDateTime completedAt,
             /** Inactivity "focus" popups dismissed during the attempt. */
             int popUpCount,
             Map<Long, String> demographics,

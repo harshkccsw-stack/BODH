@@ -200,6 +200,11 @@ public class PortalAssessmentService {
             respondent.setConsentedAt(OffsetDateTime.now());
         }
 
+        // The FIRST begin is the start: a re-launch of an ONGOING attempt
+        // re-enters the demographics above but keeps the original time.
+        if (mapping.getStartedAt() == null) {
+            mapping.setStartedAt(OffsetDateTime.now());
+        }
         mapping.setAssessmentStatus(RespondentAssessmentStatus.ONGOING);
         return PortalAttemptStatusResponse.from(mappings.save(mapping));
     }
@@ -231,6 +236,8 @@ public class PortalAssessmentService {
         refuseWhilePending(mappingId);
         mapping.setAssessmentStatus(RespondentAssessmentStatus.NOT_STARTED);
         mapping.setPersisted(false);
+        // The attempt is over; the next begin starts a new one.
+        mapping.setStartedAt(null);
         redis.deletePartial(mappingId);
         redis.deleteHeartbeat(mappingId);
         return PortalAttemptStatusResponse.from(mappings.save(mapping));
@@ -332,7 +339,8 @@ public class PortalAssessmentService {
         }
 
         // Redis would not hold the envelope — the original synchronous path.
-        RespondentAssessmentMapping saved = writer.persist(mappingId, normalized, popUps, games);
+        RespondentAssessmentMapping saved = writer.persist(mappingId, normalized, popUps, games,
+                OffsetDateTime.now());
         redis.deletePartial(mappingId);
         redis.deleteHeartbeat(mappingId);
         return PortalAttemptStatusResponse.from(saved);

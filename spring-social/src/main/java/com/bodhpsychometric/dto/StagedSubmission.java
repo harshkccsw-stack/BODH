@@ -1,5 +1,8 @@
 package com.bodhpsychometric.dto;
 
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 
 import com.bodhpsychometric.dto.PortalSubmitRequest.AnswerEntry;
@@ -47,6 +50,17 @@ public record StagedSubmission(
     public StagedSubmission withFailure(String error) {
         return new StagedSubmission(mappingId, respondentUserId, assessmentId, answers,
                 popUpCount, submittedAtMillis, attempts + 1, error, gameResults);
+    }
+
+    /**
+     * When the respondent's submit reached the server — what the attempt's
+     * completedAt records, however late the digest writes it. Null if the
+     * envelope somehow carries no time, and the writer then uses its own.
+     */
+    public OffsetDateTime submittedAt() {
+        return submittedAtMillis > 0
+                ? OffsetDateTime.ofInstant(Instant.ofEpochMilli(submittedAtMillis), ZoneOffset.UTC)
+                : null;
     }
 
     /** Reset for a manual requeue — three fresh attempts. */

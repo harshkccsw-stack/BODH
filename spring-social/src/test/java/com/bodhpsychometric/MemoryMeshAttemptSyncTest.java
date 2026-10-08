@@ -29,6 +29,7 @@ import com.bodhpsychometric.model.questionnaire.QuestionnaireQuestion;
 import com.bodhpsychometric.model.assessment.AssessmentAnswer;
 import com.bodhpsychometric.repository.assessment.AssessmentAnswerRepository;
 import com.bodhpsychometric.repository.assessment.AssessmentRepository;
+import com.bodhpsychometric.repository.assessment.RespondentAssessmentMappingRepository;
 import com.bodhpsychometric.repository.question.QuestionRepository;
 import com.bodhpsychometric.repository.questionnaire.QuestionnaireQuestionRepository;
 import com.bodhpsychometric.repository.questionnaire.QuestionnaireRepository;
@@ -49,6 +50,7 @@ class MemoryMeshAttemptSyncTest {
     @Autowired private QuestionnaireQuestionRepository placements;
     @Autowired private AssessmentRepository assessments;
     @Autowired private AssessmentAnswerRepository answers;
+    @Autowired private RespondentAssessmentMappingRepository mappings;
 
     private record Seed(Long assessmentId, Long questionId, Long otherQuestionId) {
     }
@@ -253,5 +255,44 @@ class MemoryMeshAttemptSyncTest {
         assertThat(stored.get(0).getAnswerText()).isEqualTo("Calm, mostly");
         // The slot has no label, so the printed cell is the text alone.
         assertThat(stored.get(0).displayText()).isEqualTo("Calm, mostly");
+    }
+
+    /** V45: MemoryMesh's completedAt is the completion when usable; the start is unknown. */
+    @Test
+    void theCompletionTimeComesFromMemoryMeshWhenItIsUsable() throws Exception {
+        Seed s = seed();
+        String person = """
+                "respondent":{"name":"Stamp Mirror","email":"mm.stamp@test.local",\
+                "phoneCountryCode":"+91","phone":"9700000042","dob":"1993-03-03","gender":"MALE"}""";
+        java.util.function.Function<String, java.time.OffsetDateTime> sync = completedAt -> {
+            try {
+                String body = mvc.perform(post("/api/sync/memorymesh/attempts")
+                        .header(KEY, "test-sync-key")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(("{" + person + ",\"assessmentId\":%d," + completedAt
+                                + "\"answers\":[{\"questionId\":%d,\"optionPosition\":0}]}")
+                                .formatted(s.assessmentId(), s.questionId())))
+                        .andExpect(status().isOk())
+                        .andReturn().getResponse().getContentAsString();
+                long respondentId = ((Number) JsonPath.read(body, "$.respondentUserId")).longValue();
+                var mapping = mappings.findByRespondent_IdAndAssessment_AssessmentId(
+                        respondentId, s.assessmentId()).orElseThrow();
+                assertThat(mapping.getStartedAt()).isNull();
+                return mapping.getCompletedAt();
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        };
+
+        assertThat(sync.apply("\"completedAt\":\"2026-09-01T10:00:00+05:30\",").toInstant())
+                .isEqualTo(java.time.Instant.parse("2026-09-01T04:30:00Z"));
+
+        // Missing, unreadable, offset-less or in the future → the time it arrived.
+        java.time.Instant before = java.time.Instant.now().minusSeconds(1);
+        for (String bad : List.of("", "\"completedAt\":\"yesterday\",",
+                "\"completedAt\":\"2026-09-01T10:00:00\",", "\"completedAt\":\"2099-01-01T00:00:00Z\",")) {
+            assertThat(sync.apply(bad).toInstant()).isAfter(before)
+                    .isBefore(java.time.Instant.now().plusSeconds(1));
+        }
     }
 }

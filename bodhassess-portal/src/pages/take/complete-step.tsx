@@ -1,20 +1,48 @@
+import type { ReactNode } from 'react';
 import { CheckCircle2, ClipboardList } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/lib/auth';
+import { RichText } from '@/lib/rich-text';
+import { cn } from '@/lib/utils';
+
+/** One label/value line of the summary box. */
+function SummaryRow({ label, children, muted = false }: { label: string; children: ReactNode; muted?: boolean }) {
+  return (
+    <div className="flex items-start justify-between gap-3 border-t border-border/60 pt-2 first:border-t-0 first:pt-0">
+      <span className={cn('shrink-0 max-w-[45%] text-xs uppercase tracking-wider', muted ? 'text-muted-foreground/70' : 'text-muted-foreground')}>
+        {label}
+      </span>
+      <div className={cn('min-w-0 text-right break-words', muted ? 'text-xs text-muted-foreground/70' : 'font-medium')}>
+        {children}
+      </div>
+    </div>
+  );
+}
 
 // Terminal state of the take flow (folds in the old /portal/complete route).
+// What it says is the assessment author's: the message under the respondent's
+// name and the contact person come from the assessment (V46), the
+// organization from the respondent's session. A row with nothing to show is
+// left out rather than printed blank.
 export function CompleteStep({
   assessmentName,
-  questionnaireName,
   mappingId,
   respondentName,
+  organizationName,
+  thankYouMessage,
+  contactName,
+  contactEmail,
   onBackToList,
 }: {
   assessmentName: string;
-  questionnaireName?: string;
   mappingId: number;
   respondentName?: string;
+  organizationName?: string | null;
+  /** Editor HTML; the server always sends one (its default when unset). */
+  thankYouMessage: string;
+  contactName?: string | null;
+  contactEmail?: string | null;
   onBackToList: () => void;
 }) {
   const { user } = useAuth();
@@ -32,7 +60,7 @@ export function CompleteStep({
           <div className="flex justify-center">
             <img
               src={logo}
-              alt={user?.organizationName ?? ''}
+              alt={organizationName ?? ''}
               className="h-10 w-auto max-w-48 rounded-md bg-white object-contain p-1"
             />
           </div>
@@ -51,23 +79,35 @@ export function CompleteStep({
           <CardContent className="space-y-5 p-6 text-center sm:p-8">
             <div className="space-y-2">
               <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Thank you!</h1>
-              <p className="text-sm text-muted-foreground leading-relaxed max-w-sm mx-auto">
-                {respondentName ? `${respondentName}, your` : 'Your'} responses have been submitted securely. Your
-                administrator will review them and share the report separately.
-              </p>
+              {/* Smaller than the heading, larger than the message. Not part
+                  of the authored text, so no author ever has to template it. */}
+              {respondentName && (
+                <p className="text-lg font-medium text-foreground/90 break-words sm:text-xl">{respondentName}</p>
+              )}
+              {/* Lists are left-aligned inside the centred block — centred
+                  bullets read as a mistake. */}
+              <RichText
+                value={thankYouMessage}
+                className="mx-auto max-w-sm text-sm leading-relaxed text-muted-foreground [&_ol]:inline-block [&_ol]:text-left [&_ul]:inline-block [&_ul]:text-left"
+              />
             </div>
 
             <div className="rounded-xl border border-border bg-muted/40 px-4 py-3 text-left text-sm space-y-2">
-              <div className="flex items-start justify-between gap-3">
-                <span className="text-muted-foreground text-xs uppercase tracking-wider">Questionnaire</span>
-                <span className="font-medium text-right break-words max-w-[65%]">
-                  {questionnaireName || assessmentName}
-                </span>
-              </div>
-              <div className="flex items-center justify-between gap-3 border-t border-border/60 pt-2">
-                <span className="text-muted-foreground text-xs uppercase tracking-wider">Assessment</span>
-                <span className="font-mono text-xs">#{mappingId}</span>
-              </div>
+              {organizationName && <SummaryRow label="Organization">{organizationName}</SummaryRow>}
+              <SummaryRow label="Assessment">{assessmentName}</SummaryRow>
+              {contactName && <SummaryRow label="Contact Person">{contactName}</SummaryRow>}
+              {contactEmail && (
+                <SummaryRow label="Contact Email">
+                  <a href={`mailto:${contactEmail}`} className="text-primary break-all hover:underline">
+                    {contactEmail}
+                  </a>
+                </SummaryRow>
+              )}
+              {/* The attempt's own id — what support asks for. Last and grey:
+                  a reference, not part of the message. */}
+              <SummaryRow label="Submission ID" muted>
+                <span className="font-mono">#{mappingId}</span>
+              </SummaryRow>
             </div>
 
             <div className="flex justify-center pt-2">

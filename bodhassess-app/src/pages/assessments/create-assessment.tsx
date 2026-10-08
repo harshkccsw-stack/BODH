@@ -6,6 +6,7 @@ import {
   Check,
   ClipboardCheck,
   Loader2,
+  PartyPopper,
   Search,
   Settings2,
 } from 'lucide-react';
@@ -45,7 +46,15 @@ interface AssessmentForm {
   endDate: string;
   /** Consent body as the editor's HTML. Kept even while the toggle is off. */
   termsAndConditions: string;
+  /** Thank-you page message as the editor's HTML; blank = the standard wording. */
+  thankYouMessage: string;
+  /** Contact person / researcher — both or neither. */
+  contactName: string;
+  contactEmail: string;
 }
+
+// Same shape check the dashboard's other forms use; the API has the final word.
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const EMPTY_FORM: AssessmentForm = {
   name: '',
@@ -60,6 +69,9 @@ const EMPTY_FORM: AssessmentForm = {
   startDate: '',
   endDate: '',
   termsAndConditions: '', // replaced by the server's template once loaded
+  thankYouMessage: '', // likewise
+  contactName: '',
+  contactEmail: '',
 };
 
 const LIBRARY_PATH = '/assessment-library/assessments';
@@ -125,18 +137,22 @@ export default function CreateAssessmentPage() {
       setLoadError('');
       setLoading(true);
       try {
-        const [qn, existing, template] = await Promise.all([
+        const [qn, existing, template, thankYouTemplate] = await Promise.all([
           questionnairesApi.getQuestionnaires(),
           editId != null ? assessmentsApi.getAssessmentById(editId) : Promise.resolve(null),
           // Only a new assessment needs the starting text; an existing one
           // always carries its own (the server substitutes the same default
           // for rows saved before the field existed).
           editId != null ? Promise.resolve(null) : assessmentsApi.getTermsTemplate(),
+          editId != null ? Promise.resolve(null) : assessmentsApi.getThankYouTemplate(),
         ]);
         if (cancelled) return;
         setQuestionnaires(qn.data);
         if (template) {
           setForm((f) => ({ ...f, termsAndConditions: template.data.termsAndConditions }));
+        }
+        if (thankYouTemplate) {
+          setForm((f) => ({ ...f, thankYouMessage: thankYouTemplate.data.thankYouMessage }));
         }
         if (existing) {
           const a = existing.data;
@@ -153,6 +169,9 @@ export default function CreateAssessmentPage() {
             startDate: a.startDate ?? '',
             endDate: a.endDate ?? '',
             termsAndConditions: a.termsAndConditions,
+            thankYouMessage: a.thankYouMessage,
+            contactName: a.contactName ?? '',
+            contactEmail: a.contactEmail ?? '',
           });
         }
       } catch (e: any) {
@@ -196,6 +215,20 @@ export default function CreateAssessmentPage() {
       setFormError('End date must be on or after the start date');
       return;
     }
+    const contactName = form.contactName.trim();
+    const contactEmail = form.contactEmail.trim();
+    if (contactName && !contactEmail) {
+      setFormError('Add the contact person’s email, or clear their name');
+      return;
+    }
+    if (contactEmail && !contactName) {
+      setFormError('Add the contact person’s name, or clear their email');
+      return;
+    }
+    if (contactEmail && !EMAIL_RE.test(contactEmail)) {
+      setFormError('Contact person email is not a valid address');
+      return;
+    }
     const payload: AssessmentPayload = {
       name,
       questionnaireId: Number(form.questionnaireId),
@@ -206,6 +239,13 @@ export default function CreateAssessmentPage() {
       // cleared the box and retyped it gets the browser's own <div> line
       // breaks, which the API refuses.
       termsAndConditions: normalizeEditorHtml(form.termsAndConditions),
+      // An emptied box goes as '' and the server falls back to the standard
+      // wording — there is no "required" rule on this one.
+      thankYouMessage: isBlankHtml(form.thankYouMessage) ? '' : normalizeEditorHtml(form.thankYouMessage),
+      // Always both, '' when empty: '' clears, while an omitted field would
+      // leave a stored contact behind.
+      contactName,
+      contactEmail,
       // Kept as set even under SECTION_PER_PAGE, where the portal ignores
       // it — switching back to one per page restores the author's choice.
       autoNext: form.autoNext,
@@ -486,6 +526,68 @@ export default function CreateAssessmentPage() {
                   This questionnaire has no questions yet — respondents would see an empty assessment.
                 </p>
               )}
+            </CardContent>
+          </Card>
+
+          {/* ── Thank-you page ───────────────────────────────────────── */}
+          <Card>
+            <CardHeader className="py-3.5">
+              <CardTitle className="text-base flex items-center gap-2">
+                <PartyPopper className="h-4 w-4 text-primary" />
+                Thank-you Page
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-5">
+              <p className="text-xs text-muted-foreground -mt-1">
+                What respondents see after they submit: “Thank you!”, their
+                name, your message, then their organization, this
+                assessment’s name and the contact person below.
+              </p>
+              <div>
+                <label className="text-sm font-medium">Message</label>
+                <div className="mt-1.5">
+                  <RichTextEditor
+                    ariaLabel="Thank-you message"
+                    value={form.thankYouMessage}
+                    onChange={(html) => setForm((f) => ({ ...f, thankYouMessage: html }))}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground mt-1.5">
+                  Bold, lists and headings are supported. Leave it empty to show
+                  the standard message. The respondent’s name is added above it
+                  automatically.
+                </p>
+              </div>
+              <div>
+                <p className="text-sm font-medium">Contact Person / Researcher</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Optional — fill in both or leave both empty. The email is shown
+                  as a link respondents can write to.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-2">
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground">Name</label>
+                    <input
+                      value={form.contactName}
+                      onChange={(e) => setForm({ ...form, contactName: e.target.value })}
+                      placeholder="e.g., Dr. Asha Rao"
+                      maxLength={200}
+                      className={cn(inputClass, 'mt-1')}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground">Email</label>
+                    <input
+                      type="email"
+                      value={form.contactEmail}
+                      onChange={(e) => setForm({ ...form, contactEmail: e.target.value })}
+                      placeholder="e.g., asha.rao@university.edu"
+                      maxLength={254}
+                      className={cn(inputClass, 'mt-1')}
+                    />
+                  </div>
+                </div>
+              </div>
             </CardContent>
           </Card>
 

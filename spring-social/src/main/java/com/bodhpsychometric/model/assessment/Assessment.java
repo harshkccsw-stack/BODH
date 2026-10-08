@@ -55,6 +55,20 @@ public class Assessment implements java.io.Serializable {
     @Column(name = "termsAndConditions", columnDefinition = "TEXT")
     private String termsAndConditions;
 
+    // The portal's thank-you page (V46). The message under "Thank you!", in
+    // the same HTML subset as the consent text; NULL = the standard wording
+    // (readers call AssessmentThankYou.effective). The contact pair is who a
+    // respondent can reach — a contact person or the researcher — typed, both
+    // or neither; NULL hides the row.
+    @Column(name = "thankYouMessage", columnDefinition = "TEXT")
+    private String thankYouMessage;
+
+    @Column(name = "contactName", length = 200)
+    private String contactName;
+
+    @Column(name = "contactEmail", length = 254)
+    private String contactEmail;
+
     // ── Config settings ──────────────────────────────────────────────────
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 16)
@@ -150,6 +164,30 @@ public class Assessment implements java.io.Serializable {
 
     public void setTermsAndConditions(String termsAndConditions) {
         this.termsAndConditions = termsAndConditions;
+    }
+
+    public String getThankYouMessage() {
+        return thankYouMessage;
+    }
+
+    public void setThankYouMessage(String thankYouMessage) {
+        this.thankYouMessage = thankYouMessage;
+    }
+
+    public String getContactName() {
+        return contactName;
+    }
+
+    public void setContactName(String contactName) {
+        this.contactName = contactName;
+    }
+
+    public String getContactEmail() {
+        return contactEmail;
+    }
+
+    public void setContactEmail(String contactEmail) {
+        this.contactEmail = contactEmail;
     }
 
     public AssessmentStatus getStatus() {
