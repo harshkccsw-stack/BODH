@@ -266,6 +266,15 @@ export interface PortalAssessmentDetail {
    * assessments without their own text get the server's default.
    */
   termsAndConditions: string;
+  /**
+   * The thank-you page's message, same HTML subset as the terms. Never null —
+   * the server's standard wording when the assessment set none. It never
+   * holds the respondent's name; the completion screen prints that above it.
+   */
+  thankYouMessage: string;
+  /** Contact person / researcher for the thank-you page; both null = no row. */
+  contactName: string | null;
+  contactEmail: string | null;
   /** Auto-advance after a pick — ONE_PER_PAGE only; a section page never moves on its own. */
   autoNext: boolean;
   showQuestionIndex: boolean;

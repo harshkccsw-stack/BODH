@@ -20,6 +20,7 @@ import com.bodhpsychometric.dto.AssessmentRequest;
 import com.bodhpsychometric.dto.AssessmentResponse;
 import com.bodhpsychometric.model.assessment.Assessment;
 import com.bodhpsychometric.model.assessment.AssessmentTerms;
+import com.bodhpsychometric.model.assessment.AssessmentThankYou;
 import com.bodhpsychometric.model.assessment.enums.AssessmentStatus;
 import com.bodhpsychometric.model.questionnaire.Questionnaire;
 import com.bodhpsychometric.repository.assessment.AssessmentRepository;
@@ -66,6 +67,12 @@ public class AssessmentController {
         return Map.of("termsAndConditions", AssessmentTerms.DEFAULT_HTML);
     }
 
+    /** The starting thank-you message for a new assessment — same reasoning. */
+    @GetMapping("/thank-you-template")
+    public Map<String, String> getThankYouTemplate() {
+        return Map.of("thankYouMessage", AssessmentThankYou.DEFAULT_HTML);
+    }
+
     @GetMapping("/getAll")
     public List<AssessmentResponse> getAllAssessments() {
         return assessmentRepository.findAll().stream()
@@ -91,6 +98,9 @@ public class AssessmentController {
         if (error == null) {
             error = termsErrorOf(request, null);
         }
+        if (error == null) {
+            error = thankYouErrorOf(request, null);
+        }
         if (error != null) {
             return ResponseEntity.badRequest().body(Map.of("message", error));
         }
@@ -115,6 +125,9 @@ public class AssessmentController {
         String error = windowErrorOf(request);
         if (error == null) {
             error = termsErrorOf(request, assessment);
+        }
+        if (error == null) {
+            error = thankYouErrorOf(request, assessment);
         }
         if (error != null) {
             return ResponseEntity.badRequest().body(Map.of("message", error));
@@ -179,6 +192,38 @@ public class AssessmentController {
     }
 
     /**
+     * Why this request's thank-you page cannot be stored, or null. The message
+     * renders as HTML in respondents' browsers, so it gets the consent text's
+     * markup check; blank is fine (it means the default). The contact person
+     * is both or neither — a name nobody can write to, or an address with no
+     * name, is not a contact. Judged on what the assessment WOULD hold, since
+     * null leaves a stored value alone.
+     */
+    private String thankYouErrorOf(AssessmentRequest request, Assessment current) {
+        String markupError = AssessmentThankYou.validationErrorOf(request.thankYouMessage());
+        if (markupError != null) {
+            return markupError;
+        }
+        String name = resulting(request.contactName(), current == null ? null : current.getContactName());
+        String email = resulting(request.contactEmail(), current == null ? null : current.getContactEmail());
+        if (name == null && email != null) {
+            return "Contact person name is required when an email is given";
+        }
+        if (name != null && email == null) {
+            return "Contact person email is required when a name is given";
+        }
+        return null;
+    }
+
+    /** A submitted text field over the stored one: null keeps, blank clears, else trimmed. */
+    private static String resulting(String submitted, String stored) {
+        if (submitted == null) {
+            return stored;
+        }
+        return submitted.isBlank() ? null : submitted.trim();
+    }
+
+    /**
      * Cross-field check on the availability window — an annotation on the
      * record cannot see both fields. Either date alone is fine ("open-ended"
      * in both directions); only an inverted pair is rejected. Returns null
@@ -203,6 +248,13 @@ public class AssessmentController {
         if (request.termsAndConditions() != null) {
             assessment.setTermsAndConditions(request.termsAndConditions());
         }
+        // Thank-you page: null keeps the stored value (see AssessmentRequest);
+        // a blank message is stored as NULL so the default applies.
+        if (request.thankYouMessage() != null) {
+            assessment.setThankYouMessage(AssessmentThankYou.stored(request.thankYouMessage()));
+        }
+        assessment.setContactName(resulting(request.contactName(), assessment.getContactName()));
+        assessment.setContactEmail(resulting(request.contactEmail(), assessment.getContactEmail()));
         assessment.setStatus(request.status() == null ? AssessmentStatus.INACTIVE : request.status());
         assessment.setAutoNext(Boolean.TRUE.equals(request.autoNext()));
         // Default true (like showTermsAndConditions): null keeps the index on.

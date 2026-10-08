@@ -1,5 +1,6 @@
 package com.bodhpsychometric.service;
 
+import java.time.OffsetDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -69,10 +70,14 @@ public class AssessmentSubmissionWriter {
      * there. Idempotent on an attempt that is already COMPLETED+persisted
      * (a digest retry racing a finished one), and 404 when the mapping was
      * deleted since staging, which the digest treats as terminal.
+     *
+     * <p>{@code completedAt} is when the submit reached the server — the
+     * digest passes the time staged in the envelope, so a delayed or retried
+     * write still records the respondent's moment. Null means now.
      */
     @Transactional
     public RespondentAssessmentMapping persist(Long mappingId, List<AnswerEntry> entries, int popUpCount,
-            List<GameResultEntry> games) {
+            List<GameResultEntry> games, OffsetDateTime completedAt) {
         RespondentAssessmentMapping mapping = mappings.findForPortalDelivery(mappingId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
                         "Assessment attempt " + mappingId + " not found"));
@@ -148,6 +153,7 @@ public class AssessmentSubmissionWriter {
         mapping.setAssessmentStatus(RespondentAssessmentStatus.COMPLETED);
         mapping.setPersisted(true);
         mapping.setPopUpCount(Math.max(0, popUpCount));
+        mapping.setCompletedAt(completedAt != null ? completedAt : OffsetDateTime.now());
         return mappings.save(mapping);
     }
 

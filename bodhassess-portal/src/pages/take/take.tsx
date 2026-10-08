@@ -282,9 +282,12 @@ export default function TakePage() {
     return (
       <CompleteStep
         assessmentName={detail.assessmentName}
-        questionnaireName={detail.questionnaireName}
         mappingId={detail.respondentAssessmentMappingId}
         respondentName={user.name}
+        organizationName={user.organizationName}
+        thankYouMessage={detail.thankYouMessage}
+        contactName={detail.contactName}
+        contactEmail={detail.contactEmail}
         onBackToList={backToList}
       />
     );

@@ -1,4 +1,10 @@
 import { api } from '@/lib/apiClient';
+import {
+  EXCEL_DATE_TIME_FORMAT,
+  excelLocalDateTime,
+  localZoneLabel,
+  minutesBetween,
+} from './attempt-times';
 
 export type AssessmentStatus = 'ACTIVE' | 'INACTIVE';
 
@@ -211,6 +217,10 @@ export interface ExportRow {
   organizationId: number | null;
   organizationName: string | null;
   status: AttemptStatus;
+  /** First begin of the attempt, ISO UTC; null when unknown (V45). */
+  startedAt: string | null;
+  /** When the submit reached the server, ISO UTC; null when unknown (V45). */
+  completedAt: string | null;
   /** Inactivity "focus" popups dismissed during the attempt. */
   popUpCount: number;
   /** demographicFieldId → value (JSON object keys arrive as strings). */
@@ -402,7 +412,9 @@ function questionCells(sheet: ExportSheet): Array<{ header: string; cell: (r: Ex
  * someone actually exports).
  *
  * Five sheets:
- * 1. "Raw Data"       — the matrix: respondent columns, one per demographic
+ * 1. "Raw Data"       — the matrix: respondent columns (Started/Completed At
+ *                       as date cells in the exporter's local time, zone in
+ *                       the header, then Time Taken), one per demographic
  *                       label (one per choice on a checklist, plus a
  *                       "(specified)" column for a write-in "Other"), one per
  *                       questionTag — each game question followed by its
@@ -444,21 +456,40 @@ export async function downloadExportSheet(sheet: ExportSheet, fileName?: string)
 
   const demographics = demographicCells(sheet.demographicColumns);
   const questions = questionCells(sheet);
+  const zone = localZoneLabel();
+  const startedHeader = `Started At (${zone})`;
+  const completedHeader = `Completed At (${zone})`;
   const header = [
-    'Serial ID', 'Name', 'Email', 'Organization', 'Status', 'Pop-up Count',
+    'Serial ID', 'Name', 'Email', 'Organization', 'Status',
+    startedHeader, completedHeader, 'Time Taken (min)', 'Pop-up Count',
     ...demographics.map((d) => d.header),
     ...questions.map((q) => q.header),
     ...scoreHeaders,
   ];
   const body = sheet.rows.map((r) => [
-    r.serialId ?? '', r.name ?? '', r.email, r.organizationName ?? '', r.status, r.popUpCount ?? 0,
+    r.serialId ?? '', r.name ?? '', r.email, r.organizationName ?? '', r.status,
+    excelLocalDateTime(r.startedAt), excelLocalDateTime(r.completedAt),
+    minutesBetween(r.startedAt, r.completedAt), r.popUpCount ?? 0,
     ...demographics.map((d) => d.cell(r)),
     ...questions.map((q) => q.cell(r)),
     ...scoreCells(r),
   ]);
 
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([header, ...body]), 'Raw Data');
+  const rawData = XLSX.utils.aoa_to_sheet([header, ...body]);
+  // The two times are plain serials until they get a date format, and a
+  // date-time is wider than Excel's default column — it would print #####.
+  const dateCols = [header.indexOf(startedHeader), header.indexOf(completedHeader)];
+  const widths: Array<{ wch: number }> = [];
+  for (const c of dateCols) {
+    widths[c] = { wch: 20 };
+    for (let r = 1; r <= body.length; r++) {
+      const cell = rawData[XLSX.utils.encode_cell({ r, c })];
+      if (cell && cell.t === 'n') cell.z = EXCEL_DATE_TIME_FORMAT;
+    }
+  }
+  rawData['!cols'] = widths;
+  XLSX.utils.book_append_sheet(wb, rawData, 'Raw Data');
 
   if (mqts.length > 0) {
     // Long format — one row per respondent × MQT. "Own" is what that node

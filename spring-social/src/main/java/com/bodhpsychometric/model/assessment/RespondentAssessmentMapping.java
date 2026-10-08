@@ -1,5 +1,7 @@
 package com.bodhpsychometric.model.assessment;
 
+import java.time.OffsetDateTime;
+
 import com.bodhpsychometric.model.assessment.enums.RespondentAssessmentStatus;
 import com.bodhpsychometric.model.auth.RespondentUser;
 
@@ -73,6 +75,22 @@ public class RespondentAssessmentMapping implements java.io.Serializable {
     @Column(name = "popUpCount", nullable = false)
     private int popUpCount = 0;
 
+    /**
+     * The FIRST begin of the current attempt (V45). Set by begin only while
+     * empty, so a re-launch of an ONGOING attempt keeps it; cleared by a reset
+     * and by the attention-timer abandon, which end the attempt.
+     */
+    @Column(name = "startedAt")
+    private OffsetDateTime startedAt;
+
+    /**
+     * When the submit reached the server (V45) — carried through the Redis
+     * envelope, so it is not the later moment the digest wrote MySQL. Null
+     * until COMPLETED; cleared by a reset.
+     */
+    @Column(name = "completedAt")
+    private OffsetDateTime completedAt;
+
     public Long getRespondentAssessmentMappingId() {
         return respondentAssessmentMappingId;
     }
@@ -119,5 +137,21 @@ public class RespondentAssessmentMapping implements java.io.Serializable {
 
     public void setPopUpCount(int popUpCount) {
         this.popUpCount = popUpCount;
+    }
+
+    public OffsetDateTime getStartedAt() {
+        return startedAt;
+    }
+
+    public void setStartedAt(OffsetDateTime startedAt) {
+        this.startedAt = startedAt;
+    }
+
+    public OffsetDateTime getCompletedAt() {
+        return completedAt;
+    }
+
+    public void setCompletedAt(OffsetDateTime completedAt) {
+        this.completedAt = completedAt;
     }
 }

@@ -4,6 +4,7 @@ import java.time.LocalDate;
 
 import com.bodhpsychometric.model.assessment.Assessment;
 import com.bodhpsychometric.model.assessment.AssessmentTerms;
+import com.bodhpsychometric.model.assessment.AssessmentThankYou;
 import com.bodhpsychometric.model.assessment.enums.AssessmentStatus;
 import com.bodhpsychometric.model.assessment.enums.QuestionLayout;
 
@@ -20,6 +21,11 @@ public record AssessmentResponse(
         boolean showTermsAndConditions,
         /** Always populated — the default body when the row has none of its own. */
         String termsAndConditions,
+        /** Always populated — the default message when the row has none of its own. */
+        String thankYouMessage,
+        /** Who respondents can reach (contact person / researcher); both null when unset. */
+        String contactName,
+        String contactEmail,
         AssessmentStatus status,
         boolean autoNext,
         boolean showQuestionIndex,
@@ -44,6 +50,10 @@ public record AssessmentResponse(
                 // The editor should open on the text respondents would see,
                 // so send the default rather than null for rows without one.
                 AssessmentTerms.effective(a.getTermsAndConditions()),
+                // Same reasoning: open the editor on what respondents would see.
+                AssessmentThankYou.effective(a.getThankYouMessage()),
+                a.getContactName(),
+                a.getContactEmail(),
                 a.getStatus(),
                 a.isAutoNext(),
                 a.isShowQuestionIndex(),

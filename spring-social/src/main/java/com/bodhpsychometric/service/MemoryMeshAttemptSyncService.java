@@ -1,5 +1,7 @@
 package com.bodhpsychometric.service;
 
+import java.time.OffsetDateTime;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -161,9 +163,34 @@ public class MemoryMeshAttemptSyncService {
         answers.flush();
         mapping.setAssessmentStatus(RespondentAssessmentStatus.COMPLETED);
         mapping.setPersisted(true);
+        // Taken in MemoryMesh: it sends when it was completed there but not
+        // when it began, and a start from an earlier portal begin would belong
+        // to an attempt these answers just replaced.
+        mapping.setStartedAt(null);
+        mapping.setCompletedAt(completedAt(request.completedAt()));
         mappings.save(mapping);
         return new MemoryMeshAttemptSyncResponse(respondent.getId(), mapping.getRespondentAssessmentMappingId(),
                 resolved.size());
+    }
+
+    /**
+     * MemoryMesh's ISO completion time when it is usable, else now. It needs
+     * an offset or a Z — a bare local time names no instant — and a time in
+     * the future (beyond a little clock skew) is not believed. Never a 400:
+     * the field was informational before V45, and a sender that omits or
+     * garbles it still has a completed attempt worth storing.
+     */
+    private static OffsetDateTime completedAt(String iso) {
+        OffsetDateTime now = OffsetDateTime.now();
+        if (iso == null || iso.isBlank()) {
+            return now;
+        }
+        try {
+            OffsetDateTime at = OffsetDateTime.parse(iso.trim());
+            return at.isAfter(now.plusMinutes(5)) ? now : at;
+        } catch (DateTimeParseException e) {
+            return now;
+        }
     }
 
     private static ResponseStatusException bad(String message) {

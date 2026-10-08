@@ -539,6 +539,21 @@ re-read a file before editing; expect it to have changed):
   (`Q_2_COLOR_CLASH_hits` …, suffix = DB column name) right after the
   question's own column, blank where not measured; a long "Game Results"
   sheet mirrors the table. Builder tested in `Reports/__tests__/export-sheet.test.ts`.
+- Thank-you page (2026-10-08, `V46`, `ThankYouPageTest`): per ASSESSMENT,
+  authored on Create/Edit Assessment's "Thank-you Page" card.
+  `thank_you_message` (TEXT, the terms' HTML subset via `RichTextHtml`; NULL =
+  `AssessmentThankYou.DEFAULT_HTML`, readers call `effective()`; blank is
+  stored NULL) and `contact_name`/`contact_email` (typed, NOT a practitioner
+  FK — the researcher may have no login; both or neither, optional). Request
+  rule: null = keep, '' = clear. The respondent's NAME is not in the message
+  (no placeholder, user's decision) — the portal prints it on its own line
+  under "Thank you!", sized between the heading and the message. Summary rows:
+  Organization (`user.organizationName` from the session, hidden when none) →
+  Assessment name → "Contact Person" → "Contact Email" (two rows, the email a
+  mailto link; hidden when unset) → "Submission ID #<mappingId>" last and grey (the attempt
+  id, renamed from "Assessment #" so nobody reads it as the assessment's id).
+  Read live through `PortalAssessmentDetailResponse`, never the Redis content.
+  NOT on `MemoryMeshAssessmentDetail`.
 
 ## Frontend conventions
 
@@ -560,8 +575,8 @@ re-read a file before editing; expect it to have changed):
 
 ## Verification loop (do this EVERY change)
 
-1. Backend: `cd spring-social && ./mvnw -B test` (485 tests green as of
-   2026-10-06). Tightening a DTO's validation breaks the fixtures that post
+1. Backend: `cd spring-social && ./mvnw -B test` (495 tests green as of
+   2026-10-08). Tightening a DTO's validation breaks the fixtures that post
    that shape — fix the payloads, do not relax the rule. If every Spring test
    errors with `BeanDefinitionOverrideException` on repositories, the IDE has
    written stale class files into `target/classes`; run `./mvnw -B clean test`.

@@ -10,6 +10,7 @@ import com.bodhpsychometric.dto.PortalSubmitRequest.AnswerEntry;
 import com.bodhpsychometric.dto.PortalSubmitRequest.GameResultEntry;
 import com.bodhpsychometric.model.assessment.Assessment;
 import com.bodhpsychometric.model.assessment.AssessmentTerms;
+import com.bodhpsychometric.model.assessment.AssessmentThankYou;
 import com.bodhpsychometric.model.assessment.RespondentAssessmentMapping;
 import com.bodhpsychometric.model.assessment.enums.QuestionLayout;
 import com.bodhpsychometric.model.assessment.enums.RespondentAssessmentStatus;
@@ -45,6 +46,15 @@ public record PortalAssessmentDetailResponse(
          * the portal never has to decide what the terms say.
          */
         String termsAndConditions,
+        /**
+         * The thank-you page's message, same HTML subset. Never null — the
+         * default when the assessment has none. The respondent's name is not
+         * in it; the portal prints that on its own line.
+         */
+        String thankYouMessage,
+        /** Contact person / researcher for the thank-you page; both null = no row. */
+        String contactName,
+        String contactEmail,
         /** Auto-advance after a pick. ONE_PER_PAGE only — the portal ignores it per section. */
         boolean autoNext,
         boolean showQuestionIndex,
@@ -217,6 +227,9 @@ public record PortalAssessmentDetailResponse(
                 assessment.getName(),
                 assessment.isShowTermsAndConditions(),
                 AssessmentTerms.effective(assessment.getTermsAndConditions()),
+                AssessmentThankYou.effective(assessment.getThankYouMessage()),
+                assessment.getContactName(),
+                assessment.getContactEmail(),
                 assessment.isAutoNext(),
                 assessment.isShowQuestionIndex(),
                 assessment.getQuestionLayout(),

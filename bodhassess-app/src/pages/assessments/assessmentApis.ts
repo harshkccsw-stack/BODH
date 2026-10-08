@@ -22,6 +22,19 @@ export interface AssessmentPayload {
    * showTermsAndConditions is on.
    */
   termsAndConditions: string;
+  /**
+   * The portal thank-you page's message under "Thank you!" — same HTML subset
+   * as termsAndConditions. Blank = the standard wording. The respondent's
+   * name is printed above it by the portal, so it never goes in here.
+   */
+  thankYouMessage: string;
+  /**
+   * Contact person / researcher shown on the thank-you page. Both or neither
+   * (the API 400s on half a pair); '' clears. Omitting a field (undefined)
+   * would keep the stored value — this form always sends both.
+   */
+  contactName: string;
+  contactEmail: string;
   status: AssessmentStatus;
   autoNext: boolean;
   /** Show the portal question index/navigator during the attempt. */
@@ -58,6 +71,11 @@ export interface AssessmentResponse {
   showTermsAndConditions: boolean;
   /** Never null — the default body for assessments that never set one. */
   termsAndConditions: string;
+  /** Never null — the default message for assessments that never set one. */
+  thankYouMessage: string;
+  /** Both null when no contact person / researcher is set. */
+  contactName: string | null;
+  contactEmail: string | null;
   status: AssessmentStatus;
   autoNext: boolean;
   showQuestionIndex: boolean;
@@ -86,6 +104,11 @@ function getTermsTemplate() {
   return api.get<{ termsAndConditions: string }>(`/assessments/terms-template`);
 }
 
+/** The thank-you message a new assessment starts with — same reasoning. */
+function getThankYouTemplate() {
+  return api.get<{ thankYouMessage: string }>(`/assessments/thank-you-template`);
+}
+
 function createAssessment(assessment: AssessmentPayload) {
   return api.post<AssessmentResponse>(`/assessments/create`, assessment);
 }
@@ -103,6 +126,7 @@ export const assessmentsApi = {
   getAllAssessments,
   getAssessmentById,
   getTermsTemplate,
+  getThankYouTemplate,
   createAssessment,
   updateAssessment,
   deleteAssessment,
