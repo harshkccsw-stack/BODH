@@ -44,6 +44,7 @@ import {
   type QuestionnaireResponse,
   type SectionResponse,
 } from '@/pages/questionnaires/questionnairesApi';
+import type { QuestionLayout } from '@/pages/assessments/assessmentApis';
 import {
   RichTextEditor,
   isBlankHtml,
@@ -156,6 +157,109 @@ const draftFromQuestion = (
 };
 
 /**
+ * A GROUP as ONE draft, rebuilt from its member placements (a group is never
+ * placed itself — its members are, consecutively, and each carries the
+ * group's id and heading). The members' per-placement Optional flags ride
+ * their forms (QuestionForm.optional), which is also what keeps them
+ * attached through reorders inside the members editor. `copy` clones the
+ * whole group into a brand-new bank group, members and all.
+ */
+const draftFromGroupPlacements = (
+  parentId: number,
+  members: QuestionResponse[],
+  sectionId: number | null,
+  copy = false,
+  fromThisQuestionnaire = false,
+): DraftQuestion => {
+  const form = formFrom(null);
+  form.id = copy ? null : parentId;
+  form.questionType = 'GROUP';
+  form.stem = members[0]?.groupHeading || '';
+  form.description = members[0]?.groupDescription || '';
+  form.showDescription = !!members[0]?.groupDescription;
+  form.members = members.map((m) => {
+    const mf = formFrom(m);
+    if (copy) mf.id = null;
+    mf.optional = fromThisQuestionnaire ? m.optional ?? false : false;
+    return mf;
+  });
+  return {
+    key: crypto.randomUUID(),
+    questionId: copy ? null : parentId,
+    sectionId,
+    form,
+    baseline: copy ? '' : JSON.stringify(form),
+    usedIn: copy ? [] : members[0]?.usedIn ?? [],
+    expanded: false,
+    optional: false,
+  };
+};
+
+/**
+ * Placements → drafts, with consecutive members of one group FOLDED into a
+ * single group draft. The server guarantees members arrive together and in
+ * group order, so a simple run walk is exact.
+ */
+const draftsFromPlacements = (
+  list: QuestionResponse[],
+  fromThisQuestionnaire: boolean,
+): DraftQuestion[] => {
+  const out: DraftQuestion[] = [];
+  for (let i = 0; i < list.length; ) {
+    const q = list[i];
+    const pid = q.parentQuestionId ?? null;
+    if (pid === null) {
+      out.push(draftFromQuestion(q, q.sectionId, false, fromThisQuestionnaire ? q.optional ?? false : false));
+      i += 1;
+      continue;
+    }
+    const members: QuestionResponse[] = [];
+    while (i < list.length && (list[i].parentQuestionId ?? null) === pid) {
+      members.push(list[i]);
+      i += 1;
+    }
+    out.push(draftFromGroupPlacements(pid, members, q.sectionId, false, fromThisQuestionnaire));
+  }
+  return out;
+};
+
+/** How many portal questions a draft stands for — a group counts its members. */
+const questionCountOf = (d: DraftQuestion): number =>
+  d.form.questionType === 'GROUP' ? d.form.members.length : 1;
+
+/**
+ * A section's own portal paging. Empty = the assessment's "Question layout"
+ * decides (every section made before this existed, and every uploaded one).
+ * Shared by the Add Section box and the inline editor so the two say the
+ * same thing.
+ */
+function SectionLayoutSelect({
+  value,
+  onChange,
+}: {
+  value: QuestionLayout | null;
+  onChange: (v: QuestionLayout | null) => void;
+}) {
+  return (
+    <label
+      className="flex flex-wrap items-center gap-2 text-sm"
+      title="How the portal shows this section's questions. Left on the assessment's setting, each assessment decides."
+    >
+      Show this section's questions
+      <select
+        value={value ?? ''}
+        onChange={(e) => onChange(e.target.value === '' ? null : (e.target.value as QuestionLayout))}
+        className="h-8 rounded-md border border-border bg-background px-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+      >
+        <option value="">as the assessment's layout says</option>
+        <option value="ONE_PER_PAGE">one question per page</option>
+        <option value="SECTION_PER_PAGE">all on one page</option>
+      </select>
+    </label>
+  );
+}
+
+/**
  * One draggable question row. The listeners live on the GRIP alone, not on the
  * row — the header is a click target (expand, section select, arrows, delete)
  * and a whole-row drag would swallow those. `useSortable` is a hook, so this
@@ -239,6 +343,8 @@ export default function CreateAssessmentPage() {
   // Off by default: the instruction opens the section and then gets out of
   // the way, which is what every section did before this switch existed.
   const [newSectionRepeat, setNewSectionRepeat] = useState(false);
+  // Null: the assessment's layout decides, as for every section until now.
+  const [newSectionLayout, setNewSectionLayout] = useState<QuestionLayout | null>(null);
   const [bulkUploadOpen, setBulkUploadOpen] = useState(false);
   // Which questionnaire's questions are already loaded — going back to Step 1
   // and forward again must NOT wipe unsaved authoring.
@@ -258,8 +364,9 @@ export default function CreateAssessmentPage() {
       // Kept in the order the server sent — section by section, positions
       // inside each. Re-sorting by sortOrder here would BRAID the sections
       // back together: sortOrder is per-section, so every section's first
-      // question shares the value 0.
-      setDrafts(mine.data.map((q) => draftFromQuestion(q, q.sectionId, false, q.optional ?? false)));
+      // question shares the value 0. Consecutive group members fold into
+      // one group draft.
+      setDrafts(draftsFromPlacements(mine.data, true));
       setLoadedForQid(qid);
     } catch (e: any) {
       setStep2Error(e?.response?.data?.message || e?.message || 'Failed to load this questionnaire’s questions');
@@ -358,7 +465,16 @@ export default function CreateAssessmentPage() {
       }}
     >
       <SortableContext items={list.map((d) => d.key)} strategy={verticalListSortingStrategy}>
-        {list.map((d, i) => renderDraftCard(d, i))}
+        {(() => {
+          // Question-based positions: a group draft stands for several
+          // questions, so the card after one must number (and tag) past them.
+          let at = 0;
+          return list.map((d) => {
+            const start = at;
+            at += questionCountOf(d);
+            return renderDraftCard(d, start);
+          });
+        })()}
       </SortableContext>
     </DndContext>
   );
@@ -405,11 +521,13 @@ export default function CreateAssessmentPage() {
         name,
         instruction,
         showInstructionOnEachQuestion: newSectionRepeat,
+        questionLayout: newSectionLayout,
       });
       setQSections((prev) => [...prev, res.data]);
       setNewSectionName('');
       setNewSectionInstruction('');
       setNewSectionRepeat(false);
+      setNewSectionLayout(null);
     } catch (e: any) {
       setStep2Error(e?.response?.data?.message || e?.message || 'Failed to create section');
     }
@@ -424,6 +542,7 @@ export default function CreateAssessmentPage() {
   const [editSectionName, setEditSectionName] = useState('');
   const [editSectionInstruction, setEditSectionInstruction] = useState('');
   const [editSectionRepeat, setEditSectionRepeat] = useState(false);
+  const [editSectionLayout, setEditSectionLayout] = useState<QuestionLayout | null>(null);
   const [sectionBusy, setSectionBusy] = useState(false);
 
   /*
@@ -446,6 +565,7 @@ export default function CreateAssessmentPage() {
     setEditSectionName(sec.name);
     setEditSectionInstruction(sec.instruction || '');
     setEditSectionRepeat(sec.showInstructionOnEachQuestion);
+    setEditSectionLayout(sec.questionLayout);
     setStep2Error('');
   };
 
@@ -458,6 +578,9 @@ export default function CreateAssessmentPage() {
         name,
         instruction: instructionPayload(editSectionInstruction),
         showInstructionOnEachQuestion: editSectionRepeat,
+        // Always sent: the PUT replaces every field, so leaving it out would
+        // hand the section back to the assessment's layout on a mere rename.
+        questionLayout: editSectionLayout,
       });
       setQSections((prev) => prev.map((s) => (s.sectionId === res.data.sectionId ? res.data : s)));
       setEditingSection(null);
@@ -609,15 +732,47 @@ export default function CreateAssessmentPage() {
     );
   }, [importLibrary, importSearch]);
 
-  const filteredImportQuestions = useMemo(() => {
+  /**
+   * One pickable row of the import list: a standalone question, or a whole
+   * GROUP folded from its consecutive member placements — a group only ever
+   * travels whole, so half of one is not offered. A group row is keyed and
+   * picked by its PARENT id (also what a linked group draft carries).
+   */
+  type ImportRow =
+    | { kind: 'single'; id: number; q: QuestionResponse }
+    | { kind: 'group'; id: number; heading: string | null; members: QuestionResponse[] };
+
+  const importRows = useMemo<ImportRow[]>(() => {
+    const out: ImportRow[] = [];
+    for (let i = 0; i < importQuestions.length; ) {
+      const q = importQuestions[i];
+      const pid = q.parentQuestionId ?? null;
+      if (pid === null) {
+        out.push({ kind: 'single', id: q.questionId, q });
+        i += 1;
+        continue;
+      }
+      const members: QuestionResponse[] = [];
+      while (i < importQuestions.length && (importQuestions[i].parentQuestionId ?? null) === pid) {
+        members.push(importQuestions[i]);
+        i += 1;
+      }
+      out.push({ kind: 'group', id: pid, heading: members[0]?.groupHeading ?? null, members });
+    }
+    return out;
+  }, [importQuestions]);
+
+  const filteredImportRows = useMemo(() => {
     const s = importQSearch.trim().toLowerCase();
-    if (!s) return importQuestions;
-    return importQuestions.filter(
-      (q) =>
-        q.stem.toLowerCase().includes(s) ||
-        q.options.some((o) => (o.optionText || '').toLowerCase().includes(s)),
-    );
-  }, [importQuestions, importQSearch]);
+    if (!s) return importRows;
+    const matches = (q: QuestionResponse) =>
+      (q.stem || '').toLowerCase().includes(s) ||
+      q.options.some((o) => (o.optionText || '').toLowerCase().includes(s));
+    return importRows.filter((row) =>
+      row.kind === 'single'
+        ? matches(row.q)
+        : (row.heading || '').toLowerCase().includes(s) || row.members.some(matches));
+  }, [importRows, importQSearch]);
 
   /** Bank ids already in this questionnaire — linking one twice is rejected. */
   const linkedIds = useMemo(
@@ -626,10 +781,16 @@ export default function CreateAssessmentPage() {
   );
 
   const confirmImport = () => {
-    const picked = importQuestions.filter((q) => importPicked.has(q.questionId));
+    const picked = importRows.filter((row) => importPicked.has(row.id));
     if (picked.length === 0) { setImportOpen(false); return; }
     const section = useSections ? importSection : null;
-    setDrafts((prev) => [...prev, ...picked.map((q) => draftFromQuestion(q, section, importMode === 'copy'))]);
+    setDrafts((prev) => [
+      ...prev,
+      ...picked.map((row) =>
+        row.kind === 'single'
+          ? draftFromQuestion(row.q, section, importMode === 'copy')
+          : draftFromGroupPlacements(row.id, row.members, section, importMode === 'copy')),
+    ]);
     setImportOpen(false);
   };
 
@@ -664,42 +825,63 @@ export default function CreateAssessmentPage() {
 
   const previewQuestions = useMemo<PreviewQuestion[]>(() => {
     const counters = new Map<string, number>();
-    return drafts.map((d, i) => {
+    // A group draft expands into its member questions (the parent is never a
+    // question of its own anywhere downstream); each member wears the
+    // group's id and heading so the preview folds them back into a block.
+    const one = (
+      form: QuestionForm,
+      d: DraftQuestion,
+      fallbackId: number,
+      group: { id: number; heading: string | null; description: string | null } | null,
+    ): PreviewQuestion => {
       const scope = String(useSections ? d.sectionId ?? 'none' : 'flat');
       const position = counters.get(scope) ?? 0;
       counters.set(scope, position + 1);
       return {
-        questionId: d.questionId ?? -(i + 1),
+        questionId: form.id ?? fallbackId,
         sectionId: useSections ? d.sectionId : null,
         sortOrder: position,
-        contentType: d.form.contentType,
-        questionType: d.form.questionType,
-        stem: d.form.stem.trim(),
+        contentType: form.contentType,
+        questionType: form.questionType,
+        stem: form.stem.trim(),
         // Gated on showDescription exactly as the payload is, so the preview
         // shows what will actually be saved rather than what is still typed
         // into a box the author has since unticked.
-        description: d.form.showDescription ? d.form.description.trim() || null : null,
-        mediaUrl: d.form.mediaUrl.trim() || null,
+        description: form.showDescription ? form.description.trim() || null : null,
+        mediaUrl: form.mediaUrl.trim() || null,
         // Straight off the draft form, so Preview shows the selection rule of
         // an unsaved edit too — the whole point of previewing here.
-        selectionRule: d.form.selectionRule || null,
-        selectionCount: d.form.selectionRule ? Number(d.form.selectionCount) || null : null,
-        shuffleOptions: d.form.shuffleOptions,
-        scaleLowLabel: d.form.scaleLowLabel || null,
-        scaleHighLabel: d.form.scaleHighLabel || null,
+        selectionRule: form.selectionRule || null,
+        selectionCount: form.selectionRule ? Number(form.selectionCount) || null : null,
+        shuffleOptions: form.shuffleOptions,
+        scaleLowLabel: form.scaleLowLabel || null,
+        scaleHighLabel: form.scaleHighLabel || null,
+        answerFormat: form.questionType === 'SHORT_ANSWER' ? form.answerFormat : null,
         // Draft rows have no id yet — index is enough for a preview key.
-        rows: liveRows(d.form).map((r, ri) => ({ questionRowId: ri, rowText: r.rowText })),
+        rows: liveRows(form).map((r, ri) => ({ questionRowId: ri, rowText: r.rowText })),
         // effectiveOptions, not form.options: a scale's points are generated
         // on save, so they exist nowhere on the draft — the preview has to
         // show them anyway.
-        options: effectiveOptions(d.form).map((o, oi) => ({
+        options: effectiveOptions(form).map((o, oi) => ({
           optionId: oi,
           optionText: o.optionText || null,
           description: o.showDescription ? o.description.trim() || null : null,
           contentType: o.contentType,
           mediaUrl: o.mediaUrl || null,
         })),
+        parentQuestionId: group?.id ?? null,
+        groupHeading: group?.heading ?? null,
+        groupDescription: group?.description ?? null,
       };
+    };
+    return drafts.flatMap((d, i) => {
+      if (d.form.questionType !== 'GROUP') return [one(d.form, d, -(i + 1), null)];
+      const group = {
+        id: d.questionId ?? -(i + 1),
+        heading: d.form.stem.trim() || null,
+        description: d.form.showDescription ? d.form.description.trim() || null : null,
+      };
+      return d.form.members.map((m, k) => one(m, d, -((i + 1) * 1000 + k), group));
     });
   }, [drafts, useSections]);
 
@@ -875,19 +1057,29 @@ export default function CreateAssessmentPage() {
     }
   };
 
-  /** Flatten drafts into the placement payload; per-scope order = sortOrder. */
+  /**
+   * Flatten drafts into the placement payload; per-scope order = sortOrder.
+   * A GROUP draft expands into one entry per MEMBER (the parent is never
+   * placed — the server refuses its id), consecutive and in member order,
+   * which is exactly the contiguity the server checks. Each member carries
+   * its own Optional flag off its form.
+   */
   const buildMappingEntries = (list: DraftQuestion[]) => {
     const counters = new Map<string, number>();
-    return list.map((d) => {
+    return list.flatMap((d) => {
       const scope = String(useSections ? d.sectionId : 'flat');
-      const sortOrder = counters.get(scope) ?? 0;
-      counters.set(scope, sortOrder + 1);
-      return {
-        questionId: d.questionId as number,
-        sectionId: useSections ? d.sectionId : null,
-        sortOrder,
-        optional: d.optional,
-      };
+      const isGroup = d.form.questionType === 'GROUP';
+      const forms = isGroup ? d.form.members : [d.form];
+      return forms.map((f) => {
+        const sortOrder = counters.get(scope) ?? 0;
+        counters.set(scope, sortOrder + 1);
+        return {
+          questionId: (isGroup ? f.id : d.questionId) as number,
+          sectionId: useSections ? d.sectionId : null,
+          sortOrder,
+          optional: isGroup ? f.optional ?? false : d.optional,
+        };
+      });
     });
   };
 
@@ -930,6 +1122,18 @@ export default function CreateAssessmentPage() {
     setSaving(true);
     try {
       const next = [...drafts];
+      // The server's ids written back onto the form — for a GROUP that
+      // includes every member's id (new members are born in the same save,
+      // and the placement entries below are built from exactly these).
+      // Members come back in the order they were sent, so index pairing is
+      // exact; the per-placement optional flags stay the form's own.
+      const withServerIds = (form: QuestionForm, saved: QuestionResponse): QuestionForm => ({
+        ...form,
+        id: saved.questionId,
+        members: form.questionType === 'GROUP'
+          ? form.members.map((m, k) => ({ ...m, id: saved.members?.[k]?.questionId ?? m.id }))
+          : form.members,
+      });
       // 1 — edited bank questions.
       for (let i = 0; i < next.length; i++) {
         const d = next[i];
@@ -937,7 +1141,8 @@ export default function CreateAssessmentPage() {
         const snapshot = JSON.stringify(d.form);
         if (snapshot === d.baseline) continue;
         const res = await questionApis.updateQuestion(d.questionId, questionPayloadFrom(d.form));
-        next[i] = { ...d, baseline: snapshot, usedIn: res.data.usedIn };
+        const form = withServerIds(d.form, res.data);
+        next[i] = { ...d, form, baseline: JSON.stringify(form), usedIn: res.data.usedIn };
       }
       // 2 — brand-new questions, in one all-or-nothing call.
       const newIdx = next.map((d, i) => (d.questionId == null ? i : -1)).filter((i) => i >= 0);
@@ -945,7 +1150,7 @@ export default function CreateAssessmentPage() {
         const res = await questionApis.bulkCreateQuestions(newIdx.map((i) => questionPayloadFrom(next[i].form)));
         res.data.forEach((created, k) => {
           const i = newIdx[k];
-          const form = { ...next[i].form, id: created.questionId };
+          const form = withServerIds(next[i].form, created);
           next[i] = {
             ...next[i],
             questionId: created.questionId,
@@ -979,6 +1184,14 @@ export default function CreateAssessmentPage() {
     const rowCount = liveRows(d.form).length;
     const typeLabel = QUESTION_TYPES.find((t) => t.value === d.form.questionType)?.label;
     const sharedWith = d.usedIn.filter((u) => u.questionnaireId !== backendQid);
+    // A group stands for several question numbers — the circle and the tag
+    // say so ("3–5", "Q_3 – Q_5"), because that is what the portal counts.
+    const isGroup = d.form.questionType === 'GROUP';
+    const span = questionCountOf(d);
+    const numberLabel = span > 1 ? `${position + 1}–${position + span}` : String(position + 1);
+    const tagLabel = span > 1
+      ? `${tagPreview(d.sectionId, position)} – ${tagPreview(d.sectionId, position + span - 1)}`
+      : tagPreview(d.sectionId, position);
     return (
       <SortableDraftRow key={d.key} id={d.key}>
         {(grip) => (
@@ -992,29 +1205,35 @@ export default function CreateAssessmentPage() {
               >
                 <ChevronRight className={cn('h-4 w-4 transition-transform', d.expanded && 'rotate-90')} />
               </button>
-              <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
-                {position + 1}
+              <span className="mt-0.5 flex h-6 min-w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 px-1 text-xs font-semibold text-primary">
+                {numberLabel}
               </span>
               <button
                 type="button"
                 onClick={() => patchDraft(d.key, { expanded: !d.expanded })}
                 className="min-w-0 flex-1 text-left"
               >
-                <p className="truncate text-sm font-medium">
-                  {stem || <span className="italic text-muted-foreground">Untitled question</span>}
+                <p className={cn('truncate text-sm font-medium', isGroup && !stem && 'italic text-muted-foreground')}>
+                  {stem || (isGroup
+                    ? (d.form.members[0]?.stem.trim()
+                      ? `${d.form.members[0].stem.trim()}…`
+                      : 'Group of questions')
+                    : <span className="italic text-muted-foreground">Untitled question</span>)}
                 </p>
                 <p className="truncate text-[0.6875rem] text-muted-foreground">
                   <span className="font-mono" title="Auto-generated report tag — saved with the questionnaire">
-                    {tagPreview(d.sectionId, position)}
+                    {tagLabel}
                   </span>
                   {d.form.questionType !== 'MCQ' && <>{' · '}{typeLabel}</>}
-                  {d.form.questionType === 'LIKERT_GRID'
-                    ? <>{' · '}{rowCount} row{rowCount !== 1 ? 's' : ''} × {optionCount} column{optionCount !== 1 ? 's' : ''}</>
-                    : d.form.questionType === 'SHORT_ANSWER'
-                      ? <>{' · '}typed answer</>
-                      : d.form.questionType === 'GAMES'
-                        ? <>{' · '}{d.form.gameId == null ? 'no game picked yet' : 'launches a game'}</>
-                        : <>{' · '}{optionCount} option{optionCount !== 1 ? 's' : ''}</>}
+                  {isGroup
+                    ? <>{' · '}{span} question{span !== 1 ? 's' : ''} on one page</>
+                    : d.form.questionType === 'LIKERT_GRID'
+                      ? <>{' · '}{rowCount} row{rowCount !== 1 ? 's' : ''} × {optionCount} column{optionCount !== 1 ? 's' : ''}</>
+                      : d.form.questionType === 'SHORT_ANSWER'
+                        ? <>{' · '}typed answer</>
+                        : d.form.questionType === 'GAMES'
+                          ? <>{' · '}{d.form.gameId == null ? 'no game picked yet' : 'launches a game'}</>
+                          : <>{' · '}{optionCount} option{optionCount !== 1 ? 's' : ''}</>}
                   {d.questionId == null
                     ? ' · new — added to the question bank when you save'
                     : ` · bank question #${d.questionId}`}
@@ -1023,7 +1242,10 @@ export default function CreateAssessmentPage() {
               </button>
               {/* Per placement, saved with the questionnaire. Once anyone has
                   started an assessment of it, only required → optional is
-                  accepted — the save says so if it is refused. */}
+                  accepted — the save says so if it is refused. A group has
+                  no single flag: each member carries its own, inside the
+                  expanded members editor. */}
+              {!isGroup && (
               <label
                 className="mt-0.5 flex h-6 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border border-border bg-background px-2 text-xs"
                 title="Optional questions can be left blank. Required ones must be answered before the assessment can be submitted."
@@ -1036,6 +1258,7 @@ export default function CreateAssessmentPage() {
                 />
                 Optional
               </label>
+              )}
               {useSections && qSections.length > 0 && (
                 <select
                   value={d.sectionId ?? ''}
@@ -1092,6 +1315,9 @@ export default function CreateAssessmentPage() {
                   onChange={(form) => setDraftForm(d.key, form)}
                   choices={mqtChoices}
                   onCreateChoice={(c) => setMqtChoices((prev) => (prev.some((x) => x.id === c.id) ? prev : [...prev, c]))}
+                  // Group members carry their per-placement Optional flag
+                  // here, where the placement is being authored.
+                  showMemberOptional
                 />
               </CardContent>
             )}
@@ -1467,6 +1693,7 @@ export default function CreateAssessmentPage() {
                       />{' '}
                       Show instruction on each question
                     </label>
+                    <SectionLayoutSelect value={newSectionLayout} onChange={setNewSectionLayout} />
                   </div>
                   {qSections.length === 0 ? (
                     <p className="py-6 text-center text-sm text-muted-foreground">
@@ -1510,6 +1737,7 @@ export default function CreateAssessmentPage() {
                                 />{' '}
                                 Show instruction on each question
                               </label>
+                              <SectionLayoutSelect value={editSectionLayout} onChange={setEditSectionLayout} />
                               <div className="flex justify-end gap-2">
                                 <Button variant="outline" size="sm" onClick={() => setEditingSection(null)} disabled={sectionBusy}>
                                   Cancel
@@ -1539,6 +1767,15 @@ export default function CreateAssessmentPage() {
                                     editor. */}
                                 {sec.instruction && sec.showInstructionOnEachQuestion && (
                                   <p className="text-[0.6875rem] text-primary">Shown on each question</p>
+                                )}
+                                {/* Only when the section overrides the
+                                    assessment — the default says nothing. */}
+                                {sec.questionLayout && (
+                                  <p className="text-[0.6875rem] text-primary">
+                                    {sec.questionLayout === 'SECTION_PER_PAGE'
+                                      ? 'All questions on one page'
+                                      : 'One question per page'}
+                                  </p>
                                 )}
                               </div>
                               <div className="flex items-center gap-2 shrink-0">
@@ -1826,9 +2063,9 @@ export default function CreateAssessmentPage() {
                     <button
                       type="button"
                       onClick={() => setImportPicked(new Set(
-                        filteredImportQuestions
-                          .filter((q) => importMode === 'copy' || !linkedIds.has(q.questionId))
-                          .map((q) => q.questionId),
+                        filteredImportRows
+                          .filter((row) => importMode === 'copy' || !linkedIds.has(row.id))
+                          .map((row) => row.id),
                       ))}
                       className="text-[0.6875rem] font-medium text-primary hover:underline"
                     >
@@ -1848,7 +2085,7 @@ export default function CreateAssessmentPage() {
                     <p className="py-8 text-center text-sm text-muted-foreground">
                       <Loader2 className="mr-2 inline h-4 w-4 animate-spin" /> Loading questions…
                     </p>
-                  ) : filteredImportQuestions.length === 0 ? (
+                  ) : filteredImportRows.length === 0 ? (
                     <p className="py-8 text-center text-sm text-muted-foreground">
                       {importQuestions.length === 0
                         ? 'That questionnaire has no questions.'
@@ -1856,12 +2093,13 @@ export default function CreateAssessmentPage() {
                     </p>
                   ) : (
                     <div className="space-y-1.5">
-                      {filteredImportQuestions.map((q) => {
-                        const already = importMode === 'link' && linkedIds.has(q.questionId);
-                        const checked = importPicked.has(q.questionId);
+                      {filteredImportRows.map((row) => {
+                        const already = importMode === 'link' && linkedIds.has(row.id);
+                        const checked = importPicked.has(row.id);
+                        const q = row.kind === 'single' ? row.q : null;
                         return (
                           <label
-                            key={q.questionId}
+                            key={row.id}
                             className={cn(
                               'flex cursor-pointer items-start gap-2.5 rounded-md border px-3 py-2 text-sm transition-colors',
                               checked ? 'border-primary bg-primary/5' : 'border-border',
@@ -1874,24 +2112,41 @@ export default function CreateAssessmentPage() {
                               disabled={already}
                               onChange={() => setImportPicked((prev) => {
                                 const next = new Set(prev);
-                                if (next.has(q.questionId)) next.delete(q.questionId);
-                                else next.add(q.questionId);
+                                if (next.has(row.id)) next.delete(row.id);
+                                else next.add(row.id);
                                 return next;
                               })}
                               className="mt-1 shrink-0 rounded"
                             />
                             <div className="min-w-0 flex-1">
-                              <p className="text-sm">
-                                {q.stem || <span className="italic text-muted-foreground">(media question)</span>}
-                              </p>
-                              <p className="text-[0.6875rem] text-muted-foreground">
-                                {q.questionType === 'GAMES'
-                                  ? `game: ${q.options.find((o) => o.game)?.game?.name ?? '—'}`
-                                  : `${q.options.length} option${q.options.length !== 1 ? 's' : ''}`}
-                                {q.mqtScores.length > 0 && ` · ${q.mqtScores.length} question-level score${q.mqtScores.length !== 1 ? 's' : ''}`}
-                                {q.riskFlag && ' · risk flag'}
-                                {already && ' · already in this questionnaire'}
-                              </p>
+                              {q ? (
+                                <>
+                                  <p className="text-sm">
+                                    {q.stem || <span className="italic text-muted-foreground">(media question)</span>}
+                                  </p>
+                                  <p className="text-[0.6875rem] text-muted-foreground">
+                                    {q.questionType === 'GAMES'
+                                      ? `game: ${q.options.find((o) => o.game)?.game?.name ?? '—'}`
+                                      : `${q.options.length} option${q.options.length !== 1 ? 's' : ''}`}
+                                    {q.mqtScores.length > 0 && ` · ${q.mqtScores.length} question-level score${q.mqtScores.length !== 1 ? 's' : ''}`}
+                                    {q.riskFlag && ' · risk flag'}
+                                    {already && ' · already in this questionnaire'}
+                                  </p>
+                                </>
+                              ) : row.kind === 'group' && (
+                                /* A group imports whole — one row for the block. */
+                                <>
+                                  <p className="text-sm">
+                                    {row.heading || <span className="italic text-muted-foreground">Group of questions</span>}
+                                  </p>
+                                  <p className="truncate text-[0.6875rem] text-muted-foreground">
+                                    group · {row.members.length} question{row.members.length !== 1 ? 's' : ''} on one page
+                                    {' · '}{row.members.slice(0, 3).map((m) => m.stem || '…').join(' · ')}
+                                    {row.members.length > 3 ? ' …' : ''}
+                                    {already && ' · already in this questionnaire'}
+                                  </p>
+                                </>
+                              )}
                             </div>
                           </label>
                         );

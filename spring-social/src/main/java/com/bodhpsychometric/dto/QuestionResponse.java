@@ -3,6 +3,7 @@ package com.bodhpsychometric.dto;
 import java.util.List;
 
 import com.bodhpsychometric.model.question.Question;
+import com.bodhpsychometric.model.question.enums.AnswerFormat;
 import com.bodhpsychometric.model.question.enums.ContentType;
 import com.bodhpsychometric.model.question.enums.QuestionType;
 import com.bodhpsychometric.model.question.enums.SelectionRule;
@@ -26,9 +27,18 @@ import com.bodhpsychometric.model.question.enums.SelectionRule;
  * per-point scores (a null range means 1—5). On a LIKERT_GRID the options are
  * the shared columns and rows are the items, each naming the MQTs it measures;
  * rows is empty on every other type. A SHORT_ANSWER has neither.
+ * answerFormat is what a SHORT_ANSWER accepts (TEXT or WHOLE_NUMBER, never
+ * null there) and null on every other type.
  *
  * optional is placement context like sectionId: whether THIS questionnaire
  * lets the respondent leave the question blank. Null in bank-wide reads.
+ *
+ * A GROUP parent (V49) carries its members nested, each a full
+ * QuestionResponse; stem is its optional heading and may be null. A MEMBER
+ * (read through a questionnaire, where it is a placement like any other)
+ * carries parentQuestionId plus the parent's heading/description, so the
+ * builder and the preview can fold consecutive members back into their group
+ * without a second fetch. Both are null/empty everywhere else.
  */
 public record QuestionResponse(
         Long questionId,
@@ -51,9 +61,14 @@ public record QuestionResponse(
         Integer scaleTo,
         String scaleLowLabel,
         String scaleHighLabel,
+        AnswerFormat answerFormat,
         List<QuestionOptionResponse> options,
         List<QuestionRowResponse> rows,
-        List<MqtScoreResponse> mqtScores) {
+        List<MqtScoreResponse> mqtScores,
+        Long parentQuestionId,
+        String groupHeading,
+        String groupDescription,
+        List<QuestionResponse> members) {
 
     /** One questionnaire that uses this question. */
     public record UsedInRef(Long questionnaireId, String name) {
@@ -61,7 +76,8 @@ public record QuestionResponse(
 
     public static QuestionResponse from(Question q, List<UsedInRef> usedIn, Long sectionId, Integer sortOrder,
             String questionTag, Boolean optional, List<QuestionOptionResponse> options,
-            List<QuestionRowResponse> rows, List<MqtScoreResponse> mqtScores) {
+            List<QuestionRowResponse> rows, List<MqtScoreResponse> mqtScores,
+            List<QuestionResponse> members) {
         return new QuestionResponse(
                 q.getQuestionId(),
                 usedIn,
@@ -82,8 +98,13 @@ public record QuestionResponse(
                 q.getScaleTo(),
                 q.getScaleLowLabel(),
                 q.getScaleHighLabel(),
+                q.answerFormat(),
                 options,
                 rows,
-                mqtScores);
+                mqtScores,
+                q.getParentQuestion() == null ? null : q.getParentQuestion().getQuestionId(),
+                q.getParentQuestion() == null ? null : q.getParentQuestion().getQuestionTexString(),
+                q.getParentQuestion() == null ? null : q.getParentQuestion().getDescription(),
+                members);
     }
 }

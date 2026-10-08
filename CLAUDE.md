@@ -158,6 +158,24 @@ re-read a file before editing; expect it to have changed):
   option. `option_id` is still NULLABLE: making it NOT NULL needs PARAGRAPH
   to get the same slot first. `rank_order` is KEPT (user's decision), reserved
   for a future RANKING type and written by nothing yet.
+- Whole-number short answers (2026-10-08, `V48`, `ShortAnswerFormatTest`):
+  `Question.answerFormat` TEXT | WHOLE_NUMBER, a RULE on SHORT_ANSWER, NOT a
+  new question type (user's decision: same storage — text on the V40 slot —
+  so no `== SHORT_ANSWER` branch changed, and MemoryMesh's import sees no new
+  type). Stored RESOLVED on every short answer (V48 backfilled TEXT), NULL on
+  every other type; read through `Question.answerFormat()`. Request: null on a
+  short answer = TEXT, any value on another type = 400. WHOLE_NUMBER = digits
+  only, 1–15 (`AnswerFormat.WHOLE_NUMBER_PATTERN`, mirrored by the portal's
+  `typedAnswerProblem` in `lib/api.ts`): no sign, no decimal point (dot or
+  comma), no thousands separator; stored as typed, trimmed. Checked at portal
+  submit only — the MemoryMesh attempt sync deliberately does NOT enforce it
+  (a 400 there drops a finished attempt). Once answered, TEXT → WHOLE_NUMBER
+  is a 409; the reverse always passes. Scoring unchanged — earned for
+  answering, never the number. Data Studio types the `ans:` column "number";
+  the export's `QuestionColumn.answerFormat` makes Raw Data write a number
+  cell (`answerCell`, non-digits stay text). Portal: one-line
+  `inputMode="numeric"` box (not `type="number"`), amber inline reason, Enter
+  = Next; an invalid value is touched-but-unanswered, so an optional one blocks.
 - Optional questions + question layout (2026-10-06, `V41`):
   * `QuestionnaireQuestion.optional` (`is_optional`, default 0 = required) is
     per PLACEMENT, like demographics' `isRequired`. Polarity is load-bearing:
@@ -176,13 +194,32 @@ re-read a file before editing; expect it to have changed):
   * `Assessment.questionLayout` (`question_layout` MySQL ENUM, append new
     values at the END): ONE_PER_PAGE (original) | SECTION_PER_PAGE (a whole
     section per scrollable page; a flat questionnaire = one page). Read live,
-    not cached. Section pages: Back/Next, Submit on the last page, never
-    auto-advance, Next/Submit never greyed — pressed with a blocking question
-    they outline it and scroll to it. One shared `renderQuestion(qi)` draws
-    a question in both layouts. Portal: "Optional" tag, a third navigator
-    state ("Optional, left blank"), "Clear answer" on optional questions, and
-    the slider's own Clear on every scale. `MemoryMeshAssessmentDetail` does
-    NOT carry the layout (the flag rides `PortalQuestionnaireContent`).
+    not cached. One shared `renderQuestion(qi)` draws a question on both
+    kinds of page. Portal: "Optional" tag, a third navigator state
+    ("Optional, left blank"), "Clear answer" on optional questions, and the
+    slider's own Clear on every scale. `MemoryMeshAssessmentDetail` does NOT
+    carry the layout (the flag rides `PortalQuestionnaireContent`).
+  * PER-SECTION override (2026-10-08, `V47`, user chose "on the section"):
+    `Section.questionLayout` (`section.question_layout`, same ENUM, NULL =
+    the assessment's). Questions in no section always follow the assessment.
+    The section PUT REPLACES every field, so omitting it hands the section
+    back — `SectionPayload.questionLayout` is REQUIRED in the dashboard type
+    so tsc finds every caller (uploads send null). Builder: "Show this
+    section's questions" select in the Add/Edit section box; the assessment
+    form lists overriding sections and greys auto-advance only when no page
+    can be single. A paper can MIX page kinds: the runner's `pages` carry
+    `whole`, and every rule is per page (`onWholePage`).
+  * Navigation, user's rules (2026-10-08): a single question greys Next
+    while it blocks; a section page never greys Next — pressed, it outlines
+    and scrolls to the blank. Otherwise Next (`forwardPage`) goes to: a page
+    already PASSED (≤ furthest page seen, so jumped-over sections count) with
+    something required missing, wrapping; else the next page with anything
+    missing or unseen; else the next page. SUBMIT appears only once EVERY
+    question has been seen AND nothing blocks (`allSeen`); a resume counts
+    everything up to the furthest touched question as seen. On a section
+    page whose own blanks are all that is left, a "Submit Assessment" button
+    that only points at the blank stands in. Header counts questions on both
+    kinds ("Question 4 of 40" / "Questions 5–12 of 40"); Back everywhere.
 - Demographic CHECKLIST + write-in "Other" (2026-10-01, `V39`,
   `docs/demographic-other-and-checklist-plan.md`): CHECKLIST ticks any number
   of options, which live in `demographic_field_option` like a Dropdown's. The
@@ -554,6 +591,47 @@ re-read a file before editing; expect it to have changed):
   id, renamed from "Assessment #" so nobody reads it as the assessment's id).
   Read live through `PortalAssessmentDetailResponse`, never the Redis content.
   NOT on `MemoryMeshAssessmentDetail`.
+- Group questions (2026-10-08, `V49`, `GroupQuestionTest`,
+  `docs/group-question-plan.md`): `QuestionType.GROUP` (appended LAST in the
+  MySQL enum) is an OPTIONAL heading — `stem` may be blank on this ONE type,
+  so the required-stem rule moved off the DTO's `@NotBlank` into
+  `validateType` — over MEMBER questions: full `Question` rows hung off
+  `question.parent_question_id` + `group_sort_order` (nullable self-FK
+  `fkQuestionParent`; null = every pre-existing row, no backfill). Members
+  are MCQ / LINEAR_SCALE / SHORT_ANSWER (GAMES, LIKERT_GRID, nested GROUP
+  refused), authored ONLY through the parent's payload
+  (`QuestionRequest.members`, each carrying its `questionId` on update;
+  direct member update/delete = 409 "belongs to a group"), and hidden from
+  bank-wide reads (`findByParentQuestionIsNull`; `findAllStems` filters
+  too). **The parent is NEVER placed, delivered, answered or tagged** — the
+  MEMBERS carry the placements (all-or-none, contiguous, in group order:
+  `groupPlacementProblem`; the parent id in the placements PUT = 400), the
+  per-placement `optional` flags, the Q_n tags and the answer rows, so
+  scoring, freezing, exports, Data Studio, resume and the MemoryMesh sync
+  all see ordinary questions and were NOT touched. Membership (which
+  questions, what order) freezes at the FIRST ANSWER; while merely placed
+  it may still change and `resyncGroupPlacements` re-splices every
+  questionnaire's member placements in the same transaction (kept rows keep
+  their optional flags, new members join required, tags re-stamped via
+  `PlacementTags` — extracted from QuestionnaireController so both writers
+  share it — content evicted). That sync is what lets the builder edit a
+  group already sitting in its own questionnaire. Delivery:
+  `ContentQuestion`/`PortalQuestion` members carry
+  `groupId`/`groupHeading`/`groupDescription` (stale Redis entry = null =
+  renders flat, safe polarity). Portal: consecutive same-groupId questions
+  fold into ONE page under ONE_PER_PAGE — a group page is mechanically a
+  small section page (header "Questions 4–6 of 40", Next never greyed,
+  outlines + scrolls to blanks, no auto-advance) — and into one bordered
+  block inside SECTION_PER_PAGE pages; a member's options render in a
+  WRAPPING horizontal row (`inGroup` in renderQuestion; the "Other…" cell
+  spans the row). Dashboard: the ONE question form nests full member forms
+  recursively (`QuestionFormFields` + `allowedTypes` +
+  `showMemberOptional`); the builder folds member placements into one group
+  draft (`draftsFromPlacements`), expands them again in the mapping PUT
+  (`buildMappingEntries`), rides per-member optional ON the member form
+  (`QuestionForm.optional` — builder-only, never in the bank payload), and
+  the import-from-questionnaire picker offers a group as ONE whole row.
+  XLSX/AI sheet import cannot produce a GROUP (phase 2, by decision).
 
 ## Frontend conventions
 
@@ -575,7 +653,7 @@ re-read a file before editing; expect it to have changed):
 
 ## Verification loop (do this EVERY change)
 
-1. Backend: `cd spring-social && ./mvnw -B test` (495 tests green as of
+1. Backend: `cd spring-social && ./mvnw -B test` (503 tests green as of
    2026-10-08). Tightening a DTO's validation breaks the fixtures that post
    that shape — fix the payloads, do not relax the rule. If every Spring test
    errors with `BeanDefinitionOverrideException` on repositories, the IDE has

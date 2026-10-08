@@ -40,6 +40,9 @@ export default function QualitiesPage() {
   // Combined edit popup for an existing MQ — edits its name/description AND
   // manages (add/rename/delete) its MQTs. Holds the id of the MQ being edited.
   const [editMqId, setEditMqId] = useState<string | null>(null);
+  // Set when the edit popup was opened straight after "Add MQ" — the MQ is
+  // already saved, so the popup says so and invites its first MQTs.
+  const [justCreatedMqId, setJustCreatedMqId] = useState<string | null>(null);
   const [mqForm, setMqForm] = useState<{ id: string | null; name: string; description: string }>({
     id: null, name: '', description: '',
   });
@@ -115,6 +118,7 @@ export default function QualitiesPage() {
     setMqForm({ id: mq.id, name: mq.name, description: mq.description || '' });
     setMqError('');
     setMqtTreeError('');
+    setJustCreatedMqId(null);
     setEditMqId(mq.id);
   };
   const submitMq = async () => {
@@ -131,9 +135,16 @@ export default function QualitiesPage() {
         await refresh();
         setEditMqId(null);
       } else {
-        await qualitiesApi.createQuality(payload);
+        // MQTs can only be anchored to a saved MQ, so creation hands straight
+        // over to the edit popup, where the new MQ's MQT section lives.
+        const res = await qualitiesApi.createQuality(payload);
         await refresh();
+        const newId = String(res.data.measuredQualityId);
         setMqModalOpen(false);
+        setMqForm({ id: newId, name: res.data.name, description: res.data.description || '' });
+        setMqtTreeError('');
+        setJustCreatedMqId(newId);
+        setEditMqId(newId);
       }
     } catch (e: any) {
       setMqError(e?.response?.data?.message || e?.message || 'Failed to save');
@@ -336,6 +347,15 @@ export default function QualitiesPage() {
                       {total} MQT{total !== 1 ? 's' : ''}
                     </span>
                     <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={(e) => { e.stopPropagation(); openAddMqtAtRoot(mq.id); }}
+                      title="Add a top-level MQT to this MQ"
+                    >
+                      <Plus className="h-3 w-3" />
+                      MQT
+                    </Button>
+                    <Button
                       variant="ghost"
                       size="sm"
                       mode="icon"
@@ -413,6 +433,11 @@ export default function QualitiesPage() {
               <button onClick={() => setEditMqId(null)} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
             </CardHeader>
             <CardContent className="space-y-4 overflow-y-auto">
+              {justCreatedMqId === editingMq.id && (
+                <div className="rounded-lg border border-green-200 bg-green-50 dark:border-green-900 dark:bg-green-950/30 px-3 py-2 text-xs text-green-700 dark:text-green-400">
+                  <strong>{editingMq.name}</strong> is saved. Add its MQTs below.
+                </div>
+              )}
               {mqError && (
                 <div className="rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-3 py-2 text-xs text-red-700 dark:text-red-400 flex items-start gap-2">
                   <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
@@ -495,7 +520,7 @@ export default function QualitiesPage() {
                   ? 'Rename MQT'
                   : mqtEditor.parentMqtId
                     ? 'Add Sub-MQT'
-                    : 'Add MQT'}
+                    : `Add MQT to ${mqs.find((m) => m.id === mqtEditor.mqId)?.name ?? 'MQ'}`}
               </CardTitle>
               <button onClick={() => setMqtEditorOpen(false)} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
             </CardHeader>

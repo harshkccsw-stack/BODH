@@ -4,6 +4,7 @@ import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.bodhpsychometric.model.question.enums.AnswerFormat;
 import com.bodhpsychometric.model.question.enums.ContentType;
 import com.bodhpsychometric.model.question.enums.QuestionType;
 import com.bodhpsychometric.model.question.enums.SelectionRule;
@@ -20,7 +21,8 @@ import jakarta.persistence.OrderBy;
 import jakarta.persistence.Table;
 
 @Entity
-@Table(name = "Question")
+@Table(name = "Question",
+        indexes = @jakarta.persistence.Index(name = "idxQuestionParent", columnList = "parentQuestionId"))
 public class Question implements Serializable {
 
     public static final long serialVersionUID = 1L;
@@ -32,6 +34,26 @@ public class Question implements Serializable {
     // Pure bank item: which questionnaires use this question — and where —
     // lives in QuestionnaireQuestion rows, never on this table. A question
     // may appear in many questionnaires, once each.
+
+    /**
+     * GROUP members only (V49): the group this question belongs to. Null =
+     * a top-level bank question, which is every row that predates groups.
+     * Members are composition — created, edited and deleted through their
+     * parent's payload, hidden from bank-wide lists, never placed by their
+     * own id (the placement PUT places them with their siblings when it
+     * places the group). Depth is 1: a GROUP cannot itself be a member.
+     * Deliberately no mapped children collection — the question flow loads
+     * members by repository query and deletes them explicitly, so the
+     * self-reference cannot grow cascade surprises.
+     */
+    @jakarta.persistence.ManyToOne(fetch = jakarta.persistence.FetchType.LAZY)
+    @jakarta.persistence.JoinColumn(name = "parentQuestionId",
+            foreignKey = @jakarta.persistence.ForeignKey(name = "fkQuestionParent"))
+    private Question parentQuestion;
+
+    /** Position inside the group; null exactly when parentQuestion is. */
+    @Column(name = "groupSortOrder")
+    private Integer groupSortOrder;
 
     /**
      * Inverse side of Question 1—* Option. Options live and die with their
@@ -87,6 +109,16 @@ public class Question implements Serializable {
     /** LINEAR_SCALE only: the caption under the last point ("Strongly agree"). */
     @Column(name = "scaleHighLabel", length = 100)
     private String scaleHighLabel;
+
+    /**
+     * SHORT_ANSWER only: what the typed answer must be — TEXT or a
+     * WHOLE_NUMBER (V48). Stored resolved on every short answer, NULL on every
+     * other type; read it through {@link #answerFormat()}, which also covers a
+     * short answer saved around the question flow.
+     */
+    @Enumerated(value = jakarta.persistence.EnumType.STRING)
+    @Column(name = "answerFormat", length = 12)
+    private AnswerFormat answerFormat;
 
     /**
      * How many options the respondent may pick, with {@link #selectionCount}:
@@ -209,6 +241,26 @@ public class Question implements Serializable {
 
     public void setScaleHighLabel(String scaleHighLabel) {
         this.scaleHighLabel = scaleHighLabel;
+    }
+
+    public AnswerFormat getAnswerFormat() {
+        return answerFormat;
+    }
+
+    public void setAnswerFormat(AnswerFormat answerFormat) {
+        this.answerFormat = answerFormat;
+    }
+
+    /**
+     * What this question's typed answer must be: the stored format on a
+     * SHORT_ANSWER (TEXT when unset), null on every other type — the one
+     * reading every payload goes through, so none of them can disagree.
+     */
+    public AnswerFormat answerFormat() {
+        if (questionType != QuestionType.SHORT_ANSWER) {
+            return null;
+        }
+        return answerFormat == null ? AnswerFormat.TEXT : answerFormat;
     }
 
     public SelectionRule getSelectionRule() {
@@ -368,6 +420,32 @@ public class Question implements Serializable {
     public void removeOption(Option option) {
         options.remove(option);
         option.setQuestion(null);
+    }
+
+    public Question getParentQuestion() {
+        return parentQuestion;
+    }
+
+    public void setParentQuestion(Question parentQuestion) {
+        this.parentQuestion = parentQuestion;
+    }
+
+    public Integer getGroupSortOrder() {
+        return groupSortOrder;
+    }
+
+    public void setGroupSortOrder(Integer groupSortOrder) {
+        this.groupSortOrder = groupSortOrder;
+    }
+
+    /** True on a GROUP parent — the heading row whose members hold the content. */
+    public boolean isGroup() {
+        return questionType == QuestionType.GROUP;
+    }
+
+    /** True on a question living inside a group. */
+    public boolean isGroupMember() {
+        return parentQuestion != null;
     }
 
     public List<QuestionRow> getRows() {

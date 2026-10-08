@@ -5,6 +5,7 @@ import {
   Gamepad2,
   Grid3x3,
   HelpCircle,
+  Layers,
   ListChecks,
   Loader2,
   Pencil,
@@ -102,9 +103,15 @@ export default function QuestionsPage() {
     const s = search.toLowerCase();
     return questions.filter(
       (q) =>
-        q.stem.toLowerCase().includes(s) ||
+        // A GROUP's stem (its heading) may be null; its members hold the text.
+        (q.stem || '').toLowerCase().includes(s) ||
         q.usedIn.some((u) => u.name.toLowerCase().includes(s)) ||
-        q.options.some((o) => (o.optionText || '').toLowerCase().includes(s)),
+        q.options.some((o) => (o.optionText || '').toLowerCase().includes(s)) ||
+        (q.members ?? []).some(
+          (m) =>
+            (m.stem || '').toLowerCase().includes(s) ||
+            m.options.some((o) => (o.optionText || '').toLowerCase().includes(s)),
+        ),
     );
   }, [questions, search]);
 
@@ -320,8 +327,18 @@ export default function QuestionsPage() {
             {filtered.map((q) => {
               const meta = contentMeta(q.contentType);
               const Icon = meta.icon;
-              const optionScoreCount = q.options.reduce((a, o) => a + (o.mqtScores?.length || 0), 0);
-              const scoreCount = (q.mqtScores?.length || 0) + optionScoreCount;
+              const isGroup = q.questionType === 'GROUP';
+              const members = q.members ?? [];
+              // A group's scores live on its members — count them there, so
+              // "not scored" means what it says on a group row too.
+              const scoresOf = (x: QuestionResponse) =>
+                (x.mqtScores?.length || 0) + x.options.reduce((a, o) => a + (o.mqtScores?.length || 0), 0);
+              const scoreCount = isGroup
+                ? members.reduce((a, m) => a + scoresOf(m), 0)
+                : scoresOf(q);
+              const rowTitle = q.stem || (isGroup
+                ? (members[0]?.stem ? `${members[0].stem}…` : 'Group of questions')
+                : '');
               return (
                 <li
                   key={q.questionId}
@@ -337,23 +354,31 @@ export default function QuestionsPage() {
                     onClick={(e) => e.stopPropagation()}
                     onChange={() => toggleOne(q.questionId)}
                     className="h-4 w-4 shrink-0 rounded"
-                    aria-label={`Select "${q.stem}"`}
+                    aria-label={`Select "${rowTitle}"`}
                   />
                   {/* flex-1 is what stops the row spreading: without it the
                       stem claims only its own width, justify-between pushes
                       the badges to the far edge, and a question with six of
                       them takes the buttons off the screen. */}
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium truncate">{q.stem}</p>
+                    <p className={cn('text-sm font-medium truncate', isGroup && !q.stem && 'text-muted-foreground italic')}>
+                      {rowTitle}
+                    </p>
                     <div className="flex items-center gap-3 mt-0.5 text-xs text-muted-foreground">
                       <span className="shrink-0">
-                        {q.options.length} option{q.options.length !== 1 ? 's' : ''}
+                        {isGroup
+                          ? `${members.length} question${members.length !== 1 ? 's' : ''}`
+                          : `${q.options.length} option${q.options.length !== 1 ? 's' : ''}`}
                       </span>
                       <span className={cn('inline-flex items-center gap-1 shrink-0', scoreCount === 0 && 'text-amber-600 dark:text-amber-500')}>
                         <Target className="h-3 w-3" />
                         {scoreCount === 0 ? 'not scored' : `${scoreCount} score${scoreCount !== 1 ? 's' : ''}`}
                       </span>
-                      {q.options.length > 0 && (
+                      {isGroup ? (
+                        <span className="truncate">
+                          {members.slice(0, 3).map((m) => m.stem || '…').join(' · ')}{members.length > 3 ? ' …' : ''}
+                        </span>
+                      ) : q.options.length > 0 && (
                         <span className="truncate">
                           {q.options.slice(0, 4).map((o) => o.optionText || o.game?.name || `[${o.contentType.toLowerCase()}]`).join(' · ')}{q.options.length > 4 ? ' …' : ''}
                         </span>
@@ -366,6 +391,15 @@ export default function QuestionsPage() {
                     {/* A scale's options are the points 1—5, so the list line
                         above reads "5 options · 1 · 2 · 3 · 4 …" — true, but
                         it takes a badge to recognise it as a scale. */}
+                    {isGroup && (
+                      <span
+                        className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-2.5 py-0.5 text-xs font-medium text-primary"
+                        title={`Group — ${members.length} question${members.length === 1 ? '' : 's'} shown together on one page, options laid out in a row`}
+                      >
+                        <Layers className="h-3 w-3" />
+                        {members.length} questions
+                      </span>
+                    )}
                     {q.questionType === 'LIKERT_GRID' && (
                       <span
                         className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-2.5 py-0.5 text-xs font-medium text-primary"
@@ -395,9 +429,13 @@ export default function QuestionsPage() {
                     {q.questionType === 'SHORT_ANSWER' && (
                       <span
                         className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-2.5 py-0.5 text-xs font-medium text-primary"
-                        title="Short answer — respondents type their answer"
+                        title={
+                          q.answerFormat === 'WHOLE_NUMBER'
+                            ? 'Short answer — respondents type a number'
+                            : 'Short answer — respondents type their answer'
+                        }
                       >
-                        <PenLine className="h-3 w-3" /> text
+                        <PenLine className="h-3 w-3" /> {q.answerFormat === 'WHOLE_NUMBER' ? 'number' : 'text'}
                       </span>
                     )}
                     {q.options.some((o) => o.contentType === 'FREE_TEXT') && (

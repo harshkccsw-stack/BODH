@@ -24,6 +24,7 @@ import {
 import {
   questionnairesApi,
   type QuestionnaireResponse,
+  type SectionResponse,
 } from '../questionnaires/questionnairesApi';
 
 // Full-page Create/Edit Assessment, replacing the modal the Assessment
@@ -201,6 +202,33 @@ export default function CreateAssessmentPage() {
   const picked = questionnaires.find(
     (q) => String(q.questionnaireId) === form.questionnaireId,
   );
+
+  // The picked questionnaire's sections, for what the layout setting does NOT
+  // decide: a section may set its own paging in the questionnaire builder,
+  // and this form should say so rather than imply one choice covers all.
+  // Best-effort — a failed read only hides the note.
+  const [pickedSections, setPickedSections] = useState<SectionResponse[]>([]);
+  useEffect(() => {
+    setPickedSections([]);
+    if (!form.questionnaireId) return;
+    let cancelled = false;
+    questionnairesApi
+      .getQuestionnaireSections(Number(form.questionnaireId))
+      .then((res) => {
+        if (!cancelled) setPickedSections(res.data);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [form.questionnaireId]);
+  const layoutOverrides = pickedSections.filter(
+    (sec) => sec.questionLayout !== null && sec.questionLayout !== form.questionLayout,
+  );
+  // Auto-advance only ever moves a one-question page, so it is dead only when
+  // no section ends up with one.
+  const anyOnePerPage =
+    form.questionLayout === 'ONE_PER_PAGE' || pickedSections.some((sec) => sec.questionLayout === 'ONE_PER_PAGE');
 
   const submit = async () => {
     const name = form.name.trim();
@@ -407,7 +435,19 @@ export default function CreateAssessmentPage() {
                       One question per page, or every question of a section on one
                       scrollable page with Next and Back between sections. A
                       questionnaire without sections becomes a single page.
+                      A section can set its own in the questionnaire builder.
                     </p>
+                    {layoutOverrides.length > 0 && (
+                      <p className="text-xs text-primary mt-1">
+                        Set in the questionnaire, overriding this:{' '}
+                        {layoutOverrides
+                          .map((sec) => `${sec.name} — ${
+                            sec.questionLayout === 'SECTION_PER_PAGE' ? 'all on one page' : 'one question per page'
+                          }`)
+                          .join('; ')}
+                        .
+                      </p>
+                    )}
                   </div>
                   <select
                     value={form.questionLayout}
@@ -422,13 +462,13 @@ export default function CreateAssessmentPage() {
                 <ToggleRow
                   label="Auto-advance to the next question"
                   hint={
-                    form.questionLayout === 'SECTION_PER_PAGE'
+                    !anyOnePerPage
                       ? 'Not used with one section per page — respondents move between sections with Next and Back.'
-                      : 'Moves on as soon as a choice question is answered. Sliders and typed answers always wait for Next.'
+                      : 'Moves on as soon as a choice question is answered, on one-question pages only. Sliders and typed answers always wait for Next.'
                   }
                   checked={form.autoNext}
                   onChange={(v) => setForm({ ...form, autoNext: v })}
-                  disabled={form.questionLayout === 'SECTION_PER_PAGE'}
+                  disabled={!anyOnePerPage}
                 />
                 <ToggleRow
                   label="Show question index"

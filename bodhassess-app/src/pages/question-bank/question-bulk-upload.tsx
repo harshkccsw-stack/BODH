@@ -723,6 +723,8 @@ export function BulkUploadModal({
               name: name.value,
               instruction: null,
               showInstructionOnEachQuestion: false,
+              // Paged however the assessment says, until an author sets one.
+              questionLayout: null,
             });
             made.push(res.data);
             idByKey.set(name.key, res.data.sectionId);

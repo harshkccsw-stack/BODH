@@ -115,6 +115,11 @@ public class MemoryMeshAttemptSyncService {
             // A short answer is stored on its generated text-slot option
             // (V40), exactly as the portal's writer stores it. MemoryMesh
             // imported the question with no options, so it sends text only.
+            // A WHOLE_NUMBER format (V48) is deliberately NOT enforced here:
+            // the attempt is already finished in MemoryMesh, nobody is there
+            // to correct it, and a 400 would drop the whole attempt over one
+            // cell. MemoryMesh receives answerFormat with the import, to check
+            // on its own screen.
             if (option == null && row == null) {
                 option = q.textAnswerOption().orElse(null);
             }

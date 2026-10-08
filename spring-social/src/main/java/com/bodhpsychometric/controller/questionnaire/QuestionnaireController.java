@@ -42,6 +42,7 @@ import com.bodhpsychometric.repository.question.QuestionRepository;
 import com.bodhpsychometric.repository.questionnaire.QuestionnaireQuestionRepository;
 import com.bodhpsychometric.repository.questionnaire.QuestionnaireRepository;
 import com.bodhpsychometric.repository.questionnaire.SectionRepository;
+import com.bodhpsychometric.service.questionnaire.PlacementTags;
 
 import jakarta.validation.Valid;
 
@@ -303,6 +304,7 @@ public class QuestionnaireController {
         section.setName(request.name().trim());
         section.setInstruction(instructionOrNull(request.instruction()));
         section.setShowInstructionOnEachQuestion(request.repeatsInstruction());
+        section.setQuestionLayout(request.questionLayout());
         // Appended last. sortOrder is kept dense by reorder/delete, so the
         // count IS the next free position — no MAX(sortOrder) + 1 needed.
         section.setSortOrder(
@@ -318,9 +320,10 @@ public class QuestionnaireController {
      * letters, which follow position rather than name, cannot move here.
      * A blank instruction comes back as null rather than "".
      *
-     * <p>Every field is REPLACED, the repeat-instruction flag included: a body
-     * that omits it turns it off, the same way an omitted instruction clears
-     * one.
+     * <p>Every field is REPLACED, the repeat-instruction flag and the layout
+     * included: a body that omits the flag turns it off, one that omits the
+     * layout hands the section back to the assessment's, the same way an
+     * omitted instruction clears one.
      */
     @PutMapping("/{id}/sections/{sectionId}")
     public ResponseEntity<?> updateSection(@PathVariable Long id, @PathVariable Long sectionId,
@@ -337,6 +340,7 @@ public class QuestionnaireController {
         section.setName(request.name().trim());
         section.setInstruction(instructionOrNull(request.instruction()));
         section.setShowInstructionOnEachQuestion(request.repeatsInstruction());
+        section.setQuestionLayout(request.questionLayout());
         portalContentService.evict(id);
         return ResponseEntity.ok(SectionResponse.from(sectionRepository.save(section)));
     }
@@ -491,7 +495,19 @@ public class QuestionnaireController {
                 return ResponseEntity.badRequest().body(Map.of("message",
                         "unknown questionId " + entry.questionId()));
             }
+            // The GROUP parent is a heading, never a placement — its members
+            // are what the respondent answers, so they are what is placed
+            // (all together; the walk below holds that line).
+            if (question.isGroup()) {
+                return ResponseEntity.badRequest().body(Map.of("message",
+                        "questionId " + entry.questionId()
+                                + " is a group — place its member questions, not the group itself"));
+            }
             resolved.add(question);
+        }
+        String groupProblem = groupPlacementProblem(entries, resolved);
+        if (groupProblem != null) {
+            return ResponseEntity.badRequest().body(Map.of("message", groupProblem));
         }
 
         // The optional flag survives the delete-and-recreate below: read it
@@ -549,46 +565,103 @@ public class QuestionnaireController {
     }
 
     /**
-     * Stamps every placement with its questionnaire-local report tag.
-     * Sectioned: sections that actually hold questions are lettered A, B, …
-     * in display order (the author's sortOrder — empty sections never
-     * render, so they claim no letter), and questions count 1..n inside
-     * their section by sortOrder. Flat: Q_1..Q_n across the questionnaire.
+     * A group travels as one block (V49): when any member of a group is
+     * placed, ALL of its members must be — in the same section, consecutive
+     * in that section's display order, and in the group's own member order,
+     * or the portal could not deliver them as one page. Null when every
+     * group in the payload holds together, else the message. Entries and
+     * resolved questions line up index for index.
+     */
+    private String groupPlacementProblem(List<QuestionnaireQuestionRequest> entries,
+            List<Question> resolved) {
+        // Which groups appear at all, and with which entries.
+        Map<Long, List<Integer>> entryIndexesByParent = new java.util.LinkedHashMap<>();
+        for (int i = 0; i < resolved.size(); i++) {
+            Question q = resolved.get(i);
+            if (q.getParentQuestion() != null) {
+                entryIndexesByParent
+                        .computeIfAbsent(q.getParentQuestion().getQuestionId(), k -> new ArrayList<>())
+                        .add(i);
+            }
+        }
+        if (entryIndexesByParent.isEmpty()) {
+            return null;
+        }
+        // The payload's display order inside each section: sortOrder, then
+        // payload position — the same keys the save below writes.
+        Map<Long, List<Integer>> sectionOrder = new java.util.LinkedHashMap<>();
+        for (int i = 0; i < entries.size(); i++) {
+            Long key = entries.get(i).sectionId() == null ? -1L : entries.get(i).sectionId();
+            sectionOrder.computeIfAbsent(key, k -> new ArrayList<>()).add(i);
+        }
+        for (List<Integer> inSection : sectionOrder.values()) {
+            inSection.sort(java.util.Comparator
+                    .comparingInt((Integer i) -> entries.get(i).sortOrder() == null ? i : entries.get(i).sortOrder())
+                    .thenComparingInt(i -> i));
+        }
+        for (Map.Entry<Long, List<Integer>> group : entryIndexesByParent.entrySet()) {
+            List<Question> members = questionRepository
+                    .findByParentQuestionQuestionIdOrderByGroupSortOrderAscQuestionIdAsc(group.getKey());
+            String label = groupLabel(members);
+            Set<Long> placedIds = new HashSet<>();
+            Set<Long> sectionsUsed = new HashSet<>();
+            for (int i : group.getValue()) {
+                placedIds.add(entries.get(i).questionId());
+                sectionsUsed.add(entries.get(i).sectionId() == null ? -1L : entries.get(i).sectionId());
+            }
+            if (placedIds.size() != members.size()) {
+                return label + " must be placed whole — all " + members.size()
+                        + " of its questions together";
+            }
+            if (sectionsUsed.size() > 1) {
+                return label + " must stay in one section";
+            }
+            // Consecutive, and in member order: walk the section's display
+            // order and compare the run against the group's own order.
+            List<Integer> inSection = sectionOrder.get(sectionsUsed.iterator().next());
+            List<Long> run = new ArrayList<>();
+            int at = -1;
+            for (int pos = 0; pos < inSection.size(); pos++) {
+                int entryIndex = inSection.get(pos);
+                if (placedIds.contains(entries.get(entryIndex).questionId())) {
+                    if (at >= 0 && pos != at + 1) {
+                        return label + "'s questions must sit together, with nothing between them";
+                    }
+                    at = pos;
+                    run.add(entries.get(entryIndex).questionId());
+                }
+            }
+            for (int i = 0; i < members.size(); i++) {
+                if (!members.get(i).getQuestionId().equals(run.get(i))) {
+                    return label + "'s questions must keep the group's own order";
+                }
+            }
+        }
+        return null;
+    }
+
+    /** The heading when the group has one, else its first question — something the author recognises. */
+    private String groupLabel(List<Question> members) {
+        if (members.isEmpty()) {
+            return "a group";
+        }
+        Question parent = members.get(0).getParentQuestion();
+        String heading = parent == null ? null : parent.getQuestionTexString();
+        if (heading != null && !heading.isBlank()) {
+            return "the group \"" + heading + "\"";
+        }
+        String firstStem = members.get(0).getQuestionTexString();
+        return firstStem == null ? "a group" : "the group starting \"" + firstStem + "\"";
+    }
+
+    /**
+     * Stamps every placement with its questionnaire-local report tag — the
+     * logic lives in {@link PlacementTags}, shared with the question flow's
+     * group-membership sync (V49), which also writes placements.
      */
     private void assignQuestionTags(boolean hasSections, List<Section> sectionsInDisplayOrder,
             List<QuestionnaireQuestion> rows) {
-        if (!hasSections) {
-            List<QuestionnaireQuestion> ordered = new ArrayList<>(rows);
-            ordered.sort(java.util.Comparator.comparingInt(QuestionnaireQuestion::getSortOrder));
-            for (int i = 0; i < ordered.size(); i++) {
-                ordered.get(i).setQuestionTag("Q_" + (i + 1));
-            }
-            return;
-        }
-        int letterIndex = 0;
-        for (Section section : sectionsInDisplayOrder) {
-            List<QuestionnaireQuestion> inSection = rows.stream()
-                    .filter(r -> r.getSection() != null
-                            && r.getSection().getSectionId().equals(section.getSectionId()))
-                    .sorted(java.util.Comparator.comparingInt(QuestionnaireQuestion::getSortOrder))
-                    .toList();
-            if (inSection.isEmpty()) {
-                continue;
-            }
-            String letter = sectionLetter(letterIndex++);
-            for (int i = 0; i < inSection.size(); i++) {
-                inSection.get(i).setQuestionTag("Section_" + letter + "_Q_" + (i + 1));
-            }
-        }
-    }
-
-    /** 0 → A … 25 → Z, 26 → AA — spreadsheet-style, should a questionnaire ever exceed 26 sections. */
-    private String sectionLetter(int index) {
-        StringBuilder sb = new StringBuilder();
-        for (int n = index; n >= 0; n = n / 26 - 1) {
-            sb.insert(0, (char) ('A' + n % 26));
-        }
-        return sb.toString();
+        PlacementTags.assign(hasSections, sectionsInDisplayOrder, rows);
     }
 
     private void apply(Questionnaire q, QuestionnaireRequest request) {

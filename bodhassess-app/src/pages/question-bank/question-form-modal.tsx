@@ -22,9 +22,12 @@ import { cn } from '@/lib/utils';
 import {
   questionApis,
   QUESTION_TYPES,
+  GROUP_MEMBER_TYPES,
+  ANSWER_FORMATS,
   DEFAULT_SCALE_FROM,
   DEFAULT_SCALE_TO,
   MAX_SCALE_POINTS,
+  type AnswerFormat,
   type MqtScorePayload,
   type MqtScoreView,
   type QuestionContentType,
@@ -530,6 +533,26 @@ export interface QuestionForm {
    * Kept across a type switch, like the option rows.
    */
   gameId: number | null;
+  /**
+   * SHORT_ANSWER only — what the typed answer must be. Kept across a type
+   * switch like gameId; only sent on a short answer.
+   */
+  answerFormat: AnswerFormat;
+  /**
+   * GROUP only — the member questions, each a full form of its own (its `id`
+   * is the stored member's questionId on edit, null on a new member). The
+   * stem doubles as the group's OPTIONAL heading, the one stem allowed to be
+   * blank. Empty on every other type.
+   */
+  members: QuestionForm[];
+  /**
+   * PLACEMENT flag, carried only on a group MEMBER inside the questionnaire
+   * builder: may this member be left blank in that questionnaire. Riding the
+   * form keeps it attached to its member through reorders. Never part of the
+   * bank payload — questionPayloadFrom ignores it — and meaningless in the
+   * bank modal.
+   */
+  optional?: boolean;
 }
 
 export const formFrom = (initial: QuestionResponse | null): QuestionForm =>
@@ -556,6 +579,8 @@ export const formFrom = (initial: QuestionResponse | null): QuestionForm =>
         rows: [emptyRow(), emptyRow()],
         mqtScores: [],
         gameId: null,
+        answerFormat: 'TEXT',
+        members: [],
       }
     : {
         id: initial.questionId,
@@ -563,7 +588,8 @@ export const formFrom = (initial: QuestionResponse | null): QuestionForm =>
         // Questions saved before the type existed come back as MCQ; ?? keeps
         // a response from an older backend meaning the same thing.
         questionType: initial.questionType ?? 'MCQ',
-        stem: initial.stem,
+        // Null on an unheaded GROUP — the one stem allowed to be blank.
+        stem: initial.stem || '',
         description: initial.description || '',
         // Ticked exactly when there is something to show — reopening a
         // question that has a description must not hide it behind a box the
@@ -595,6 +621,10 @@ export const formFrom = (initial: QuestionResponse | null): QuestionForm =>
         })),
         mqtScores: viewsToRows(initial.mqtScores || []),
         gameId: initial.options.find((o) => o.game)?.game?.gameId ?? null,
+        // Null on every type but a short answer, and on a response from an
+        // older backend — both mean text.
+        answerFormat: initial.answerFormat ?? 'TEXT',
+        members: (initial.members ?? []).map((m) => formFrom(m)),
       };
 
 /** Option rows that carry text or media, trimmed. Row order = display order. */
@@ -661,6 +691,18 @@ export const liveRows = (form: QuestionForm): RowForm[] =>
 
 /** null when the form can be saved, otherwise the first problem found. */
 export function validateQuestionForm(form: QuestionForm): string | null {
+  // A group first: its stem is the OPTIONAL heading, so the required-stem
+  // rule below must not see it. Members are validated by exactly this
+  // function — they are full questions — named by their position, the way
+  // the backend's validateGroup names them.
+  if (form.questionType === 'GROUP') {
+    if (form.members.length < 2) return 'A group needs at least two questions';
+    for (let i = 0; i < form.members.length; i++) {
+      const problem = validateQuestionForm(form.members[i]);
+      if (problem) return `Question ${i + 1} in the group: ${problem}`;
+    }
+    return null;
+  }
   if (!form.stem.trim()) return 'Question text is required';
   if (form.contentType === 'FREE_TEXT') return 'The question stem cannot be a short-answer box';
   if (form.contentType !== 'TEXT' && !form.mediaUrl.trim()) {
@@ -738,6 +780,34 @@ export function validateQuestionForm(form: QuestionForm): string | null {
 
 /** Form → the wire payload. Validate first — this assumes a valid form. */
 export function questionPayloadFrom(form: QuestionForm): QuestionPayload {
+  // A group sends its heading (possibly blank — the backend stores blank as
+  // null), its members, and NOTHING of its own: the backend refuses options,
+  // rows, scores, a rule or a shuffle on the parent. A member carries its
+  // stored questionId so an update edits it in place; a new member sends
+  // none and is created.
+  if (form.questionType === 'GROUP') {
+    return {
+      contentType: 'TEXT',
+      questionType: 'GROUP',
+      stem: form.stem.trim(),
+      description: form.showDescription ? form.description.trim() || null : null,
+      mediaUrl: null,
+      riskFlag: false,
+      selectionRule: null,
+      selectionCount: null,
+      shuffleOptions: false,
+      scaleFrom: null,
+      scaleTo: null,
+      scaleLowLabel: null,
+      scaleHighLabel: null,
+      options: [],
+      rows: [],
+      mqtScores: [],
+      gameId: null,
+      answerFormat: null,
+      members: form.members.map((m) => ({ ...questionPayloadFrom(m), questionId: m.id })),
+    };
+  }
   const scale = form.questionType === 'LINEAR_SCALE';
   const grid = form.questionType === 'LIKERT_GRID';
   const text = form.questionType === 'SHORT_ANSWER';
@@ -789,6 +859,8 @@ export function questionPayloadFrom(form: QuestionForm): QuestionPayload {
     mqtScores: rowsToPayload(form.mqtScores),
     // Only a game question names a game — the backend refuses it elsewhere.
     gameId: game ? form.gameId : null,
+    // Same for a short answer's format.
+    answerFormat: text ? form.answerFormat : null,
   };
 }
 
@@ -802,18 +874,37 @@ export function QuestionFormFields({
   onChange,
   choices,
   onCreateChoice,
+  allowedTypes,
+  showMemberOptional,
 }: {
   form: QuestionForm;
   onChange: (next: QuestionForm) => void;
   choices: MqtChoice[];
   /** Passed on to every ScoreEditor — see there. Absent hides the offer. */
   onCreateChoice?: (choice: MqtChoice) => void;
+  /**
+   * Restricts the type dropdown — a GROUP's member editors pass
+   * GROUP_MEMBER_TYPES (no games, grids or nested groups). Absent = all.
+   */
+  allowedTypes?: QuestionType[];
+  /**
+   * Questionnaire builder only: show an "Optional" checkbox on each group
+   * member, bound to QuestionForm.optional — the per-PLACEMENT flag the
+   * builder saves with the mapping. The bank modal leaves it off; a bank
+   * question has no placement to be optional in.
+   */
+  showMemberOptional?: boolean;
 }) {
   const set = (patch: Partial<QuestionForm>) => onChange({ ...form, ...patch });
   const isScale = form.questionType === 'LINEAR_SCALE';
   const isGrid = form.questionType === 'LIKERT_GRID';
   const isText = form.questionType === 'SHORT_ANSWER';
   const isGame = form.questionType === 'GAMES';
+  // A group is a heading over member questions: the parent authors no
+  // content of its own, so the stem-type picker, risk flag, scores and
+  // option machinery all give way to the members editor below.
+  const isGroup = form.questionType === 'GROUP';
+  const typeChoices = QUESTION_TYPES.filter((t) => !allowedTypes || allowedTypes.includes(t.value));
   // A grid's columns MAY carry scores of their own (the pre-2026-09-29 rule,
   // kept for label grids). Folded away unless some column already has one,
   // so the row editor is the one scoring surface an author meets by default.
@@ -851,6 +942,7 @@ export function QuestionFormFields({
 
   return (
     <div className="space-y-4">
+      {!isGroup && (
       <div className="space-y-1.5">
         <label className="text-sm font-medium">Stem type *</label>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
@@ -882,13 +974,16 @@ export function QuestionFormFields({
           is set up. Use URL for externally hosted media.
         </p>
       </div>
+      )}
       <div className="space-y-1.5">
-        <label className="text-sm font-medium">Question text *</label>
+        <label className="text-sm font-medium">{isGroup ? 'Group heading (optional)' : 'Question text *'}</label>
         <textarea
           rows={2}
           value={form.stem}
           onChange={(e) => set({ stem: e.target.value })}
-          placeholder="e.g., I enjoy meeting new people."
+          placeholder={isGroup
+            ? 'e.g., About your week — shown once above the questions (or leave blank)'
+            : 'e.g., I enjoy meeting new people.'}
           className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
         />
       </div>
@@ -933,6 +1028,7 @@ export function QuestionFormFields({
         </div>
       )}
 
+      {!isGroup && (
       <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
         <input
           type="checkbox"
@@ -945,6 +1041,7 @@ export function QuestionFormFields({
         </span>
         <span className="text-muted-foreground">— responses to this question are surfaced for risk review</span>
       </label>
+      )}
 
       {/* What SHAPE the question is. Sits above the scoring and option
           editors because it decides which of them are shown at all. */}
@@ -967,11 +1064,17 @@ export function QuestionFormFields({
               // columns are ordered, so leaving MCQ drops the flag rather
               // than sending one the backend would refuse.
               ...(questionType === 'MCQ' ? {} : { shuffleOptions: false }),
+              // A group opens with two blank questions — the minimum it can
+              // save with. Members already typed survive a switch away and
+              // back, like option rows do.
+              ...(questionType === 'GROUP' && form.members.length === 0
+                ? { members: [formFrom(null), formFrom(null)] }
+                : {}),
             });
           }}
           className="w-full h-9 rounded-lg border border-border bg-background px-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
         >
-          {QUESTION_TYPES.map((t) => (
+          {typeChoices.map((t) => (
             <option key={t.value} value={t.value} disabled={t.disabled}>{t.label}</option>
           ))}
         </select>
@@ -980,7 +1083,9 @@ export function QuestionFormFields({
         </p>
       </div>
 
-      {/* Question-level MQT scoring */}
+      {/* Question-level MQT scoring — not on a group: the parent is a
+          heading, and every score lives on a member. */}
+      {!isGroup && (
       <div className="rounded-lg border border-border/70 p-3">
         <ScoreEditor
           title={isScale ? 'Question → MQT mapping' : 'Question → MQT scores'}
@@ -1010,23 +1115,145 @@ export function QuestionFormFields({
           </p>
         )}
       </div>
+      )}
 
-      {isGame ? (
+      {isGroup ? (
+        /* The members editor: each member is a FULL question form of its own
+           — same fields, same scoring, type restricted to what fits inside a
+           group block. Nested recursion of this very component. */
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <label className="text-sm font-medium">Questions in this group</label>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => set({ members: [...form.members, formFrom(null)] })}
+            >
+              <Plus className="h-3 w-3" /> Add question
+            </Button>
+          </div>
+          <p className="text-[0.6875rem] text-muted-foreground">
+            Shown together on one page, each question with its options laid out in a row.
+            At least two. Questionnaires using this group follow membership changes
+            automatically — until anyone has answered, when the set of questions locks.
+            Wording and scores stay editable throughout.
+          </p>
+          {form.members.map((member, i) => (
+            <div key={i} className="rounded-lg border border-border p-3 space-y-3 bg-muted/20">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Question {i + 1}{member.id == null && form.id != null ? ' · new' : ''}
+                </span>
+                <div className="flex items-center gap-0.5">
+                  {showMemberOptional && (
+                    <label
+                      className="mr-1 flex h-6 cursor-pointer items-center gap-1.5 rounded-md border border-border bg-background px-2 text-xs"
+                      title="Optional questions can be left blank in this questionnaire. Saved with the questionnaire, not with the bank question."
+                    >
+                      <input
+                        type="checkbox"
+                        className="rounded"
+                        checked={member.optional ?? false}
+                        onChange={(e) =>
+                          set({
+                            members: form.members.map((m, j) =>
+                              j === i ? { ...m, optional: e.target.checked } : m),
+                          })
+                        }
+                      />
+                      Optional
+                    </label>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (i === 0) return;
+                      const next = [...form.members];
+                      [next[i - 1], next[i]] = [next[i], next[i - 1]];
+                      set({ members: next });
+                    }}
+                    disabled={i === 0}
+                    className="text-muted-foreground hover:text-foreground disabled:opacity-30 p-1"
+                    title="Move up"
+                  >
+                    <ArrowUp className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (i === form.members.length - 1) return;
+                      const next = [...form.members];
+                      [next[i], next[i + 1]] = [next[i + 1], next[i]];
+                      set({ members: next });
+                    }}
+                    disabled={i === form.members.length - 1}
+                    className="text-muted-foreground hover:text-foreground disabled:opacity-30 p-1"
+                    title="Move down"
+                  >
+                    <ArrowDown className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => set({ members: form.members.filter((_, j) => j !== i) })}
+                    className="text-muted-foreground hover:text-red-500 p-1"
+                    title="Remove this question from the group"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+              <QuestionFormFields
+                form={member}
+                onChange={(next) => set({ members: form.members.map((m, j) => (j === i ? next : m)) })}
+                choices={choices}
+                onCreateChoice={onCreateChoice}
+                allowedTypes={GROUP_MEMBER_TYPES}
+              />
+            </div>
+          ))}
+        </div>
+      ) : isGame ? (
         <GamePicker gameId={form.gameId} onChange={(gameId) => set({ gameId })} />
       ) : isText ? (
-        /* Free text: no options, no rows, no rule, no length limit. The only
-           thing to show is what the respondent will meet. */
+        /* Typed answer: no options, no rows, no rule, no length limit. What
+           it ACCEPTS is the one choice, then what the respondent will meet. */
         <div className="rounded-lg border border-border/70 p-3 space-y-2">
           <label className="text-sm font-medium">Answer</label>
-          <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-3">
-            <p className="text-[0.6875rem] text-muted-foreground mb-2">Respondents will see</p>
-            <div className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-muted-foreground">
-              Their answer…
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs text-muted-foreground">Accepts</span>
+            <div className="inline-flex rounded-lg border border-border p-0.5" role="radiogroup" aria-label="Accepts">
+              {ANSWER_FORMATS.map((f) => (
+                <button
+                  key={f.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={form.answerFormat === f.value}
+                  onClick={() => set({ answerFormat: f.value })}
+                  className={cn(
+                    'h-7 rounded-md px-3 text-xs font-medium transition-colors',
+                    form.answerFormat === f.value
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  {f.label}
+                </button>
+              ))}
             </div>
           </div>
           <p className="text-[0.6875rem] text-muted-foreground">
-            Every placed question is mandatory, so a blank answer is refused at
-            submit. Free text is exported and reported as written.
+            {ANSWER_FORMATS.find((f) => f.value === form.answerFormat)?.hint}
+            {form.answerFormat === 'TEXT' && ' Once anyone has answered, it can no longer be limited to numbers.'}
+          </p>
+          <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-3">
+            <p className="text-[0.6875rem] text-muted-foreground mb-2">Respondents will see</p>
+            <div className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-muted-foreground">
+              {form.answerFormat === 'WHOLE_NUMBER' ? 'Enter a number — 1, 2, 3, etc.' : 'Their answer…'}
+            </div>
+          </div>
+          <p className="text-[0.6875rem] text-muted-foreground">
+            A blank answer is refused at submit unless the questionnaire marks
+            the question optional. Answers are exported and reported as written.
           </p>
         </div>
       ) : isScale ? (

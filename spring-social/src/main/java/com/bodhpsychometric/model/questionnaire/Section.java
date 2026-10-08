@@ -1,7 +1,11 @@
 package com.bodhpsychometric.model.questionnaire;
 
+import com.bodhpsychometric.model.assessment.enums.QuestionLayout;
+
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.ForeignKey;
 import jakarta.persistence.GeneratedValue;
@@ -54,6 +58,17 @@ public class Section implements java.io.Serializable {
     private boolean showInstructionOnEachQuestion;
 
     /**
+     * How the portal pages THIS section (V47): one question per page, or the
+     * whole section on one scrollable page. NULL = the assessment's
+     * questionLayout decides, which is every section written before this
+     * existed. Authored with the section because it follows its content — a
+     * rating battery suits one page, scenarios suit one at a time.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "questionLayout", length = 16)
+    private QuestionLayout questionLayout;
+
+    /**
      * Display order within the questionnaire, 0-based and dense. The
      * controller owns it end to end — create appends, reorder renumbers,
      * delete compacts — so the sequence never gains a hole a client would
@@ -100,6 +115,14 @@ public class Section implements java.io.Serializable {
 
     public void setShowInstructionOnEachQuestion(boolean showInstructionOnEachQuestion) {
         this.showInstructionOnEachQuestion = showInstructionOnEachQuestion;
+    }
+
+    public QuestionLayout getQuestionLayout() {
+        return questionLayout;
+    }
+
+    public void setQuestionLayout(QuestionLayout questionLayout) {
+        this.questionLayout = questionLayout;
     }
 
     public int getSortOrder() {

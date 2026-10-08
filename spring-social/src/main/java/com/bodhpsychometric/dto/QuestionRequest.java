@@ -2,11 +2,11 @@ package com.bodhpsychometric.dto;
 
 import java.util.List;
 
+import com.bodhpsychometric.model.question.enums.AnswerFormat;
 import com.bodhpsychometric.model.question.enums.ContentType;
 import com.bodhpsychometric.model.question.enums.QuestionType;
 import com.bodhpsychometric.model.question.enums.SelectionRule;
 
-import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
 /**
@@ -38,11 +38,24 @@ import jakarta.validation.constraints.Size;
  * they existed keep meaning exactly what they meant. They cannot be validated
  * by annotations — the count is checked against the option list — so
  * QuestionController does it by hand, in bulk pass 1 as well.
+ *
+ * A GROUP (V49) is an optional heading (the ONE type whose stem may be blank
+ * — the required-stem rule therefore lives in validateType now, not on an
+ * annotation) plus `members`: full QuestionRequests, validated by the same
+ * per-type rules as standalone questions. On a group UPDATE each member
+ * carries its own `questionId` so the backend can tell an edit from a new
+ * member; null id = new. The parent itself takes no options, rows, scores,
+ * rule, shuffle, game or format — only heading, description and members.
  */
 public record QuestionRequest(
+        /**
+         * GROUP members on an update only: which stored member this payload
+         * edits. Ignored (and best omitted) everywhere else — a standalone
+         * question's id is the path variable.
+         */
+        Long questionId,
         ContentType contentType,
         QuestionType questionType,
-        @NotBlank(message = "stem is required")
         String stem,
         /**
          * Optional help text under the stem, shown to the respondent. Omitted,
@@ -69,5 +82,21 @@ public record QuestionRequest(
          * Omitted on every other type — a payload written before games existed
          * keeps meaning exactly what it meant.
          */
-        Long gameId) {
+        Long gameId,
+        /**
+         * SHORT_ANSWER only: TEXT or WHOLE_NUMBER (V48). Omitted or null on a
+         * short answer means TEXT, what every short answer meant before it
+         * existed; refused on every other type, like gameId.
+         */
+        AnswerFormat answerFormat,
+        /**
+         * GROUP only (V49): the member questions, in display order. At least
+         * two; each validated by the same per-type rules as a standalone
+         * question (MCQ, LINEAR_SCALE or SHORT_ANSWER). Refused on every
+         * other type. On an update, a member with a questionId edits that
+         * stored member; without one it is created; stored members missing
+         * from the list are removed — refused once any member has answers
+         * (membership is frozen) or while the group is placed.
+         */
+        List<QuestionRequest> members) {
 }

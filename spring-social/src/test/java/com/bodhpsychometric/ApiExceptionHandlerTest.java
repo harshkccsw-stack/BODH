@@ -97,11 +97,16 @@ class ApiExceptionHandlerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("["
                                 + "{\"contentType\":\"TEXT\",\"stem\":\"Fine\",\"options\":[],\"mqtScores\":[]},"
-                                + "{\"contentType\":\"TEXT\",\"stem\":\"\",\"options\":[],\"mqtScores\":[]}"
+                                // scaleLowLabel breaches its @Size cap — a constraint that
+                                // still lives on the DTO (the blank-stem rule moved into
+                                // validateType when GROUP made a heading optional, and is
+                                // covered below).
+                                + "{\"contentType\":\"TEXT\",\"stem\":\"Also fine\",\"scaleLowLabel\":\""
+                                + "x".repeat(101) + "\",\"options\":[],\"mqtScores\":[]}"
                                 + "]"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value(Matchers.containsString("item 2")))
-                .andExpect(jsonPath("$.message").value(Matchers.containsString("stem is required")));
+                .andExpect(jsonPath("$.message").value(Matchers.containsString("scaleLowLabel")));
     }
 
     @Test

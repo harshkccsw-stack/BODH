@@ -21,6 +21,7 @@ import {
   freeTextFilled,
   optionTextKey,
   portalAssessmentsApi,
+  typedAnswerProblem,
   type PortalAssessmentDetail,
   type PortalOption,
   type PortalQuestion,
@@ -196,6 +197,26 @@ function ScaleSlider({
 }
 
 /**
+ * Has the respondent started this question at all — any tick, or any typed
+ * text? Module-level because the runner needs it while its own state is still
+ * being set up (which questions a resumed attempt has already seen).
+ */
+function questionTouched(
+  qq: PortalQuestion,
+  a: Record<string, number[]>,
+  t: Record<string, string>,
+): boolean {
+  if (qq.questionType === 'SHORT_ANSWER') {
+    return (t[answerKey(qq.questionId)] ?? '').trim().length > 0;
+  }
+  const slots =
+    qq.questionType === 'LIKERT_GRID'
+      ? qq.rows.map((r) => answerKey(qq.questionId, r.questionRowId))
+      : [answerKey(qq.questionId)];
+  return slots.some((slot) => (a[slot] ?? []).length > 0);
+}
+
+/**
  * The pending question after `from`, wrapping back to the earliest one behind
  * it — a blank left behind must stay reachable, and in fix-up mode "forward"
  * means "still unanswered", not "the next index". Null when nothing else is
@@ -269,7 +290,6 @@ export function QuestionRunner({
 }) {
   const questions = detail.questions;
   const total = questions.length;
-  const sectionMode = detail.questionLayout === 'SECTION_PER_PAGE';
 
   // Group questions into ordered sections (preserving first-appearance order),
   // keeping each question's absolute index so navigation still works. Flat
@@ -284,6 +304,12 @@ export function QuestionRunner({
     title: string | null;
     instruction: string | null;
     repeatInstruction: boolean;
+    /**
+     * The whole section on one page? Its own layout when it sets one, the
+     * assessment's otherwise — and always the assessment's for questions in
+     * no section (a flat questionnaire, or a section that was deleted).
+     */
+    whole: boolean;
     indices: number[];
   }[] = [];
   const sectionByKey = new Map<string, number>();
@@ -301,6 +327,7 @@ export function QuestionRunner({
         // "<p><br></p>" behind, which would draw an empty section banner.
         instruction: isBlankRichText(section?.instruction) ? null : (section?.instruction ?? null),
         repeatInstruction: section?.showInstructionOnEachQuestion ?? false,
+        whole: (section?.questionLayout ?? detail.questionLayout) === 'SECTION_PER_PAGE',
         indices: [],
       });
     }
@@ -308,38 +335,88 @@ export function QuestionRunner({
   });
   const hasSections = sections.some((s) => s.title);
 
-  // What one screen shows: a single question, or a whole section. Every
-  // question sits on exactly one page, and pages are contiguous runs, so a
-  // page is entered at its first question.
-  const pages: number[][] = sectionMode ? sections.map((s) => s.indices) : questions.map((_, qi) => [qi]);
+  // What one screen shows: a single question, a whole section — or a GROUP.
+  // Decided PER SECTION, so one paper can mix the two (a rating battery on
+  // one page, scenarios one at a time). Every question sits on exactly one
+  // page, and pages are contiguous runs in delivery order, so a page is
+  // entered at its first question.
+  //
+  // A group (consecutive questions sharing a groupId — the server places its
+  // members together, in order) NEVER splits: under one-per-page its run
+  // becomes one page of its own, mechanically a small section page (several
+  // cards, Next never greyed, no auto-advance), headed "Questions 4–6 of 40".
+  // Inside a section page the members are already together; only the
+  // rendering folds them into one block (see groupChunksOf).
+  type Page = { indices: number[]; whole: boolean; section: number; groupPage: boolean };
+  const pages: Page[] = sections.flatMap((sec, si): Page[] => {
+    if (sec.whole) {
+      return [{ indices: sec.indices, whole: true, section: si, groupPage: false }];
+    }
+    const out: Page[] = [];
+    for (let i = 0; i < sec.indices.length; ) {
+      const gid = questions[sec.indices[i]].groupId ?? null;
+      if (gid === null) {
+        out.push({ indices: [sec.indices[i]], whole: false, section: si, groupPage: false });
+        i += 1;
+        continue;
+      }
+      const run: number[] = [];
+      while (i < sec.indices.length && (questions[sec.indices[i]].groupId ?? null) === gid) {
+        run.push(sec.indices[i]);
+        i += 1;
+      }
+      out.push({ indices: run, whole: true, section: si, groupPage: true });
+    }
+    return out;
+  });
   const pageOfQuestion = new Map<number, number>();
-  pages.forEach((p, pi) => p.forEach((qi) => pageOfQuestion.set(qi, pi)));
-  const pageStartOf = (qi: number): number => pages[pageOfQuestion.get(qi) ?? 0][0];
+  pages.forEach((p, pi) => p.indices.forEach((qi) => pageOfQuestion.set(qi, pi)));
+  const pageStartOf = (qi: number): number => pages[pageOfQuestion.get(qi) ?? 0].indices[0];
+  const onWholePageOf = (qi: number): boolean => pages[pageOfQuestion.get(qi) ?? 0]?.whole ?? false;
+  const anyWholePage = pages.some((p) => p.whole);
+  const anySinglePage = pages.some((p) => !p.whole);
 
   const firstOpen = Math.max(0, Math.min(questions.length - 1, initialIndex));
-  // `index` is the question the screen is ON: in section mode, always the
+  // `index` is the question the screen is ON: on a section page, always the
   // first question of the page shown (the page's anchor — what the heartbeat,
   // the header and partial saving read). A resume lands on the page holding
   // the first unanswered question and scrolls to it.
-  const startAt = sectionMode ? pageStartOf(firstOpen) : firstOpen;
+  const startAt = pageStartOf(firstOpen);
   const [index, setIndex] = useState(startAt);
   const pageIdx = pageOfQuestion.get(index) ?? 0;
-  const pageIndices = pages[pageIdx] ?? [index];
-  const isLastPage = pageIdx === pages.length - 1;
+  const page = pages[pageIdx] ?? { indices: [index], whole: false, section: 0, groupPage: false };
+  const pageIndices = page.indices;
+  // The screen is a whole section rather than one question. Decides the
+  // buttons, the header, auto-advance and how a blank is pointed out.
+  const onWholePage = page.whole;
+  // "5–12" on a section page of several questions, for the header; null on a
+  // single question, which the header names by its own number.
+  const pageRange = onWholePage && pageIndices.length > 1
+    ? `${pageIndices[0] + 1}–${pageIndices[pageIndices.length - 1] + 1}`
+    : null;
   // Absolute indices the respondent has actually landed on. Leaving one
   // unanswered is what makes it a SKIP rather than a question not reached yet
-  // — the navigator marks the two differently, so this has to be tracked. A
-  // section page lands on every question it shows.
-  const [visited, setVisited] = useState<Set<number>>(
-    () => new Set(sectionMode ? pages[pageOfQuestion.get(startAt) ?? 0] : [startAt]),
-  );
+  // — the navigator marks the two differently, and Submit waits until every
+  // question has been seen, so this has to be tracked. A section page lands
+  // on every question it shows. A resumed attempt starts with everything up to
+  // where it re-opens counted as seen — and everything up to the furthest
+  // question touched, since an answer is proof it was on screen.
+  const [visited, setVisited] = useState<Set<number>>(() => {
+    let furthest = startAt - 1;
+    questions.forEach((qq, qi) => {
+      if (questionTouched(qq, answers, textAnswers)) furthest = Math.max(furthest, qi);
+    });
+    const seen = new Set<number>(pages[pageOfQuestion.get(startAt) ?? 0]?.indices ?? [startAt]);
+    for (let qi = 0; qi <= furthest; qi++) seen.add(qi);
+    return seen;
+  });
   // Cleanup mode: forward has had to jump BACKWARDS at least once, so the
   // paper is no longer being read in order. Raised further down, where the
   // wrap is detected; from then on EVERY unanswered question is marked,
   // visited or not, and the pending banner names them.
   const [sweeping, setSweeping] = useState(false);
   useEffect(() => {
-    const landed = pages[pageOfQuestion.get(index) ?? 0] ?? [index];
+    const landed = pages[pageOfQuestion.get(index) ?? 0]?.indices ?? [index];
     setVisited((seen) => {
       if (landed.every((qi) => seen.has(qi))) return seen;
       const next = new Set(seen);
@@ -349,7 +426,7 @@ export function QuestionRunner({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [index]);
 
-  // Section mode only: the questions a Next or Submit press found still
+  // Section pages only: the questions a Next or Submit press found still
   // blocking on THIS page, outlined until they are answered. Replaced on
   // every page change, so a mark never follows the respondent elsewhere.
   const [flagged, setFlagged] = useState<Set<number>>(() => new Set());
@@ -360,9 +437,7 @@ export function QuestionRunner({
     cardRefs.current.get(qi)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
   // A question to bring into view once the page it is on has rendered —
   // set by a jump to a page other than the one showing. Null = top of page.
-  const pendingScroll = useRef<number | null>(
-    sectionMode && firstOpen !== startAt ? firstOpen : null,
-  );
+  const pendingScroll = useRef<number | null>(firstOpen !== startAt ? firstOpen : null);
 
   // Every question starts at the top of the page. Without this the browser
   // keeps the scroll offset from the question just left, so answering an
@@ -384,7 +459,9 @@ export function QuestionRunner({
     window.scrollTo({ top: 0, behavior: 'auto' });
   }, [index]);
 
-  const progress = Math.round(((pageIdx + 1) / pages.length) * 100);
+  // How far through the QUESTIONS the screen reaches — the same count for
+  // both kinds of page, so a mixed paper's bar moves evenly.
+  const progress = Math.round(((pageIndices[pageIndices.length - 1] + 1) / total) * 100);
   // Every slot this question must fill: one per grid row, otherwise one for
   // the question itself. Mirrors slotsOf() in PortalAssessmentService.
   const slotsOf = (qq: PortalQuestion): string[] =>
@@ -404,9 +481,12 @@ export function QuestionRunner({
   ): boolean => {
     // Free text has nothing to count: min/maxSelections arrive as 1/1 like
     // any single choice, and against zero options that would reject every
-    // possible answer. Non-blank IS the rule, exactly as on the server.
+    // possible answer. Non-blank IS the rule, exactly as on the server —
+    // plus its format: "12.5" in a whole-number box is touched but not
+    // answered, so an optional one blocks like a half-filled grid.
     if (qq.questionType === 'SHORT_ANSWER') {
-      return (t[slot] ?? '').trim().length > 0;
+      const typed = t[slot] ?? '';
+      return typed.trim().length > 0 && typedAnswerProblem(qq, typed) == null;
     }
     const n = (a[slot] ?? []).length;
     // …and a picked "Other…" option counts only once its box has something
@@ -414,11 +494,10 @@ export function QuestionRunner({
     return n >= qq.minSelections && n <= qq.maxSelections && freeTextFilled(qq, slot, a, ot);
   };
 
-  const isLast = index === total - 1;
   // Per-assessment setting: advance to the next question automatically a beat
   // after an option is picked (never an auto-submit on the last question).
-  // One question per page only: a section page never moves on its own.
-  const autoNext = detail.autoNext && !sectionMode;
+  // Single-question pages only: a section page never moves on its own.
+  const autoNext = detail.autoNext && !onWholePage;
 
   // Pending auto-advance timer. Cleared on any manual navigation, on a fresh
   // selection, and on unmount so it can never fire against a stale question.
@@ -602,23 +681,20 @@ export function QuestionRunner({
   const [capWarning, setCapWarning] = useState<number | null>(null);
 
   /**
-   * Go to a question. One per page: it becomes the screen. Section mode: its
-   * page opens (at the top when it is the page's first question, scrolled to
-   * it otherwise), or — already on that page — the page scrolls to it.
-   * `flag` marks questions on the page being opened as still to answer.
+   * Go to a question. On a single-question page it becomes the screen. On a
+   * section page its page opens (at the top when it is the page's first
+   * question, scrolled to it otherwise), or — already on that page — the page
+   * scrolls to it. `flag` marks questions on the page being opened as still
+   * to answer.
    */
   const goTo = (qi: number, flag: number[] = []) => {
     clearAdvance();
     setCapWarning(null);
     const target = Math.max(0, Math.min(total - 1, qi));
-    if (!sectionMode) {
-      setIndex(target);
-      return;
-    }
     const start = pageStartOf(target);
     setFlagged(new Set(flag));
     if (start === index) {
-      scrollToCard(target);
+      if (onWholePage) scrollToCard(target);
       return;
     }
     pendingScroll.current = target === start ? null : target;
@@ -679,14 +755,13 @@ export function QuestionRunner({
     // is blank any more, and then it stays put: auto-advance exists to carry
     // someone through work, not through finished work, and the bar is already
     // offering Submit. Being last is not the end condition — blanks can lie
-    // in front of the last question. "Blank" is the same walk Next takes:
-    // an optional question not reached yet counts, one already passed does not.
-    const target = nextPendingFrom(index, walkPending(updated, textAnswers, optionTexts));
-    if (target === null) return;
+    // in front of the last question. It lands where Next would (forwardPage).
+    const targetPage = forwardPage(updated, textAnswers, optionTexts);
+    if (targetPage === null) return;
     clearAdvance();
     advanceTimer.current = window.setTimeout(() => {
       advanceTimer.current = null;
-      setIndex(target);
+      goTo(pages[targetPage].indices[0]);
     }, 350);
   };
 
@@ -762,11 +837,7 @@ export function QuestionRunner({
     t: Record<string, string> = textAnswers,
   ): boolean => {
     const qq = questions[qi];
-    if (qq === undefined) return false;
-    if (qq.questionType === 'SHORT_ANSWER') {
-      return (t[answerKey(qq.questionId)] ?? '').trim().length > 0;
-    }
-    return slotsOf(qq).some((slot) => (a[slot] ?? []).length > 0);
+    return qq !== undefined && questionTouched(qq, a, t);
   };
 
   /**
@@ -788,22 +859,57 @@ export function QuestionRunner({
   };
 
   /**
-   * Where forward walks on a one-per-page paper: everything still blocking,
-   * plus any optional question not reached yet. Without the second half, Next
-   * would jump straight over an optional question nobody had seen, because a
-   * blank optional question never blocks.
+   * The PAGES forward can stop at: any page still holding a blocking question
+   * (a required blank, or an optional answer left half-done) or a question
+   * not seen yet. Seen-ness matters because Submit waits until everything has
+   * been on screen — and a blank optional question never blocks, so without
+   * it Next would jump straight over one nobody had read.
    */
-  const walkPending = (
+  const walkPages = (
     a: Record<string, number[]> = answers,
     t: Record<string, string> = textAnswers,
     ot: Record<string, string> = optionTexts,
   ): number[] =>
-    questions
-      .map((_, qi) => qi)
-      .filter((qi) =>
-        isQuestionBlocking(qi, a, t, ot)
-        || (questions[qi].optional && !isQuestionAnswered(qi, a, t, ot) && !visited.has(qi)),
+    pages
+      .map((_, pi) => pi)
+      .filter((pi) =>
+        pages[pi].indices.some((qi) => isQuestionBlocking(qi, a, t, ot) || !visited.has(qi)),
       );
+
+  /**
+   * Where Next goes — the PAGE — once the page on screen has nothing required
+   * missing (a single question gates Next; a section page explains on press):
+   *   1. a page already PASSED with something required still missing comes
+   *      first. Passed = at or before the furthest page seen, so a section
+   *      jumped over on the way to a later one counts: the respondent said
+   *      "required missing first", and that is where it is;
+   *   2. otherwise the next page holding anything missing or not seen yet —
+   *      in normal forward reading that is simply the next page, and it can
+   *      never skip an optional question nobody has read;
+   *   3. otherwise just the next page, so a finished paper can still be
+   *      paged through for review — null at the end.
+   * Both searches wrap past the end, so a blank left early is still reached
+   * from the last page. Answer maps are parameters for the auto-advance
+   * timer, which must judge the answer a tap has just produced.
+   */
+  const forwardPage = (
+    a: Record<string, number[]> = answers,
+    t: Record<string, string> = textAnswers,
+    ot: Record<string, string> = optionTexts,
+  ): number | null => {
+    let furthestSeen = -1;
+    pages.forEach((p, pi) => {
+      if (p.indices.some((qi) => visited.has(qi))) furthestSeen = pi;
+    });
+    const missed = pages
+      .map((_, pi) => pi)
+      .filter((pi) => pi <= furthestSeen && pages[pi].indices.some((qi) => isQuestionBlocking(qi, a, t, ot)));
+    const missedTarget = nextPendingFrom(pageIdx, missed);
+    if (missedTarget !== null) return missedTarget;
+    const walk = walkPages(a, t, ot);
+    if (walk.length > 0) return nextPendingFrom(pageIdx, walk);
+    return pageIdx < pages.length - 1 ? pageIdx + 1 : null;
+  };
 
   /**
    * Back to blank: every slot's ticks, any "Other…" text riding on them, or
@@ -949,9 +1055,9 @@ export function QuestionRunner({
   // fill them in and disappears on its own once nothing is left.
   const pending = questions.map((_, qi) => qi).filter((qi) => isQuestionBlocking(qi));
   // On the section page being worked on, nothing is "skipped" yet — they are
-  // looking at it. One per page has no such case: the current square is
-  // drawn as current whatever its state.
-  const onScreen = (qi: number): boolean => sectionMode && pageIndices.includes(qi);
+  // looking at it. A single-question page has no such case: the current
+  // square is drawn as current whatever its state.
+  const onScreen = (qi: number): boolean => onWholePage && pageIndices.includes(qi);
   // Marked amber in the navigator: left blocking after being visited, or —
   // once the sweep has started — anything still blocking, including blanks
   // that were jumped straight over and never opened.
@@ -963,33 +1069,29 @@ export function QuestionRunner({
     questions[qi].optional && !isQuestionTouched(qi) && (sweeping || visited.has(qi)) && !onScreen(qi);
   const anyOptional = questions.some((qq) => qq.optional);
   const PENDING_SHOWN = 5;
-  // Where forward goes (one per page). While ANYTHING is blank it means "the
-  // next blank", wrapping past the end so a question skipped early is still
-  // reached from the last one; an optional question not reached yet counts as
-  // blank, one already passed does not (walkPending). Once nothing is blank it
-  // is the ordinary next question again, so a finished paper can still be
-  // paged through for review.
-  const walk = walkPending();
-  const nextTarget = walk.length > 0
-    ? nextPendingFrom(index, walk)
-    : isLast ? null : index + 1;
-  const showNext = nextTarget !== null;
-  // Submit exists only when nothing is blocking. It is never rendered and
-  // then refused: an unfinished assessment simply has no Submit button, and
-  // Next is what walks them to the state where one appears. Optional
-  // questions never hold it back.
-  const showSubmit = pending.length === 0;
+  const nextPageIdx = forwardPage();
+  const showNext = nextPageIdx !== null;
+  // Every question has been on screen. Submit waits for it as well as for
+  // the required answers: a respondent who never reached a section has not
+  // finished, even when everything in it is optional.
+  const allSeen = visited.size >= total && questions.every((_, qi) => visited.has(qi));
+  // Submit exists only when nothing is blocking and everything has been seen.
+  // It is never rendered and then refused: an unfinished assessment simply
+  // has no Submit button, and Next is what walks them to the state where one
+  // appears. Optional questions never hold it back.
+  const showSubmit = pending.length === 0 && allSeen;
   // Can the respondent move on from the question on screen? Blocked only by
   // a required blank or a half-finished optional answer — an untouched
-  // optional question lets Next through.
-  const blockingHere = isQuestionBlocking(index);
+  // optional question lets Next through. (Single-question pages; a section
+  // page checks its own questions when Next is pressed.)
+  const blockingHere = !onWholePage && isQuestionBlocking(index);
   // Forward is about to jump BACKWARDS — everything ahead is answered and only
   // earlier blanks are left. That is the moment the missing Submit button
   // needs explaining, so the banner is raised on ARRIVING at this state, not
   // on pressing anything. Sticky for the rest of the sweep: a banner that
   // vanished whenever the next blank happened to lie ahead would flicker on
   // and off between hops.
-  const wrapping = !sectionMode && nextTarget !== null && nextTarget < index;
+  const wrapping = nextPageIdx !== null && nextPageIdx < pageIdx;
   useEffect(() => {
     if (wrapping) setSweeping(true);
   }, [wrapping]);
@@ -1002,16 +1104,17 @@ export function QuestionRunner({
   // server, and if one ever tried, the respondent belongs on the first blank.
   const trySubmit = () => {
     if (pending.length > 0) {
-      goTo(pending[0]);
+      goTo(pending[0], [pending[0]]);
       return;
     }
     onSubmit();
   };
 
   // ── Section pages ───────────────────────────────────────────────────────
-  // Next and Submit are never greyed out here: on a long page a dead button
-  // with no reason is a puzzle. Pressed with something still blocking, they
-  // outline every such question on the page and scroll to the first instead.
+  // Next is never greyed out on a section page: on a long page a dead button
+  // with no reason is a puzzle. Pressed with something still blocking, it
+  // outlines every such question on the page and scrolls to the first
+  // instead — the required blank on THIS page comes first, always.
   const pageBlocking = pageIndices.filter((qi) => isQuestionBlocking(qi));
   const flaggedHere = pageIndices.filter((qi) => flagged.has(qi) && isQuestionBlocking(qi));
   const holdOnPage = (): boolean => {
@@ -1020,25 +1123,21 @@ export function QuestionRunner({
     scrollToCard(pageBlocking[0]);
     return true;
   };
-  const nextPage = () => {
-    if (holdOnPage() || isLastPage) return;
-    goTo(pages[pageIdx + 1][0]);
+  /**
+   * Next, for both kinds of page. Something required missing on this page →
+   * point at it and stay. Otherwise → the next page that still needs a visit
+   * (or simply the next page). Arriving back at blanks already passed once,
+   * those are outlined so the respondent sees at once what brought them back.
+   */
+  const goForward = () => {
+    if (onWholePage ? holdOnPage() : blockingHere) return;
+    if (nextPageIdx === null) return;
+    const target = pages[nextPageIdx];
+    const missedThere = target.indices.filter((qi) => isQuestionBlocking(qi) && visited.has(qi));
+    goTo(missedThere[0] ?? target.indices[0], target.whole ? missedThere : []);
   };
-  const previousPage = () => {
-    if (pageIdx > 0) goTo(pages[pageIdx - 1][0]);
-  };
-  const submitFromPage = () => {
-    if (holdOnPage()) return;
-    // This page is done but an earlier one is not — reachable only by
-    // jumping ahead from the index. Take them to it, marked, and keep the
-    // pending list on screen until it is cleared.
-    if (pending.length > 0) {
-      setSweeping(true);
-      const first = pending[0];
-      goTo(first, pages[pageOfQuestion.get(first) ?? 0].filter((qi) => isQuestionBlocking(qi)));
-      return;
-    }
-    onSubmit();
+  const goBack = () => {
+    if (pageIdx > 0) goTo(pages[pageIdx - 1].indices[0]);
   };
 
   // The navigator, rendered twice: as the sticky sidebar on a large screen and
@@ -1078,7 +1177,7 @@ export function QuestionRunner({
                   // section page shows several, so its squares keep their
                   // answered/blank colours and gain a ring instead — solid
                   // primary on a whole page would hide what is left to do.
-                  const isCurrent = !sectionMode && qi === index;
+                  const isCurrent = !onWholePage && qi === index;
                   const isOnPage = onScreen(qi);
                   const isAnswered = isQuestionAnswered(qi);
                   const skipped = isSkipped(qi);
@@ -1128,17 +1227,17 @@ export function QuestionRunner({
         })}
       </div>
       <div className="mt-3 pt-3 border-t border-border space-y-1.5 text-[0.6875rem] text-muted-foreground">
-        <div className="flex items-center gap-1.5">
-          {sectionMode ? (
-            <>
-              <span className="inline-block h-3 w-3 rounded-sm border border-border bg-background ring-2 ring-primary ring-offset-1 ring-offset-card" /> This page
-            </>
-          ) : (
-            <>
-              <span className="inline-block h-3 w-3 rounded-sm bg-primary" /> Current
-            </>
-          )}
-        </div>
+        {/* A mixed paper has both kinds of page, so both markers can apply. */}
+        {anySinglePage && (
+          <div className="flex items-center gap-1.5">
+            <span className="inline-block h-3 w-3 rounded-sm bg-primary" /> Current
+          </div>
+        )}
+        {anyWholePage && (
+          <div className="flex items-center gap-1.5">
+            <span className="inline-block h-3 w-3 rounded-sm border border-border bg-background ring-2 ring-primary ring-offset-1 ring-offset-card" /> This page
+          </div>
+        )}
         <div className="flex items-center gap-1.5">
           <span className="inline-block h-3 w-3 rounded-sm bg-green-500/20 border border-green-500/40" /> Answered
         </div>
@@ -1171,6 +1270,11 @@ export function QuestionRunner({
     const isText = q.questionType === 'SHORT_ANSWER';
     // One option, picked by FINISHING the game it launches — never by a tap.
     const isGame = q.questionType === 'GAMES';
+    // Inside a group block the options sit in a wrapping row beside each
+    // other instead of stacking — the whole point of the block is several
+    // short questions reading compactly. Wrapping, not scrolling: options
+    // pushed off-screen are options never considered.
+    const inGroup = (q.groupId ?? null) !== null;
     // Columns for the phone-only stacked grid below. Up to five points sit on one
     // line; beyond that they split over two balanced lines rather than shrinking
     // every label past reading.
@@ -1188,11 +1292,16 @@ export function QuestionRunner({
     const multi = q.maxSelections > 1;
     const hint = isGrid ? null : selectionHint(q);
     const answered = isQuestionAnswered(qi);
+    // A short answer's text, and why it does not fit a whole-number
+    // question yet — null while blank, and always on free text.
+    const typedText = isText ? textAnswers[answerKey(q.questionId)] ?? '' : '';
+    const typedProblem = isText ? typedAnswerProblem(q, typedText) : null;
     const atCap = selected.length >= q.maxSelections;
     const place = placeOf.get(qi);
     // A section page numbers its cards (the header names the section); a
     // one-per-page screen needs the row only to say "Optional".
-    const showMeta = sectionMode || q.optional;
+    const cardOnWholePage = onWholePageOf(qi);
+    const showMeta = cardOnWholePage || q.optional;
     // The slider brings its own Clear, on required questions too. A finished
     // game is never cleared: it cannot be un-played, and clearing would only
     // invite a second play of a timed task.
@@ -1202,7 +1311,7 @@ export function QuestionRunner({
       {showMeta && (
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            {sectionMode && (
+            {cardOnWholePage && (
               <span className="text-xs font-semibold tabular-nums text-muted-foreground">
                 Q{(place?.pos ?? qi) + 1}
               </span>
@@ -1424,6 +1533,43 @@ export function QuestionRunner({
             />
           ))}
         </div>
+      ) : isText && q.answerFormat === 'WHOLE_NUMBER' ? (
+        /* A whole number: one line, the phone's number pad, and the
+           reason it does not fit yet, as it is typed — the server checks
+           the same rule at submit. type="text", not "number": a number
+           input changes its value under a scrolling wheel, accepts "e",
+           and reports bad input as an empty string, so it could never
+           say what is wrong. Enter is Next, as in the "Other…" box. */
+        <div className="space-y-1.5">
+          <input
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            autoComplete="off"
+            value={typedText}
+            onChange={(e) => setTextAnswers({ ...textAnswers, [answerKey(q.questionId)]: e.target.value })}
+            onKeyDown={(e) => {
+              if (e.key !== 'Enter') return;
+              e.preventDefault();
+              if (!onWholePageOf(qi) && answered && showNext) goForward();
+            }}
+            placeholder="Enter a number — 1, 2, 3, etc."
+            aria-label="Your answer — a number"
+            aria-invalid={typedProblem != null}
+            aria-describedby={typedProblem ? `typed-problem-${q.questionId}` : undefined}
+            className={cn(
+              'w-full max-w-xs rounded-lg border bg-background px-3 py-2.5 text-sm tabular-nums outline-none focus:ring-2',
+              typedProblem
+                ? 'border-amber-400 focus:border-amber-500 focus:ring-amber-500/20 dark:border-amber-600'
+                : 'border-border focus:border-primary focus:ring-primary/20',
+            )}
+          />
+          {typedProblem && (
+            <p id={`typed-problem-${q.questionId}`} role="alert" className="text-xs text-amber-700 dark:text-amber-400">
+              {typedProblem}
+            </p>
+          )}
+        </div>
       ) : isText ? (
         /* Free text. No auto-advance: there is no moment that says
            "done" while someone is typing, and sliding the page away
@@ -1459,13 +1605,17 @@ export function QuestionRunner({
           onClear={() => clearQuestion(qi)}
         />
       ) : (
-      <div className="space-y-2">
+      <div className={cn(inGroup ? 'flex flex-wrap gap-2' : 'space-y-2')}>
         {q.options.map((opt, oi) => {
           const on = selected.includes(opt.optionId);
           const isOther = opt.contentType === 'FREE_TEXT';
           const otherKey = optionTextKey(answerKey(q.questionId), opt.optionId);
           const rowClass = cn(
-            'w-full text-left rounded-lg border p-3.5 sm:p-4 transition-colors',
+            'text-left rounded-lg border transition-colors',
+            // In a group the option is a cell in the row, sized by its label;
+            // standalone it is the full-width row it has always been. The
+            // "Other…" cell still spans the row — its box needs the width.
+            inGroup ? cn('p-2.5 sm:p-3', isOther && 'basis-full') : 'w-full p-3.5 sm:p-4',
             on ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40',
             // At the cap the unticked options are visibly inert —
             // the tick is refused, so it must not look available.
@@ -1518,7 +1668,7 @@ export function QuestionRunner({
                     // goes is wherever Next would go. A section page
                     // holds other questions below — Enter there only
                     // ends the typing; it never turns the page.
-                    if (!sectionMode && answered && nextTarget !== null) goTo(nextTarget);
+                    if (!onWholePageOf(qi) && answered && showNext) goForward();
                   }}
                   placeholder="Type your answer…"
                   aria-label={`${opt.optionText || 'Other'} — your answer`}
@@ -1561,6 +1711,114 @@ export function QuestionRunner({
     );
   };
 
+  // A whole page's indices, folded for rendering: consecutive members of one
+  // group become a single chunk (drawn as one block under the group's
+  // heading), everything else stays a chunk of its own.
+  type GroupChunk = {
+    groupId: number | null;
+    heading: string | null;
+    description: string | null;
+    indices: number[];
+  };
+  const groupChunksOf = (indices: number[]): GroupChunk[] => {
+    const chunks: GroupChunk[] = [];
+    for (const qi of indices) {
+      const qq = questions[qi];
+      const gid = qq.groupId ?? null;
+      const last = chunks[chunks.length - 1];
+      if (gid !== null && last && last.groupId === gid) {
+        last.indices.push(qi);
+        continue;
+      }
+      chunks.push({
+        groupId: gid,
+        heading: gid !== null ? (qq.groupHeading?.trim() || null) : null,
+        description: gid !== null ? (qq.groupDescription?.trim() || null) : null,
+        indices: [qi],
+      });
+    }
+    return chunks;
+  };
+
+  /** One standalone question's card on a whole page, outlined while a
+      Next/Submit press has it flagged — answering clears the mark. */
+  const renderQuestionCard = (qi: number) => {
+    const needsAnswer = flagged.has(qi) && isQuestionBlocking(qi);
+    return (
+      <div
+        key={questions[qi].questionId}
+        ref={(el) => {
+          if (el) cardRefs.current.set(qi, el);
+          else cardRefs.current.delete(qi);
+        }}
+      >
+        <Card className={cn(needsAnswer && 'border-red-400 ring-2 ring-red-400/30 dark:border-red-700')}>
+          <CardContent className="p-4 sm:p-6 space-y-4 sm:space-y-5">
+            {renderQuestion(qi)}
+            {needsAnswer && (
+              <p className="text-xs font-medium text-red-700 dark:text-red-400">
+                {questions[qi].optional
+                  ? 'Finish this answer, or clear it to leave the question blank.'
+                  : 'This question needs an answer.'}
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    );
+  };
+
+  /**
+   * A group, drawn as ONE block: the optional heading once, then every member
+   * as a ruled row inside the same card — stem over its own options laid out
+   * horizontally (renderQuestion renders members that way by groupId). The
+   * rows, not the card, take the needs-answer outline: members answer one by
+   * one, and outlining the whole block would not say which one is missing.
+   */
+  const renderGroupBlock = (chunk: GroupChunk) => (
+    <Card key={`group-${chunk.groupId}`}>
+      <CardContent className="p-4 sm:p-6">
+        {(chunk.heading || chunk.description) && (
+          <div className="mb-4 space-y-1">
+            {chunk.heading && (
+              <p className="text-[0.9375rem] sm:text-base font-semibold leading-relaxed">{chunk.heading}</p>
+            )}
+            {chunk.description && (
+              <p className="text-sm text-muted-foreground leading-relaxed">{chunk.description}</p>
+            )}
+          </div>
+        )}
+        <div className="divide-y divide-border">
+          {chunk.indices.map((qi) => {
+            const needsAnswer = flagged.has(qi) && isQuestionBlocking(qi);
+            return (
+              <div
+                key={questions[qi].questionId}
+                ref={(el) => {
+                  if (el) cardRefs.current.set(qi, el);
+                  else cardRefs.current.delete(qi);
+                }}
+                className={cn(
+                  'space-y-3 py-4 first:pt-0 last:pb-0',
+                  needsAnswer && '-mx-2 rounded-lg border border-red-400 px-2 ring-2 ring-red-400/30 dark:border-red-700',
+                )}
+              >
+                {renderQuestion(qi)}
+                {needsAnswer && (
+                  <p className="text-xs font-medium text-red-700 dark:text-red-400">
+                    {questions[qi].optional
+                      ? 'Finish this answer, or clear it to leave the question blank.'
+                      : 'This question needs an answer.'}
+                  </p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
+  );
+
   return (
     // min-h-dvh, not min-h-screen: 100vh on a mobile browser counts the
     // retracting address bar, so a 100vh screen never quite fits one.
@@ -1591,21 +1849,15 @@ export function QuestionRunner({
             {/* A phone has no room for "Section B · Question 3 of 40" beside
                 the assessment name, so the wording shortens to the part that
                 matters rather than wrapping or truncating. */}
-            {/* A section page counts PAGES — "Question 4 of 40" would name
-                only the first card on screen. One page is just its size. */}
+            {/* One count for both kinds of page, so a paper that mixes them
+                still reads as one sequence: "Question 4 of 40" on a single
+                question, "Questions 5–12 of 40" on a section page. */}
             <span className="hidden sm:inline">
-              {!sectionMode
-                ? `${here?.title ? `${here.title} · ` : ''}Question ${index + 1} of ${total}`
-                : pages.length === 1
-                  ? `${total} question${total === 1 ? '' : 's'}`
-                  : `${here?.title ? `${here.title} · ` : ''}Page ${pageIdx + 1} of ${pages.length}`}
+              {here?.title ? `${here.title} · ` : ''}
+              {pageRange === null ? `Question ${index + 1}` : `Questions ${pageRange}`} of {total}
             </span>
             <span className="sm:hidden font-medium tabular-nums">
-              {!sectionMode
-                ? `${index + 1} / ${total}`
-                : pages.length === 1
-                  ? `${total} question${total === 1 ? '' : 's'}`
-                  : `${pageIdx + 1} / ${pages.length}`}
+              {pageRange ?? index + 1} / {total}
             </span>
           </div>
         )}
@@ -1663,52 +1915,41 @@ export function QuestionRunner({
         )}
 
         <main>
-          {sectionMode ? (
+          {onWholePage ? (
             <>
-              {/* The page IS the section, so its name and instruction head the
-                  page once, above every card — the per-question repeat that
-                  "Show instruction on each question" asks for on a one-per-page
-                  paper is already true of a page that keeps it on screen. */}
-              {(sections[pageIdx]?.title || sections[pageIdx]?.instruction) && (
+              {/* A section page IS the section, so its name and instruction
+                  head the page once, above every card — the per-question
+                  repeat that "Show instruction on each question" asks for on
+                  a one-per-page paper is already true of a page that keeps it
+                  on screen. A GROUP page is not the section — it is three
+                  questions of a one-per-page section sharing a screen — so it
+                  carries the instruction exactly as a single question would. */}
+              {!page.groupPage && (sections[page.section]?.title || sections[page.section]?.instruction) && (
                 <div className="mb-5 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3">
-                  {sections[pageIdx]?.title && (
+                  {sections[page.section]?.title && (
                     <p className="text-xs font-semibold uppercase tracking-wider text-primary">
-                      {sections[pageIdx].title}
+                      {sections[page.section].title}
                     </p>
                   )}
-                  {sections[pageIdx]?.instruction && (
-                    <RichText value={sections[pageIdx].instruction} className="mt-1 text-sm text-foreground" />
+                  {sections[page.section]?.instruction && (
+                    <RichText value={sections[page.section].instruction} className="mt-1 text-sm text-foreground" />
                   )}
                 </div>
               )}
+              {page.groupPage && here?.instruction && (
+                <div className="mb-5 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3">
+                  {here.title && (
+                    <p className="text-xs font-semibold uppercase tracking-wider text-primary">{here.title}</p>
+                  )}
+                  <RichText value={here.instruction} className="mt-1 text-sm text-foreground" />
+                </div>
+              )}
               <div className="space-y-4">
-                {pageIndices.map((qi) => {
-                  // Outlined after a Next/Submit press found it blocking, and
-                  // only until it stops blocking — answering clears the mark.
-                  const needsAnswer = flagged.has(qi) && isQuestionBlocking(qi);
-                  return (
-                    <div
-                      key={questions[qi].questionId}
-                      ref={(el) => {
-                        if (el) cardRefs.current.set(qi, el);
-                        else cardRefs.current.delete(qi);
-                      }}
-                    >
-                      <Card className={cn(needsAnswer && 'border-red-400 ring-2 ring-red-400/30 dark:border-red-700')}>
-                        <CardContent className="p-4 sm:p-6 space-y-4 sm:space-y-5">
-                          {renderQuestion(qi)}
-                          {needsAnswer && (
-                            <p className="text-xs font-medium text-red-700 dark:text-red-400">
-                              {questions[qi].optional
-                                ? 'Finish this answer, or clear it to leave the question blank.'
-                                : 'This question needs an answer.'}
-                            </p>
-                          )}
-                        </CardContent>
-                      </Card>
-                    </div>
-                  );
-                })}
+                {groupChunksOf(pageIndices).map((chunk) =>
+                  chunk.groupId === null
+                    ? chunk.indices.map(renderQuestionCard)
+                    : renderGroupBlock(chunk),
+                )}
               </div>
             </>
           ) : (
@@ -1764,7 +2005,7 @@ export function QuestionRunner({
               {/* The chips only reach the first few; the button reaches all of
                   them, one at a time. Said here because this is where they
                   are reading when it changes under them. */}
-              {showNext && !sectionMode && (
+              {showNext && (
                 <p className="mt-2 text-[0.6875rem] text-red-700/80 dark:text-red-400/80">
                   Next takes you to the next pending question.
                 </p>
@@ -1774,9 +2015,9 @@ export function QuestionRunner({
 
           {/* The other end of the same sweep: nothing left, and Submit is now
               in the bar under them rather than at the end of the paper. Only
-              away from the last question — there Submit is where it has
-              always been and needs no announcement. */}
-          {!sectionMode && pending.length === 0 && !isLast && (
+              while there is still somewhere forward to go — at the end Submit
+              is where it has always been and needs no announcement. */}
+          {showSubmit && showNext && (
             <div className="mt-5 flex items-center gap-2 rounded-lg border border-green-500/40 bg-green-500/5 px-3 py-2 text-xs font-medium text-green-700 dark:text-green-400">
               <Check className="h-3.5 w-3.5 shrink-0" />
               <span>
@@ -1790,7 +2031,7 @@ export function QuestionRunner({
           {/* Section page: what the last Next/Submit press stopped on, kept in
               words beside the button so the outlined cards above have a reason
               even once they have scrolled out of view. */}
-          {sectionMode && flaggedHere.length > 0 && (
+          {onWholePage && flaggedHere.length > 0 && (
             <div className="mt-5 rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-3 py-2 text-xs font-medium text-red-700 dark:text-red-400">
               {flaggedHere.length === 1
                 ? '1 question on this page still needs an answer.'
@@ -1811,61 +2052,31 @@ export function QuestionRunner({
               fixed, so it still comes to rest at the end of the content, and
               the safe-area inset keeps it clear of the home indicator. */}
           <div className="sticky bottom-0 z-10 -mx-4 mt-5 flex items-center gap-3 border-t border-border bg-background/95 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:static sm:mx-0 sm:justify-between sm:border-0 sm:bg-transparent sm:p-0 sm:backdrop-blur-none">
-            {sectionMode ? (
-              /* Back and Next between sections; Submit takes Next's place on
-                 the last. Never disabled for a blank — pressing explains it
-                 (holdOnPage). */
-              <>
-                <Button
-                  variant="outline"
-                  onClick={previousPage}
-                  disabled={pageIdx === 0}
-                  className="h-11 flex-1 sm:h-8.5 sm:flex-none"
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                  Back
-                </Button>
-                {isLastPage ? (
-                  <Button
-                    variant="primary"
-                    onClick={submitFromPage}
-                    disabled={submitting}
-                    className="h-11 flex-1 sm:h-8.5 sm:flex-none"
-                  >
-                    {submitting ? 'Submitting...' : 'Submit Assessment'}
-                    <Check className="h-4 w-4" />
-                  </Button>
-                ) : (
-                  <Button variant="primary" onClick={nextPage} className="h-11 flex-1 sm:h-8.5 sm:flex-none">
-                    Next
-                    <ChevronRight className="h-4 w-4" />
-                  </Button>
-                )}
-              </>
-            ) : (
-            <>
-            {/* All three buttons show in one state only — a cleared sweep,
-                mid-paper — and there Previous drops its label on a phone so
-                the two that matter keep a full-width target. */}
+            {/* One bar for both kinds of page. All three buttons show in one
+                state only — everything done, reviewing mid-paper — and there
+                Back drops its label on a phone so the two that matter keep a
+                full-width target. Next is greyed only on a single question,
+                where the blank is the whole screen; on a section page it is
+                always live and points at what is missing (goForward). */}
             <Button
               variant="outline"
-              onClick={() => goTo(index - 1)}
-              disabled={index === 0}
+              onClick={goBack}
+              disabled={pageIdx === 0}
               className={cn(
                 'h-11 sm:h-8.5 sm:flex-none',
                 showNext && showSubmit ? 'flex-none px-3' : 'flex-1',
               )}
             >
               <ChevronLeft className="h-4 w-4" />
-              <span className={cn(showNext && showSubmit && 'sr-only sm:not-sr-only')}>Previous</span>
+              <span className={cn(showNext && showSubmit && 'sr-only sm:not-sr-only')}>Back</span>
             </Button>
-            {nextTarget !== null && (
+            {showNext && (
               <Button
                 /* Demoted to outline while Submit stands beside it: one
                    primary action on screen, and it is the one that ends the
                    assessment. */
                 variant={showSubmit ? 'outline' : 'primary'}
-                onClick={() => goTo(nextTarget)}
+                onClick={goForward}
                 disabled={blockingHere}
                 className="h-11 flex-1 sm:h-8.5 sm:flex-none"
               >
@@ -1888,7 +2099,19 @@ export function QuestionRunner({
                 <Check className="h-4 w-4" />
               </Button>
             )}
-            </>
+            {/* A section page whose own blanks are all that is left: nowhere
+                for Next to go and no Submit yet. Without this the bar would
+                offer only Back, with the blank possibly scrolled out of view —
+                so the button is there, and pressing it points at the blank. */}
+            {onWholePage && !showNext && !showSubmit && (
+              <Button
+                variant="primary"
+                onClick={() => holdOnPage()}
+                className="h-11 flex-1 sm:h-8.5 sm:flex-none"
+              >
+                Submit Assessment
+                <Check className="h-4 w-4" />
+              </Button>
             )}
           </div>
         </main>

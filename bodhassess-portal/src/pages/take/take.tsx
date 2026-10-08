@@ -12,6 +12,7 @@ import {
   isFreeTextOption,
   optionTextKey,
   parseAnswerKey,
+  typedAnswerProblem,
   type PortalAnswerEntry,
   type PortalAssessmentDetail,
   type PortalDemographicEntry,
@@ -66,7 +67,8 @@ function questionSatisfied(
   optionTexts: Record<string, string>,
 ): boolean {
   if (q.questionType === 'SHORT_ANSWER') {
-    return (textAnswers[answerKey(q.questionId)] ?? '').trim().length > 0;
+    const typed = textAnswers[answerKey(q.questionId)] ?? '';
+    return typed.trim().length > 0 && typedAnswerProblem(q, typed) == null;
   }
   const slots =
     q.questionType === 'LIKERT_GRID'

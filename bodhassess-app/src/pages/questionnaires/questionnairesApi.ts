@@ -1,4 +1,5 @@
 import { api } from '@/lib/apiClient';
+import type { QuestionLayout } from '@/pages/assessments/assessmentApis';
 
 // ── Wire shapes — mirror spring-social's DTOs 1:1 ──────────────────────────
 /** Matches QuestionnaireRequest on the backend. */
@@ -90,6 +91,11 @@ export interface SectionResponse {
    * flag existed.
    */
   showInstructionOnEachQuestion: boolean;
+  /**
+   * This section's own portal paging — one question per page, or the whole
+   * section on one page. Null = the assessment's Question layout decides.
+   */
+  questionLayout: QuestionLayout | null;
   /** Display position, 0-based and dense. The list arrives sorted by it. */
   sortOrder: number;
 }
@@ -98,6 +104,12 @@ export interface SectionPayload {
   name: string;
   instruction: string | null;
   showInstructionOnEachQuestion: boolean;
+  /**
+   * Required here on purpose: the section PUT replaces every field, so a
+   * caller that left it out would quietly hand the section back to the
+   * assessment's layout. Send null for "use the assessment's".
+   */
+  questionLayout: QuestionLayout | null;
 }
 
 function getQuestionnaireSections(questionnaireId: number) {

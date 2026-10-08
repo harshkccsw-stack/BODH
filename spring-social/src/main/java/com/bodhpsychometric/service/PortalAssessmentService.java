@@ -411,6 +411,13 @@ public class PortalAssessmentService {
                 if (text.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > MAX_ANSWER_TEXT_BYTES) {
                     throw badRequest("The answer to question " + entry.questionId() + " is too long");
                 }
+                // The format the author chose (V48). Null — a cache entry from
+                // before the field — reads as TEXT and accepts anything. Named
+                // by the navigator label: the respondent has to find it.
+                if (question.answerFormat() != null && !question.answerFormat().accepts(text)) {
+                    throw badRequest(labels.get(entry.questionId())
+                            + " needs a number — 1, 2, 3, etc. No decimal point, commas, spaces or minus sign.");
+                }
                 // A second entry for one question would be an overwrite the
                 // respondent never sees; the option path treats a repeat as a
                 // duplicate too, it just dedupes rather than rejecting.

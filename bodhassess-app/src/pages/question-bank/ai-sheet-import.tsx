@@ -435,8 +435,14 @@ export function AiSheetImport({
       const res = await questionnairesApi.createQuestionnaireSection(
         questionnaire.questionnaireId,
         // The sheet carries a section's preamble but says nothing about
-        // repeating it, so imported sections take the default: shown once.
-        { name: s.value, instruction: preambles.get(s.key) ?? null, showInstructionOnEachQuestion: false },
+        // repeating it, so imported sections take the default: shown once —
+        // and paged however the assessment says (no layout of their own).
+        {
+          name: s.value,
+          instruction: preambles.get(s.key) ?? null,
+          showInstructionOnEachQuestion: false,
+          questionLayout: null,
+        },
       );
       created.push(res.data);
       idByKey.set(s.key, res.data.sectionId);

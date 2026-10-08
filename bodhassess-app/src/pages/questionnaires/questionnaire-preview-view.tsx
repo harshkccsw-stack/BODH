@@ -3,7 +3,7 @@ import { Circle, Clock, ExternalLink, Gamepad2, Layers, ListChecks, Shuffle, Squ
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { RichTextView } from '@/components/rich-text-editor';
-import { selectionLabel, type QuestionType, type SelectionRule } from '../question-bank/questionApis';
+import { selectionLabel, type AnswerFormat, type QuestionType, type SelectionRule } from '../question-bank/questionApis';
 
 // The respondent-view rendering of a questionnaire, with no data fetching of
 // its own. The preview PAGE (/questionnaires/:id/preview) feeds it what the
@@ -48,9 +48,21 @@ export interface PreviewQuestion {
   scaleTo?: number | null;
   scaleLowLabel?: string | null;
   scaleHighLabel?: string | null;
+  /** SHORT_ANSWER only — absent or null means text. */
+  answerFormat?: AnswerFormat | null;
   /** LIKERT_GRID only — the statements rated against `options`. */
   rows?: PreviewRow[];
   options: PreviewOption[];
+  /**
+   * GROUP members only — the group this question belongs to, with the
+   * group's optional heading and help text repeated on each member (the
+   * same shape QuestionResponse carries, so placement reads feed this view
+   * unchanged). Consecutive members fold into one block, options laid out
+   * in a row, exactly as the portal draws them.
+   */
+  parentQuestionId?: number | null;
+  groupHeading?: string | null;
+  groupDescription?: string | null;
 }
 
 /** Structural subset of QuestionRowResponse this view needs. */
@@ -185,7 +197,7 @@ export function QuestionView({ q, number }: { q: PreviewQuestion; number: number
       ) : isText ? (
         <div className="pl-9">
           <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
-            Their answer…
+            {q.answerFormat === 'WHOLE_NUMBER' ? 'Enter a number — 1, 2, 3, etc.' : 'Their answer…'}
           </div>
         </div>
       ) : isScale ? (
@@ -203,12 +215,20 @@ export function QuestionView({ q, number }: { q: PreviewQuestion; number: number
           </div>
         </div>
       ) : q.options.length > 0 && (
-        <div className="space-y-1.5 pl-9">
+        /* A group member's options sit side by side in a wrapping row — the
+           portal's layout for them — everything else stacks as always. */
+        <div className={cn('pl-9', q.parentQuestionId != null ? 'flex flex-wrap gap-1.5' : 'space-y-1.5')}>
           {q.options.map((o) => (
             // items-start, not items-center: an option with a description is
             // two lines tall and the marker belongs beside the label, not
             // floating in the middle of the pair.
-            <div key={o.optionId} className="flex items-start gap-2.5 rounded-md border border-border px-3 py-2">
+            <div
+              key={o.optionId}
+              className={cn(
+                'flex items-start gap-2.5 rounded-md border border-border px-3 py-2',
+                q.parentQuestionId != null && o.contentType === 'FREE_TEXT' && 'basis-full',
+              )}
+            >
               <Marker className={cn('h-3.5 w-3.5 text-muted-foreground/50 shrink-0 mt-0.5', rule && 'rounded-[3px]')} />
               <div className="min-w-0 flex-1 space-y-1">
                 {o.optionText && <p className="text-sm">{o.optionText}</p>}
@@ -360,10 +380,45 @@ export function QuestionnairePreviewView({
               </CardHeader>
             )}
             <CardContent className="space-y-3">
-              {group.questions.map((q) => {
-                running += 1;
-                return <QuestionView key={q.questionId} q={q} number={running} />;
-              })}
+              {/* Consecutive members of one GROUP fold into a single block
+                  under the group's heading, the way the portal pages them.
+                  Numbering keeps counting per member — they are questions. */}
+              {(() => {
+                type Chunk = { groupKey: number | null; questions: PreviewQuestion[] };
+                const chunks: Chunk[] = [];
+                for (const q of group.questions) {
+                  const key = q.parentQuestionId ?? null;
+                  const last = chunks[chunks.length - 1];
+                  if (key !== null && last && last.groupKey === key) last.questions.push(q);
+                  else chunks.push({ groupKey: key, questions: [q] });
+                }
+                return chunks.map((chunk) => {
+                  if (chunk.groupKey === null) {
+                    return chunk.questions.map((q) => {
+                      running += 1;
+                      return <QuestionView key={q.questionId} q={q} number={running} />;
+                    });
+                  }
+                  const heading = chunk.questions[0].groupHeading?.trim() || null;
+                  const groupDescription = chunk.questions[0].groupDescription?.trim() || null;
+                  return (
+                    <div key={`group-${chunk.groupKey}`} className="rounded-lg border border-primary/30 bg-primary/[0.02] p-3 space-y-3">
+                      {(heading || groupDescription) && (
+                        <div className="space-y-0.5">
+                          {heading && <p className="text-sm font-semibold">{heading}</p>}
+                          {groupDescription && (
+                            <p className="text-xs text-muted-foreground leading-relaxed">{groupDescription}</p>
+                          )}
+                        </div>
+                      )}
+                      {chunk.questions.map((q) => {
+                        running += 1;
+                        return <QuestionView key={q.questionId} q={q} number={running} />;
+                      })}
+                    </div>
+                  );
+                });
+              })()}
               {group.questions.length === 0 && (
                 <p className="text-xs text-muted-foreground text-center py-2">No questions in this section.</p>
               )}
