@@ -3,7 +3,8 @@
 The droplet has 4 GB, no swap and no JDK. It must never run Maven. The jar is
 built on the developer machine (or, later, in CI); the droplet only receives
 it and activates it. BodhAssess is jar-only here: the admin and portal SPAs
-live on DigitalOcean App Platform, not on this droplet.
+live on DigitalOcean App Platform, not on this droplet (push.sh still ships
+them — by git, see Everyday use).
 
 This directory is a copy of MemoryMesh's `deploy/` with a different
 `project.env` (and no `deploy-spa.sh`). Keep `deploy/server/` identical across
@@ -26,7 +27,29 @@ releases/                     runtime state on the droplet (gitignored)
 ```bash
 deploy/client/push.sh api            # ./mvnw package here, ~70 MB over ssh, ~30 s restart, health-gated
 deploy/client/push.sh api --dry-run  # build and stage, print the remote steps, send nothing
+deploy/client/push.sh all            # api, then the admin app + portal (see below)
+deploy/client/push.sh app portal     # frontends only
 ```
+
+The admin app (admin.bodh.biz) and the portal (portal.bodh.biz) are on
+DigitalOcean App Platform, which deploys the `dist/` folders COMMITTED on
+GitHub — it does not build them. So for `app`/`portal` push.sh runs
+`npm run build:production` (each SPA's `.env.production`, i.e.
+`https://api.bodh.biz/api`), commits ONLY `bodhassess-app/dist` and
+`bodhassess-portal/dist`, and pushes `main`. Nothing else in the working tree
+goes into that commit. With `all`, both frontends are built BEFORE the jar is
+sent, so a broken frontend build stops the run with the droplet untouched, and
+they are pushed only AFTER the API passes its health gate. Rules:
+
+- Run it on `main`, up to date with `origin/main` — otherwise it refuses
+  before building anything (`git pull` first).
+- Uncommitted source changes in a frontend are deployed (its dist is built
+  from the working tree) but are not pushed — push.sh warns; commit them.
+- Building rewrites `dist/` in place; that is intended — those folders are the
+  release.
+- Which SPAs this applies to (`APP_PLATFORM_SPAS`), the branch, and the SPA
+  folders are in `deploy/targets/production.env`, not `project.env` (that
+  file must stay identical to the droplet's copy).
 
 Rollback from anywhere with ssh:
 

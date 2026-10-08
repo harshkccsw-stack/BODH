@@ -85,7 +85,7 @@ public class SubmissionDigestService {
                 return;
             }
             try {
-                writer.persist(mappingId, staged.answers(), staged.popUpCount());
+                writer.persist(mappingId, staged.answers(), staged.popUpCount(), staged.gameResults());
                 redis.completeSubmission(mappingId);
                 log.info("Digested staged submission for attempt {} into MySQL", mappingId);
             } catch (ResponseStatusException e) {

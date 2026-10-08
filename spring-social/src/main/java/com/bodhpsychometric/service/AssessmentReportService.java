@@ -21,6 +21,8 @@ import com.bodhpsychometric.dto.ExportSheetResponse;
 import com.bodhpsychometric.dto.ExportSheetResponse.DemographicColumn;
 import com.bodhpsychometric.dto.ExportSheetResponse.ExportAssessmentRef;
 import com.bodhpsychometric.dto.ExportSheetResponse.ExportRow;
+import com.bodhpsychometric.dto.ExportSheetResponse.GameColumn;
+import com.bodhpsychometric.dto.ExportSheetResponse.GamePartCell;
 import com.bodhpsychometric.dto.ExportSheetResponse.MqColumn;
 import com.bodhpsychometric.dto.ExportSheetResponse.MqtColumn;
 import com.bodhpsychometric.dto.ExportSheetResponse.QuestionColumn;
@@ -36,6 +38,7 @@ import com.bodhpsychometric.dto.ReportRespondentDetail;
 import com.bodhpsychometric.dto.ReportRespondentRow;
 import com.bodhpsychometric.model.assessment.Assessment;
 import com.bodhpsychometric.model.assessment.AssessmentAnswer;
+import com.bodhpsychometric.model.game.GameResult;
 import com.bodhpsychometric.model.assessment.RespondentAssessmentMapping;
 import com.bodhpsychometric.model.assessment.enums.RespondentAssessmentStatus;
 import com.bodhpsychometric.model.auth.RespondentUser;
@@ -56,6 +59,7 @@ import com.bodhpsychometric.repository.assessment.RespondentAssessmentMappingRep
 import com.bodhpsychometric.repository.auth.RespondentUserRepository;
 import com.bodhpsychometric.repository.demographics.DemographicResponseRepository;
 import com.bodhpsychometric.repository.demographics.QuestionnaireDemographicFieldRepository;
+import com.bodhpsychometric.repository.game.GameResultRepository;
 import com.bodhpsychometric.repository.organization.OrganizationRepository;
 import com.bodhpsychometric.repository.questionnaire.QuestionnaireQuestionRepository;
 
@@ -83,6 +87,7 @@ public class AssessmentReportService {
     private final QuestionnaireDemographicFieldRepository demographicFields;
     private final MqtScoringService scoring;
     private final PortalRedisStore redis;
+    private final GameResultRepository gameResults;
 
     public AssessmentReportService(OrganizationRepository organizations,
             AssessmentRepository assessments,
@@ -93,7 +98,8 @@ public class AssessmentReportService {
             QuestionnaireQuestionRepository placements,
             QuestionnaireDemographicFieldRepository demographicFields,
             MqtScoringService scoring,
-            PortalRedisStore redis) {
+            PortalRedisStore redis,
+            GameResultRepository gameResults) {
         this.organizations = organizations;
         this.assessments = assessments;
         this.respondents = respondents;
@@ -104,6 +110,7 @@ public class AssessmentReportService {
         this.demographicFields = demographicFields;
         this.scoring = scoring;
         this.redis = redis;
+        this.gameResults = gameResults;
     }
 
     @Transactional(readOnly = true)
@@ -326,6 +333,9 @@ public class AssessmentReportService {
         // put: a checklist is one row per tick, and a map by field would keep
         // only the last one — silently.
         Map<Long, Map<Long, List<DemographicResponse>>> demographicsByRespondent = new HashMap<>();
+        // respondentId → GameColumn.key → that part's numbers; and the columns.
+        Map<Long, Map<String, GamePartCell>> gamePartsByRespondent = new HashMap<>();
+        Map<String, GameColumn> gameColumnsByKey = new HashMap<>();
         if (!respondentIds.isEmpty()) {
             for (AssessmentAnswer a : answers.findForExport(assessmentId, respondentIds)) {
                 rawAnswersByRespondent
@@ -342,6 +352,25 @@ public class AssessmentReportService {
                                 k -> new ArrayList<>())
                         .add(cell);
             }
+            // What each finished game measured, one game_result row per part.
+            // A part becomes a block of columns keyed <tag>_<partCode>; the
+            // columns come from the DATA because a game's parts are defined by
+            // its file in the portal, not by anything stored on the question.
+            for (GameResult result : gameResults.findForExport(assessmentId, respondentIds)) {
+                Long questionId = result.getAnswer().getQuestion().getQuestionId();
+                String tag = tagByKey.get(new ExportKey(questionId, null));
+                if (tag == null) {
+                    continue; // the question is no longer placed here — no column for it
+                }
+                String key = tag + "_" + result.getPartCode();
+                GameColumn column = new GameColumn(key, tag, questionId, result.getGame().getCode(),
+                        result.getGame().getName(), result.getPartCode(), result.getPartOrder());
+                // Earliest part order wins, so a block's position is stable.
+                gameColumnsByKey.merge(key, column, (a, b) -> a.partOrder() <= b.partOrder() ? a : b);
+                gamePartsByRespondent
+                        .computeIfAbsent(result.getAnswer().getRespondent().getId(), k -> new HashMap<>())
+                        .put(key, GamePartCell.from(result));
+            }
             for (DemographicResponse d : demographicResponses.findForExport(assessmentId, respondentIds)) {
                 demographicsByRespondent
                         .computeIfAbsent(d.getRespondent().getId(), k -> new HashMap<>())
@@ -349,6 +378,17 @@ public class AssessmentReportService {
                         .add(d);
             }
         }
+
+        // Game blocks in question-column order, parts in the order played.
+        Map<String, Integer> columnOrder = new HashMap<>();
+        for (int i = 0; i < questionColumns.size(); i++) {
+            columnOrder.putIfAbsent(questionColumns.get(i).questionTag(), i);
+        }
+        List<GameColumn> gameColumns = gameColumnsByKey.values().stream()
+                .sorted(Comparator.comparingInt((GameColumn c) -> columnOrder.getOrDefault(c.questionTag(), Integer.MAX_VALUE))
+                        .thenComparingInt(GameColumn::partOrder)
+                        .thenComparing(GameColumn::partCode))
+                .toList();
 
         // ── Rows ──────────────────────────────────────────────────────────
         List<ExportRow> rows = new ArrayList<>();
@@ -404,6 +444,7 @@ public class AssessmentReportService {
                     demographicSelections,
                     demographicOtherTexts,
                     answerCells,
+                    gamePartsByRespondent.getOrDefault(respondentUserId, Map.of()),
                     scores.mqtScores(),
                     scores.mqtTotals(),
                     scores.mqScores()));
@@ -412,7 +453,7 @@ public class AssessmentReportService {
         return new ExportSheetResponse(
                 new ExportAssessmentRef(assessmentId, assessment.getName(),
                         questionnaireId, questionnaire.getName()),
-                organizationId, demographicColumns, questionColumns,
+                organizationId, demographicColumns, questionColumns, gameColumns,
                 mqColumns, mqtColumns, scoringKey, rows);
     }
 

@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Circle, Clock, ExternalLink, Layers, ListChecks, Shuffle, Square } from 'lucide-react';
+import { Circle, Clock, ExternalLink, Gamepad2, Layers, ListChecks, Shuffle, Square } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { RichTextView } from '@/components/rich-text-editor';
@@ -18,6 +18,8 @@ export interface PreviewOption {
   description?: string | null;
   contentType: string;
   mediaUrl: string | null;
+  /** GAMES only — the game the option launches. Absent on drafts and older callers. */
+  game?: { name: string } | null;
 }
 
 /** Structural subset of QuestionResponse this view needs. */
@@ -113,6 +115,8 @@ export function QuestionView({ q, number }: { q: PreviewQuestion; number: number
   // points between the two labels — not as a stack of options called "1".."5".
   const isScale = q.questionType === 'LINEAR_SCALE';
   const isText = q.questionType === 'SHORT_ANSWER';
+  // A game is a launch card, not a list: its one option is picked by finishing it.
+  const isGame = q.questionType === 'GAMES';
   // A grid is rows x columns, one pick per row — shown as the table the
   // respondent meets, so the preview is not quietly kinder than the portal.
   const gridRows = q.questionType === 'LIKERT_GRID' ? q.rows ?? [] : [];
@@ -167,6 +171,16 @@ export function QuestionView({ q, number }: { q: PreviewQuestion; number: number
               ))}
             </tbody>
           </table>
+        </div>
+      ) : isGame ? (
+        <div className="pl-9">
+          <div className="flex items-center gap-3 rounded-md border border-border px-3 py-2">
+            <Gamepad2 className="h-4 w-4 text-primary shrink-0" />
+            <span className="flex-1 text-sm">{q.options[0]?.game?.name ?? 'Game'}</span>
+            <span className="rounded-md bg-primary px-2 py-1 text-[0.6875rem] font-medium text-primary-foreground">
+              Launch game
+            </span>
+          </div>
         </div>
       ) : isText ? (
         <div className="pl-9">
