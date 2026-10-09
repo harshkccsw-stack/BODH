@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   ArrowDown,
   ArrowUp,
+  ChevronRight,
   Flag,
   Gamepad2,
   Image as ImageIcon,
@@ -553,7 +554,57 @@ export interface QuestionForm {
    * bank modal.
    */
   optional?: boolean;
+  /**
+   * Group MEMBERS only — whether its editor is folded down to a one-line
+   * summary. Screen state like showDescription, kept on the form so it
+   * follows the member through reorders and so the builder's Expand all /
+   * Collapse all can reach inside groups. Never sent, and left out of
+   * formSnapshot so folding a member is not an edit.
+   */
+  collapsed?: boolean;
 }
+
+/**
+ * The form as the backend would see it, for "has this changed since it was
+ * saved?" — screen-only state (a member folded, a member's per-placement
+ * Optional flag, which the mapping PUT saves) stripped, so toggling either
+ * does not send an identical bank question back to the server.
+ */
+export const formSnapshot = (form: QuestionForm): string =>
+  JSON.stringify(form, (key, value) => (key === 'collapsed' || key === 'optional' ? undefined : value));
+
+/** "MCQ · 4 options · 3 scores" — what a folded member header says it is. */
+export const memberSummary = (form: QuestionForm): string => {
+  const parts: string[] = [];
+  if (form.questionType === 'LINEAR_SCALE') {
+    const { from, to } = scaleRange(form);
+    parts.push(`linear scale ${from}–${to}`);
+  } else if (form.questionType === 'SHORT_ANSWER') {
+    parts.push(form.answerFormat === 'WHOLE_NUMBER' ? 'typed number' : 'typed answer');
+  } else {
+    const n = liveOptions(form).length;
+    parts.push(`${n} option${n === 1 ? '' : 's'}`);
+    if (form.selectionRule) parts.push('multi-select');
+  }
+  const scores =
+    form.mqtScores.filter((s) => s.mqtId).length +
+    form.options.reduce((a, o) => a + o.mqtScores.filter((s) => s.mqtId).length, 0);
+  parts.push(scores === 0 ? 'not scored' : `${scores} score${scores === 1 ? '' : 's'}`);
+  return parts.join(' · ');
+};
+
+/**
+ * A group whose members with a problem are unfolded — called when a save is
+ * refused, so the member the error names is open to fix rather than hidden
+ * behind its summary line. Any other form comes back unchanged.
+ */
+export const unfoldMembersWithProblems = (form: QuestionForm): QuestionForm =>
+  form.questionType !== 'GROUP'
+    ? form
+    : {
+        ...form,
+        members: form.members.map((m) => (validateQuestionForm(m) ? { ...m, collapsed: false } : m)),
+      };
 
 export const formFrom = (initial: QuestionResponse | null): QuestionForm =>
   initial == null
@@ -624,7 +675,10 @@ export const formFrom = (initial: QuestionResponse | null): QuestionForm =>
         // Null on every type but a short answer, and on a response from an
         // older backend — both mean text.
         answerFormat: initial.answerFormat ?? 'TEXT',
-        members: (initial.members ?? []).map((m) => formFrom(m)),
+        // Saved members open folded, the way saved questions open collapsed in
+        // the questionnaire builder: a group reads as its list of questions
+        // first, and each unfolds to edit. New members start open.
+        members: (initial.members ?? []).map((m) => ({ ...formFrom(m), collapsed: true })),
       };
 
 /** Option rows that carry text or media, trimmed. Row order = display order. */
@@ -896,6 +950,9 @@ export function QuestionFormFields({
   showMemberOptional?: boolean;
 }) {
   const set = (patch: Partial<QuestionForm>) => onChange({ ...form, ...patch });
+  /** One group member's form patched in place — fold state, Optional, and the like. */
+  const patchMember = (i: number, patch: Partial<QuestionForm>) =>
+    set({ members: form.members.map((m, j) => (j === i ? { ...m, ...patch } : m)) });
   const isScale = form.questionType === 'LINEAR_SCALE';
   const isGrid = form.questionType === 'LIKERT_GRID';
   const isText = form.questionType === 'SHORT_ANSWER';
@@ -1122,15 +1179,36 @@ export function QuestionFormFields({
            — same fields, same scoring, type restricted to what fits inside a
            group block. Nested recursion of this very component. */
         <div className="space-y-2">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-2">
             <label className="text-sm font-medium">Questions in this group</label>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => set({ members: [...form.members, formFrom(null)] })}
-            >
-              <Plus className="h-3 w-3" /> Add question
-            </Button>
+            <div className="flex items-center gap-2">
+              {form.members.length > 1 && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => set({ members: form.members.map((m) => ({ ...m, collapsed: false })) })}
+                    className="text-[0.6875rem] font-medium text-primary hover:underline"
+                  >
+                    Expand all
+                  </button>
+                  <span className="text-[0.6875rem] text-muted-foreground">·</span>
+                  <button
+                    type="button"
+                    onClick={() => set({ members: form.members.map((m) => ({ ...m, collapsed: true })) })}
+                    className="text-[0.6875rem] font-medium text-primary hover:underline"
+                  >
+                    Collapse all
+                  </button>
+                </>
+              )}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => set({ members: [...form.members, formFrom(null)] })}
+              >
+                <Plus className="h-3 w-3" /> Add question
+              </Button>
+            </div>
           </div>
           <p className="text-[0.6875rem] text-muted-foreground">
             Shown together on one page, each question with its options laid out in a row.
@@ -1138,13 +1216,44 @@ export function QuestionFormFields({
             automatically — until anyone has answered, when the set of questions locks.
             Wording and scores stay editable throughout.
           </p>
-          {form.members.map((member, i) => (
-            <div key={i} className="rounded-lg border border-border p-3 space-y-3 bg-muted/20">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  Question {i + 1}{member.id == null && form.id != null ? ' · new' : ''}
-                </span>
-                <div className="flex items-center gap-0.5">
+          {form.members.map((member, i) => {
+            const folded = member.collapsed ?? false;
+            const toggle = () => patchMember(i, { collapsed: !folded });
+            // Shown on a folded member only: an unfolded one shows its own
+            // fields, and a save refused for it unfolds it anyway.
+            const problem = folded ? validateQuestionForm(member) : null;
+            const memberStem = member.stem.trim();
+            return (
+            <div key={i} className={cn('rounded-lg border border-border bg-muted/20', folded ? 'px-3 py-2' : 'p-3 space-y-3')}>
+              <div className="flex items-start justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={toggle}
+                  className="mt-0.5 shrink-0 text-muted-foreground hover:text-foreground"
+                  title={folded ? 'Expand question' : 'Collapse question'}
+                  aria-expanded={!folded}
+                >
+                  <ChevronRight className={cn('h-4 w-4 transition-transform', !folded && 'rotate-90')} />
+                </button>
+                <button type="button" onClick={toggle} className="min-w-0 flex-1 text-left">
+                  <span className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mt-0.5">
+                    Question {i + 1}{member.id == null && form.id != null ? ' · new' : ''}
+                  </span>
+                  {folded && (
+                    <>
+                      <span className={cn('block truncate text-sm font-medium', !memberStem && 'italic text-muted-foreground')}>
+                        {memberStem || 'Untitled question'}
+                      </span>
+                      <span className="block truncate text-[0.6875rem] text-muted-foreground">
+                        {memberSummary(member)}
+                        {problem && (
+                          <span className="text-amber-700 dark:text-amber-400">{' · '}{problem}</span>
+                        )}
+                      </span>
+                    </>
+                  )}
+                </button>
+                <div className="flex shrink-0 items-center gap-0.5">
                   {showMemberOptional && (
                     <label
                       className="mr-1 flex h-6 cursor-pointer items-center gap-1.5 rounded-md border border-border bg-background px-2 text-xs"
@@ -1154,12 +1263,7 @@ export function QuestionFormFields({
                         type="checkbox"
                         className="rounded"
                         checked={member.optional ?? false}
-                        onChange={(e) =>
-                          set({
-                            members: form.members.map((m, j) =>
-                              j === i ? { ...m, optional: e.target.checked } : m),
-                          })
-                        }
+                        onChange={(e) => patchMember(i, { optional: e.target.checked })}
                       />
                       Optional
                     </label>
@@ -1202,15 +1306,18 @@ export function QuestionFormFields({
                   </button>
                 </div>
               </div>
-              <QuestionFormFields
-                form={member}
-                onChange={(next) => set({ members: form.members.map((m, j) => (j === i ? next : m)) })}
-                choices={choices}
-                onCreateChoice={onCreateChoice}
-                allowedTypes={GROUP_MEMBER_TYPES}
-              />
+              {!folded && (
+                <QuestionFormFields
+                  form={member}
+                  onChange={(next) => set({ members: form.members.map((m, j) => (j === i ? next : m)) })}
+                  choices={choices}
+                  onCreateChoice={onCreateChoice}
+                  allowedTypes={GROUP_MEMBER_TYPES}
+                />
+              )}
             </div>
-          ))}
+            );
+          })}
         </div>
       ) : isGame ? (
         <GamePicker gameId={form.gameId} onChange={(gameId) => set({ gameId })} />
@@ -1703,7 +1810,12 @@ export function QuestionFormModal({
 
   const submit = async () => {
     const problem = validateQuestionForm(form);
-    if (problem) { setFormError(problem); return; }
+    if (problem) {
+      setFormError(problem);
+      // The member the message names may be folded away — open it.
+      setForm(unfoldMembersWithProblems(form));
+      return;
+    }
     const payload = questionPayloadFrom(form);
     setSaving(true);
     try {

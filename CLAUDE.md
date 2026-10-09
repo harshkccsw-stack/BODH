@@ -622,11 +622,31 @@ re-read a file before editing; expect it to have changed):
   fold into ONE page under ONE_PER_PAGE — a group page is mechanically a
   small section page (header "Questions 4–6 of 40", Next never greyed,
   outlines + scrolls to blanks, no auto-advance) — and into one bordered
-  block inside SECTION_PER_PAGE pages; a member's options render in a
-  WRAPPING horizontal row (`inGroup` in renderQuestion; the "Other…" cell
-  spans the row). Dashboard: the ONE question form nests full member forms
+  block inside SECTION_PER_PAGE pages. The block is an EXCEL-STYLE TABLE
+  from 640px up (2026-10-09, user's sheet mock-up; `renderGroupRow`,
+  `useMinWidth`): full question text in the left cell (never truncated), the
+  question's OWN options as gridded cells to the right (radio, or checkbox on
+  multi-select; the whole cell is the click target), short rows padded with
+  empty cells. The radio sits BESIDE its label (user's request, 2026-10-09)
+  whenever it fits: `groupTableLayout` sizes every option column to the
+  group's longest WORD measured in the page font (canvas) + radio, gives the
+  question column the rest (min 176px), and falls back to radio-ABOVE-label
+  only when beside would not leave that minimum in the measured `<main>` width
+  (`useElementWidth`) — e.g. five long options with the question index off.
+  It re-renders once on `document.fonts.ready`, or a pre-font paint would
+  pick the fallback and flip on the first click; sliders/typed answers in one cell spanning the option columns
+  via `renderQuestion(qi, true)` (control only). No header row — every row's
+  labels differ. Below 640px the members stack with options in a WRAPPING
+  row (`inGroup` in renderQuestion); exactly ONE layout is mounted, never
+  both (two live copies of every input). The dashboard Preview draws the same
+  table (`GroupTableView`). Dashboard: the ONE question form nests full member forms
   recursively (`QuestionFormFields` + `allowedTypes` +
-  `showMemberOptional`); the builder folds member placements into one group
+  `showMemberOptional`); each member FOLDS to a one-line summary (chevron,
+  `QuestionForm.collapsed`, saved members open folded, a refused save unfolds
+  the member at fault via `unfoldMembersWithProblems`, the builder's Expand
+  all / Collapse all reach inside groups); the builder compares forms with
+  `formSnapshot`, which drops fold state and member Optional so neither
+  counts as a bank edit. The builder folds member placements into one group
   draft (`draftsFromPlacements`), expands them again in the mapping PUT
   (`buildMappingEntries`), rides per-member optional ON the member form
   (`QuestionForm.optional` — builder-only, never in the bank payload), and

@@ -63,7 +63,9 @@ import {
   effectiveOptions,
   liveRows,
   formFrom,
+  formSnapshot,
   questionPayloadFrom,
+  unfoldMembersWithProblems,
   validateQuestionForm,
   type MqtChoice,
   type QuestionForm,
@@ -149,7 +151,7 @@ const draftFromQuestion = (
     questionId: copy ? null : q.questionId,
     sectionId,
     form,
-    baseline: copy ? '' : JSON.stringify(form),
+    baseline: copy ? '' : formSnapshot(form),
     usedIn: copy ? [] : q.usedIn,
     expanded: false,
     optional,
@@ -181,6 +183,8 @@ const draftFromGroupPlacements = (
     const mf = formFrom(m);
     if (copy) mf.id = null;
     mf.optional = fromThisQuestionnaire ? m.optional ?? false : false;
+    // Saved members open folded, like saved question cards do.
+    mf.collapsed = true;
     return mf;
   });
   return {
@@ -188,7 +192,7 @@ const draftFromGroupPlacements = (
     questionId: copy ? null : parentId,
     sectionId,
     form,
-    baseline: copy ? '' : JSON.stringify(form),
+    baseline: copy ? '' : formSnapshot(form),
     usedIn: copy ? [] : members[0]?.usedIn ?? [],
     expanded: false,
     optional: false,
@@ -479,8 +483,17 @@ export default function CreateAssessmentPage() {
     </DndContext>
   );
 
+  // Reaches inside groups too: every question on the page, members included,
+  // opens or folds together. Fold state is screen-only (formSnapshot drops
+  // it), so this never marks a question as edited.
   const setExpandedAll = (expanded: boolean) =>
-    setDrafts((prev) => prev.map((d) => ({ ...d, expanded })));
+    setDrafts((prev) => prev.map((d) => ({
+      ...d,
+      expanded,
+      form: d.form.questionType === 'GROUP'
+        ? { ...d.form, members: d.form.members.map((m) => ({ ...m, collapsed: !expanded })) }
+        : d.form,
+    })));
 
   /** Drafts of one scope, in list order. */
   const scopeDrafts = (sectionId: number | null) =>
@@ -1106,7 +1119,8 @@ export default function CreateAssessmentPage() {
       const d = drafts[i];
       const problem = validateQuestionForm(d.form);
       if (problem) {
-        patchDraft(d.key, { expanded: true });
+        // Open the card — and, on a group, the member the message names.
+        patchDraft(d.key, { expanded: true, form: unfoldMembersWithProblems(d.form) });
         setError(`Question ${i + 1}: ${problem}`);
         return;
       }
@@ -1138,11 +1152,11 @@ export default function CreateAssessmentPage() {
       for (let i = 0; i < next.length; i++) {
         const d = next[i];
         if (d.questionId == null) continue;
-        const snapshot = JSON.stringify(d.form);
+        const snapshot = formSnapshot(d.form);
         if (snapshot === d.baseline) continue;
         const res = await questionApis.updateQuestion(d.questionId, questionPayloadFrom(d.form));
         const form = withServerIds(d.form, res.data);
-        next[i] = { ...d, form, baseline: JSON.stringify(form), usedIn: res.data.usedIn };
+        next[i] = { ...d, form, baseline: formSnapshot(form), usedIn: res.data.usedIn };
       }
       // 2 — brand-new questions, in one all-or-nothing call.
       const newIdx = next.map((d, i) => (d.questionId == null ? i : -1)).filter((i) => i >= 0);
@@ -1155,7 +1169,7 @@ export default function CreateAssessmentPage() {
             ...next[i],
             questionId: created.questionId,
             form,
-            baseline: JSON.stringify(form),
+            baseline: formSnapshot(form),
             usedIn: created.usedIn,
           };
         });

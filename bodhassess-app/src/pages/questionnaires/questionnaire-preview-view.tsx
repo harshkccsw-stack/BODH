@@ -215,20 +215,12 @@ export function QuestionView({ q, number }: { q: PreviewQuestion; number: number
           </div>
         </div>
       ) : q.options.length > 0 && (
-        /* A group member's options sit side by side in a wrapping row — the
-           portal's layout for them — everything else stacks as always. */
-        <div className={cn('pl-9', q.parentQuestionId != null ? 'flex flex-wrap gap-1.5' : 'space-y-1.5')}>
+        <div className="space-y-1.5 pl-9">
           {q.options.map((o) => (
             // items-start, not items-center: an option with a description is
             // two lines tall and the marker belongs beside the label, not
             // floating in the middle of the pair.
-            <div
-              key={o.optionId}
-              className={cn(
-                'flex items-start gap-2.5 rounded-md border border-border px-3 py-2',
-                q.parentQuestionId != null && o.contentType === 'FREE_TEXT' && 'basis-full',
-              )}
-            >
+            <div key={o.optionId} className="flex items-start gap-2.5 rounded-md border border-border px-3 py-2">
               <Marker className={cn('h-3.5 w-3.5 text-muted-foreground/50 shrink-0 mt-0.5', rule && 'rounded-[3px]')} />
               <div className="min-w-0 flex-1 space-y-1">
                 {o.optionText && <p className="text-sm">{o.optionText}</p>}
@@ -250,6 +242,91 @@ export function QuestionView({ q, number }: { q: PreviewQuestion; number: number
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * A group as the portal draws it on a tablet or desktop: an Excel-style
+ * table, each question's full text in the left cell and its OWN options in
+ * gridded cells to the right, short rows padded with empty cells. Members
+ * that are not a row of choices (a typed answer, a slider) get one cell
+ * spanning the option columns. On a phone the portal stacks the members
+ * instead — the preview shows the wide layout, which is what most authors
+ * check against.
+ */
+function GroupTableView({ questions, firstNumber }: { questions: PreviewQuestion[]; firstNumber: number }) {
+  const isChoice = (q: PreviewQuestion) => (q.questionType ?? 'MCQ') === 'MCQ';
+  const columns = Math.max(1, ...questions.map((q) => (isChoice(q) ? q.options.length : 0)));
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full table-fixed border-collapse text-sm" style={{ minWidth: `${14 + columns * 6.5}rem` }}>
+        <colgroup>
+          <col style={{ width: columns <= 2 ? '45%' : '36%' }} />
+          {Array.from({ length: columns }, (_, k) => <col key={k} />)}
+        </colgroup>
+        <tbody>
+          {questions.map((q, i) => {
+            const Marker = q.selectionRule ? Square : Circle;
+            return (
+              <tr key={q.questionId}>
+                <td className="border border-border p-2.5 align-middle">
+                  <p className="flex gap-2 font-medium leading-snug">
+                    <span className="mt-px shrink-0 text-xs tabular-nums text-muted-foreground">{firstNumber + i}.</span>
+                    <span className="min-w-0 break-words">{q.stem}</span>
+                  </p>
+                  {q.description && <p className="mt-1 text-xs text-muted-foreground">{q.description}</p>}
+                  {q.selectionRule && (
+                    <p className="mt-1 text-[0.6875rem] font-medium text-primary">
+                      {selectionLabel(q.selectionRule, q.selectionCount ?? null, q.options.length)}
+                    </p>
+                  )}
+                </td>
+                {isChoice(q) ? (
+                  <>
+                    {q.options.map((o, oi) => (
+                      <td key={o.optionId} className="border border-border px-1.5 py-2.5 align-middle">
+                        {/* Radio beside its label, as the portal draws it
+                            wherever the row has room. */}
+                        <div className="flex items-center justify-center gap-1.5">
+                          <Marker className="h-4 w-4 shrink-0 text-muted-foreground/50" />
+                          <p className="min-w-0 break-words leading-snug">{o.optionText || `Option ${oi + 1}`}</p>
+                        </div>
+                        {o.contentType === 'FREE_TEXT' && (
+                          <div className="mx-auto mt-1 w-4/5 border-b border-border" />
+                        )}
+                      </td>
+                    ))}
+                    {Array.from({ length: columns - q.options.length }, (_, k) => (
+                      <td key={`empty-${k}`} className="border border-border bg-muted/30" />
+                    ))}
+                  </>
+                ) : (
+                  <td colSpan={columns} className="border border-border p-2.5 align-middle">
+                    {q.questionType === 'LINEAR_SCALE' ? (
+                      <div className="space-y-1">
+                        <div className="flex justify-between gap-3 text-xs text-muted-foreground">
+                          <span className="truncate">{q.scaleLowLabel}</span>
+                          <span className="truncate text-right">{q.scaleHighLabel}</span>
+                        </div>
+                        <div className="h-1.5 rounded-full bg-border" />
+                        <div className="flex justify-between text-[0.6875rem] text-muted-foreground">
+                          <span>{q.scaleFrom ?? q.options[0]?.optionText ?? 1}</span>
+                          <span>{q.scaleTo ?? q.options[q.options.length - 1]?.optionText ?? 5}</span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-muted-foreground">
+                        {q.answerFormat === 'WHOLE_NUMBER' ? 'Enter a number — 1, 2, 3, etc.' : 'Their answer…'}
+                      </div>
+                    )}
+                  </td>
+                )}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -401,8 +478,10 @@ export function QuestionnairePreviewView({
                   }
                   const heading = chunk.questions[0].groupHeading?.trim() || null;
                   const groupDescription = chunk.questions[0].groupDescription?.trim() || null;
+                  const firstNumber = running + 1;
+                  running += chunk.questions.length;
                   return (
-                    <div key={`group-${chunk.groupKey}`} className="rounded-lg border border-primary/30 bg-primary/[0.02] p-3 space-y-3">
+                    <div key={`group-${chunk.groupKey}`} className="rounded-lg border border-border p-3 space-y-3">
                       {(heading || groupDescription) && (
                         <div className="space-y-0.5">
                           {heading && <p className="text-sm font-semibold">{heading}</p>}
@@ -411,10 +490,7 @@ export function QuestionnairePreviewView({
                           )}
                         </div>
                       )}
-                      {chunk.questions.map((q) => {
-                        running += 1;
-                        return <QuestionView key={q.questionId} q={q} number={running} />;
-                      })}
+                      <GroupTableView questions={chunk.questions} firstNumber={firstNumber} />
                     </div>
                   );
                 });

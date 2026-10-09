@@ -67,6 +67,110 @@ function selectionHint(q: PortalQuestion): string | null {
   return `Select at least ${n} option${s}`;
 }
 
+/**
+ * True while the viewport is at least `px` wide, following resizes and
+ * rotation. For layouts that must MOUNT one way or the other rather than
+ * merely hide: a group renders as a table on a wide screen and as stacked
+ * questions on a phone, and mounting both would put two live copies of every
+ * input on the page.
+ */
+function useMinWidth(px: number): boolean {
+  const query = `(min-width: ${px}px)`;
+  const [matches, setMatches] = useState(
+    () => typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia(query).matches,
+  );
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return;
+    const mql = window.matchMedia(query);
+    const sync = () => setMatches(mql.matches);
+    sync();
+    mql.addEventListener('change', sync);
+    return () => mql.removeEventListener('change', sync);
+  }, [query]);
+  return matches;
+}
+
+let measureContext: CanvasRenderingContext2D | null | undefined;
+
+/**
+ * How wide `text` renders at the option labels' size and weight (14px,
+ * medium — the weight a picked label takes, so a pick never overflows its
+ * cell). Measured in the page's own font through a canvas; a rough
+ * per-character estimate if no canvas is available.
+ */
+function labelWidthPx(text: string): number {
+  if (measureContext === undefined) {
+    measureContext = typeof document === 'undefined' ? null : document.createElement('canvas').getContext('2d');
+  }
+  if (!measureContext) return text.length * 8;
+  measureContext.font = `500 14px ${getComputedStyle(document.body).fontFamily}`;
+  return measureContext.measureText(text).width;
+}
+
+/** The narrowest the question column of a group table may get. */
+const GROUP_STEM_MIN_PX = 176;
+
+/**
+ * How a group's table is laid out: the width every option column gets (px),
+ * and whether each radio sits BESIDE its label or above it. Null optionPx =
+ * no member has option cells (sliders and typed answers only), and the table
+ * splits by share instead.
+ *
+ * Beside is the preferred look. Every option column is made wide enough for
+ * the group's longest single WORD next to its radio (radio 16 + gap 6 + cell
+ * padding 12 + slack 4), so labels wrap between words and never mid-word —
+ * and beside is used whenever that still leaves the question column its
+ * minimum in the room available. When it does not (five long options on a
+ * page without the question index), the radio goes above the label instead,
+ * which needs only the word's own width: a sideways-scrolling table would be
+ * worse than either. `availablePx` null (not measured yet) means beside.
+ *
+ * Floored so short labels ("Yes") still make a comfortable target, capped so
+ * one freakishly long word cannot push the table off the screen (past the
+ * cap it breaks, like any word too long for its box). When a slider or typed
+ * answer spans the option columns, they are widened enough for that control
+ * to stay usable.
+ */
+function groupTableLayout(
+  members: PortalQuestion[],
+  columns: number,
+  availablePx: number | null,
+): { optionPx: number | null; beside: boolean } {
+  const choices = members.filter((m) => m.questionType === 'MCQ');
+  if (choices.length === 0) return { optionPx: null, beside: true };
+  let widestWord = 0;
+  for (const m of choices) {
+    m.options.forEach((o, oi) => {
+      for (const word of (o.optionText || `Option ${oi + 1}`).split(/\s+/)) {
+        if (word) widestWord = Math.max(widestWord, labelWidthPx(word));
+      }
+    });
+  }
+  const spanFloor = choices.length < members.length ? Math.ceil(288 / columns) : 0;
+  const besidePx = Math.max(spanFloor, Math.min(200, Math.max(96, Math.ceil(widestWord) + 38)));
+  if (availablePx === null || GROUP_STEM_MIN_PX + columns * besidePx <= availablePx) {
+    return { optionPx: besidePx, beside: true };
+  }
+  return { optionPx: Math.max(spanFloor, Math.min(200, Math.max(72, Math.ceil(widestWord) + 18))), beside: false };
+}
+
+/**
+ * The content width of an element, following resizes — what a group table
+ * has to fit into. Null until the first measurement.
+ */
+function useElementWidth(ref: { current: HTMLElement | null }): number | null {
+  const [width, setWidth] = useState<number | null>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    setWidth(el.getBoundingClientRect().width);
+    const observer = new ResizeObserver((entries) => setWidth(entries[0]?.contentRect.width ?? null));
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [ref]);
+  return width;
+}
+
 /** "9:47" — the attention budget as the popup shows it, never negative. */
 function formatCountdown(ms: number): string {
   const total = Math.max(0, Math.ceil(ms / 1000));
@@ -680,6 +784,30 @@ export function QuestionRunner({
   // is for — a section page shows several, and only the one tapped warns.
   const [capWarning, setCapWarning] = useState<number | null>(null);
 
+  // A group draws as an Excel-style table — question on the left, its own
+  // options in cells to the right — from the sm breakpoint up (640px, where
+  // four option columns beside a readable question still fit). Below it the
+  // members stack, each with its options wrapping under it.
+  const groupAsTable = useMinWidth(640);
+  // The question column's width, for fitting a group's table into it (see
+  // groupTableLayout). The card around the table pads 24px a side from sm up.
+  const mainRef = useRef<HTMLElement | null>(null);
+  const mainWidth = useElementWidth(mainRef);
+  // groupTableLayout measures labels in the page font. Drawn before the web
+  // font has loaded, it measures the wider fallback and can choose the
+  // radio-above layout — which would then flip under the respondent's first
+  // click (the next redraw). One redraw when the fonts land settles it first.
+  const [, setFontsLoaded] = useState(false);
+  useEffect(() => {
+    let live = true;
+    document.fonts?.ready.then(() => {
+      if (live) setFontsLoaded(true);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+
   /**
    * Go to a question. On a single-question page it becomes the screen. On a
    * section page its page opens (at the top when it is the page's first
@@ -1263,7 +1391,7 @@ export function QuestionRunner({
    * by `qi`, never by the screen's `index`, which is what lets a section page
    * hold several at once.
    */
-  const renderQuestion = (qi: number) => {
+  const renderQuestion = (qi: number, controlOnly = false) => {
     const q = questions[qi];
     const isScale = q.questionType === 'LINEAR_SCALE';
     const isGrid = q.questionType === 'LIKERT_GRID';
@@ -1306,84 +1434,11 @@ export function QuestionRunner({
     // game is never cleared: it cannot be un-played, and clearing would only
     // invite a second play of a timed task.
     const canClear = q.optional && !isScale && !isGame && isQuestionTouched(qi);
-    return (
-      <>
-      {showMeta && (
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            {cardOnWholePage && (
-              <span className="text-xs font-semibold tabular-nums text-muted-foreground">
-                Q{(place?.pos ?? qi) + 1}
-              </span>
-            )}
-            {q.optional && (
-              <span className="rounded-full border border-border bg-muted px-2 py-0.5 text-[0.6875rem] font-medium text-muted-foreground">
-                Optional
-              </span>
-            )}
-          </div>
-          {canClear && (
-            <button
-              type="button"
-              onClick={() => clearQuestion(qi)}
-              className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline"
-            >
-              <X className="h-3 w-3" />
-              Clear answer
-            </button>
-          )}
-        </div>
-      )}
-      {q.stem && <p className="text-[0.9375rem] sm:text-base font-medium leading-relaxed">{q.stem}</p>}
-      {/* The author's help text. Deliberately quieter than the stem
-          and pulled tight under it (-mt-2 against the container's
-          space-y): it qualifies the question rather than adding a
-          second one, and reading as a separate paragraph would make a
-          respondent look for something to answer in it. */}
-      {q.description && (
-        <p className="-mt-2 sm:-mt-3 text-sm text-muted-foreground leading-relaxed">
-          {q.description}
-        </p>
-      )}
-      <Media url={q.mediaUrl ?? undefined} type={mediaTypeFor(q.contentType, q.mediaUrl)} />
-
-      {isGrid && (
-        /* Every row needs a pick (an optional grid: every row or none),
-           so the count is the thing to show: on a long grid an unrated
-           row is easy to scroll past. */
-        <div
-          className={cn(
-            'flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-lg border px-3 py-2 text-xs font-medium',
-            answered
-              ? 'border-green-500/40 bg-green-500/5 text-green-700 dark:text-green-400'
-              : 'border-primary/30 bg-primary/5 text-primary',
-          )}
-        >
-          <span>Pick one for every row</span>
-          <span className="shrink-0 text-muted-foreground">
-            {q.rows.filter((r) => slotSatisfied(q, answerKey(q.questionId, r.questionRowId))).length}
-            {' of '}{q.rows.length} rated
-          </span>
-        </div>
-      )}
-
-      {hint && (
-        <div
-          className={cn(
-            'flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-lg border px-3 py-2 text-xs font-medium transition-colors',
-            capWarning === qi
-              ? 'border-amber-400 bg-amber-50 text-amber-700 dark:border-amber-600 dark:bg-amber-950/30 dark:text-amber-400'
-              : 'border-primary/30 bg-primary/5 text-primary',
-          )}
-        >
-          <span>{capWarning === qi ? `${hint} — untick one to change your answer` : hint}</span>
-          <span className="shrink-0 text-muted-foreground">
-            {selected.length} selected
-          </span>
-        </div>
-      )}
-
-      {isGrid ? (
+    // The answer control alone — what a GROUP's table row puts in its
+    // answer cell for the members that are not a row of option cells (a
+    // slider, a typed answer), so the table reuses these controls rather
+    // than drawing second copies of them.
+    const control = isGrid ? (
         <>
           {/* PHONE — one block per statement, its scale laid out left
               to right underneath it. The table below needs a sideways
@@ -1706,7 +1761,86 @@ export function QuestionRunner({
           );
         })}
       </div>
+      );
+    if (controlOnly) return control;
+    return (
+      <>
+      {showMeta && (
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            {cardOnWholePage && (
+              <span className="text-xs font-semibold tabular-nums text-muted-foreground">
+                Q{(place?.pos ?? qi) + 1}
+              </span>
+            )}
+            {q.optional && (
+              <span className="rounded-full border border-border bg-muted px-2 py-0.5 text-[0.6875rem] font-medium text-muted-foreground">
+                Optional
+              </span>
+            )}
+          </div>
+          {canClear && (
+            <button
+              type="button"
+              onClick={() => clearQuestion(qi)}
+              className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline"
+            >
+              <X className="h-3 w-3" />
+              Clear answer
+            </button>
+          )}
+        </div>
       )}
+      {q.stem && <p className="text-[0.9375rem] sm:text-base font-medium leading-relaxed">{q.stem}</p>}
+      {/* The author's help text. Deliberately quieter than the stem
+          and pulled tight under it (-mt-2 against the container's
+          space-y): it qualifies the question rather than adding a
+          second one, and reading as a separate paragraph would make a
+          respondent look for something to answer in it. */}
+      {q.description && (
+        <p className="-mt-2 sm:-mt-3 text-sm text-muted-foreground leading-relaxed">
+          {q.description}
+        </p>
+      )}
+      <Media url={q.mediaUrl ?? undefined} type={mediaTypeFor(q.contentType, q.mediaUrl)} />
+
+      {isGrid && (
+        /* Every row needs a pick (an optional grid: every row or none),
+           so the count is the thing to show: on a long grid an unrated
+           row is easy to scroll past. */
+        <div
+          className={cn(
+            'flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-lg border px-3 py-2 text-xs font-medium',
+            answered
+              ? 'border-green-500/40 bg-green-500/5 text-green-700 dark:text-green-400'
+              : 'border-primary/30 bg-primary/5 text-primary',
+          )}
+        >
+          <span>Pick one for every row</span>
+          <span className="shrink-0 text-muted-foreground">
+            {q.rows.filter((r) => slotSatisfied(q, answerKey(q.questionId, r.questionRowId))).length}
+            {' of '}{q.rows.length} rated
+          </span>
+        </div>
+      )}
+
+      {hint && (
+        <div
+          className={cn(
+            'flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-lg border px-3 py-2 text-xs font-medium transition-colors',
+            capWarning === qi
+              ? 'border-amber-400 bg-amber-50 text-amber-700 dark:border-amber-600 dark:bg-amber-950/30 dark:text-amber-400'
+              : 'border-primary/30 bg-primary/5 text-primary',
+          )}
+        >
+          <span>{capWarning === qi ? `${hint} — untick one to change your answer` : hint}</span>
+          <span className="shrink-0 text-muted-foreground">
+            {selected.length} selected
+          </span>
+        </div>
+      )}
+
+      {control}
       </>
     );
   };
@@ -1768,56 +1902,286 @@ export function QuestionRunner({
     );
   };
 
+  /** Why a flagged question is outlined — one wording for every layout. */
+  const needsAnswerText = (qi: number) =>
+    questions[qi].optional
+      ? 'Finish this answer, or clear it to leave the question blank.'
+      : 'This question needs an answer.';
+
   /**
-   * A group, drawn as ONE block: the optional heading once, then every member
-   * as a ruled row inside the same card — stem over its own options laid out
-   * horizontally (renderQuestion renders members that way by groupId). The
-   * rows, not the card, take the needs-answer outline: members answer one by
-   * one, and outlining the whole block would not say which one is missing.
+   * One member of a group as a TABLE ROW (wide screens): the full question in
+   * the left cell — nothing truncated — and the question's OWN options as
+   * cells to the right, a radio (or checkbox, on a multi-select) in each.
+   * Rows with fewer options than the widest leave the remaining cells empty,
+   * so the grid stays rectangular. A member that is not a row of choices (a
+   * slider, a typed answer) gets one answer cell spanning the option columns.
    */
-  const renderGroupBlock = (chunk: GroupChunk) => (
-    <Card key={`group-${chunk.groupId}`}>
-      <CardContent className="p-4 sm:p-6">
-        {(chunk.heading || chunk.description) && (
-          <div className="mb-4 space-y-1">
-            {chunk.heading && (
-              <p className="text-[0.9375rem] sm:text-base font-semibold leading-relaxed">{chunk.heading}</p>
-            )}
-            {chunk.description && (
-              <p className="text-sm text-muted-foreground leading-relaxed">{chunk.description}</p>
-            )}
-          </div>
+  const renderGroupRow = (qi: number, optionColumns: number, beside: boolean) => {
+    const q = questions[qi];
+    const isChoice = q.questionType === 'MCQ';
+    const slot = answerKey(q.questionId);
+    const selected = picked(slot);
+    const multi = q.maxSelections > 1;
+    const atCap = selected.length >= q.maxSelections;
+    const hint = selectionHint(q);
+    // The slider brings its own Clear, as on a standalone question.
+    const canClear = q.optional && q.questionType !== 'LINEAR_SCALE' && isQuestionTouched(qi);
+    const needsAnswer = flagged.has(qi) && isQuestionBlocking(qi);
+    const place = placeOf.get(qi);
+    const marker = (on: boolean) => (
+      <span
+        className={cn(
+          'flex h-4 w-4 shrink-0 items-center justify-center border transition-colors',
+          multi ? 'rounded' : 'rounded-full',
+          on ? 'border-primary bg-primary text-primary-foreground' : 'border-muted-foreground/40 bg-background',
         )}
-        <div className="divide-y divide-border">
-          {chunk.indices.map((qi) => {
-            const needsAnswer = flagged.has(qi) && isQuestionBlocking(qi);
-            return (
-              <div
-                key={questions[qi].questionId}
-                ref={(el) => {
-                  if (el) cardRefs.current.set(qi, el);
-                  else cardRefs.current.delete(qi);
-                }}
-                className={cn(
-                  'space-y-3 py-4 first:pt-0 last:pb-0',
-                  needsAnswer && '-mx-2 rounded-lg border border-red-400 px-2 ring-2 ring-red-400/30 dark:border-red-700',
+      >
+        {on && <Check className="h-2.5 w-2.5" strokeWidth={3} />}
+      </span>
+    );
+    return (
+      <tr
+        key={q.questionId}
+        ref={(el) => {
+          if (el) cardRefs.current.set(qi, el);
+          else cardRefs.current.delete(qi);
+        }}
+      >
+        <td
+          className={cn(
+            'border border-border p-3 align-middle',
+            needsAnswer && 'bg-red-50 shadow-[inset_3px_0_0_var(--color-red-500)] dark:bg-red-950/30',
+          )}
+        >
+          <div className="space-y-1.5">
+            <p className="flex gap-2 text-sm font-medium leading-snug">
+              <span className="mt-px shrink-0 text-xs tabular-nums text-muted-foreground">
+                {(place?.pos ?? qi) + 1}.
+              </span>
+              <span className="min-w-0 break-words">{q.stem}</span>
+            </p>
+            {q.description && (
+              <p className="text-xs leading-relaxed text-muted-foreground">{q.description}</p>
+            )}
+            <Media url={q.mediaUrl ?? undefined} type={mediaTypeFor(q.contentType, q.mediaUrl)} />
+            {(q.optional || hint || canClear) && (
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[0.6875rem]">
+                {q.optional && (
+                  <span className="rounded-full border border-border bg-muted px-2 py-0.5 font-medium text-muted-foreground">
+                    Optional
+                  </span>
                 )}
-              >
-                {renderQuestion(qi)}
-                {needsAnswer && (
-                  <p className="text-xs font-medium text-red-700 dark:text-red-400">
-                    {questions[qi].optional
-                      ? 'Finish this answer, or clear it to leave the question blank.'
-                      : 'This question needs an answer.'}
-                  </p>
+                {hint && (
+                  <span
+                    className={cn(
+                      'font-medium',
+                      capWarning === qi ? 'text-amber-700 dark:text-amber-400' : 'text-primary',
+                    )}
+                  >
+                    {capWarning === qi ? `${hint} — untick one to change` : hint}
+                    <span className="font-normal text-muted-foreground"> · {selected.length} selected</span>
+                  </span>
+                )}
+                {canClear && (
+                  <button
+                    type="button"
+                    onClick={() => clearQuestion(qi)}
+                    className="inline-flex items-center gap-0.5 font-medium text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                  >
+                    <X className="h-3 w-3" />
+                    Clear
+                  </button>
                 )}
               </div>
-            );
-          })}
-        </div>
-      </CardContent>
-    </Card>
-  );
+            )}
+            {needsAnswer && (
+              <p className="text-xs font-medium text-red-700 dark:text-red-400">{needsAnswerText(qi)}</p>
+            )}
+          </div>
+        </td>
+        {isChoice ? (
+          <>
+            {q.options.map((opt, oi) => {
+              const on = selected.includes(opt.optionId);
+              const label = opt.optionText || `Option ${oi + 1}`;
+              const inert = multi && atCap && !on;
+              if (opt.contentType === 'FREE_TEXT') {
+                // The "Other…" cell: its marker+label picks it, and the box
+                // under them picks it on focus — no click handler on the
+                // cell, or typing into the box would toggle the tick.
+                const otherKey = optionTextKey(slot, opt.optionId);
+                return (
+                  <td
+                    key={opt.optionId}
+                    className={cn('border border-border p-2 align-middle', on && 'bg-primary/10', inert && 'opacity-60')}
+                  >
+                    <div className="flex flex-col items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => selectOption(qi, opt.optionId)}
+                        aria-pressed={on}
+                        className={cn('flex gap-1.5', beside ? 'items-center text-left' : 'flex-col items-center text-center')}
+                      >
+                        {marker(on)}
+                        <span className={cn('text-sm leading-snug break-words', on && 'font-medium')}>{label}</span>
+                      </button>
+                      <input
+                        type="text"
+                        value={optionTexts[otherKey] ?? ''}
+                        onFocus={() => {
+                          if (!on) selectOption(qi, opt.optionId);
+                        }}
+                        onChange={(e) => setOptionTexts({ ...optionTexts, [otherKey]: e.target.value })}
+                        placeholder="Type…"
+                        aria-label={`${label} — your answer`}
+                        className="w-full min-w-0 border-0 border-b border-border bg-transparent px-1 pb-0.5 text-center text-xs outline-none placeholder:text-muted-foreground/70 focus:border-primary"
+                      />
+                    </div>
+                  </td>
+                );
+              }
+              return (
+                // The whole cell is the target: the click lands on the
+                // cell, or bubbles to it from the button inside (which has
+                // no handler of its own, so a keyboard press — a click on
+                // the button — is still counted exactly once).
+                <td
+                  key={opt.optionId}
+                  onClick={() => selectOption(qi, opt.optionId)}
+                  className={cn(
+                    'cursor-pointer border border-border p-0 align-middle transition-colors',
+                    on ? 'bg-primary/10' : 'hover:bg-primary/5',
+                    inert && 'opacity-60',
+                  )}
+                >
+                  <button
+                    type="button"
+                    aria-pressed={on}
+                    aria-label={`${q.stem ?? `Question ${(place?.pos ?? qi) + 1}`}: ${label}`}
+                    className="flex w-full flex-col items-center gap-1 px-1.5 py-3 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/50"
+                  >
+                    {/* The radio beside its label, the pair centred in the
+                        cell — or above it when the row has no room for that
+                        (groupTableLayout). The column is sized so no single
+                        word has to break either way. */}
+                    <span
+                      className={cn(
+                        'flex max-w-full gap-1.5',
+                        beside ? 'items-center text-left' : 'flex-col items-center text-center',
+                      )}
+                    >
+                      {marker(on)}
+                      <span className={cn('min-w-0 text-sm leading-snug break-words', on && 'font-medium')}>{label}</span>
+                    </span>
+                    {opt.description && (
+                      <span className="text-center text-[0.6875rem] leading-snug text-muted-foreground">{opt.description}</span>
+                    )}
+                    <Media url={opt.mediaUrl ?? undefined} type={mediaTypeFor(opt.contentType, opt.mediaUrl)} />
+                  </button>
+                </td>
+              );
+            })}
+            {Array.from({ length: optionColumns - q.options.length }, (_, k) => (
+              <td key={`empty-${k}`} aria-hidden className="border border-border bg-muted/30" />
+            ))}
+          </>
+        ) : (
+          <td colSpan={optionColumns} className="border border-border p-3 align-middle">
+            {renderQuestion(qi, true)}
+          </td>
+        )}
+      </tr>
+    );
+  };
+
+  /**
+   * A group, drawn as ONE block under its optional heading. Wide screens get
+   * the Excel-style table (renderGroupRow): every question on the left in
+   * full, its own options in gridded cells to the right. Phones get the
+   * members stacked, each a ruled row with its options wrapping beneath it
+   * (renderQuestion lays a member's options out that way by groupId) — four
+   * option columns beside a question do not fit 390px. Either way the member,
+   * not the card, takes the needs-answer outline: members answer one by one,
+   * and outlining the whole block would not say which one is missing.
+   */
+  const renderGroupBlock = (chunk: GroupChunk) => {
+    // The widest member's option count sets the columns; a group of only
+    // sliders and typed answers still has one answer column.
+    const optionColumns = Math.max(
+      1,
+      ...chunk.indices.map((qi) => (questions[qi].questionType === 'MCQ' ? questions[qi].options.length : 0)),
+    );
+    const { optionPx, beside } = groupTableLayout(
+      chunk.indices.map((qi) => questions[qi]),
+      optionColumns,
+      mainWidth === null ? null : mainWidth - 48,
+    );
+    return (
+      <Card key={`group-${chunk.groupId}`}>
+        <CardContent className="p-4 sm:p-6">
+          {(chunk.heading || chunk.description) && (
+            <div className="mb-4 space-y-1">
+              {chunk.heading && (
+                <p className="text-[0.9375rem] sm:text-base font-semibold leading-relaxed">{chunk.heading}</p>
+              )}
+              {chunk.description && (
+                <p className="text-sm text-muted-foreground leading-relaxed">{chunk.description}</p>
+              )}
+            </div>
+          )}
+          {groupAsTable ? (
+            /* Fixed layout. With option cells, every option column gets the
+               same width — wide enough for the group's longest WORD beside
+               its radio (groupTableLayout), so labels wrap between words
+               and never mid-word — and the question column takes everything
+               left, which keeps the question text as wide as the screen
+               allows. A group of only sliders and typed answers has no such
+               cells and splits by share instead. Past the min width — many
+               options on a narrow screen — the table scrolls sideways inside
+               the card rather than squeezing labels into slivers. */
+            <div className="-mx-1 overflow-x-auto overscroll-x-contain px-1">
+              <table
+                className="w-full table-fixed border-collapse text-sm"
+                style={{ minWidth: optionPx === null ? '28rem' : `${GROUP_STEM_MIN_PX + optionColumns * optionPx}px` }}
+              >
+                <colgroup>
+                  <col style={optionPx === null ? { width: '40%' } : undefined} />
+                  {Array.from({ length: optionColumns }, (_, k) => (
+                    <col key={k} style={optionPx === null ? undefined : { width: `${optionPx}px` }} />
+                  ))}
+                </colgroup>
+                <tbody>{chunk.indices.map((qi) => renderGroupRow(qi, optionColumns, beside))}</tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="divide-y divide-border">
+              {chunk.indices.map((qi) => {
+                const needsAnswer = flagged.has(qi) && isQuestionBlocking(qi);
+                return (
+                  <div
+                    key={questions[qi].questionId}
+                    ref={(el) => {
+                      if (el) cardRefs.current.set(qi, el);
+                      else cardRefs.current.delete(qi);
+                    }}
+                    className={cn(
+                      'space-y-3 py-4 first:pt-0 last:pb-0',
+                      needsAnswer && '-mx-2 rounded-lg border border-red-400 px-2 ring-2 ring-red-400/30 dark:border-red-700',
+                    )}
+                  >
+                    {renderQuestion(qi)}
+                    {needsAnswer && (
+                      <p className="text-xs font-medium text-red-700 dark:text-red-400">{needsAnswerText(qi)}</p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    );
+  };
 
   return (
     // min-h-dvh, not min-h-screen: 100vh on a mobile browser counts the
@@ -1914,7 +2278,7 @@ export function QuestionRunner({
           </>
         )}
 
-        <main>
+        <main ref={mainRef}>
           {onWholePage ? (
             <>
               {/* A section page IS the section, so its name and instruction
