@@ -12,6 +12,7 @@ import {
   type RegistrationTokenDetail,
 } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
+import { cn } from '@/lib/utils';
 import { BIRTH_DATE_ERROR, ddmmyyyyToIso, isBirthDateInRange } from '@/lib/helpers';
 import { DEFAULT_DIAL_CODE, PHONE_HINT, isValidPhone, phoneError } from '@/lib/phone';
 import { AlertTriangle, Brain, ClipboardList, Loader2, Lock, UserPlus } from 'lucide-react';
@@ -285,7 +286,11 @@ export default function RegisterTokenPage() {
                   />
                 </Field>
 
-                <Field label="Email *">
+                <Field
+                  label="Email *"
+                  hint="This email address will be used for further communication and any necessary follow-up interventions."
+                  hintClassName="font-medium text-foreground/80"
+                >
                   <input
                     type="email"
                     value={form.email}
@@ -402,11 +407,14 @@ export default function RegisterTokenPage() {
 function Field({
   label,
   hint,
+  hintClassName,
   className,
   children,
 }: {
   label: string;
   hint?: string;
+  /** Emphasis for a hint that must be read, not just available. */
+  hintClassName?: string;
   /** Grid placement — e.g. "sm:col-span-2" for a full-width row. */
   className?: string;
   children: React.ReactNode;
@@ -415,7 +423,9 @@ function Field({
     <div className={className}>
       <label className="mb-1 block text-sm font-medium">{label}</label>
       {children}
-      {hint && <p className="mt-1 text-[0.6875rem] text-muted-foreground">{hint}</p>}
+      {hint && (
+        <p className={cn('mt-1 text-[0.6875rem] text-muted-foreground', hintClassName)}>{hint}</p>
+      )}
     </div>
   );
 }

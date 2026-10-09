@@ -168,6 +168,12 @@ public record PortalAssessmentDetailResponse(
              * on every other type, and null on a short answer means TEXT.
              */
             AnswerFormat answerFormat,
+            /**
+             * WHOLE_NUMBER only: the inclusive range, each end optional (null
+             * = open). The portal warns outside it; submit refuses it.
+             */
+            Long answerMin,
+            Long answerMax,
             List<PortalRow> rows,
             List<PortalOption> options,
             /**
@@ -291,6 +297,8 @@ public record PortalAssessmentDetailResponse(
                 q.scaleLowLabel(),
                 q.scaleHighLabel(),
                 q.answerFormat(),
+                q.answerMin(),
+                q.answerMax(),
                 q.rows(),
                 deliveredOptions(q, mappingId),
                 q.groupId(),

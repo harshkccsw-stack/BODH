@@ -209,6 +209,134 @@ class ShortAnswerFormatTest {
                 .andExpect(jsonPath("$.answerFormat").value("TEXT"));
     }
 
+    private static String range(String fields) {
+        return "\"answerFormat\":\"WHOLE_NUMBER\"," + fields;
+    }
+
+    private void expectRefused(String body, String messagePart) throws Exception {
+        mvc.perform(post("/api/questions/create").contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value(Matchers.containsString(messagePart)));
+    }
+
+    @Test
+    void aNumberRangeIsCheckedAtSubmitAndOnlyWidensOnceAnswered() throws Exception {
+        // ── Authoring rules ──────────────────────────────────────────────
+        // A range belongs to a Number answer and nothing else.
+        expectRefused(shortAnswerJson("__smoke__ rng text", "\"answerMin\":1,", ""), "accepts numbers");
+        expectRefused("{\"contentType\":\"TEXT\",\"stem\":\"__smoke__ rng mcq\",\"mediaUrl\":null,"
+                + "\"riskFlag\":false,\"answerMax\":5,\"options\":[{\"optionText\":\"A\",\"contentType\":\"TEXT\","
+                + "\"mediaUrl\":null,\"mqtScores\":[]}],\"mqtScores\":[]}", "accepts numbers");
+        // Ends obey the format, and To is above From.
+        expectRefused(shortAnswerJson("__smoke__ rng flat", range("\"answerMin\":5,\"answerMax\":5,"), ""),
+                "must be greater");
+        expectRefused(shortAnswerJson("__smoke__ rng inverted", range("\"answerMin\":9,\"answerMax\":2,"), ""),
+                "must be greater");
+        expectRefused(shortAnswerJson("__smoke__ rng negative", range("\"answerMin\":-1,"), ""), "from 0 to");
+        expectRefused(shortAnswerJson("__smoke__ rng huge", range("\"answerMax\":1000000000000000,"), ""),
+                "from 0 to");
+
+        // Either end alone is fine; switching to Text clears the range.
+        int rangeQ = JsonPath.read(postJson("/api/questions/create", shortAnswerJson(
+                "__smoke__ rate it 1 to 5", range("\"answerMin\":1,\"answerMax\":5,"), "")), "$.questionId");
+        int adultQ = JsonPath.read(postJson("/api/questions/create", shortAnswerJson(
+                "__smoke__ your age", range("\"answerMin\":18,"), "")), "$.questionId");
+        int scratchQ = JsonPath.read(postJson("/api/questions/create", shortAnswerJson(
+                "__smoke__ rng scratch", range("\"answerMax\":100,"), "")), "$.questionId");
+        mvc.perform(get("/api/questions/getById/" + rangeQ))
+                .andExpect(jsonPath("$.answerMin").value(1))
+                .andExpect(jsonPath("$.answerMax").value(5));
+        mvc.perform(put("/api/questions/update/" + scratchQ).contentType(MediaType.APPLICATION_JSON)
+                        .content(shortAnswerJson("__smoke__ rng scratch", "\"answerFormat\":\"TEXT\",\"answerMax\":null,", "")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.answerMax").doesNotExist());
+
+        // ── Delivery ─────────────────────────────────────────────────────
+        int questionnaireId = JsonPath.read(postJson("/api/questionnaire/create",
+                "{\"name\":\"__smoke__ rng QNR\",\"shortName\":null,\"category\":null,\"vertical\":null,"
+                        + "\"description\":null,\"durationMinutes\":null,\"generalInstruction\":null,"
+                        + "\"hasSections\":false}"), "$.questionnaireId");
+        mvc.perform(put("/api/questionnaire/" + questionnaireId + "/questions")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("[{\"questionId\":" + rangeQ + ",\"sectionId\":null,\"sortOrder\":1},"
+                                + "{\"questionId\":" + adultQ + ",\"sectionId\":null,\"sortOrder\":2}]"))
+                .andExpect(status().isOk());
+        int assessmentId = JsonPath.read(postJson("/api/assessments/create",
+                "{\"name\":\"__smoke__ rng Assessment\",\"questionnaireId\":" + questionnaireId + ","
+                        + "\"showTermsAndConditions\":false,\"status\":\"ACTIVE\",\"autoNext\":false}"),
+                "$.assessmentId");
+        int respondentUserId = JsonPath.read(postJson("/api/respondents/create",
+                "{\"name\":\"__smoke__ Range Taker\",\"email\":\"range.taker@test.local\",\"dob\":\"07-07-2007\","
+                        + "\"phoneCountryCode\":\"+91\",\"phone\":\"9000000007\",\"gender\":\"MALE\","
+                        + "\"isConsented\":false,\"organizationId\":null}"), "$.respondentUserId");
+        postJson("/api/respondent-assessments/assign",
+                "{\"assessmentId\":" + assessmentId + ",\"respondentUserIds\":[" + respondentUserId + "]}");
+        String loginBody = mvc.perform(post("/api/portal/login").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"range.taker@test.local\",\"dob\":\"2007-07-07\"}"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        String bearer = "Bearer " + (String) JsonPath.read(loginBody, "$.token");
+        int mappingId = JsonPath.read(loginBody,
+                "$.respondent.allottedAssessments[0].respondentAssessmentMappingId");
+        mvc.perform(post("/api/portal/assessments/begin/" + mappingId).header("Authorization", bearer)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"demographics\":[]}"))
+                .andExpect(status().isOk());
+        mvc.perform(get("/api/portal/assessments/getById/" + mappingId).header("Authorization", bearer))
+                .andExpect(jsonPath("$.questions[0].answerMin").value(1))
+                .andExpect(jsonPath("$.questions[0].answerMax").value(5))
+                .andExpect(jsonPath("$.questions[1].answerMin").value(18))
+                .andExpect(jsonPath("$.questions[1].answerMax").doesNotExist());
+
+        // ── Submit: outside the range, or not a number, names the range ──
+        String[][] refused = {
+                { "10", "40", "needs a number from 1 to 5." },
+                { "0", "40", "needs a number from 1 to 5." },
+                { "2.5", "40", "needs a number from 1 to 5 — no decimal point" },
+                { "3", "17", "needs a number of 18 or more." },
+        };
+        for (String[] r : refused) {
+            mvc.perform(post("/api/portal/assessments/submit/" + mappingId).header("Authorization", bearer)
+                            .contentType(MediaType.APPLICATION_JSON).content(twoAnswers(rangeQ, r[0], adultQ, r[1])))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.message").value(Matchers.containsString(r[2])));
+        }
+        // Both ends are inclusive.
+        mvc.perform(post("/api/portal/assessments/submit/" + mappingId).header("Authorization", bearer)
+                        .contentType(MediaType.APPLICATION_JSON).content(twoAnswers(rangeQ, "5", adultQ, "18")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.assessmentStatus").value("COMPLETED"));
+
+        // ── Answered: the range may widen, never narrow ──────────────────
+        String[][] narrower = { { "\"answerMin\":2,\"answerMax\":5," }, { "\"answerMin\":1,\"answerMax\":4," } };
+        for (String[] n : narrower) {
+            mvc.perform(put("/api/questions/update/" + rangeQ).contentType(MediaType.APPLICATION_JSON)
+                            .content(shortAnswerJson("__smoke__ rate it 1 to 5", range(n[0]), "")))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.message").value(Matchers.containsString("only be widened")));
+        }
+        mvc.perform(put("/api/questions/update/" + rangeQ).contentType(MediaType.APPLICATION_JSON)
+                        .content(shortAnswerJson("__smoke__ rate it 1 to 5", range("\"answerMin\":0,\"answerMax\":10,"), "")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.answerMax").value(10));
+        // Opening an end is the widest widening; closing it again narrows.
+        mvc.perform(put("/api/questions/update/" + rangeQ).contentType(MediaType.APPLICATION_JSON)
+                        .content(shortAnswerJson("__smoke__ rate it 1 to 5", range(""), "")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.answerMax").doesNotExist());
+        mvc.perform(put("/api/questions/update/" + rangeQ).contentType(MediaType.APPLICATION_JSON)
+                        .content(shortAnswerJson("__smoke__ rate it 1 to 5", range("\"answerMax\":20,"), "")))
+                .andExpect(status().isConflict());
+        mvc.perform(put("/api/questions/update/" + adultQ).contentType(MediaType.APPLICATION_JSON)
+                        .content(shortAnswerJson("__smoke__ your age", range(""), "")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.answerMin").doesNotExist());
+    }
+
+    private static String twoAnswers(int firstQ, String first, int secondQ, String second) {
+        return "{\"answers\":[{\"questionId\":" + firstQ + ",\"answerText\":\"" + first + "\"},"
+                + "{\"questionId\":" + secondQ + ",\"answerText\":\"" + second + "\"}]}";
+    }
+
     private static String answers(int numberQ, String typed, int scaleQ, int scalePoint, int textQ) {
         return "{\"answers\":["
                 + "{\"questionId\":" + numberQ + ",\"answerText\":\"" + typed + "\"},"

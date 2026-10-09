@@ -633,6 +633,15 @@ public class QuestionController {
                 && answerFormatOf(request) == AnswerFormat.WHOLE_NUMBER) {
             return "This question already has text answers — it cannot be limited to numbers now";
         }
+        // The number range only WIDENS once answered (user's decision): a
+        // narrower one would call answers already given out of range. Open
+        // ends compare as the widest they can be.
+        if (question.answerFormat() == AnswerFormat.WHOLE_NUMBER
+                && answerFormatOf(request) == AnswerFormat.WHOLE_NUMBER
+                && (floorOf(request.answerMin()) > floorOf(question.getAnswerMin())
+                        || capOf(request.answerMax()) < capOf(question.getAnswerMax()))) {
+            return "This question already has responses — its number range can only be widened, not narrowed";
+        }
         if (optionsChanged(question, request)) {
             return "This question already has responses — its options are locked";
         }
@@ -1211,6 +1220,20 @@ public class QuestionController {
         // Resolved like the range: TEXT is written down on every short
         // answer, and switching away from SHORT_ANSWER clears it.
         question.setAnswerFormat(answerFormatOf(request));
+        // The range belongs to a Number answer; any other format clears it.
+        boolean number = answerFormatOf(request) == AnswerFormat.WHOLE_NUMBER;
+        question.setAnswerMin(number ? request.answerMin() : null);
+        question.setAnswerMax(number ? request.answerMax() : null);
+    }
+
+    /** A range's floor with an open end read as the lowest whole number. */
+    private static long floorOf(Long min) {
+        return min == null ? 0 : min;
+    }
+
+    /** A range's cap with an open end read as the highest whole number. */
+    private static long capOf(Long max) {
+        return max == null ? AnswerFormat.MAX_WHOLE_NUMBER : max;
     }
 
     /** MCQ whenever the payload does not say — what every pre-type caller means. */
@@ -1470,6 +1493,32 @@ public class QuestionController {
     }
 
     /**
+     * The number range (V50) — null when fine, else the message. Only a
+     * WHOLE_NUMBER short answer has one; either end may be open. The ends
+     * obey the format itself (0 or more, at most 15 digits), and To must be
+     * above From — a "range" of one value is a question with one answer.
+     */
+    private String rangeProblem(QuestionRequest request) {
+        Long min = request.answerMin();
+        Long max = request.answerMax();
+        if (min == null && max == null) {
+            return null;
+        }
+        if (answerFormatOf(request) != AnswerFormat.WHOLE_NUMBER) {
+            return "a range is only for a short answer that accepts numbers (answerFormat WHOLE_NUMBER)";
+        }
+        for (Long end : new Long[] { min, max }) {
+            if (end != null && (end < 0 || end > AnswerFormat.MAX_WHOLE_NUMBER)) {
+                return "a number range's ends must be whole numbers from 0 to " + AnswerFormat.MAX_WHOLE_NUMBER;
+            }
+        }
+        if (min != null && max != null && max <= min) {
+            return "the number range's To (" + max + ") must be greater than its From (" + min + ")";
+        }
+        return null;
+    }
+
+    /**
      * Type rules the payload cannot express with annotations — null when it is
      * fine, otherwise the message. Bulk pass 1 calls this too.
      */
@@ -1496,6 +1545,10 @@ public class QuestionController {
         // dropped, and nothing would check the answers against it.
         if (type != QuestionType.SHORT_ANSWER && request.answerFormat() != null) {
             return "answerFormat is only for a short answer (questionType SHORT_ANSWER)";
+        }
+        String rangeProblem = rangeProblem(request);
+        if (rangeProblem != null) {
+            return rangeProblem;
         }
         // And again: member questions anywhere but on a group would be
         // silently dropped.

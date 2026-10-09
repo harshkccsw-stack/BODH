@@ -28,7 +28,8 @@ import com.bodhpsychometric.model.question.enums.SelectionRule;
  * the shared columns and rows are the items, each naming the MQTs it measures;
  * rows is empty on every other type. A SHORT_ANSWER has neither.
  * answerFormat is what a SHORT_ANSWER accepts (TEXT or WHOLE_NUMBER, never
- * null there) and null on every other type.
+ * null there) and null on every other type; answerMin/answerMax are the
+ * optional inclusive range of a WHOLE_NUMBER one, null elsewhere.
  *
  * optional is placement context like sectionId: whether THIS questionnaire
  * lets the respondent leave the question blank. Null in bank-wide reads.
@@ -62,6 +63,8 @@ public record QuestionResponse(
         String scaleLowLabel,
         String scaleHighLabel,
         AnswerFormat answerFormat,
+        Long answerMin,
+        Long answerMax,
         List<QuestionOptionResponse> options,
         List<QuestionRowResponse> rows,
         List<MqtScoreResponse> mqtScores,
@@ -99,6 +102,8 @@ public record QuestionResponse(
                 q.getScaleLowLabel(),
                 q.getScaleHighLabel(),
                 q.answerFormat(),
+                q.getAnswerMin(),
+                q.getAnswerMax(),
                 options,
                 rows,
                 mqtScores,

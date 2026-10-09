@@ -101,6 +101,12 @@ public record PortalQuestionnaireContent(
              * let text through until it is evicted but never blocks anyone.
              */
             AnswerFormat answerFormat,
+            /**
+             * WHOLE_NUMBER only (V50): the inclusive range, either end open.
+             * A stale entry reads both as null — no limit, the permissive side.
+             */
+            Long answerMin,
+            Long answerMax,
             boolean shuffleOptions,
             List<PortalRow> rows,
             List<PortalOption> options,
@@ -176,6 +182,8 @@ public record PortalQuestionnaireContent(
                     question.getScaleLowLabel(),
                     question.getScaleHighLabel(),
                     question.answerFormat(),
+                    question.getAnswerMin(),
+                    question.getAnswerMax(),
                     question.isShuffleOptions(),
                     question.getRows().stream()
                             .sorted(Comparator.comparingInt(QuestionRow::getSortOrder))

@@ -25,6 +25,8 @@ import {
   QUESTION_TYPES,
   GROUP_MEMBER_TYPES,
   ANSWER_FORMATS,
+  MAX_WHOLE_NUMBER,
+  numberRangeLabel,
   DEFAULT_SCALE_FROM,
   DEFAULT_SCALE_TO,
   MAX_SCALE_POINTS,
@@ -540,6 +542,12 @@ export interface QuestionForm {
    */
   answerFormat: AnswerFormat;
   /**
+   * Number answers only — the range's ends as typed, '' = no limit. Strings
+   * so the boxes can be emptied; only sent when the format is WHOLE_NUMBER.
+   */
+  answerMin: string;
+  answerMax: string;
+  /**
    * GROUP only — the member questions, each a full form of its own (its `id`
    * is the stored member's questionId on edit, null on a new member). The
    * stem doubles as the group's OPTIONAL heading, the one stem allowed to be
@@ -580,7 +588,11 @@ export const memberSummary = (form: QuestionForm): string => {
     const { from, to } = scaleRange(form);
     parts.push(`linear scale ${from}–${to}`);
   } else if (form.questionType === 'SHORT_ANSWER') {
-    parts.push(form.answerFormat === 'WHOLE_NUMBER' ? 'typed number' : 'typed answer');
+    parts.push(
+      form.answerFormat === 'WHOLE_NUMBER'
+        ? `typed number ${numberRangeLabel(numberRange(form).min, numberRange(form).max)}`.trim()
+        : 'typed answer',
+    );
   } else {
     const n = liveOptions(form).length;
     parts.push(`${n} option${n === 1 ? '' : 's'}`);
@@ -631,6 +643,8 @@ export const formFrom = (initial: QuestionResponse | null): QuestionForm =>
         mqtScores: [],
         gameId: null,
         answerFormat: 'TEXT',
+        answerMin: '',
+        answerMax: '',
         members: [],
       }
     : {
@@ -675,6 +689,8 @@ export const formFrom = (initial: QuestionResponse | null): QuestionForm =>
         // Null on every type but a short answer, and on a response from an
         // older backend — both mean text.
         answerFormat: initial.answerFormat ?? 'TEXT',
+        answerMin: initial.answerMin == null ? '' : String(initial.answerMin),
+        answerMax: initial.answerMax == null ? '' : String(initial.answerMax),
         // Saved members open folded, the way saved questions open collapsed in
         // the questionnaire builder: a group reads as its list of questions
         // first, and each unfolds to edit. New members start open.
@@ -682,6 +698,16 @@ export const formFrom = (initial: QuestionResponse | null): QuestionForm =>
       };
 
 /** Option rows that carry text or media, trimmed. Row order = display order. */
+/**
+ * A Number answer's range as it will be SENT — a blank end is null (no
+ * limit). Only meaningful once validateQuestionForm has passed; a non-digit
+ * end reads as null here and is reported there.
+ */
+export const numberRange = (form: QuestionForm): { min: number | null; max: number | null } => {
+  const end = (v: string) => (/^[0-9]{1,15}$/.test(v.trim()) ? Number(v.trim()) : null);
+  return { min: end(form.answerMin), max: end(form.answerMax) };
+};
+
 const liveOptions = (form: QuestionForm): OptionForm[] =>
   form.options
     .map((o) => ({ ...o, optionText: o.optionText.trim(), mediaUrl: o.mediaUrl.trim() }))
@@ -783,7 +809,21 @@ export function validateQuestionForm(form: QuestionForm): string | null {
   }
   // Free text: nothing else to check. No options, no rows, no rule — the
   // type switch already cleared them and the payload builder drops them.
-  if (form.questionType === 'SHORT_ANSWER') return null;
+  if (form.questionType === 'SHORT_ANSWER') {
+    if (form.answerFormat !== 'WHOLE_NUMBER') return null;
+    // Mirrors QuestionController.rangeProblem: each end optional, a whole
+    // number 0 … MAX_WHOLE_NUMBER, and To above From.
+    for (const [name, value] of [['From', form.answerMin], ['To', form.answerMax]] as const) {
+      if (value.trim() && !/^[0-9]{1,15}$/.test(value.trim())) {
+        return `The number range's ${name} must be a whole number from 0 to ${MAX_WHOLE_NUMBER}`;
+      }
+    }
+    const { min, max } = numberRange(form);
+    if (min != null && max != null && max <= min) {
+      return `The number range's To (${max}) must be greater than its From (${min})`;
+    }
+    return null;
+  }
   // A game: the game is the whole answer. Mirrors validateType's GAMES branch.
   if (form.questionType === 'GAMES') return form.gameId == null ? 'Pick the game this question launches' : null;
   const rows = liveOptions(form);
@@ -859,6 +899,8 @@ export function questionPayloadFrom(form: QuestionForm): QuestionPayload {
       mqtScores: [],
       gameId: null,
       answerFormat: null,
+      answerMin: null,
+      answerMax: null,
       members: form.members.map((m) => ({ ...questionPayloadFrom(m), questionId: m.id })),
     };
   }
@@ -913,8 +955,10 @@ export function questionPayloadFrom(form: QuestionForm): QuestionPayload {
     mqtScores: rowsToPayload(form.mqtScores),
     // Only a game question names a game — the backend refuses it elsewhere.
     gameId: game ? form.gameId : null,
-    // Same for a short answer's format.
+    // Same for a short answer's format — and its range, Number only.
     answerFormat: text ? form.answerFormat : null,
+    answerMin: text && form.answerFormat === 'WHOLE_NUMBER' ? numberRange(form).min : null,
+    answerMax: text && form.answerFormat === 'WHOLE_NUMBER' ? numberRange(form).max : null,
   };
 }
 
@@ -1352,10 +1396,44 @@ export function QuestionFormFields({
             {ANSWER_FORMATS.find((f) => f.value === form.answerFormat)?.hint}
             {form.answerFormat === 'TEXT' && ' Once anyone has answered, it can no longer be limited to numbers.'}
           </p>
+          {form.answerFormat === 'WHOLE_NUMBER' && (
+            /* The range: either end optional. A respondent typing outside
+               it is told the range in the portal's warning, and submit
+               refuses it. */
+            <div className="space-y-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs text-muted-foreground">Range</span>
+                <span className="text-xs text-muted-foreground">from</span>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={form.answerMin}
+                  onChange={(e) => set({ answerMin: e.target.value })}
+                  placeholder="No limit"
+                  aria-label="Smallest number accepted"
+                  className="h-9 w-28 rounded-lg border border-border bg-background px-2 text-sm tabular-nums outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                />
+                <span className="text-xs text-muted-foreground">to</span>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={form.answerMax}
+                  onChange={(e) => set({ answerMax: e.target.value })}
+                  placeholder="No limit"
+                  aria-label="Largest number accepted"
+                  className="h-9 w-28 rounded-lg border border-border bg-background px-2 text-sm tabular-nums outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                />
+              </div>
+              <p className="text-[0.6875rem] text-muted-foreground">
+                Both ends are included. Leave either blank for no limit. Once anyone has
+                answered, the range can only be widened.
+              </p>
+            </div>
+          )}
           <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-3">
             <p className="text-[0.6875rem] text-muted-foreground mb-2">Respondents will see</p>
             <div className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-muted-foreground">
-              {form.answerFormat === 'WHOLE_NUMBER' ? 'Enter a number — 1, 2, 3, etc.' : 'Their answer…'}
+              {form.answerFormat === 'WHOLE_NUMBER' ? 'Enter a number' : 'Their answer…'}
             </div>
           </div>
           <p className="text-[0.6875rem] text-muted-foreground">

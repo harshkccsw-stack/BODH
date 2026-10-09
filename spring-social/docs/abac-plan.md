@@ -5,6 +5,27 @@ read of the current auth code in spring-social, bodhassess-app and
 bodhassess-portal. Companion to the summary delivered in chat; this file holds
 the full detail, including the endpoint→permission table.
 
+## Decisions from the user (2026-10-09)
+
+1. **Full multi-tenancy.** An organization sees only its own users, results,
+   and content. The library (questionnaires, questions, demographic fields,
+   qualities, games, report rules, etc.) is NOT global — content belongs to
+   the org whose practitioner/user created it, or to orgs it is assigned to.
+2. **Every practitioner gets an organization**, including solo practitioners
+   (an org is created for them). So OWN_ORG scope never has to define
+   behavior for a NULL-org practitioner going forward; legacy NULL rows are a
+   backfill question only.
+3. `Vertical` stays **display-only** — no vertical-based policies in v1.
+4. Phase 0 starts only on the user's explicit go-ahead.
+
+Consequences: Phase 3 grows — the content tables need an owner-org column
+(migrations + backfill, see §6); the Assign Role Group page
+(`findAllForAccess` lists every identity) must become superadmin-only or
+org-scoped; open items: legacy-data backfill owner, whether NULL org means
+"platform content visible to all orgs", cross-org assignment for library
+content, and an org home for MemoryMesh-synced respondents (they arrive with
+no org and would otherwise be invisible to everyone but superadmin).
+
 ---
 
 ## 1. What exists today (baseline)
@@ -159,8 +180,14 @@ Adding time/IP conditions later is a pure PDP change (policies are code).
    VIEWER, invisible (404) otherwise; superadmin sees all. (Existing
    `DataStudioAccess`, restated — it becomes a policy inside the same engine.)
 9. Question-bank / questionnaire / taxonomy / demographics / games content is
-   a **global shared library**: reads need `library.read`, writes
-   `library.write` — no org scoping (assumption to confirm).
+   **org-owned** (decision 2026-10-09): a row is visible to the org that
+   created it (owner-org column, new) and to orgs it is assigned to (where an
+   assignment mechanism exists — assessments today via
+   OrganizationAssessmentMapping). Reads need `library.read` within that
+   visibility; writes `library.write` and only on rows the caller's org owns.
+   Proposed: `organization_id NULL` = platform content, readable by every
+   org, writable by superadmin only — which also answers the legacy backfill
+   (existing rows become platform content unless decided otherwise).
 10. Exports (Reports Hub XLSX, Data Studio `dataset/{assessmentId}`) require
     `reports.export` and the server **overwrites** any caller-supplied
     `organizationId` with the caller's scope — the parameter stops being
@@ -226,7 +253,7 @@ allowed; OWN_ORG = restricted to the caller's organization).
 | `organizations.read` / `.write` / `.delete` | /api/organizations CRUD | OWN_ORG (own row only), ALL_ORGS |
 | `organizations.map` | member assign/unassign, assessment catalog mapping | OWN_ORG, ALL_ORGS |
 | `tokens.read` / `.write` | /api/registration-tokens (getByToken stays public) | OWN_ORG, ALL_ORGS |
-| `library.read` / `.write` / `.delete` | questionnaire, questions (+AI sheets), sections, demographic-fields, qualities, quality-types, games | global (no org) |
+| `library.read` / `.write` / `.delete` | questionnaire, questions (+AI sheets), sections, demographic-fields, qualities, quality-types, games | OWN_ORG (owner-org column, NULL = platform content), ALL_ORGS |
 | `assessments.read` / `.write` / `.delete` | /api/assessments | OWN_ORG (via OrganizationAssessmentMapping), ALL_ORGS |
 | `allotments.read` / `.write` | /api/respondent-assessments | OWN_ORG, ALL_ORGS |
 | `reports.read` | Reports Hub reads, live tracking, pending submissions | OWN_ORG, ALL_ORGS |
@@ -348,10 +375,19 @@ window).
   VARCHAR(160)`. (Audit of decisions rides the existing per-request row; no
   second log table. Also fix the filter-order gap so ActorFilter 401s get a
   row.)
-- No tenant columns in v1: org scoping derives through
+- **V52+ (Phase 3, per the 2026-10-09 tenancy decision):** nullable
+  `organization_id` owner columns on `questionnaire`, `question`,
+  `demographic_field`, `measured_quality`, `measured_quality_type`, `game`,
+  `assessment`, `report_rule` (templates/computations already have one), each
+  its own migration per house rules (guard at top, backfill before any
+  tightening). `section`, `questionnaire_question`, answers etc. derive theirs
+  from their parent — no column. Backfill: existing rows stay NULL =
+  platform content (visible to all orgs, writable by superadmin only) unless
+  the user picks a house org instead — **decision pending**. Columns stay
+  nullable; NOT NULL would need that decision plus a data fix first.
+- Attempt/answer/report scoping still derives through
   `respondent_user.organization_id` and `organization_assessment_mapping`
-  (both already indexed via FKs). If Phase 3 answers say assessments need a
-  home org, that's a later migration + backfill decision — not assumed here.
+  (both already indexed via FKs) — no columns there.
 - H2/tests: entities updated in lockstep (tests build schema from entities;
   Flyway off in tests — existing convention).
 
@@ -359,10 +395,14 @@ window).
 - `OrgScope` object passed into repository calls; two patterns:
   - scoped JPQL variants (`findAllForOrg(orgId)`) beside existing finders, or
   - JPA Specifications where filters already compose (reports hub).
-- Derivations: respondents → own column; assessments →
-  `join OrganizationAssessmentMapping`; attempts/answers/exports →
-  `respondent.organization`; registration tokens → own column (XOR mapping);
-  templates/computations → own nullable column (NULL = visible to all).
+- Derivations: respondents/practitioners → own column; library content and
+  assessments → new owner-org column (NULL = platform content, visible to
+  all) — assessments additionally visible via `OrganizationAssessmentMapping`
+  assignment; attempts/answers/exports → `respondent.organization`;
+  registration tokens → own column (XOR mapping); templates/computations →
+  own nullable column (NULL = visible to all). The Assign Role Group page
+  (`findAllForAccess`) becomes superadmin-only or org-scoped — an
+  every-identity listing leaks other tenants' users otherwise.
 - Deliberately NOT Hibernate `@Filter`/session filters: implicit global state,
   harder to test, surprising with the existing `open-in-view: false` +
   no-service-layer style. Explicit scoped queries match the codebase.

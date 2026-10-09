@@ -541,6 +541,8 @@ export function parseQuestionRows(
       // and never a short answer's format.
       gameId: null,
       answerFormat: null,
+      answerMin: null,
+      answerMax: null,
     });
     sections.push(row.section || null);
     rowNos.push(rowNo);

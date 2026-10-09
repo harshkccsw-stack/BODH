@@ -213,6 +213,13 @@ export interface PortalQuestion {
    */
   answerFormat?: PortalAnswerFormat | null;
   /**
+   * WHOLE_NUMBER only — the inclusive range, each end optional (null or
+   * absent = no limit). Named in the warning only, never the placeholder
+   * (user's decision).
+   */
+  answerMin?: number | null;
+  answerMax?: number | null;
+  /**
    * LIKERT_GRID only — the statements rated against `options`, which are that
    * grid's shared columns. Empty on every other type, and min/maxSelections
    * apply PER ROW when it is not.
@@ -438,16 +445,39 @@ export const freeTextFilled = (
   });
 
 /**
+ * A Number answer's range in the respondent's words — "from 1 to 5", "of 18
+ * or more", "up to 100" — or null with none. Word for word
+ * AnswerFormat.rangePhrase on the backend, so the warning here and the
+ * server's 400 say the same thing.
+ */
+export const numberRangePhrase = (min?: number | null, max?: number | null): string | null => {
+  if (min != null && max != null) return `from ${min} to ${max}`;
+  if (min != null) return `of ${min} or more`;
+  return max != null ? `up to ${max}` : null;
+};
+
+/**
  * Why a typed SHORT_ANSWER does not fit its question's format — null when it
  * does. Blank is not this function's business (required vs optional decides
- * that). WHOLE_NUMBER mirrors AnswerFormat.WHOLE_NUMBER_PATTERN on the
- * backend: digits only, at most 15 of them, surrounding spaces ignored as the
- * server trims them. Part of what "answered" means, like freeTextFilled.
+ * that). WHOLE_NUMBER mirrors the submit validator: digits only (at most 15,
+ * AnswerFormat.WHOLE_NUMBER_PATTERN), inside the optional range, both ends
+ * included, surrounding spaces ignored as the server trims them. Part of what
+ * "answered" means, like freeTextFilled.
  */
 export const typedAnswerProblem = (q: PortalQuestion, text: string): string | null => {
   const typed = text.trim();
   if (q.answerFormat !== 'WHOLE_NUMBER' || typed === '') return null;
-  if (!/^[0-9]+$/.test(typed)) return 'Enter a number — 1, 2, 3, etc. No decimal point, commas, spaces or minus sign.';
+  const range = numberRangePhrase(q.answerMin, q.answerMax);
+  if (!/^[0-9]+$/.test(typed)) {
+    return range == null
+      ? 'Enter a number — 1, 2, 3, etc. No decimal point, commas, spaces or minus sign.'
+      : `Enter a number ${range} — no decimal point, commas, spaces or minus sign.`;
+  }
+  // Past 15 digits it is too big for any cap, and Number() would round it.
+  const value = typed.length > 15 ? Infinity : Number(typed);
+  if ((q.answerMin != null && value < q.answerMin) || (q.answerMax != null && value > q.answerMax)) {
+    return `Enter a number ${range}.`;
+  }
   return typed.length > 15 ? 'That number is too long — 15 digits at most.' : null;
 };
 

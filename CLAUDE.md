@@ -176,6 +176,18 @@ re-read a file before editing; expect it to have changed):
   cell (`answerCell`, non-digits stay text). Portal: one-line
   `inputMode="numeric"` box (not `type="number"`), amber inline reason, Enter
   = Next; an invalid value is touched-but-unanswered, so an optional one blocks.
+  The dashboard calls the formats "Text" / "Number" (user's wording).
+  RANGE (2026-10-09, `V50`, user's decisions): `answer_min`/`answer_max`
+  BIGINT, inclusive, EITHER end optional (null = open), WHOLE_NUMBER only —
+  any other format = 400, and `applyFields` clears them. Ends 0 …
+  `MAX_WHOLE_NUMBER` (15 nines), To > From (`rangeProblem`, mirrored by
+  `validateQuestionForm`). Once answered the range may only WIDEN
+  (`frozenProblem`, shared with group members; an open end counts as the
+  widest). The range is named in the WARNING only — the portal placeholder
+  is just "Enter a number" (2026-10-09: "1, 2, 3" may lie outside the
+  range), same in the dashboard previews — via `AnswerFormat.rangePhrase` /
+  the portal's `numberRangePhrase`, kept word for word ("from 1 to 5", "of 18
+  or more", "up to 100") so the server's 400 and the portal agree.
 - Optional questions + question layout (2026-10-06, `V41`):
   * `QuestionnaireQuestion.optional` (`is_optional`, default 0 = required) is
     per PLACEMENT, like demographics' `isRequired`. Polarity is load-bearing:
@@ -673,8 +685,8 @@ re-read a file before editing; expect it to have changed):
 
 ## Verification loop (do this EVERY change)
 
-1. Backend: `cd spring-social && ./mvnw -B test` (503 tests green as of
-   2026-10-08). Tightening a DTO's validation breaks the fixtures that post
+1. Backend: `cd spring-social && ./mvnw -B test` (504 tests green as of
+   2026-10-09). Tightening a DTO's validation breaks the fixtures that post
    that shape — fix the payloads, do not relax the rule. If every Spring test
    errors with `BeanDefinitionOverrideException` on repositories, the IDE has
    written stale class files into `target/classes`; run `./mvnw -B clean test`.

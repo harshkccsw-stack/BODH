@@ -24,6 +24,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import {
   questionApis,
+  numberRangeLabel,
   selectionLabel,
   DEFAULT_SCALE_FROM,
   DEFAULT_SCALE_TO,
@@ -435,7 +436,7 @@ export default function QuestionsPage() {
                             : 'Short answer — respondents type their answer'
                         }
                       >
-                        <PenLine className="h-3 w-3" /> {q.answerFormat === 'WHOLE_NUMBER' ? 'number' : 'text'}
+                        <PenLine className="h-3 w-3" /> {q.answerFormat === 'WHOLE_NUMBER' ? `number ${numberRangeLabel(q.answerMin, q.answerMax)}`.trim() : 'text'}
                       </span>
                     )}
                     {q.options.some((o) => o.contentType === 'FREE_TEXT') && (
