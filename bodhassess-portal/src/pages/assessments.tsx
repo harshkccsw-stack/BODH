@@ -30,7 +30,7 @@ export default function AssessmentsPage() {
   const completed = sessions.filter((s) => s.assessmentStatus === 'COMPLETED');
 
   return (
-    <div className="flex-1 min-h-dvh w-full bg-linear-to-b from-muted/30 via-background to-background">
+    <div className="flex min-h-dvh w-full flex-1 flex-col bg-linear-to-b from-muted/30 via-background to-background">
       <BrandHeader
         title={`${config.appName} Portal`}
         subtitle={`${user.name} · ${user.serialId}`}
@@ -43,7 +43,8 @@ export default function AssessmentsPage() {
         }
       />
 
-      <main className="mx-auto max-w-5xl space-y-8 px-4 py-6 sm:space-y-10 sm:px-5 sm:py-10 lg:px-8">
+      {/* flex-1 pushes the footer to the viewport bottom when content is short */}
+      <main className="mx-auto w-full max-w-5xl flex-1 space-y-8 px-4 py-6 sm:space-y-10 sm:px-5 sm:py-10 lg:px-8">
         <section className="space-y-3">
           <div>
             <p className="text-xs font-medium uppercase tracking-wider text-primary/80">Respondent dashboard</p>
@@ -183,7 +184,9 @@ export default function AssessmentsPage() {
         )}
       </main>
 
-      <footer className="mt-12 border-t border-border/60 sm:mt-16">
+      {/* sticky bottom-0 mirrors BrandHeader's sticky top-0: always visible,
+          content scrolls underneath (bg-background keeps it opaque) */}
+      <footer className="sticky bottom-0 z-20 mt-12 border-t border-border/60 bg-background sm:mt-16">
         <div className="mx-auto flex max-w-5xl flex-col gap-1 px-4 py-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between sm:px-5 lg:px-8">
           <span>© {config.appName} — Respondent Portal</span>
           <span>Need help? Contact your administrator.</span>

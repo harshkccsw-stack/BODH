@@ -197,7 +197,7 @@ export function QuestionView({ q, number }: { q: PreviewQuestion; number: number
       ) : isText ? (
         <div className="pl-9">
           <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
-            {q.answerFormat === 'WHOLE_NUMBER' ? 'Enter a number — 1, 2, 3, etc.' : 'Their answer…'}
+            {q.answerFormat === 'WHOLE_NUMBER' ? 'Enter a number' : 'Their answer…'}
           </div>
         </div>
       ) : isScale ? (
@@ -317,7 +317,7 @@ function GroupTableView({ questions, firstNumber }: { questions: PreviewQuestion
                       </div>
                     ) : (
                       <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-muted-foreground">
-                        {q.answerFormat === 'WHOLE_NUMBER' ? 'Enter a number — 1, 2, 3, etc.' : 'Their answer…'}
+                        {q.answerFormat === 'WHOLE_NUMBER' ? 'Enter a number' : 'Their answer…'}
                       </div>
                     )}
                   </td>

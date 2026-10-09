@@ -1608,7 +1608,7 @@ export function QuestionRunner({
               e.preventDefault();
               if (!onWholePageOf(qi) && answered && showNext) goForward();
             }}
-            placeholder="Enter a number — 1, 2, 3, etc."
+            placeholder="Enter a number"
             aria-label="Your answer — a number"
             aria-invalid={typedProblem != null}
             aria-describedby={typedProblem ? `typed-problem-${q.questionId}` : undefined}
@@ -2377,17 +2377,17 @@ export function QuestionRunner({
             </div>
           )}
 
-          {/* The other end of the same sweep: nothing left, and Submit is now
-              in the bar under them rather than at the end of the paper. Only
-              while there is still somewhere forward to go — at the end Submit
-              is where it has always been and needs no announcement. */}
-          {showSubmit && showNext && (
+          {/* Whenever Submit is live, say why — on the last question too, so
+              the respondent who has just answered it sees the paper is done
+              (and, with optional questions left blank, that they may still go
+              back to them) right beside the button that ends it. */}
+          {showSubmit && (
             <div className="mt-5 flex items-center gap-2 rounded-lg border border-green-500/40 bg-green-500/5 px-3 py-2 text-xs font-medium text-green-700 dark:text-green-400">
               <Check className="h-3.5 w-3.5 shrink-0" />
               <span>
                 {answeredCount === total
                   ? `All ${total} questions answered — you can submit now.`
-                  : 'Every required question is answered — you can submit now, or carry on with the optional ones.'}
+                  : 'All set! You may submit now, or continue with the optional questions at your convenience.'}
               </span>
             </div>
           )}

@@ -90,6 +90,14 @@ public record QuestionRequest(
          */
         AnswerFormat answerFormat,
         /**
+         * WHOLE_NUMBER short answers only (V50): the smallest and largest
+         * number accepted, inclusive. Either may be omitted (an open end);
+         * both omitted = any whole number. Refused on anything else. Once the
+         * question has answers the range may only widen.
+         */
+        Long answerMin,
+        Long answerMax,
+        /**
          * GROUP only (V49): the member questions, in display order. At least
          * two; each validated by the same per-type rules as a standalone
          * question (MCQ, LINEAR_SCALE or SHORT_ANSWER). Refused on every

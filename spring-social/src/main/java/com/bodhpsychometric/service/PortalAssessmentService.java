@@ -40,6 +40,7 @@ import com.bodhpsychometric.model.demographics.DemographicField;
 import com.bodhpsychometric.model.demographics.DemographicResponse;
 import com.bodhpsychometric.model.demographics.QuestionnaireDemographicField;
 import com.bodhpsychometric.model.demographics.enums.DemographicFieldType;
+import com.bodhpsychometric.model.question.enums.AnswerFormat;
 import com.bodhpsychometric.model.question.enums.ContentType;
 import com.bodhpsychometric.model.question.enums.QuestionType;
 import com.bodhpsychometric.model.question.enums.SelectionRule;
@@ -414,9 +415,19 @@ public class PortalAssessmentService {
                 // The format the author chose (V48). Null — a cache entry from
                 // before the field — reads as TEXT and accepts anything. Named
                 // by the navigator label: the respondent has to find it.
-                if (question.answerFormat() != null && !question.answerFormat().accepts(text)) {
-                    throw badRequest(labels.get(entry.questionId())
-                            + " needs a number — 1, 2, 3, etc. No decimal point, commas, spaces or minus sign.");
+                // With a range (V50) the message names it, word for word as
+                // the portal's warning does, and a number outside it is a 400
+                // too. Null ends — or a stale entry — are open.
+                if (question.answerFormat() == AnswerFormat.WHOLE_NUMBER) {
+                    String range = AnswerFormat.rangePhrase(question.answerMin(), question.answerMax());
+                    if (!question.answerFormat().accepts(text)) {
+                        throw badRequest(labels.get(entry.questionId()) + (range == null
+                                ? " needs a number — 1, 2, 3, etc. No decimal point, commas, spaces or minus sign."
+                                : " needs a number " + range + " — no decimal point, commas, spaces or minus sign."));
+                    }
+                    if (!AnswerFormat.inRange(text, question.answerMin(), question.answerMax())) {
+                        throw badRequest(labels.get(entry.questionId()) + " needs a number " + range + ".");
+                    }
                 }
                 // A second entry for one question would be an overwrite the
                 // respondent never sees; the option path treats a repeat as a

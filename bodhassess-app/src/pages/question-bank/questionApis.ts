@@ -34,6 +34,16 @@ export const ANSWER_FORMATS: Array<{ value: AnswerFormat; label: string; hint: s
   },
 ];
 
+/** The largest whole number a Number answer takes — fifteen nines. Mirrors AnswerFormat.MAX_WHOLE_NUMBER. */
+export const MAX_WHOLE_NUMBER = 999_999_999_999_999;
+
+/** A Number answer's range for the author's eye: "1–5", "18 or more", "up to 100", or '' with none. */
+export function numberRangeLabel(min: number | null | undefined, max: number | null | undefined): string {
+  if (min != null && max != null) return `${min}–${max}`;
+  if (min != null) return `${min} or more`;
+  return max != null ? `up to ${max}` : '';
+}
+
 /**
  * What a linear scale means when nobody says otherwise — every scale authored
  * before the range existed. Mirrors DEFAULT_SCALE_FROM/TO on the backend.
@@ -201,6 +211,13 @@ export interface QuestionPayload {
    */
   answerFormat: AnswerFormat | null;
   /**
+   * WHOLE_NUMBER only — the inclusive range, each end optional (null = no
+   * limit). Null on everything else (the backend refuses it there). Once
+   * answered the range may only widen; narrowing it is a 409.
+   */
+  answerMin: number | null;
+  answerMax: number | null;
+  /**
    * GROUP members on an UPDATE only — which stored member this payload edits;
    * null/omitted = a new member. Omit everywhere else (a standalone
    * question's id is the URL).
@@ -303,6 +320,9 @@ export interface QuestionResponse {
   scaleHighLabel: string | null;
   /** SHORT_ANSWER only (never null there); null on every other type. */
   answerFormat: AnswerFormat | null;
+  /** WHOLE_NUMBER only — the inclusive range, each end optional. */
+  answerMin: number | null;
+  answerMax: number | null;
   /** On a LINEAR_SCALE these are the generated points, carrying derived scores. */
   options: QuestionOptionResponse[];
   /** LIKERT_GRID only — empty everywhere else. */

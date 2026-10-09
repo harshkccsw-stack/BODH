@@ -121,6 +121,18 @@ public class Question implements Serializable {
     private AnswerFormat answerFormat;
 
     /**
+     * WHOLE_NUMBER short answers only (V50): the smallest and largest number
+     * accepted, both inclusive, each optional — null is an open end, both
+     * null any whole number. Null on everything else; the question flow
+     * clears them whenever the format is not WHOLE_NUMBER.
+     */
+    @Column(name = "answerMin")
+    private Long answerMin;
+
+    @Column(name = "answerMax")
+    private Long answerMax;
+
+    /**
      * How many options the respondent may pick, with {@link #selectionCount}:
      * MIN/MAX/EQUALS n. NULL — with a NULL count, the two are always set or
      * cleared together — is single choice, which is what every question meant
@@ -261,6 +273,22 @@ public class Question implements Serializable {
             return null;
         }
         return answerFormat == null ? AnswerFormat.TEXT : answerFormat;
+    }
+
+    public Long getAnswerMin() {
+        return answerMin;
+    }
+
+    public void setAnswerMin(Long answerMin) {
+        this.answerMin = answerMin;
+    }
+
+    public Long getAnswerMax() {
+        return answerMax;
+    }
+
+    public void setAnswerMax(Long answerMax) {
+        this.answerMax = answerMax;
     }
 
     public SelectionRule getSelectionRule() {

@@ -29,8 +29,36 @@ public enum AnswerFormat {
      */
     public static final Pattern WHOLE_NUMBER_PATTERN = Pattern.compile("[0-9]{1,15}");
 
+    /** The largest whole number the pattern lets through — fifteen nines. */
+    public static final long MAX_WHOLE_NUMBER = 999_999_999_999_999L;
+
     /** True when {@code text} (already trimmed) is acceptable under this format. */
     public boolean accepts(String text) {
         return this != WHOLE_NUMBER || WHOLE_NUMBER_PATTERN.matcher(text).matches();
+    }
+
+    /**
+     * True when {@code digits} — already accepted by WHOLE_NUMBER — lies in
+     * the optional range (V50), both ends inclusive; a null end is open.
+     */
+    public static boolean inRange(String digits, Long min, Long max) {
+        long value = Long.parseLong(digits);
+        return (min == null || value >= min) && (max == null || value <= max);
+    }
+
+    /**
+     * The range in the respondent's words — "from 1 to 5", "of 18 or more",
+     * "up to 100" — or null when there is none. Mirrored word for word by
+     * rangePhrase in the portal's lib/api.ts, so the server's 400 and the
+     * portal's warning say the same thing.
+     */
+    public static String rangePhrase(Long min, Long max) {
+        if (min != null && max != null) {
+            return "from " + min + " to " + max;
+        }
+        if (min != null) {
+            return "of " + min + " or more";
+        }
+        return max == null ? null : "up to " + max;
     }
 }
