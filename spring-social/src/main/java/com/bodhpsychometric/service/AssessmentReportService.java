@@ -297,7 +297,8 @@ public class AssessmentReportService {
                     : List.of();
             if (gridRows.isEmpty()) {
                 tagByKey.put(new ExportKey(questionId, null), tag);
-                questionColumns.add(new QuestionColumn(tag, questionId, stem, null, null));
+                questionColumns.add(new QuestionColumn(tag, questionId, stem, null, null,
+                        question.answerFormat()));
                 continue;
             }
             for (int i = 0; i < gridRows.size(); i++) {
@@ -305,7 +306,7 @@ public class AssessmentReportService {
                 String rowTag = tag + "_R" + (i + 1);
                 tagByKey.put(new ExportKey(questionId, row.getQuestionRowId()), rowTag);
                 questionColumns.add(new QuestionColumn(rowTag, questionId, stem,
-                        row.getQuestionRowId(), row.getRowText()));
+                        row.getQuestionRowId(), row.getRowText(), null));
             }
         }
 

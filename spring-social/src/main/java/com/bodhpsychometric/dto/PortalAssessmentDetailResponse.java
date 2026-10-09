@@ -15,6 +15,7 @@ import com.bodhpsychometric.model.assessment.RespondentAssessmentMapping;
 import com.bodhpsychometric.model.assessment.enums.QuestionLayout;
 import com.bodhpsychometric.model.assessment.enums.RespondentAssessmentStatus;
 import com.bodhpsychometric.model.demographics.enums.DemographicFieldType;
+import com.bodhpsychometric.model.question.enums.AnswerFormat;
 import com.bodhpsychometric.model.question.enums.ContentType;
 import com.bodhpsychometric.model.question.enums.QuestionType;
 import com.bodhpsychometric.model.question.enums.SelectionRule;
@@ -105,9 +106,14 @@ public record PortalAssessmentDetailResponse(
      * {@code showInstructionOnEachQuestion} repeats {@code instruction} above
      * every question of the section rather than only the one that opens it —
      * authored per section in the wizard, consumed by the question runner.
+     *
+     * {@code questionLayout} is the section's own paging (V47), overriding the
+     * assessment's {@code questionLayout} for this section; null = use the
+     * assessment's. A cache entry written before the field existed reads it
+     * as null, which is exactly the old behaviour.
      */
     public record PortalSection(Long sectionId, String name, String instruction,
-            boolean showInstructionOnEachQuestion, int sortOrder) {
+            boolean showInstructionOnEachQuestion, QuestionLayout questionLayout, int sortOrder) {
     }
 
     /**
@@ -156,8 +162,24 @@ public record PortalAssessmentDetailResponse(
             Integer scaleTo,
             String scaleLowLabel,
             String scaleHighLabel,
+            /**
+             * SHORT_ANSWER only: TEXT, or WHOLE_NUMBER — digits only, which
+             * the portal checks as it is typed and submit checks again. Null
+             * on every other type, and null on a short answer means TEXT.
+             */
+            AnswerFormat answerFormat,
             List<PortalRow> rows,
-            List<PortalOption> options) {
+            List<PortalOption> options,
+            /**
+             * GROUP members only (V49): the group this question belongs to,
+             * with its optional heading and help text repeated on every
+             * member. Consecutive questions sharing a groupId render as one
+             * block and page together, whatever the layout says. Null on
+             * every standalone question.
+             */
+            Long groupId,
+            String groupHeading,
+            String groupDescription) {
     }
 
     /**
@@ -268,8 +290,12 @@ public record PortalAssessmentDetailResponse(
                 q.scaleTo(),
                 q.scaleLowLabel(),
                 q.scaleHighLabel(),
+                q.answerFormat(),
                 q.rows(),
-                deliveredOptions(q, mappingId));
+                deliveredOptions(q, mappingId),
+                q.groupId(),
+                q.groupHeading(),
+                q.groupDescription());
     }
 
     /**

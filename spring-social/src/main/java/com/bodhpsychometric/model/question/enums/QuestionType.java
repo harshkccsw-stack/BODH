@@ -27,6 +27,16 @@ package com.bodhpsychometric.model.question.enums;
  *               game whose code the option carries; finishing the game picks the
  *               option, so the answer row is an ordinary optionId. What a game's
  *               results store is not decided yet — the portal only logs them.
+ * GROUP         an optional heading over MEMBER questions (V49, 2026-10-08),
+ *               each a full Question of its own (own options, own scores)
+ *               hanging off the parent by parentQuestionId. The parent is
+ *               never placed, delivered or answered — its members carry the
+ *               placements, tags and answer rows — so everything keyed on
+ *               "the questions of a questionnaire" sees ordinary questions.
+ *               The members travel together: one page in the portal, options
+ *               laid out horizontally. Members may be MCQ, LINEAR_SCALE or
+ *               SHORT_ANSWER; GAMES, LIKERT_GRID and GROUP are refused
+ *               (QuestionController.validateType).
  * </pre>
  *
  * MCQ is the default and is exactly what every question meant before this
@@ -40,5 +50,6 @@ public enum QuestionType {
     LIKERT_GRID,
     SHORT_ANSWER,
     PARAGRAPH,
-    GAMES
+    GAMES,
+    GROUP
 }

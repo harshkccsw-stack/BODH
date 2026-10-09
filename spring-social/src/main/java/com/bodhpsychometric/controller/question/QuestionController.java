@@ -36,6 +36,7 @@ import com.bodhpsychometric.model.game.Game;
 import com.bodhpsychometric.model.question.Option;
 import com.bodhpsychometric.model.question.Question;
 import com.bodhpsychometric.model.question.QuestionRow;
+import com.bodhpsychometric.model.question.enums.AnswerFormat;
 import com.bodhpsychometric.model.question.enums.ContentType;
 import com.bodhpsychometric.model.question.enums.QuestionType;
 import com.bodhpsychometric.model.question.enums.SelectionRule;
@@ -50,6 +51,8 @@ import com.bodhpsychometric.repository.measures.MeasuredQualityRepository;
 import com.bodhpsychometric.repository.measures.MeasuredQualityTypeRepository;
 import com.bodhpsychometric.repository.question.QuestionRepository;
 import com.bodhpsychometric.repository.questionnaire.QuestionnaireQuestionRepository;
+import com.bodhpsychometric.repository.questionnaire.SectionRepository;
+import com.bodhpsychometric.service.questionnaire.PlacementTags;
 import com.bodhpsychometric.repository.scoring.OptionMqtScoreRepository;
 import com.bodhpsychometric.repository.scoring.QuestionMqtScoreRepository;
 import com.bodhpsychometric.repository.scoring.QuestionRowMqtRepository;
@@ -120,6 +123,11 @@ public class QuestionController {
     @Autowired
     private QuestionnaireQuestionRepository questionnaireQuestionRepository;
 
+    // The group-membership sync re-stamps tags, which needs each
+    // questionnaire's sections in display order.
+    @Autowired
+    private SectionRepository sectionRepository;
+
     // GAMES questions (V42): the catalog a question's one option links to.
     @Autowired
     private GameRepository gameRepository;
@@ -133,7 +141,9 @@ public class QuestionController {
 
     @GetMapping("/getAll")
     public List<QuestionResponse> getAllQuestions() {
-        return questionRepository.findAll().stream().map(this::toResponse).toList();
+        // Top-level only: a GROUP's members ride nested inside their parent's
+        // response, never as bank rows of their own.
+        return questionRepository.findByParentQuestionIsNull().stream().map(this::toResponse).toList();
     }
 
     /**
@@ -167,13 +177,45 @@ public class QuestionController {
         if (problem != null) {
             return ResponseEntity.badRequest().body(Map.of("message", problem));
         }
+        Question question = createFromRequest(request, mqts);
+        return ResponseEntity.status(HttpStatus.CREATED).body(toResponse(question));
+    }
+
+    /**
+     * The one write path a VALIDATED create goes through — /create, bulk
+     * pass 2 and import phase C alike, so a GROUP's members are born the
+     * same way everywhere. For a GROUP the parent itself stores no options,
+     * rows or scores (validateType refused them); each member is written
+     * exactly like a standalone question and then hung off the parent.
+     */
+    private Question createFromRequest(QuestionRequest request, Map<Long, MeasuredQualityType> mqts) {
         Question question = new Question();
         applyFields(question, request);
         rebuildOptions(question, request);
         rebuildRows(question, request);
         questionRepository.save(question);
         writeScores(question, request, mqts);
-        return ResponseEntity.status(HttpStatus.CREATED).body(toResponse(question));
+        if (typeOf(request) == QuestionType.GROUP) {
+            List<QuestionRequest> members = membersOf(request);
+            for (int i = 0; i < members.size(); i++) {
+                createMember(question, members.get(i), i, mqts);
+            }
+        }
+        return question;
+    }
+
+    /** One new member, written like a standalone question, then hung off its group. */
+    private Question createMember(Question parent, QuestionRequest request, int position,
+            Map<Long, MeasuredQualityType> mqts) {
+        Question member = new Question();
+        applyFields(member, request);
+        rebuildOptions(member, request);
+        rebuildRows(member, request);
+        member.setParentQuestion(parent);
+        member.setGroupSortOrder(position);
+        questionRepository.save(member);
+        writeScores(member, request, mqts);
+        return member;
     }
 
     /**
@@ -204,10 +246,8 @@ public class QuestionController {
         List<BatchProblem> problems = new java.util.ArrayList<>();
         for (int i = 0; i < requests.size(); i++) {
             QuestionRequest request = requests.get(i);
-            if (request.stem() == null || request.stem().isBlank()) {
-                problems.add(new BatchProblem(i, "stem is required"));
-                continue;
-            }
+            // "stem is required" is firstProblem's first answer (a GROUP may
+            // be unheaded, so the rule lives in validateType, not on the DTO).
             Map<Long, MeasuredQualityType> mqts = resolveMqts(request);
             if (mqts == null) {
                 problems.add(new BatchProblem(i, "a referenced MQT does not exist"));
@@ -230,14 +270,7 @@ public class QuestionController {
         // (the questionnaire-attach flow needs them).
         List<QuestionResponse> created = new java.util.ArrayList<>();
         for (int i = 0; i < requests.size(); i++) {
-            QuestionRequest request = requests.get(i);
-            Question question = new Question();
-            applyFields(question, request);
-            rebuildOptions(question, request);
-            rebuildRows(question, request);
-            questionRepository.save(question);
-            writeScores(question, request, resolvedMqts.get(i));
-            created.add(toResponse(question));
+            created.add(toResponse(createFromRequest(requests.get(i), resolvedMqts.get(i))));
         }
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
@@ -358,10 +391,6 @@ public class QuestionController {
         List<BatchProblem> problems = new java.util.ArrayList<>();
         for (int i = 0; i < request.questions().size(); i++) {
             QuestionRequest q = request.questions().get(i);
-            if (q.stem() == null || q.stem().isBlank()) {
-                problems.add(new BatchProblem(i, "stem is required"));
-                continue;
-            }
             // Pending ids are checked HERE, against the payload, because after
             // phase B an unmatched one would mean rolling back real writes.
             Long orphan = referencedMqtIds(q).stream()
@@ -442,13 +471,7 @@ public class QuestionController {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                         "question " + (i + 1) + ": a referenced MQT does not exist");
             }
-            Question question = new Question();
-            applyFields(question, q);
-            rebuildOptions(question, q);
-            rebuildRows(question, q);
-            questionRepository.save(question);
-            writeScores(question, q, mqts);
-            created.add(toResponse(question));
+            created.add(toResponse(createFromRequest(q, mqts)));
         }
 
         Map<String, Object> body = new LinkedHashMap<>();
@@ -523,6 +546,12 @@ public class QuestionController {
         if (question == null) {
             return ResponseEntity.notFound().build();
         }
+        // A member has no life of its own: everything about it — wording,
+        // options, scores, its very existence — is the group's payload.
+        if (question.isGroupMember()) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("message",
+                    "This question belongs to a group — edit it through the group"));
+        }
         Map<Long, MeasuredQualityType> mqts = resolveMqts(request);
         if (mqts == null) {
             return unknownMqt();
@@ -534,40 +563,105 @@ public class QuestionController {
         if (problem != null) {
             return ResponseEntity.badRequest().body(Map.of("message", problem));
         }
-        boolean hasAnswers = assessmentAnswerRepository.existsByQuestionQuestionId(id);
-        // Checked before the option freeze so a type switch is reported as
-        // what it is — switching MCQ → LINEAR_SCALE also replaces the options,
-        // and "its options are locked" would be a confusing way to say so.
-        if (question.getQuestionType() != typeOf(request) && hasAnswers) {
-            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("message",
-                    "This question already has responses — its type is locked"));
+        boolean storedGroup = question.isGroup();
+        boolean wantGroup = typeOf(request) == QuestionType.GROUP;
+        List<Question> storedMembers = storedGroup ? membersOf(question) : List.of();
+        // A GROUP parent is never answered or placed itself — its members
+        // are, so "has answers" and "is placed" mean THEIR rows.
+        boolean hasAnswers = storedGroup
+                ? storedMembers.stream().anyMatch(
+                        m -> assessmentAnswerRepository.existsByQuestionQuestionId(m.getQuestionId()))
+                : assessmentAnswerRepository.existsByQuestionQuestionId(id);
+        if (question.getQuestionType() != typeOf(request)) {
+            // Checked before the option freeze so a type switch is reported as
+            // what it is — switching MCQ → LINEAR_SCALE also replaces the
+            // options, and "its options are locked" would confuse.
+            if (hasAnswers) {
+                return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("message",
+                        "This question already has responses — its type is locked"));
+            }
+            // A switch INTO a group would leave the parent itself placed
+            // (parents never are), and a switch OUT would have to delete
+            // members that placements still reference — both need the
+            // questionnaires to let go first.
+            if (storedGroup || wantGroup) {
+                boolean placed = storedGroup
+                        ? storedMembers.stream().anyMatch(m -> questionnaireQuestionRepository
+                                .existsByQuestionQuestionId(m.getQuestionId()))
+                        : questionnaireQuestionRepository.existsByQuestionQuestionId(id);
+                if (placed) {
+                    return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("message",
+                            "This question is used in a questionnaire — remove it there before changing "
+                                    + (storedGroup ? "it away from a group" : "it into a group")));
+                }
+            }
         }
-        boolean optionsChanged = optionsChanged(question, request);
-        if (optionsChanged && hasAnswers) {
-            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("message",
-                    "This question already has responses — its options are locked"));
+        if (wantGroup) {
+            return updateGroup(question, request, mqts, storedMembers, hasAnswers);
+        }
+        if (storedGroup) {
+            // GROUP → ordinary type: the guards above proved no member is
+            // answered or placed, so the members go first (they would be
+            // orphans under a non-group parent).
+            deleteMembers(storedMembers);
+        }
+        String frozen = frozenProblem(question, request, hasAnswers);
+        if (frozen != null) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("message", frozen));
+        }
+        applyUpdate(question, request, mqts);
+        portalContentService.evictForQuestion(id);
+        return ResponseEntity.ok(toResponse(question));
+    }
+
+    /**
+     * The freeze rules an answered question is held to — null when the edit
+     * passes, else the 409 message. One method so a standalone update and a
+     * group member obey exactly the same law in the same order.
+     *
+     * shuffleOptions is deliberately NOT in here: an answer stores an
+     * optionId, never a position, so flipping it strands nothing.
+     */
+    private String frozenProblem(Question question, QuestionRequest request, boolean hasAnswers) {
+        if (!hasAnswers) {
+            return null;
+        }
+        // Text → whole number would strand answers already written as text,
+        // which the new rule calls impossible. Whole number → text only
+        // widens what is accepted, so it always passes.
+        if (question.answerFormat() == AnswerFormat.TEXT
+                && answerFormatOf(request) == AnswerFormat.WHOLE_NUMBER) {
+            return "This question already has text answers — it cannot be limited to numbers now";
+        }
+        if (optionsChanged(question, request)) {
+            return "This question already has responses — its options are locked";
         }
         // Rows freeze for the same reason options do: an answer points AT a
         // row, and re-wording or dropping one strands answers that nothing
         // downstream could repair. Which MQTs a row measures is scoring,
         // though — owned by this flow, rebuilt every save, never frozen.
-        boolean rowsChanged = rowsChanged(question, request);
-        if (rowsChanged && hasAnswers) {
-            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("message",
-                    "This question already has responses — its rows are locked"));
+        if (rowsChanged(question, request)) {
+            return "This question already has responses — its rows are locked";
         }
         // Same reasoning as the option freeze: tightening EQUALS 3 to 2 would
         // strand answer sets the new rule calls impossible, and nothing
         // downstream could repair them. Loosening is safe in principle, but
         // one condition beats four.
-        if (selectionChanged(question, request) && hasAnswers) {
-            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("message",
-                    "This question already has responses — how many options it takes is locked"));
+        if (selectionChanged(question, request)) {
+            return "This question already has responses — how many options it takes is locked";
         }
-        // shuffleOptions is deliberately NOT frozen: an answer stores an
-        // optionId, never a position, so flipping it strands nothing. The only
-        // effect mid-collection is that earlier respondents saw the authored
-        // order and later ones see a shuffled one — which is what was asked for.
+        return null;
+    }
+
+    /**
+     * The write half of an update, after every freeze has passed — fields,
+     * options, rows, scores, in the one order that keeps the FKs happy.
+     */
+    private void applyUpdate(Question question, QuestionRequest request,
+            Map<Long, MeasuredQualityType> mqts) {
+        Long id = question.getQuestionId();
+        boolean optionsChanged = optionsChanged(question, request);
+        boolean rowsChanged = rowsChanged(question, request);
         applyFields(question, request);
         // Scores are owned by this flow: wipe and rewrite. Option scores must
         // hit the DB before option rows are replaced, or the FK blocks.
@@ -594,23 +688,256 @@ public class QuestionController {
         }
         questionRepository.save(question);
         writeScores(question, request, mqts);
-        portalContentService.evictForQuestion(id);
-        return ResponseEntity.ok(toResponse(question));
+    }
+
+    /**
+     * A GROUP staying (or becoming) a group. Membership — which questions,
+     * in what order — is compared against what is stored and FROZEN the
+     * moment any member has an answer. While the group is merely PLACED, a
+     * membership change is allowed and the member placements of every
+     * questionnaire using it are re-synced in the same transaction (rows
+     * inserted and removed in place, renumbered and re-tagged) — the builder
+     * edits a group that already sits in its own questionnaire, and a 409
+     * there would make a placed group permanently uneditable. Each surviving
+     * member is held to exactly the freeze rules a standalone question
+     * obeys, pre-checked for ALL members before anything is written (a 409
+     * after a partial write would still commit it).
+     */
+    private ResponseEntity<?> updateGroup(Question parent, QuestionRequest request,
+            Map<Long, MeasuredQualityType> mqts, List<Question> storedMembers, boolean hasAnswers) {
+        Map<Long, Question> storedById = new LinkedHashMap<>();
+        for (Question m : storedMembers) {
+            storedById.put(m.getQuestionId(), m);
+        }
+        List<QuestionRequest> want = membersOf(request);
+        java.util.Set<Long> seen = new java.util.HashSet<>();
+        for (QuestionRequest w : want) {
+            if (w.questionId() == null) {
+                continue;
+            }
+            if (!storedById.containsKey(w.questionId())) {
+                return ResponseEntity.badRequest().body(Map.of("message",
+                        "questionId " + w.questionId() + " is not one of this group's questions"));
+            }
+            if (!seen.add(w.questionId())) {
+                return ResponseEntity.badRequest().body(Map.of("message",
+                        "questionId " + w.questionId() + " appears twice in the group"));
+            }
+        }
+        boolean membershipChanged = want.size() != storedMembers.size();
+        for (int i = 0; !membershipChanged && i < want.size(); i++) {
+            membershipChanged = !Objects.equals(want.get(i).questionId(),
+                    storedMembers.get(i).getQuestionId());
+        }
+        if (membershipChanged && hasAnswers) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("message",
+                    "This group already has responses — its questions are locked"));
+        }
+        // Every member's freeze, before any member's write.
+        for (int i = 0; i < want.size(); i++) {
+            QuestionRequest w = want.get(i);
+            if (w.questionId() == null) {
+                continue;
+            }
+            Question stored = storedById.get(w.questionId());
+            boolean memberAnswered = assessmentAnswerRepository
+                    .existsByQuestionQuestionId(stored.getQuestionId());
+            if (stored.getQuestionType() != typeOf(w) && memberAnswered) {
+                return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("message",
+                        "Question " + (i + 1) + " in the group already has responses — its type is locked"));
+            }
+            String frozen = frozenProblem(stored, w, memberAnswered);
+            if (frozen != null) {
+                return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("message", frozen));
+            }
+        }
+        // Which questionnaires place this group — captured BEFORE any
+        // placement rows go, re-synced after the members are settled.
+        java.util.Set<Long> placedIn = new java.util.LinkedHashSet<>();
+        if (membershipChanged) {
+            for (Question m : storedMembers) {
+                for (QuestionnaireQuestion p : questionnaireQuestionRepository
+                        .findByQuestionQuestionId(m.getQuestionId())) {
+                    placedIn.add(p.getQuestionnaire().getQuestionnaireId());
+                }
+            }
+        }
+        // Writes. The parent first: heading, description, type — its options,
+        // rows and scores are all empty by validation, and applyUpdate's
+        // wipe-and-rewrite keeps a former MCQ's leftovers from surviving the
+        // switch into a group.
+        applyUpdate(parent, request, mqts);
+        // Members no longer wanted go first — their placements before them
+        // (the FK), and the membership guard proved none is answered.
+        java.util.Set<Long> keptIds = new java.util.HashSet<>();
+        for (QuestionRequest w : want) {
+            if (w.questionId() != null) {
+                keptIds.add(w.questionId());
+            }
+        }
+        List<Question> removed = storedMembers.stream()
+                .filter(m -> !keptIds.contains(m.getQuestionId())).toList();
+        for (Question m : removed) {
+            questionnaireQuestionRepository.deleteAll(
+                    questionnaireQuestionRepository.findByQuestionQuestionId(m.getQuestionId()));
+        }
+        questionnaireQuestionRepository.flush();
+        deleteMembers(removed);
+        List<Question> finalMembers = new ArrayList<>();
+        for (int i = 0; i < want.size(); i++) {
+            QuestionRequest w = want.get(i);
+            if (w.questionId() == null) {
+                finalMembers.add(createMember(parent, w, i, mqts));
+            } else {
+                Question stored = storedById.get(w.questionId());
+                applyUpdate(stored, w, mqts);
+                stored.setGroupSortOrder(i);
+                finalMembers.add(stored);
+            }
+        }
+        for (Long questionnaireId : placedIn) {
+            resyncGroupPlacements(questionnaireId, parent, finalMembers);
+        }
+        // The members are what questionnaires deliver, so each one's cached
+        // content goes; the parent has no placements to evict for.
+        for (Question m : storedMembers) {
+            portalContentService.evictForQuestion(m.getQuestionId());
+        }
+        return ResponseEntity.ok(toResponse(parent));
+    }
+
+    /**
+     * One questionnaire's placements brought back in step with the group's
+     * NEW membership: the surviving run keeps its place and its per-member
+     * optional flags, new members slot into it in group order (required, as
+     * every new placement starts), the scope is renumbered dense and every
+     * tag re-stamped — the same invariants the placement PUT writes. If no
+     * old member survived in this questionnaire the group simply drops out
+     * of it (there is no position left to splice into).
+     */
+    private void resyncGroupPlacements(Long questionnaireId, Question parent, List<Question> finalMembers) {
+        List<QuestionnaireQuestion> all = questionnaireQuestionRepository.findInDisplayOrder(questionnaireId);
+        Map<Long, QuestionnaireQuestion> runByQuestionId = new LinkedHashMap<>();
+        for (QuestionnaireQuestion p : all) {
+            Question pq = p.getQuestion().getParentQuestion();
+            if (pq != null && pq.getQuestionId().equals(parent.getQuestionId())) {
+                runByQuestionId.put(p.getQuestion().getQuestionId(), p);
+            }
+        }
+        if (runByQuestionId.isEmpty()) {
+            return;
+        }
+        QuestionnaireQuestion anchor = runByQuestionId.values().iterator().next();
+        Long scopeSectionId = anchor.getSection() == null ? null : anchor.getSection().getSectionId();
+        // The scope the run lives in, display-ordered: its section, or the
+        // whole flat questionnaire. Spliced once, at the run's first row.
+        List<QuestionnaireQuestion> newScope = new ArrayList<>();
+        boolean spliced = false;
+        for (QuestionnaireQuestion p : all) {
+            Long sectionId = p.getSection() == null ? null : p.getSection().getSectionId();
+            if (!Objects.equals(sectionId, scopeSectionId)) {
+                continue;
+            }
+            if (runByQuestionId.containsKey(p.getQuestion().getQuestionId())) {
+                if (!spliced) {
+                    spliced = true;
+                    for (Question m : finalMembers) {
+                        QuestionnaireQuestion row = runByQuestionId.get(m.getQuestionId());
+                        if (row == null) {
+                            row = new QuestionnaireQuestion();
+                            row.setQuestionnaire(anchor.getQuestionnaire());
+                            row.setQuestion(m);
+                            row.setSection(anchor.getSection());
+                            row.setOptional(false);
+                        }
+                        newScope.add(row);
+                    }
+                }
+                continue;
+            }
+            newScope.add(p);
+        }
+        for (int i = 0; i < newScope.size(); i++) {
+            newScope.get(i).setSortOrder(i);
+        }
+        questionnaireQuestionRepository.saveAll(newScope);
+        questionnaireQuestionRepository.flush();
+        PlacementTags.assign(anchor.getQuestionnaire().isHasSections(),
+                sectionRepository.findByQuestionnaire_QuestionnaireIdOrderBySortOrderAscSectionIdAsc(questionnaireId),
+                questionnaireQuestionRepository.findInDisplayOrder(questionnaireId));
+        portalContentService.evict(questionnaireId);
+    }
+
+    /** The stored members of a group, in their authored order. */
+    private List<Question> membersOf(Question parent) {
+        return questionRepository
+                .findByParentQuestionQuestionIdOrderByGroupSortOrderAscQuestionIdAsc(parent.getQuestionId());
+    }
+
+    /** The payload's member list, never null. */
+    private List<QuestionRequest> membersOf(QuestionRequest request) {
+        return request.members() == null ? List.of()
+                : request.members().stream().filter(Objects::nonNull).toList();
+    }
+
+    /** Scoring rows first, then the member rows take their options along by cascade. */
+    private void deleteMembers(List<Question> members) {
+        if (members.isEmpty()) {
+            return;
+        }
+        for (Question m : members) {
+            optionMqtScoreRepository.deleteByOptionQuestionQuestionId(m.getQuestionId());
+            questionMqtScoreRepository.deleteByQuestionQuestionId(m.getQuestionId());
+            questionRowMqtRepository.deleteByQuestionRowQuestionQuestionId(m.getQuestionId());
+        }
+        optionMqtScoreRepository.flush();
+        questionRowMqtRepository.flush();
+        questionRepository.deleteAll(members);
+        questionRepository.flush();
     }
 
     @DeleteMapping("/delete/{id}")
     public ResponseEntity<?> deleteQuestion(@PathVariable Long id) {
-        if (!questionRepository.existsById(id)) {
+        Question question = questionRepository.findById(id).orElse(null);
+        if (question == null) {
             return ResponseEntity.notFound().build();
         }
-        if (assessmentAnswerRepository.existsByQuestionQuestionId(id)) {
-            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("message",
-                    "This question has responses and cannot be deleted"));
+        String reason = deleteBlockedReason(question);
+        if (reason != null) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("message", reason));
         }
-        if (questionnaireQuestionRepository.existsByQuestionQuestionId(id)) {
-            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("message",
-                    "This question is used in a questionnaire — remove it there first"));
+        deleteOne(question);
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Why this question may not be deleted — null when it may. A GROUP's
+     * answers and placements live on its MEMBERS (the parent is never placed
+     * or answered), so the parent is blocked exactly when a member would be;
+     * a member alone is never deletable, its group's payload is where it dies.
+     */
+    private String deleteBlockedReason(Question question) {
+        if (question.isGroupMember()) {
+            return "This question belongs to a group — edit the group to remove it";
         }
+        List<Question> toCheck = question.isGroup() ? membersOf(question) : List.of(question);
+        for (Question q : toCheck) {
+            if (assessmentAnswerRepository.existsByQuestionQuestionId(q.getQuestionId())) {
+                return "This question has responses and cannot be deleted";
+            }
+            if (questionnaireQuestionRepository.existsByQuestionQuestionId(q.getQuestionId())) {
+                return "This question is used in a questionnaire — remove it there first";
+            }
+        }
+        return null;
+    }
+
+    /** The checked delete: members first on a group, then the question itself. */
+    private void deleteOne(Question question) {
+        if (question.isGroup()) {
+            deleteMembers(membersOf(question));
+        }
+        Long id = question.getQuestionId();
         // Scoring rows belong to the question — they go first, then the
         // question takes its options AND rows with it via cascade.
         optionMqtScoreRepository.deleteByOptionQuestionQuestionId(id);
@@ -618,8 +945,7 @@ public class QuestionController {
         questionRowMqtRepository.deleteByQuestionRowQuestionQuestionId(id);
         optionMqtScoreRepository.flush();
         questionRowMqtRepository.flush();
-        questionRepository.deleteById(id);
-        return ResponseEntity.noContent().build();
+        questionRepository.delete(question);
     }
 
     /**
@@ -639,17 +965,16 @@ public class QuestionController {
 
         // Pass 1 — nothing is written until every id has been checked.
         List<Map<String, Object>> blocked = new ArrayList<>();
+        List<Question> questions = new ArrayList<>();
         for (Long id : ids) {
-            String reason = null;
-            if (!questionRepository.existsById(id)) {
-                reason = "This question no longer exists — refresh the page";
-            } else if (assessmentAnswerRepository.existsByQuestionQuestionId(id)) {
-                reason = "This question has responses and cannot be deleted";
-            } else if (questionnaireQuestionRepository.existsByQuestionQuestionId(id)) {
-                reason = "This question is used in a questionnaire — remove it there first";
-            }
+            Question question = questionRepository.findById(id).orElse(null);
+            String reason = question == null
+                    ? "This question no longer exists — refresh the page"
+                    : deleteBlockedReason(question);
             if (reason != null) {
                 blocked.add(Map.of("questionId", id, "message", reason));
+            } else {
+                questions.add(question);
             }
         }
         if (!blocked.isEmpty()) {
@@ -659,16 +984,12 @@ public class QuestionController {
                     "blocked", blocked));
         }
 
-        // Pass 2 — scoring rows first, then the questions take their options
-        // and rows with them by cascade, exactly as the single delete does.
-        for (Long id : ids) {
-            optionMqtScoreRepository.deleteByOptionQuestionQuestionId(id);
-            questionMqtScoreRepository.deleteByQuestionQuestionId(id);
-            questionRowMqtRepository.deleteByQuestionRowQuestionQuestionId(id);
+        // Pass 2 — the checked delete per question: a group goes with its
+        // members, scoring rows first, then options and rows by cascade,
+        // exactly as the single delete does.
+        for (Question question : questions) {
+            deleteOne(question);
         }
-        optionMqtScoreRepository.flush();
-        questionRowMqtRepository.flush();
-        questionRepository.deleteAllById(ids);
         return ResponseEntity.ok(Map.of("deleted", ids.size()));
     }
 
@@ -700,17 +1021,26 @@ public class QuestionController {
         List<QuestionRowResponse> rows = q.getRows().stream()
                 .map(r -> QuestionRowResponse.from(r, byRow.getOrDefault(r.getQuestionRowId(), List.of())))
                 .toList();
-        List<QuestionResponse.UsedInRef> usedIn = questionnaireQuestionRepository
-                .findByQuestionQuestionId(q.getQuestionId()).stream()
-                .map(m -> new QuestionResponse.UsedInRef(
-                        m.getQuestionnaire().getQuestionnaireId(), m.getQuestionnaire().getName()))
-                .toList();
+        // A GROUP parent is never placed — where it is "used" is where its
+        // members are, and they are always placed together, so the first
+        // member's placements speak for the group.
+        List<Question> members = q.isGroup() ? membersOf(q) : List.of();
+        Long usedInSourceId = q.isGroup()
+                ? (members.isEmpty() ? null : members.get(0).getQuestionId())
+                : q.getQuestionId();
+        List<QuestionResponse.UsedInRef> usedIn = usedInSourceId == null ? List.of()
+                : questionnaireQuestionRepository
+                        .findByQuestionQuestionId(usedInSourceId).stream()
+                        .map(m -> new QuestionResponse.UsedInRef(
+                                m.getQuestionnaire().getQuestionnaireId(), m.getQuestionnaire().getName()))
+                        .toList();
         return QuestionResponse.from(q, usedIn,
                 placement == null || placement.getSection() == null ? null : placement.getSection().getSectionId(),
                 placement == null ? null : placement.getSortOrder(),
                 placement == null ? null : placement.getQuestionTag(),
                 placement == null ? null : placement.isOptional(),
-                options, rows, questionScores);
+                options, rows, questionScores,
+                members.stream().map(this::toResponse).toList());
     }
 
     private MqtScoreResponse toScore(MeasuredQualityType mqt, double score) {
@@ -762,6 +1092,13 @@ public class QuestionController {
         // able to reference an id that does not exist.
         for (QuestionRowRequest r : sanitizedRows(request)) {
             dedupe(r.mqtScores()).keySet().forEach(ids::add);
+        }
+        // A GROUP's members score like standalone questions, so their
+        // references resolve with the parent's in one map.
+        if (typeOf(request) == QuestionType.GROUP) {
+            for (QuestionRequest member : membersOf(request)) {
+                ids.addAll(referencedMqtIds(member));
+            }
         }
         return ids;
     }
@@ -845,7 +1182,9 @@ public class QuestionController {
     private void applyFields(Question question, QuestionRequest request) {
         question.setContentType(request.contentType() == null ? ContentType.TEXT : request.contentType());
         question.setQuestionType(typeOf(request));
-        question.setQuestionTexString(request.stem().trim());
+        // Null only ever on a GROUP, the one type whose stem (its heading)
+        // may be blank — validateType holds the line for every other type.
+        question.setQuestionTexString(trimmedOrNull(request.stem()));
         // Blank → null so "no description" has exactly one representation on
         // file, and nothing downstream has to test for both.
         question.setDescription(trimmedOrNull(request.description()));
@@ -869,11 +1208,22 @@ public class QuestionController {
         // two different states for anything reading the row later.
         question.setScaleFrom(scale ? scaleFrom(request) : null);
         question.setScaleTo(scale ? scaleTo(request) : null);
+        // Resolved like the range: TEXT is written down on every short
+        // answer, and switching away from SHORT_ANSWER clears it.
+        question.setAnswerFormat(answerFormatOf(request));
     }
 
     /** MCQ whenever the payload does not say — what every pre-type caller means. */
     private QuestionType typeOf(QuestionRequest request) {
         return request.questionType() == null ? QuestionType.MCQ : request.questionType();
+    }
+
+    /** The format as it will be STORED: TEXT when a short answer does not say, null on every other type. */
+    private AnswerFormat answerFormatOf(QuestionRequest request) {
+        if (typeOf(request) != QuestionType.SHORT_ANSWER) {
+            return null;
+        }
+        return request.answerFormat() == null ? AnswerFormat.TEXT : request.answerFormat();
     }
 
     private String trimmedOrNull(String value) {
@@ -1062,6 +1412,11 @@ public class QuestionController {
      */
     private List<QuestionOptionRequest> desiredOptions(QuestionRequest request) {
         QuestionType type = typeOf(request);
+        if (type == QuestionType.GROUP) {
+            // The parent is a heading; the options live on its members, each
+            // of which goes through this method as its own request.
+            return List.of();
+        }
         if (type == QuestionType.SHORT_ANSWER) {
             return List.of(new QuestionOptionRequest(null, null, ContentType.FREE_TEXT, null, List.of()));
         }
@@ -1120,6 +1475,12 @@ public class QuestionController {
      */
     private String validateType(QuestionRequest request) {
         QuestionType type = typeOf(request);
+        // A GROUP's heading is optional; every other stem is the question and
+        // must exist. Used to be @NotBlank on the DTO — it lives here now so
+        // the one exception does not loosen the rule for everyone.
+        if (type != QuestionType.GROUP && (request.stem() == null || request.stem().isBlank())) {
+            return "stem is required";
+        }
         // FREE_TEXT is an OPTION kind — the "Other…" row. A stem "made of" a
         // text box means nothing, and `question.content_type` in MySQL was
         // deliberately not widened for it (V36), so this is the guard.
@@ -1130,6 +1491,19 @@ public class QuestionController {
         // silently dropped, and the caller would believe it was stored.
         if (type != QuestionType.GAMES && request.gameId() != null) {
             return "gameId is only for a game question (questionType GAMES)";
+        }
+        // Same reasoning: a format on anything but a typed answer would be
+        // dropped, and nothing would check the answers against it.
+        if (type != QuestionType.SHORT_ANSWER && request.answerFormat() != null) {
+            return "answerFormat is only for a short answer (questionType SHORT_ANSWER)";
+        }
+        // And again: member questions anywhere but on a group would be
+        // silently dropped.
+        if (type != QuestionType.GROUP && !membersOf(request).isEmpty()) {
+            return "members is only for a group question (questionType GROUP)";
+        }
+        if (type == QuestionType.GROUP) {
+            return validateGroup(request);
         }
         if (type == QuestionType.LINEAR_SCALE) {
             // A scale is one pick by definition: "choose 2 points on a 1—5
@@ -1251,6 +1625,57 @@ public class QuestionController {
         }
         // The only type that may carry an "Other…" option.
         return validateFreeTextOptions(options);
+    }
+
+    /**
+     * A GROUP's own rules — null when fine, else the message. The parent is
+     * a heading and nothing else: no options, rows, scores, rule or shuffle
+     * of its own, all refused rather than dropped so no caller can believe
+     * they were stored. The members are the content — at least two (one
+     * member is just a question), each a full request held to exactly the
+     * per-type rules a standalone question passes, recursively. GAMES
+     * (fullscreen launch), LIKERT_GRID (a grid inside the group block) and
+     * GROUP (no nesting) may not be members.
+     */
+    private String validateGroup(QuestionRequest request) {
+        if (request.selectionRule() != null || request.selectionCount() != null) {
+            return "a group is a heading over its questions — it cannot have a selection rule";
+        }
+        if (Boolean.TRUE.equals(request.shuffleOptions())) {
+            return "a group has no options of its own to shuffle";
+        }
+        if (!sanitized(request.options()).isEmpty()) {
+            return "a group has no options of its own — options belong to its questions";
+        }
+        if (request.rows() != null && !request.rows().isEmpty()) {
+            return "a group has no rows";
+        }
+        if (request.mqtScores() != null && !request.mqtScores().isEmpty()) {
+            return "a group carries no scores of its own — scores belong to its questions";
+        }
+        List<QuestionRequest> members = membersOf(request);
+        if (members.size() < 2) {
+            return "a group needs at least two questions";
+        }
+        for (int i = 0; i < members.size(); i++) {
+            QuestionRequest member = members.get(i);
+            QuestionType memberType = typeOf(member);
+            String where = "question " + (i + 1) + " in the group: ";
+            if (memberType == QuestionType.GROUP) {
+                return where + "a group cannot contain another group";
+            }
+            if (memberType == QuestionType.GAMES) {
+                return where + "a game question cannot be inside a group";
+            }
+            if (memberType == QuestionType.LIKERT_GRID) {
+                return where + "a grid cannot be inside a group";
+            }
+            String problem = firstProblem(member);
+            if (problem != null) {
+                return where + problem;
+            }
+        }
+        return null;
     }
 
     /**

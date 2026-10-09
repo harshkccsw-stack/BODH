@@ -16,6 +16,7 @@ import com.bodhpsychometric.model.question.Option;
 import com.bodhpsychometric.model.question.Question;
 import com.bodhpsychometric.model.question.QuestionRow;
 import com.bodhpsychometric.model.question.SelectionBounds;
+import com.bodhpsychometric.model.question.enums.AnswerFormat;
 import com.bodhpsychometric.model.question.enums.ContentType;
 import com.bodhpsychometric.model.question.enums.QuestionType;
 import com.bodhpsychometric.model.question.enums.SelectionRule;
@@ -93,9 +94,27 @@ public record PortalQuestionnaireContent(
             Integer scaleTo,
             String scaleLowLabel,
             String scaleHighLabel,
+            /**
+             * What a SHORT_ANSWER accepts (V48); null on every other type. A
+             * cache entry written before the field existed deserialises it as
+             * null, read as TEXT — the permissive side, so a stale entry can
+             * let text through until it is evicted but never blocks anyone.
+             */
+            AnswerFormat answerFormat,
             boolean shuffleOptions,
             List<PortalRow> rows,
-            List<PortalOption> options) {
+            List<PortalOption> options,
+            /**
+             * GROUP members only (V49): the parent question this one belongs
+             * to, plus the parent's heading and help text (repeated on every
+             * member so no second lookup exists to disagree with). The portal
+             * folds consecutive questions sharing a groupId into one page.
+             * Null on every other question — and in a cache entry written
+             * before groups existed, which could not contain a member anyway.
+             */
+            Long groupId,
+            String groupHeading,
+            String groupDescription) {
     }
 
     /**
@@ -132,9 +151,11 @@ public record PortalQuestionnaireContent(
             if (section != null) {
                 sections.putIfAbsent(section.getSectionId(),
                         new PortalSection(section.getSectionId(), section.getName(), section.getInstruction(),
-                                section.isShowInstructionOnEachQuestion(), section.getSortOrder()));
+                                section.isShowInstructionOnEachQuestion(), section.getQuestionLayout(),
+                                section.getSortOrder()));
             }
             Question question = placement.getQuestion();
+            Question group = question.getParentQuestion();
             SelectionBounds bounds = SelectionBounds.of(question);
             questions.add(new ContentQuestion(
                     question.getQuestionId(),
@@ -154,12 +175,16 @@ public record PortalQuestionnaireContent(
                     question.getScaleTo(),
                     question.getScaleLowLabel(),
                     question.getScaleHighLabel(),
+                    question.answerFormat(),
                     question.isShuffleOptions(),
                     question.getRows().stream()
                             .sorted(Comparator.comparingInt(QuestionRow::getSortOrder))
                             .map(r -> new PortalRow(r.getQuestionRowId(), r.getRowText(), r.getSortOrder()))
                             .toList(),
-                    authoredOptions(question)));
+                    authoredOptions(question),
+                    group == null ? null : group.getQuestionId(),
+                    group == null ? null : group.getQuestionTexString(),
+                    group == null ? null : group.getDescription()));
         }
 
         List<PortalDemographicField> demographicFields = demographicMappings.stream()

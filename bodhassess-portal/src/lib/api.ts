@@ -161,7 +161,9 @@ export type PortalSelectionRule = 'MIN' | 'MAX' | 'EQUALS';
 // only: a LINEAR_SCALE is an ordinary cap-1 question whose options are the
 // points 1—5, so every gate still reads min/maxSelections. A GAMES question is
 // one too: its single option is picked by FINISHING the game, never by a tap.
-export type PortalQuestionType = 'MCQ' | 'LINEAR_SCALE' | 'LIKERT_GRID' | 'SHORT_ANSWER' | 'PARAGRAPH' | 'GAMES';
+export type PortalQuestionType = 'MCQ' | 'LINEAR_SCALE' | 'LIKERT_GRID' | 'SHORT_ANSWER' | 'PARAGRAPH' | 'GAMES' | 'GROUP';
+// What a SHORT_ANSWER accepts. Matches AnswerFormat on the backend.
+export type PortalAnswerFormat = 'TEXT' | 'WHOLE_NUMBER';
 // Matches PortalAssessmentDetailResponse.PortalQuestion on the backend.
 export interface PortalQuestion {
   questionId: number;
@@ -205,12 +207,30 @@ export interface PortalQuestion {
   scaleLowLabel: string | null;
   scaleHighLabel: string | null;
   /**
+   * SHORT_ANSWER only — TEXT, or WHOLE_NUMBER (digits only). Null on every
+   * other type; null or absent on a short answer means TEXT. Check typed text
+   * with typedAnswerProblem, which mirrors the submit validator.
+   */
+  answerFormat?: PortalAnswerFormat | null;
+  /**
    * LIKERT_GRID only — the statements rated against `options`, which are that
    * grid's shared columns. Empty on every other type, and min/maxSelections
    * apply PER ROW when it is not.
    */
   rows: PortalRow[];
   options: PortalOption[];
+  /**
+   * GROUP members only (V49) — the group this question belongs to, with the
+   * group's optional heading and help text repeated on every member.
+   * Consecutive questions sharing a groupId render as ONE block (stem +
+   * options on a wrapping horizontal row per member) and always page
+   * together, whatever the layout says. Null/absent on standalone questions
+   * and on payloads from before groups existed. A GROUP parent itself is
+   * never delivered — only its members are.
+   */
+  groupId?: number | null;
+  groupHeading?: string | null;
+  groupDescription?: string | null;
 }
 // Matches PortalAssessmentDetailResponse.PortalRow on the backend.
 export interface PortalRow {
@@ -231,6 +251,12 @@ export interface PortalSection {
    * the portal had all along.
    */
   showInstructionOnEachQuestion: boolean;
+  /**
+   * This section's own paging, overriding the assessment's questionLayout for
+   * its questions. Null = the assessment decides — every section authored
+   * before the setting existed, and what an older cached payload carries.
+   */
+  questionLayout: PortalQuestionLayout | null;
 }
 // Matches PortalAssessmentDetailResponse.PortalDemographicField on the backend.
 export interface PortalDemographicField {
@@ -410,6 +436,20 @@ export const freeTextFilled = (
     return option?.contentType !== 'FREE_TEXT'
       || (optionTexts[optionTextKey(slot, optionId)] ?? '').trim().length > 0;
   });
+
+/**
+ * Why a typed SHORT_ANSWER does not fit its question's format — null when it
+ * does. Blank is not this function's business (required vs optional decides
+ * that). WHOLE_NUMBER mirrors AnswerFormat.WHOLE_NUMBER_PATTERN on the
+ * backend: digits only, at most 15 of them, surrounding spaces ignored as the
+ * server trims them. Part of what "answered" means, like freeTextFilled.
+ */
+export const typedAnswerProblem = (q: PortalQuestion, text: string): string | null => {
+  const typed = text.trim();
+  if (q.answerFormat !== 'WHOLE_NUMBER' || typed === '') return null;
+  if (!/^[0-9]+$/.test(typed)) return 'Enter a number — 1, 2, 3, etc. No decimal point, commas, spaces or minus sign.';
+  return typed.length > 15 ? 'That number is too long — 15 digits at most.' : null;
+};
 
 /** Whether this option of this question is the "Other…" row. */
 export const isFreeTextOption = (

@@ -128,6 +128,22 @@ export interface QuestionColumn {
   stem: string;
   questionRowId: number | null;
   rowText: string | null;
+  /**
+   * SHORT_ANSWER only — a WHOLE_NUMBER column is written to the workbook as
+   * numbers. Null elsewhere; optional so fixtures written before it still fit.
+   */
+  answerFormat?: 'TEXT' | 'WHOLE_NUMBER' | null;
+}
+
+/**
+ * A whole-number answer as a NUMBER cell, so the workbook sums and sorts it
+ * without "number stored as text". Anything that is not plain digits (an
+ * answer written before the question was a whole number, or one synced from
+ * MemoryMesh) stays the text it is — never coerced, never dropped.
+ */
+export function answerCell(column: QuestionColumn, value: string | undefined): string | number {
+  if (value == null) return '';
+  return column.answerFormat === 'WHOLE_NUMBER' && /^[0-9]{1,15}$/.test(value) ? Number(value) : value;
 }
 
 /**
@@ -391,7 +407,7 @@ const GAME_METRICS: Array<{ suffix: string; label: string; value: (c: GamePartCe
 function questionCells(sheet: ExportSheet): Array<{ header: string; cell: (r: ExportRow) => string | number }> {
   const games = sheet.gameColumns ?? [];
   return sheet.questionColumns.flatMap((q) => [
-    { header: q.questionTag, cell: (r: ExportRow) => r.answers[q.questionTag] ?? '' },
+    { header: q.questionTag, cell: (r: ExportRow) => answerCell(q, r.answers[q.questionTag]) },
     ...games
       .filter((g) => g.questionTag === q.questionTag)
       .flatMap((g) =>

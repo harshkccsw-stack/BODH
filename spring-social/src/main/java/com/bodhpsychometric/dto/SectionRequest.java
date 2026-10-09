@@ -1,5 +1,7 @@
 package com.bodhpsychometric.dto;
 
+import com.bodhpsychometric.model.assessment.enums.QuestionLayout;
+
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
@@ -17,7 +19,11 @@ public record SectionRequest(
         // of only its first. Boxed and nullable on purpose: a client written
         // before this field existed omits it, and that must mean "off" rather
         // than a 400.
-        Boolean showInstructionOnEachQuestion) {
+        Boolean showInstructionOnEachQuestion,
+        // This section's own paging; null = use the assessment's layout.
+        // Replaced like every other field: a body that omits it goes back to
+        // the assessment's setting, so the builder always sends it.
+        QuestionLayout questionLayout) {
 
     /** The flag as the entity wants it — absent means off. */
     public boolean repeatsInstruction() {

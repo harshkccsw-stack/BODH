@@ -537,8 +537,10 @@ export function parseQuestionRows(
       options,
       rows: [],
       mqtScores,
-      // MCQs only, so never a game — a game question is made in the form.
+      // MCQs only, so never a game — a game question is made in the form —
+      // and never a short answer's format.
       gameId: null,
+      answerFormat: null,
     });
     sections.push(row.section || null);
     rowNos.push(rowNo);

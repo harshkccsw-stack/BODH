@@ -27,6 +27,7 @@ import com.bodhpsychometric.model.demographics.enums.DemographicFieldType;
 import com.bodhpsychometric.model.organization.Organization;
 import com.bodhpsychometric.model.question.Question;
 import com.bodhpsychometric.model.question.QuestionRow;
+import com.bodhpsychometric.model.question.enums.AnswerFormat;
 import com.bodhpsychometric.model.question.enums.QuestionType;
 import com.bodhpsychometric.model.questionnaire.Questionnaire;
 import com.bodhpsychometric.model.questionnaire.QuestionnaireQuestion;
@@ -219,7 +220,11 @@ public class DataStudioDatasetService {
                     : List.of();
             if (gridRows.isEmpty()) {
                 tagByKey.put(new AnswerKey(questionId, null), tag);
-                columns.add(new Column(ANSWER + tag, tag, "string", "answers"));
+                // A whole-number short answer (V48) is numeric for the same
+                // reason a NUMBER demographic is: AVERAGE([ans:Q_3]) should
+                // just work. The cell stays the typed text, as there.
+                String type = question.answerFormat() == AnswerFormat.WHOLE_NUMBER ? "number" : "string";
+                columns.add(new Column(ANSWER + tag, tag, type, "answers"));
                 continue;
             }
             for (int i = 0; i < gridRows.size(); i++) {

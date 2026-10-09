@@ -278,4 +278,74 @@ class OptionalQuestionAndLayoutTest {
         mvc.perform(get("/api/portal/assessments/getById/" + mappingId).header("Authorization", bearer))
                 .andExpect(jsonPath("$.questionLayout").value("ONE_PER_PAGE"));
     }
+
+    /**
+     * V47: a section may override the assessment's layout for its own
+     * questions. Null = the assessment decides; the section PUT replaces
+     * every field, so leaving the layout out hands it back.
+     */
+    @Test
+    void aSectionCanOverrideTheAssessmentLayout() throws Exception {
+        int q1 = JsonPath.read(createMcq("__smoke__ section layout: one", ""), "$.questionId");
+        int q2 = JsonPath.read(createMcq("__smoke__ section layout: two", ""), "$.questionId");
+        int questionnaireId = JsonPath.read(postJson("/api/questionnaire/create",
+                "{\"name\":\"__smoke__ section layout QNR\",\"shortName\":null,\"category\":null,\"vertical\":null,"
+                        + "\"description\":null,\"durationMinutes\":null,\"generalInstruction\":null,"
+                        + "\"hasSections\":true}"), "$.questionnaireId");
+        String sectionA = postJson("/api/questionnaire/" + questionnaireId + "/sections",
+                "{\"name\":\"Battery\",\"instruction\":null,\"questionLayout\":\"SECTION_PER_PAGE\"}");
+        int sectionAId = JsonPath.read(sectionA, "$.sectionId");
+        org.junit.jupiter.api.Assertions.assertEquals("SECTION_PER_PAGE", JsonPath.read(sectionA, "$.questionLayout"));
+        int sectionBId = JsonPath.read(postJson("/api/questionnaire/" + questionnaireId + "/sections",
+                "{\"name\":\"Scenarios\",\"instruction\":null}"), "$.sectionId");
+        putPlacements(questionnaireId,
+                "[{\"questionId\":" + q1 + ",\"sectionId\":" + sectionAId + ",\"sortOrder\":0},"
+                        + "{\"questionId\":" + q2 + ",\"sectionId\":" + sectionBId + ",\"sortOrder\":0}]", 200);
+
+        mvc.perform(get("/api/questionnaire/" + questionnaireId + "/sections"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].questionLayout").value("SECTION_PER_PAGE"))
+                .andExpect(jsonPath("$[1].questionLayout").doesNotExist());
+
+        // An unknown value is refused, not read as "use the assessment's".
+        mvc.perform(put("/api/questionnaire/" + questionnaireId + "/sections/" + sectionBId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Scenarios\",\"instruction\":null,\"questionLayout\":\"TWO_PER_PAGE\"}"))
+                .andExpect(status().isBadRequest());
+
+        int assessmentId = JsonPath.read(postJson("/api/assessments/create",
+                "{\"name\":\"__smoke__ section layout Assessment\",\"questionnaireId\":" + questionnaireId + ","
+                        + "\"showTermsAndConditions\":false,\"status\":\"ACTIVE\",\"autoNext\":false,"
+                        + "\"questionLayout\":\"ONE_PER_PAGE\"}"), "$.assessmentId");
+        int respondentUserId = JsonPath.read(postJson("/api/respondents/create",
+                "{\"name\":\"__smoke__ Section Layout Taker\",\"email\":\"section.layout.taker@test.local\","
+                        + "\"dob\":\"08-08-2008\",\"phoneCountryCode\":\"+91\",\"phone\":\"9000000000\","
+                        + "\"gender\":\"MALE\",\"isConsented\":false,\"organizationId\":null}"),
+                "$.respondentUserId");
+        postJson("/api/respondent-assessments/assign",
+                "{\"assessmentId\":" + assessmentId + ",\"respondentUserIds\":[" + respondentUserId + "]}");
+        String loginBody = mvc.perform(post("/api/portal/login").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"section.layout.taker@test.local\",\"dob\":\"2008-08-08\"}"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        String bearer = "Bearer " + (String) JsonPath.read(loginBody, "$.token");
+        int mappingId = JsonPath.read(loginBody,
+                "$.respondent.allottedAssessments[0].respondentAssessmentMappingId");
+
+        // The assessment's layout is the default; each section says its own.
+        mvc.perform(get("/api/portal/assessments/getById/" + mappingId).header("Authorization", bearer))
+                .andExpect(jsonPath("$.questionLayout").value("ONE_PER_PAGE"))
+                .andExpect(jsonPath("$.sections[0].questionLayout").value("SECTION_PER_PAGE"))
+                .andExpect(jsonPath("$.sections[1].questionLayout").doesNotExist());
+
+        // A rename that leaves the layout out hands the section back to the
+        // assessment — and the portal sees it at once (the PUT evicts the cache).
+        mvc.perform(put("/api/questionnaire/" + questionnaireId + "/sections/" + sectionAId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Battery, renamed\",\"instruction\":null}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.questionLayout").doesNotExist());
+        mvc.perform(get("/api/portal/assessments/getById/" + mappingId).header("Authorization", bearer))
+                .andExpect(jsonPath("$.sections[0].questionLayout").doesNotExist());
+    }
 }

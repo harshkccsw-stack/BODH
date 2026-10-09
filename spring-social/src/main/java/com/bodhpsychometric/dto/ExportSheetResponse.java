@@ -7,6 +7,7 @@ import java.util.Map;
 import com.bodhpsychometric.model.assessment.enums.RespondentAssessmentStatus;
 import com.bodhpsychometric.model.game.GameResult;
 import com.bodhpsychometric.model.demographics.enums.DemographicFieldType;
+import com.bodhpsychometric.model.question.enums.AnswerFormat;
 
 /**
  * A flat export "sheet" for one assessment: the column definitions plus one
@@ -86,9 +87,12 @@ public record ExportSheetResponse(
      * useless. Those columns tag {@code <questionTag>_R<n>} by row order and
      * carry {@code questionRowId} + {@code rowText}; both are null on every
      * other type, where the question itself is the whole column.
+     *
+     * {@code answerFormat} is set on a SHORT_ANSWER only (V48): a
+     * WHOLE_NUMBER column is written to the workbook as numbers, not text.
      */
     public record QuestionColumn(String questionTag, Long questionId, String stem,
-            Long questionRowId, String rowText) {
+            Long questionRowId, String rowText, AnswerFormat answerFormat) {
     }
 
     /**
