@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { config } from '@/config';
 import { useAuth } from '@/lib/auth';
+import { track, usePageView } from '@/lib/analytics';
 import { CheckCircle2, ClipboardCheck, Loader2, LogOut, Play } from 'lucide-react';
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router';
@@ -17,7 +18,10 @@ export default function AssessmentsPage() {
     void refresh();
   }, [refresh]);
 
+  usePageView('/portal/assessment', 'My assessments');
+
   const logout = async () => {
+    track('logout');
     await signOut();
     navigate('/portal/login', { replace: true });
   };
@@ -127,7 +131,14 @@ export default function AssessmentsPage() {
                           variant="primary"
                           size="md"
                           className="h-11 w-full sm:h-8.5"
-                          onClick={() => navigate(`/portal/assessment/${s.respondentAssessmentMappingId}`)}
+                          onClick={() => {
+                            track('assessment_launch', {
+                              assessment_id: s.assessmentId,
+                              assessment_name: s.assessmentName,
+                              resumed: started,
+                            });
+                            navigate(`/portal/assessment/${s.respondentAssessmentMappingId}`);
+                          }}
                         >
                           <Play className="h-4 w-4" />
                           {started ? 'Resume Assessment' : 'Launch Assessment'}

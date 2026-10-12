@@ -4,6 +4,7 @@ import { useBlocker } from 'react-router';
 import { AlertTriangle, Check, CirclePause, Gamepad2, Maximize, Play, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { track } from '@/lib/analytics';
 import type { PortalGame, PortalOption } from '@/lib/api';
 import { gameComponentFor, type GameResult } from './registry';
 
@@ -186,6 +187,17 @@ export function GameRenderer({
   const finished = useRef(false);
   const overlay = useRef<HTMLDivElement>(null);
 
+  // Analytics: which game, on every game event. A ref guard, because
+  // StrictMode runs mount effects twice in dev and the launch is one event.
+  const gameParams = { game_code: game.code, game_name: game.name };
+  const startTracked = useRef(false);
+  useEffect(() => {
+    if (startTracked.current) return;
+    startTracked.current = true;
+    track('game_start', gameParams);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Back: swallowed while the game runs. useBlocker holds a POP on the URL
   // it came from; reset() keeps the respondent exactly where they are.
   const blocker = useBlocker(true);
@@ -228,6 +240,7 @@ export function GameRenderer({
       setAway(true);
       setTimesAway((n) => n + 1);
       setNotice(null);
+      track('game_paused', gameParams);
     };
     const onVisibility = () => {
       if (document.visibilityState === 'hidden') leave();
@@ -286,6 +299,7 @@ export function GameRenderer({
   const resume = () => {
     awayRef.current = false;
     setAway(false);
+    track('game_resumed', gameParams);
     requestGameFullscreen(); // this click is the gesture full screen needs
     overlay.current?.focus();
   };
@@ -309,6 +323,11 @@ export function GameRenderer({
       durationMs: now - startedAt.current,
       result,
     });
+    track('game_complete', {
+      ...gameParams,
+      duration_seconds: Math.round((now - startedAt.current) / 1000),
+      times_away: timesAway,
+    });
     onFinished(result);
   };
 
@@ -319,7 +338,14 @@ export function GameRenderer({
           <AlertTriangle className="h-6 w-6 text-amber-600 dark:text-amber-400" />
         </div>
         <p className="text-sm text-muted-foreground">{message}</p>
-        <Button variant="primary" className="w-full" onClick={onUnavailable}>
+        <Button
+          variant="primary"
+          className="w-full"
+          onClick={() => {
+            track('game_unavailable', gameParams);
+            onUnavailable();
+          }}
+        >
           Back to the question
         </Button>
       </div>

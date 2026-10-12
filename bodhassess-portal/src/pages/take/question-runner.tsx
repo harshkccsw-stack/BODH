@@ -16,6 +16,7 @@ import { BrandHeader } from '@/components/brand-header';
 import { Media, mediaTypeFor } from '@/components/media';
 import { cn } from '@/lib/utils';
 import { RichText, isBlankRichText } from '@/lib/rich-text';
+import { track, usePageView } from '@/lib/analytics';
 import {
   answerKey,
   freeTextFilled,
@@ -530,6 +531,28 @@ export function QuestionRunner({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [index]);
 
+  // Every page landed on — one question, a group or a whole section — is a
+  // page in Google Analytics, numbered the way the header numbers it, so a
+  // drop-off shows as the last page reached. Every event fired while it is up
+  // is filed under it too.
+  const pageFirst = pageIndices[0] + 1;
+  const pageLast = pageIndices[pageIndices.length - 1] + 1;
+  usePageView(
+    `/portal/take/${detail.assessmentId}/questions/${pageFirst === pageLast ? pageFirst : `${pageFirst}-${pageLast}`}`,
+    `${detail.assessmentName} — ${
+      pageFirst === pageLast ? `Question ${pageFirst}` : `Questions ${pageFirst}–${pageLast}`
+    } of ${total}`,
+    {
+      take_step: 'questions',
+      question_number: pageFirst,
+      question_id: questions[pageIndices[0]]?.questionId,
+      question_count: total,
+      page_number: pageIdx + 1,
+      page_count: pages.length,
+      section_name: sections[page.section]?.title ?? null,
+    },
+  );
+
   // Section pages only: the questions a Next or Submit press found still
   // blocking on THIS page, outlined until they are answered. Replaced on
   // every page change, so a mark never follows the respondent elsewhere.
@@ -691,6 +714,7 @@ export function QuestionRunner({
     attentionDeadline.current = null;
     setAttentionLeftMs(0);
     setAttentionExpired(true);
+    track('attention_timeout');
     onAttentionTimeout();
   };
   /** Start the countdown — called as the popup goes up. Always a full ten. */
@@ -727,6 +751,7 @@ export function QuestionRunner({
     clearFocusTimer();
     modalOpenRef.current = true;
     setShowFocusModal(true);
+    track('inactivity_prompt');
     runAttentionTimer();
   };
   const armFocusTimer = () => {
@@ -752,6 +777,7 @@ export function QuestionRunner({
     stopAttentionTimer();
     modalOpenRef.current = false;
     setShowFocusModal(false);
+    track('inactivity_resume');
     onFocusPopup();
     armFocusTimer();
   };
@@ -1247,6 +1273,7 @@ export function QuestionRunner({
   const flaggedHere = pageIndices.filter((qi) => flagged.has(qi) && isQuestionBlocking(qi));
   const holdOnPage = (): boolean => {
     if (pageBlocking.length === 0) return false;
+    track('page_incomplete', { blank_count: pageBlocking.length });
     setFlagged(new Set(pageBlocking));
     scrollToCard(pageBlocking[0]);
     return true;
@@ -1262,10 +1289,14 @@ export function QuestionRunner({
     if (nextPageIdx === null) return;
     const target = pages[nextPageIdx];
     const missedThere = target.indices.filter((qi) => isQuestionBlocking(qi) && visited.has(qi));
+    // A wrap backwards to a blank left behind is the sweep, not plain reading.
+    track('question_nav', { action: nextPageIdx < pageIdx ? 'next_to_pending' : 'next' });
     goTo(missedThere[0] ?? target.indices[0], target.whole ? missedThere : []);
   };
   const goBack = () => {
-    if (pageIdx > 0) goTo(pages[pageIdx - 1].indices[0]);
+    if (pageIdx === 0) return;
+    track('question_nav', { action: 'back' });
+    goTo(pages[pageIdx - 1].indices[0]);
   };
 
   // The navigator, rendered twice: as the sticky sidebar on a large screen and
@@ -1315,6 +1346,7 @@ export function QuestionRunner({
                       key={qq.questionId}
                       type="button"
                       onClick={() => {
+                        track('question_nav', { action: 'navigator' });
                         goTo(qi);
                         // Jumping from the phone sheet closes it, so the
                         // question landed on is what fills the screen.
@@ -2354,7 +2386,10 @@ export function QuestionRunner({
                     type="button"
                     /* On a section page the chip outlines its question too,
                        the way a refused Next or Submit does. */
-                    onClick={() => goTo(qi, [qi])}
+                    onClick={() => {
+                      track('question_nav', { action: 'pending_list' });
+                      goTo(qi, [qi]);
+                    }}
                     className="rounded-md border border-red-300 dark:border-red-800 bg-background px-2 py-1 text-[0.6875rem] font-medium text-red-700 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors"
                   >
                     {labelOf(qi)}

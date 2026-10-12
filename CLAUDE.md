@@ -682,6 +682,23 @@ re-read a file before editing; expect it to have changed):
   "n of m MQTs mapped" + what's left. XLSX bulk upload on the questions page:
   parse in browser (dynamic import('xlsx')), template with `mqts` reference
   sheet, all-or-nothing, review wizard (next/next) before submit.
+- Portal Google Analytics (2026-10-12, `bodhassess-portal/src/lib/analytics.ts`,
+  GA4 `G-N6S47FGZNR`, compiled in as the PRODUCTION default in `config.ts`
+  because `.env.production` is gitignored; dev sends nothing;
+  `VITE_GA_MEASUREMENT_ID=off` disables, `VITE_GA_DEBUG=true` → DebugView).
+  The take flow is one route, so every screen reports a VIRTUAL page with
+  `usePageView` — `/portal/take/<assessmentId>/terms|demographics|instructions|questions/<n or a-b>|complete`
+  — and actions go through `track()`. A NEW SCREEN NEEDS ITS OWN
+  `usePageView`, or GA files its events under the last page. Rules: never
+  copy the real URL (token and attempt id cut out, query dropped except
+  utm_*/gclid — login carries `?email=`); identify by `serialId` ONLY; never
+  send names, email, phone, dob, answers or demographic values. User's
+  decisions: privacy-policy notice only (no banner), user_id = serialId,
+  minors tracked FOR NOW — revisit before the DPDP Act's s.9(3) obligations
+  apply (~May 2027). Ad features (Google signals, ad personalisation) are off.
+  In the GA stream's Enhanced measurement, "Page changes based on browser
+  history events" AND "Form interactions" must stay OFF — form_submit's
+  form_destination is the real URL on our action-less forms (token, ?email=).
 
 ## Verification loop (do this EVERY change)
 

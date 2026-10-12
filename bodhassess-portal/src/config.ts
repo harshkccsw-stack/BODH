@@ -18,6 +18,20 @@ export const config = {
 
   /** Optional sub-path mount. Empty string means served at root. */
   basePath: read('VITE_BASE_PATH', ''),
+
+  /**
+   * Google Analytics 4 measurement id (see lib/analytics.ts). Production
+   * builds carry the portal's own id as the default, because `.env.production`
+   * is gitignored and a build from a machine without it must not quietly ship
+   * without analytics. Dev (`vite`) has no default, so nothing is sent while
+   * developing. `off` switches it off in any build.
+   */
+  gaMeasurementId: ((id) => (id === 'off' ? '' : id))(
+    read('VITE_GA_MEASUREMENT_ID', import.meta.env.PROD ? 'G-N6S47FGZNR' : ''),
+  ),
+
+  /** `true` marks every hit as debug traffic, so it shows in GA's DebugView. */
+  gaDebug: read('VITE_GA_DEBUG') === 'true',
 } as const;
 
 export type AppConfig = typeof config;

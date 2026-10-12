@@ -2,7 +2,10 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { RouterProvider } from 'react-router';
 import { router } from '@/router';
+import { initAnalytics } from '@/lib/analytics';
 import '@/styles.css';
+
+initAnalytics();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

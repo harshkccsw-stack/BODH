@@ -12,6 +12,7 @@ import {
   type RegistrationTokenDetail,
 } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
+import { failureStatus, track, usePageView } from '@/lib/analytics';
 import { cn } from '@/lib/utils';
 import { BIRTH_DATE_ERROR, ddmmyyyyToIso, isBirthDateInRange } from '@/lib/helpers';
 import { DEFAULT_DIAL_CODE, PHONE_HINT, isValidPhone, phoneError } from '@/lib/phone';
@@ -89,6 +90,7 @@ export default function RegisterTokenPage() {
         setDetail(t);
       } catch (e) {
         if (cancelled) return;
+        track('registration_link_error', { error_status: failureStatus(e) });
         setLoadError(
           e instanceof ApiError
             ? e.serverMessage
@@ -102,6 +104,17 @@ export default function RegisterTokenPage() {
       cancelled = true;
     };
   }, [token]);
+
+  // Reported once the link has been read, so the page carries what the link is
+  // for. Both mounts (/register and /portal/register) file under one path, and
+  // the token itself never leaves the browser.
+  usePageView(loading ? null : '/register/:token', 'Registration', {
+    registration_scope: detail?.scope,
+    organization_id: detail?.organizationId,
+    organization_name: detail?.organizationName,
+    assessment_id: detail?.assessmentId,
+    assessment_name: detail?.assessmentName,
+  });
 
   /**
    * Register and land signed in. The reply carries the same bearer that
@@ -173,6 +186,7 @@ export default function RegisterTokenPage() {
       });
       localStorage.setItem(config.authStorageKey, result.token);
       await refresh();
+      track('sign_up', { method: 'registration_link', registration_scope: detail.scope });
       // An assessment-scoped link granted exactly one thing to do, so open it
       // rather than making them find it on a dashboard of one. An org-wide
       // link granted nothing yet — the dashboard's empty state explains that
@@ -184,6 +198,7 @@ export default function RegisterTokenPage() {
         { replace: true },
       );
     } catch (err) {
+      track('sign_up_failed', { registration_scope: detail.scope, error_status: failureStatus(err) });
       setSubmitError(
         err instanceof ApiError
           ? err.serverMessage

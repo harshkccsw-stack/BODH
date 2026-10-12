@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { portalAuthApi, ApiError } from '@/lib/api';
 import { config } from '@/config';
 import { useAuth } from '@/lib/auth';
+import { failureStatus, track, usePageView } from '@/lib/analytics';
 import { autoFormatDdmmyyyy, ddmmyyyyToIso } from '@/lib/helpers';
 
 export default function LoginPage() {
@@ -22,6 +23,8 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
+  usePageView('/portal/login', 'Sign in');
+
   const submit = async (e?: React.FormEvent) => {
     e?.preventDefault();
     setError('');
@@ -36,12 +39,16 @@ export default function LoginPage() {
       return;
     }
     setLoading(true);
+    // Which kind of identifier, never the identifier itself.
+    const method = credential.includes('@') ? 'email' : 'employee_id';
     try {
       const res = await portalAuthApi.login(credential, isoDob);
       localStorage.setItem(config.authStorageKey, res.token);
       await refresh();
+      track('login', { method });
       navigate('/portal/assessment', { replace: true });
     } catch (e: any) {
+      track('login_failed', { method, error_status: failureStatus(e) });
       if (e instanceof ApiError && e.status === 401)
         setError('Invalid credentials. Check your email or employee ID and date of birth.');
       else if (e instanceof ApiError && e.status === 403)
