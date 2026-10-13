@@ -4,6 +4,7 @@ import { ScreenLoader } from '@/components/screen-loader';
 import { ErrorCard } from '@/components/error-card';
 import { useAuth } from '@/lib/auth';
 import { isBlankRichText } from '@/lib/rich-text';
+import { failureStatus, setTakeContext, track, usePageView } from '@/lib/analytics';
 import {
   portalAssessmentsApi,
   ApiError,
@@ -27,6 +28,14 @@ import { QuestionRunner } from './question-runner';
 import { CompleteStep } from './complete-step';
 
 type GateStep = 'terms' | 'demographics' | 'instructions' | 'questions';
+
+// How each screen is named in Google Analytics' page titles.
+const STEP_TITLES: Record<Exclude<GateStep, 'questions'> | 'complete', string> = {
+  terms: 'Terms',
+  demographics: 'Your details',
+  instructions: 'Instructions',
+  complete: 'Completed',
+};
 
 // ── Resume helpers ──────────────────────────────────────────────────────────
 // A saved snapshot arrives as submit-shaped entries; the runner keys its
@@ -194,6 +203,10 @@ export default function TakePage() {
       .get(sessionId)
       .then((d) => {
         if (cancelled) return;
+        // Here, not in an effect: the runner's first page view fires from a
+        // CHILD effect, which runs before any effect of this component.
+        setTakeContext({ assessment_id: d.assessmentId, assessment_name: d.assessmentName });
+        track('assessment_open', { assessment_status: d.assessmentStatus });
         if (d.assessmentStatus === 'COMPLETED') {
           setLoadError('This assessment has already been submitted.');
           return;
@@ -233,6 +246,7 @@ export default function TakePage() {
       })
       .catch((e) => {
         if (cancelled) return;
+        track('assessment_load_error', { error_status: failureStatus(e) });
         if (e instanceof ApiError && [403, 404, 409].includes(e.status)) {
           setLoadError(e.serverMessage || 'Assessment not found.');
         } else if (e instanceof ApiError && e.status === 401) {
@@ -246,6 +260,10 @@ export default function TakePage() {
     };
   }, [sessionId]);
 
+  // Leaving the flow (back to the list, or anywhere) ends the assessment's
+  // context — later events belong to no assessment.
+  useEffect(() => () => setTakeContext(null), []);
+
   // When the questionnaire has no demographic form, begin never fires from
   // the demographics step — fire it on reaching the questions instead so the
   // attempt still flips to ONGOING (empty form is valid then).
@@ -255,10 +273,13 @@ export default function TakePage() {
     portalAssessmentsApi
       .begin(detail.respondentAssessmentMappingId, [])
       .then(() => {
-        if (!cancelled) setBegun(true);
+        if (cancelled) return;
+        track('assessment_begin', { with_demographics: false });
+        setBegun(true);
       })
       .catch((e) => {
         if (cancelled) return;
+        track('assessment_begin_failed', { error_status: failureStatus(e) });
         setLoadError(e instanceof ApiError ? e.serverMessage : 'Failed to start the assessment.');
       });
     return () => {
@@ -273,6 +294,17 @@ export default function TakePage() {
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'auto' });
   }, [stepIndex, done]);
+
+  // The gate steps and the completion screen as pages of their own. Question
+  // pages report from the runner, which is what knows how they are cut.
+  const screen = done ? 'complete' : current === 'questions' ? null : current;
+  usePageView(
+    !detail || loadError || steps.length === 0 || screen === null
+      ? null
+      : `/portal/take/${detail.assessmentId}/${screen}`,
+    detail && screen ? `${detail.assessmentName} — ${STEP_TITLES[screen]}` : '',
+    { take_step: screen },
+  );
 
   if (loadError) return <ErrorCard message={loadError} onAction={backToList} />;
   if (!detail || !user || steps.length === 0) return <ScreenLoader />;
@@ -300,6 +332,11 @@ export default function TakePage() {
   }
 
   const goNext = () => setStepIndex((i) => i + 1);
+  // Cancel on any gate: back to the list, noting where they turned back.
+  const exitFrom = (step: GateStep) => () => {
+    track('assessment_exit', { take_step: step });
+    backToList();
+  };
 
   // Begin the attempt: store the form, record consent, flip to ONGOING.
   // Thrown errors surface inside the demographics step's error box.
@@ -307,8 +344,11 @@ export default function TakePage() {
     try {
       await portalAssessmentsApi.begin(detail.respondentAssessmentMappingId, entries);
     } catch (e) {
+      track('assessment_begin_failed', { error_status: failureStatus(e) });
       throw new Error(e instanceof ApiError ? e.serverMessage : 'the API may be unreachable');
     }
+    track('demographics_submitted');
+    track('assessment_begin', { with_demographics: true });
     setBegun(true);
     goNext();
   };
@@ -382,18 +422,25 @@ export default function TakePage() {
   const submit = async () => {
     setSubmitting(true);
     setSubmitError('');
+    const entries = buildEntries();
     try {
       // 200 means the submission is in — either staged in Redis with the
       // digest landing it in MySQL moments later (submissionPending), or
       // already written synchronously. The respondent's flow is identical.
       await portalAssessmentsApi.submit(
         detail.respondentAssessmentMappingId,
-        buildEntries(),
+        entries,
         popUpCount,
         buildGameResults(),
       );
+      track('assessment_complete', {
+        question_count: detail.questions.length,
+        answered_count: new Set(entries.map((e) => e.questionId)).size,
+        inactivity_prompts: popUpCount,
+      });
       setDone(true);
     } catch (e) {
+      track('assessment_submit_failed', { error_status: failureStatus(e) });
       setSubmitError(e instanceof ApiError ? e.serverMessage : 'Failed to submit — please try again.');
       setSubmitting(false);
     }
@@ -406,8 +453,11 @@ export default function TakePage() {
           title={title}
           subtitle={subtitle}
           disclaimer={detail.termsAndConditions}
-          onAgree={goNext}
-          onCancel={backToList}
+          onAgree={() => {
+            track('terms_accepted');
+            goNext();
+          }}
+          onCancel={exitFrom('terms')}
         />
       );
     case 'demographics':
@@ -418,7 +468,7 @@ export default function TakePage() {
           fields={detail.demographicFields}
           defaultValues={{}}
           onSubmit={saveDemographics}
-          onCancel={backToList}
+          onCancel={exitFrom('demographics')}
         />
       );
     case 'instructions':
@@ -427,8 +477,11 @@ export default function TakePage() {
           title={title}
           subtitle={subtitle}
           instructions={detail.generalInstruction || ''}
-          onContinue={goNext}
-          onCancel={backToList}
+          onContinue={() => {
+            track('instructions_continue');
+            goNext();
+          }}
+          onCancel={exitFrom('instructions')}
         />
       );
     case 'questions':

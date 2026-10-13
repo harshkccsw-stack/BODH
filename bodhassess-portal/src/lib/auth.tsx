@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useState, type React
 import { Navigate, useLocation } from 'react-router';
 import { config } from '@/config';
 import { portalAuthApi, type PortalRespondent } from '@/lib/api';
+import { identify } from '@/lib/analytics';
 import { ScreenLoader } from '@/components/screen-loader';
 
 type Status = 'loading' | 'authed' | 'anon';
@@ -22,22 +23,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<PortalRespondent | null>(null);
   const [status, setStatus] = useState<Status>('loading');
 
+  // Analytics is told who this is right here, not from an effect on `user`:
+  // the caller's next event (login, sign_up) must already carry the id, and an
+  // effect would only run after the render that follows.
   const refresh = useCallback(async () => {
     const token = localStorage.getItem(config.authStorageKey);
     if (!token) {
       setUser(null);
       setStatus('anon');
+      identify(null);
       return;
     }
     try {
       const me = await portalAuthApi.me();
       setUser(me);
       setStatus('authed');
+      identify(me);
     } catch {
       // Token invalid/expired.
       localStorage.removeItem(config.authStorageKey);
       setUser(null);
       setStatus('anon');
+      identify(null);
     }
   }, []);
 
@@ -47,6 +54,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem(config.authStorageKey);
     setUser(null);
     setStatus('anon');
+    identify(null);
   }, []);
 
   useEffect(() => {

@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import { publicTokensApi, authApi, respondentsApi, type AssessmentToken } from '@/lib/api';
 import { config } from '@/config';
 import { useAuth } from '@/lib/auth';
+import { usePageView } from '@/lib/analytics';
 import { autoFormatDdmmyyyy, ddmmyyyyToIso, formatDDMMYYYY } from '@/lib/helpers';
 
 // h-11 on a phone: a 44px control is the smallest that is comfortable to tap,
@@ -32,6 +33,8 @@ const INPUT =
 export default function RegisterPage() {
   const token =
     typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('token') || '' : '';
+  // The ?token= query is dropped by analytics — only the path is reported.
+  usePageView('/portal/register', 'Registration (old link)');
   return token ? <TokenRegister token={token} /> : <SelfSignup />;
 }
 
