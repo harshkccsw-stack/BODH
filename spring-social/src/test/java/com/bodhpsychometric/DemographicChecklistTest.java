@@ -110,7 +110,7 @@ class DemographicChecklistTest {
         for (int i = 0; i < takers; i++) {
             String email = tag + ".taker" + i + "@test.local";
             int respondentUserId = JsonPath.read(postJson("/api/respondents/create",
-                    "{\"name\":\"__smoke__ " + tag + " " + i + "\",\"email\":\"" + email + "\",\"dob\":\"05-05-2005\","
+                    "{\"name\":\"Smoke Taker " + (char) ('A' + i) + "\",\"email\":\"" + email + "\",\"dob\":\"05-05-2005\","
                             + "\"phoneCountryCode\":\"+91\",\"phone\":\"90000" + Math.abs(tag.hashCode() % 10000)
                             + i + "\",\"gender\":\"FEMALE\",\"isConsented\":false,\"organizationId\":null}"),
                     "$.respondentUserId");

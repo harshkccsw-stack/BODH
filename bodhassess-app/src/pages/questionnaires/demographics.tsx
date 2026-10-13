@@ -22,10 +22,12 @@ import { cn } from '@/lib/utils';
 import {
   demographicsApi,
   hasChoices,
+  numberRangePhrase,
   type DemographicFieldPayload,
   type DemographicFieldResponse,
   type DemographicFieldType,
 } from './demographicsApi';
+import { MAX_WHOLE_NUMBER } from '../question-bank/questionApis';
 
 const FIELD_TYPES: Array<{ value: DemographicFieldType; label: string; icon: typeof Type }> = [
   { value: 'TEXT', label: 'Text', icon: Type },
@@ -49,11 +51,36 @@ interface FieldForm {
   /** The write-in "Other" choice is switched on, labelled otherLabel. */
   otherEnabled: boolean;
   otherLabel: string;
+  /** NUMBER only — the range's ends as typed; blank = no limit at that end. */
+  numberMin: string;
+  numberMax: string;
 }
 
 const EMPTY_FORM: FieldForm = {
   id: null, label: '', fieldType: 'TEXT', placeholder: '', options: [], otherEnabled: false, otherLabel: DEFAULT_OTHER_LABEL,
+  numberMin: '', numberMax: '',
 };
+
+/** One end of a range as typed: null when blank (no limit). Read only once rangeProblem has passed it. */
+const parseRangeEnd = (typed: string): number | null => (typed.trim() === '' ? null : Number(typed.trim()));
+
+/**
+ * The server's range rule (DemographicFieldController.rangeProblem), checked
+ * here first. It is the Number question's rule — a NUMBER field takes whole
+ * numbers only: each end blank or a whole number 0 … MAX_WHOLE_NUMBER in
+ * digits, and To above From when both are set.
+ */
+function rangeProblem(minTyped: string, maxTyped: string): string | null {
+  for (const [name, typed] of [['From', minTyped], ['To', maxTyped]] as const) {
+    if (typed.trim() && !/^[0-9]{1,15}$/.test(typed.trim())) {
+      return `The range's ${name} must be a whole number from 0 to ${MAX_WHOLE_NUMBER}`;
+    }
+  }
+  const min = parseRangeEnd(minTyped);
+  const max = parseRangeEnd(maxTyped);
+  if (min != null && max != null && max <= min) return `The range's To (${max}) must be greater than its From (${min})`;
+  return null;
+}
 
 /**
  * The server's choice rules (DemographicFieldController.choiceProblem),
@@ -130,6 +157,8 @@ export default function DemographicsPage() {
       options: [...f.options],
       otherEnabled: f.otherOptionLabel != null,
       otherLabel: f.otherOptionLabel ?? DEFAULT_OTHER_LABEL,
+      numberMin: f.numberMin == null ? '' : String(f.numberMin),
+      numberMax: f.numberMax == null ? '' : String(f.numberMax),
     });
     setFormError('');
     setModalOpen(true);
@@ -164,14 +193,22 @@ export default function DemographicsPage() {
       const problem = choiceProblem(form.fieldType, options, otherOptionLabel);
       if (problem) { setFormError(problem); return; }
     }
+    const number = form.fieldType === 'NUMBER';
+    const rangeError = number ? rangeProblem(form.numberMin, form.numberMax) : null;
+    if (rangeError) { setFormError(rangeError); return; }
+    const numberMin = number ? parseRangeEnd(form.numberMin) : null;
+    const numberMax = number ? parseRangeEnd(form.numberMax) : null;
     // Payload mirrors the backend's DemographicFieldRequest; options and the
-    // write-in are only read for DROPDOWN / CHECKLIST fields.
+    // write-in are only read for DROPDOWN / CHECKLIST fields, the range only
+    // for NUMBER.
     const payload: DemographicFieldPayload = {
       label,
       fieldType: form.fieldType,
       placeholder: form.placeholder.trim() || null,
       options,
       otherOptionLabel,
+      numberMin,
+      numberMax,
     };
     setSaving(true);
     try {
@@ -300,6 +337,9 @@ export default function DemographicsPage() {
                           {f.otherOptionLabel && <> + <span className="italic">{f.otherOptionLabel}</span> (write-in)</>}
                         </span>
                       )}
+                      {f.fieldType === 'NUMBER' && numberRangePhrase(f.numberMin, f.numberMax) && (
+                        <span className="shrink-0">Whole number {numberRangePhrase(f.numberMin, f.numberMax)}</span>
+                      )}
                     </div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
@@ -394,6 +434,51 @@ export default function DemographicsPage() {
                   className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
                 />
               </div>
+              {form.fieldType === 'NUMBER' && (() => {
+                const problem = rangeProblem(form.numberMin, form.numberMax);
+                const phrase = numberRangePhrase(parseRangeEnd(form.numberMin), parseRangeEnd(form.numberMax));
+                const endClass =
+                  'w-32 rounded-lg border border-border bg-background px-3 py-1.5 text-sm tabular-nums outline-none focus:border-primary focus:ring-2 focus:ring-primary/20';
+                return (
+                  <div className="space-y-1.5">
+                    <div>
+                      <label className="text-sm font-medium">Accepted range</label>
+                      <p className="text-xs text-muted-foreground">
+                        Respondents type a whole number — no decimals — and can't continue with one outside the
+                        range. Leave a box empty for no limit at that end.
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 text-sm">
+                      <span className="text-muted-foreground">From</span>
+                      <input
+                        value={form.numberMin}
+                        onChange={(e) => setForm({ ...form, numberMin: e.target.value })}
+                        inputMode="numeric"
+                        placeholder="No minimum"
+                        aria-label="Accept numbers from"
+                        className={endClass}
+                      />
+                      <span className="text-muted-foreground">to</span>
+                      <input
+                        value={form.numberMax}
+                        onChange={(e) => setForm({ ...form, numberMax: e.target.value })}
+                        inputMode="numeric"
+                        placeholder="No maximum"
+                        aria-label="Accept numbers up to"
+                        className={endClass}
+                      />
+                    </div>
+                    {problem ? (
+                      <p className="text-xs text-amber-700 dark:text-amber-400">{problem}</p>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">
+                        {phrase ? <>Accepts a whole number {phrase}, both ends included.</> : 'Accepts any whole number.'}
+                        {form.id != null && ' Answers already given must stay inside a new range.'}
+                      </p>
+                    )}
+                  </div>
+                );
+              })()}
               {hasChoices(form.fieldType) && (
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between">

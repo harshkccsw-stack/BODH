@@ -46,6 +46,7 @@ import com.bodhpsychometric.repository.auth.RespondentUserRepository;
 import com.bodhpsychometric.repository.auth.UserRepository;
 import com.bodhpsychometric.repository.organization.OrganizationRepository;
 import com.bodhpsychometric.dto.validation.BirthDateValidator;
+import com.bodhpsychometric.dto.validation.NameRules;
 import com.bodhpsychometric.dto.validation.PhoneRules;
 
 import jakarta.validation.Valid;
@@ -415,6 +416,15 @@ public class RespondentController {
             String name = row.name() == null ? "" : row.name().trim();
             if (name.isEmpty()) {
                 issues.add(issue(line, "name", "Name is required"));
+            } else if (name.length() > NameRules.MAX_LENGTH) {
+                issues.add(issue(line, "name", NameRules.TOO_LONG_MESSAGE));
+            } else {
+                // The forms' @PersonName rule, called directly so the sheet
+                // answers with a numbered row issue instead of a 400.
+                String nameProblem = NameRules.characterProblem(name);
+                if (nameProblem != null) {
+                    issues.add(issue(line, "name", nameProblem));
+                }
             }
 
             String email = row.email() == null ? "" : row.email().trim();

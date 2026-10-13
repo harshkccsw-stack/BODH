@@ -19,6 +19,14 @@ export interface DemographicFieldPayload {
    * `options` — a plain "Other" with no text box is just an option.
    */
   otherOptionLabel: string | null;
+  /**
+   * NUMBER only — the inclusive range the answer must fall in; null = no
+   * limit at that end. Decimals allowed. Ignored and cleared on other types.
+   * Once a field has answers, a new range must still contain all of them
+   * (409 otherwise).
+   */
+  numberMin: number | null;
+  numberMax: number | null;
 }
 
 /** Matches DemographicFieldResponse on the backend. */
@@ -29,7 +37,20 @@ export interface DemographicFieldResponse {
   placeholder: string | null;
   options: string[];
   otherOptionLabel: string | null;
+  numberMin: number | null;
+  numberMax: number | null;
 }
+
+/**
+ * A Number field's range in words — "from 18 to 60", "of 18 or more",
+ * "up to 100" — or null with none. Word for word what the portal warns and
+ * the server's 400 says (DemographicField.numberRangePhrase).
+ */
+export const numberRangePhrase = (min: number | null, max: number | null): string | null => {
+  if (min != null && max != null) return `from ${min} to ${max}`;
+  if (min != null) return `of ${min} or more`;
+  return max != null ? `up to ${max}` : null;
+};
 
 function getDemographicFields() {
   return api.get<DemographicFieldResponse[]>(`/demographic-fields/getAll`);

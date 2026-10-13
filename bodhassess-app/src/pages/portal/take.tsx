@@ -472,7 +472,7 @@ export default function PortalTakePage() {
                 <p className="text-[0.6875rem] font-medium uppercase tracking-wider text-primary">About you</p>
                 <h2 className="text-xl font-semibold tracking-tight mt-1">Demographic Details</h2>
                 <p className="text-sm text-muted-foreground mt-1">
-                  We collect this once before the assessment so your results can be interpreted in context. All fields marked * are required.
+                  All fields marked * are required.
                 </p>
               </div>
 

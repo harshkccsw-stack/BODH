@@ -4,6 +4,7 @@ import java.time.LocalDate;
 
 import com.bodhpsychometric.dto.validation.BirthDate;
 import com.bodhpsychometric.dto.validation.E164Phone;
+import com.bodhpsychometric.dto.validation.PersonName;
 import com.bodhpsychometric.dto.validation.PhoneFields;
 import com.bodhpsychometric.dto.validation.PhoneRules;
 import com.bodhpsychometric.model.auth.enums.PractitionerStatus;
@@ -33,7 +34,10 @@ import jakarta.validation.constraints.Size;
 @E164Phone
 public record PractitionerRequest(
         @NotBlank(message = "Name is required")
-        @Size(max = 20, message = "Name must be at most 20 characters") String name,
+        @Size(max = 20, message = "Name must be at most 20 characters")
+        // The respondent's character rule too, for the same reason as the
+        // phone and dob below; the 20-character cap stays this record's own.
+        @PersonName String name,
         @NotBlank(message = "Email is required") @Email(message = "Email must be a valid address") String email,
         // Bounded exactly as a respondent's is, and for the same reason: a
         // practitioner's dob is their dashboard login credential, so a future

@@ -225,6 +225,10 @@ public record PortalAssessmentDetailResponse(
      * One row of the pre-assessment demographic form. otherOptionLabel is the
      * write-in choice on a DROPDOWN / CHECKLIST — render it after the options
      * with a text box that is required once it is picked; null = none.
+     * numberMin / numberMax are a NUMBER field's inclusive range (V51), either
+     * end null = open — and null on a cache entry written before the range
+     * existed, which only means the portal does not warn early: the begin
+     * validator reads the range off the live field, not this record.
      */
     public record PortalDemographicField(
             Long demographicFieldId,
@@ -233,6 +237,8 @@ public record PortalAssessmentDetailResponse(
             String placeholder,
             List<String> options,
             String otherOptionLabel,
+            Long numberMin,
+            Long numberMax,
             boolean required,
             int sortOrder) {
     }

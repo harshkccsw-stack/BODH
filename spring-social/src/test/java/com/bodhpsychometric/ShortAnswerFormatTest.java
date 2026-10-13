@@ -137,7 +137,7 @@ class ShortAnswerFormatTest {
                         + "\"showTermsAndConditions\":false,\"status\":\"ACTIVE\",\"autoNext\":false}"),
                 "$.assessmentId");
         int respondentUserId = JsonPath.read(postJson("/api/respondents/create",
-                "{\"name\":\"__smoke__ Format Taker\",\"email\":\"format.taker@test.local\",\"dob\":\"06-06-2006\","
+                "{\"name\":\"Smoke Format Taker\",\"email\":\"format.taker@test.local\",\"dob\":\"06-06-2006\","
                         + "\"phoneCountryCode\":\"+91\",\"phone\":\"9000000000\",\"gender\":\"FEMALE\","
                         + "\"isConsented\":false,\"organizationId\":null}"), "$.respondentUserId");
         postJson("/api/respondent-assessments/assign",
@@ -266,7 +266,7 @@ class ShortAnswerFormatTest {
                         + "\"showTermsAndConditions\":false,\"status\":\"ACTIVE\",\"autoNext\":false}"),
                 "$.assessmentId");
         int respondentUserId = JsonPath.read(postJson("/api/respondents/create",
-                "{\"name\":\"__smoke__ Range Taker\",\"email\":\"range.taker@test.local\",\"dob\":\"07-07-2007\","
+                "{\"name\":\"Smoke Range Taker\",\"email\":\"range.taker@test.local\",\"dob\":\"07-07-2007\","
                         + "\"phoneCountryCode\":\"+91\",\"phone\":\"9000000007\",\"gender\":\"MALE\","
                         + "\"isConsented\":false,\"organizationId\":null}"), "$.respondentUserId");
         postJson("/api/respondent-assessments/assign",

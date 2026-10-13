@@ -199,7 +199,7 @@ class ShortAnswerTest {
         int assessmentId = JsonPath.read(assessmentBody, "$.assessmentId");
 
         String respondentBody = postJson("/api/respondents/create",
-                "{\"name\":\"__smoke__ Short Taker\",\"email\":\"short.taker@test.local\",\"dob\":\"05-05-2005\","
+                "{\"name\":\"Smoke Short Taker\",\"email\":\"short.taker@test.local\",\"dob\":\"05-05-2005\","
                         + "\"phoneCountryCode\":\"+91\",\"phone\":\"9000000000\",\"gender\":\"MALE\",\"isConsented\":false,\"organizationId\":null}");
         int respondentUserId = JsonPath.read(respondentBody, "$.respondentUserId");
         postJson("/api/respondent-assessments/assign",

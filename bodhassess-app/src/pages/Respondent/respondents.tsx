@@ -15,6 +15,7 @@ import {
 import { DobInput } from '@/components/dob-input';
 import { PhoneInput } from '@/components/phone-input';
 import { BIRTH_DATE_ERROR } from '@/lib/helpers';
+import { NAME_MAX_LENGTH, nameProblem } from '@/lib/name';
 import {
   DEFAULT_DIAL_CODE,
   PHONE_HINT,
@@ -185,6 +186,8 @@ export default function RespondentsPage() {
     const name = form.name.trim();
     const email = form.email.trim();
     if (!name) { setFormError('Name is required'); return; }
+    const badName = nameProblem(name);
+    if (badName) { setFormError(badName); return; }
     if (!email) { setFormError('Email is required'); return; }
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
       setFormError('That does not look like a valid email address');
@@ -446,6 +449,7 @@ export default function RespondentsPage() {
                   value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
                   placeholder="e.g., Arjun Patel"
+                  maxLength={NAME_MAX_LENGTH}
                   className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
                 />
               </div>

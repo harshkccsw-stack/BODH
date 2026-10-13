@@ -217,7 +217,7 @@ class GamesTest {
                         + "\"showTermsAndConditions\":false,\"status\":\"ACTIVE\",\"autoNext\":false}", 201);
         int assessmentId = JsonPath.read(assessmentBody, "$.assessmentId");
         String respondentBody = send(post("/api/respondents/create"),
-                "{\"name\":\"__smoke__ Game Player\",\"email\":\"game.player@test.local\",\"dob\":\"06-06-2006\","
+                "{\"name\":\"Smoke Game Player\",\"email\":\"game.player@test.local\",\"dob\":\"06-06-2006\","
                         + "\"phoneCountryCode\":\"+91\",\"phone\":\"9000000001\",\"gender\":\"FEMALE\","
                         + "\"isConsented\":false,\"organizationId\":null}", 201);
         int respondentUserId = JsonPath.read(respondentBody, "$.respondentUserId");
@@ -334,7 +334,7 @@ class GamesTest {
                         + "\"showTermsAndConditions\":false,\"status\":\"ACTIVE\",\"autoNext\":false}", 201),
                 "$.assessmentId");
         int respondentUserId = JsonPath.read(send(post("/api/respondents/create"),
-                "{\"name\":\"__smoke__ Game Saver\",\"email\":\"game.saver@test.local\",\"dob\":\"07-07-2007\","
+                "{\"name\":\"Smoke Game Saver\",\"email\":\"game.saver@test.local\",\"dob\":\"07-07-2007\","
                         + "\"phoneCountryCode\":\"+91\",\"phone\":\"9000000002\",\"gender\":\"MALE\","
                         + "\"isConsented\":false,\"organizationId\":null}", 201), "$.respondentUserId");
         send(post("/api/respondent-assessments/assign"),

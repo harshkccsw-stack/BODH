@@ -15,6 +15,7 @@ import { useAuth } from '@/lib/auth';
 import { failureStatus, track, usePageView } from '@/lib/analytics';
 import { cn } from '@/lib/utils';
 import { BIRTH_DATE_ERROR, ddmmyyyyToIso, isBirthDateInRange } from '@/lib/helpers';
+import { NAME_MAX_LENGTH, nameProblem } from '@/lib/name';
 import { DEFAULT_DIAL_CODE, PHONE_HINT, isValidPhone, phoneError } from '@/lib/phone';
 import { AlertTriangle, Brain, ClipboardList, Loader2, Lock, UserPlus } from 'lucide-react';
 import { useEffect, useState } from 'react';
@@ -132,6 +133,11 @@ export default function RegisterTokenPage() {
     // re-validates all of it, and owns the rules the form cannot see.
     if (!form.name.trim()) {
       setSubmitError('Name is required.');
+      return;
+    }
+    const badName = nameProblem(form.name);
+    if (badName) {
+      setSubmitError(badName);
       return;
     }
     const email = form.email.trim();
@@ -297,6 +303,7 @@ export default function RegisterTokenPage() {
                     onChange={(e) => setForm({ ...form, name: e.target.value })}
                     placeholder="Your name"
                     autoComplete="name"
+                    maxLength={NAME_MAX_LENGTH}
                     className={INPUT}
                   />
                 </Field>

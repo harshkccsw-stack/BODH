@@ -302,6 +302,25 @@ re-read a file before editing; expect it to have changed):
 - Demographics: `DemographicField` registry (label unique, TEXT/NUMBER/DATE/
   DROPDOWN, options as ordered @ElementCollection) + `QuestionnaireDemographicField`
   mapping (per-questionnaire required + sortOrder; replace-all PUT).
+  NUMBER = WHOLE numbers only (2026-10-13, user's decision: no decimals in
+  demographics) — the Number question's rule, `AnswerFormat.WHOLE_NUMBER`:
+  digits only, no sign/decimal point/separators, ≤ 15 digits, stored as
+  typed (trimmed). Range (`V51` added it as DOUBLE, `V52` made it BIGINT —
+  V51 was already applied, so the correction is its own migration;
+  `DemographicNumberRangeTest`): `number_min`/`number_max`, inclusive, either
+  end optional (null = open), 0 … `MAX_WHOLE_NUMBER`, To > From. Read only
+  for NUMBER — other types drop them, like options. The REQUEST takes the
+  ends as BigDecimal on purpose: Jackson silently truncates 60.5 into a
+  Long, and a decimal end must be a 400. (QuestionRequest's Long
+  answerMin/answerMax still has that truncation.) Once answered, a new
+  range must still contain EVERY stored value (precise check via
+  `findAnsweredValues`, like the choice lock — not V50's widen-only rule;
+  compared as BigDecimal, as pre-rule answers may be decimals). The begin
+  validator reads the LIVE field (`DemographicField.acceptsNumber`). Wording
+  via `AnswerFormat.rangePhrase`; portal `demographicNumberProblem` and
+  `typedAnswerProblem` both call `wholeNumberProblem` (lib/api.ts). Portal box
+  is the runner's: type="text" inputMode="numeric"; a non-digit is flagged as
+  typed, the range after blur or submit; never in the placeholder.
 - Delivery chain: `Assessment` (1 questionnaire + config, ACTIVE/INACTIVE)
   → `RespondentAssessmentMapping` (one row per ATTEMPT: unique respondent+
   assessment+attemptNumber, per-attempt status NOT_STARTED/ONGOING/COMPLETED,
@@ -375,7 +394,8 @@ re-read a file before editing; expect it to have changed):
   path, which cannot use bean validation, compiles or calls the same constants.
   Change one, change its twin in the OTHER frontend with it — three files are
   duplicated verbatim between `bodhassess-app/src` and `bodhassess-portal/src`
-  (`lib/phone.ts`, `components/phone-input.tsx`, `components/dob-input.tsx`).
+  (`lib/phone.ts`, `components/phone-input.tsx`, `components/dob-input.tsx`;
+  plus `lib/name.ts` since 2026-10-13, byte-identical).
   Separate packages, no shared module: the duplication is deliberate, and
   `lib/phone.ts` and `components/dob-input.tsx` are byte-identical in both. The
   two `phone-input.tsx` differ ONLY in how the box sizes itself — the portal
@@ -419,6 +439,27 @@ re-read a file before editing; expect it to have changed):
     trade as 2026-08-24: rejected by column name before upload, not as one
     issue per line. The sheet's `dialCode()` is lenient (`+91`, `0091`, `91`)
     because a spreadsheet eats a leading '+'.
+- Person names (2026-10-13, `PersonNameTest`): a respondent's or
+  practitioner's name may hold letters of ANY script (`\p{L}`), combining
+  marks (`\p{M}` — Devanagari vowel signs/virama), ZWJ/ZWNJ (Indic
+  half-forms), spaces, `.`, `'`, `’` (phone keyboards) and `-`, and must hold
+  at least one letter. Digits of every script, `_`, `@`, `<`, emoji etc. are
+  refused, and the message NAMES them (`Name cannot contain "2" or "@" — only
+  letters, …`; invisible ones in words: "a tab", "a line break", "an
+  invisible character"). ONE home: `NameRules` in `dto/validation/`, applied
+  as `@PersonName` on `RespondentRequest`, `RegistrationSubmitRequest`,
+  `PractitionerRequest`, and called directly by the bulk sheet (row issue).
+  Respondent names also got `@Size(max = 255)` (the column) — they had no cap
+  and a longer name 500'd; the practitioner cap stays 20. The validator
+  ESCAPES `{ } $ \` before building its message, because the message quotes
+  typed characters and a violation message is a template. Mirrored word for
+  word by `lib/name.ts`, a FOURTH byte-identical file in both frontends
+  (`nameProblem` / `nameCharacterProblem`). Like the phone, the DTOs feed
+  UPDATE too, so editing someone whose stored name breaks the rule means
+  fixing it; no backfill. Deliberately NOT on the MemoryMesh wires (sync,
+  attempt sync): the person already exists there and a 400 only stops the two
+  systems agreeing. Test fixtures: person names can no longer carry
+  `__smoke__` — use `Smoke …` (keep `__smoke__` on emails and other data).
 - People & access (2026-10-05, `RespondentDeleteAndAccessTest`):
   * Respondent delete removes every UNTOUCHED allotment with the respondent
     (NOT_STARTED, no answers, no demographic rows — what a Reports Hub reset
@@ -702,8 +743,11 @@ re-read a file before editing; expect it to have changed):
 
 ## Verification loop (do this EVERY change)
 
-1. Backend: `cd spring-social && ./mvnw -B test` (504 tests green as of
-   2026-10-09). Tightening a DTO's validation breaks the fixtures that post
+1. Backend: `cd spring-social && ./mvnw -B test` (533 tests as of
+   2026-10-13; one known order-dependent failure,
+   `ReportComputationControllerTest.thereIsNoGenerateEndpoint` — it predates
+   the real `/generate` endpoint and fails whenever `ReportCohortGuardTest`
+   ran first and left computation 1 behind). Tightening a DTO's validation breaks the fixtures that post
    that shape — fix the payloads, do not relax the rule. If every Spring test
    errors with `BeanDefinitionOverrideException` on repositories, the IDE has
    written stale class files into `target/classes`; run `./mvnw -B clean test`.

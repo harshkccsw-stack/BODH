@@ -15,6 +15,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { DobInput } from '@/components/dob-input';
 import { PhoneInput } from '@/components/phone-input';
 import { BIRTH_DATE_ERROR } from '@/lib/helpers';
+import { nameCharacterProblem } from '@/lib/name';
 import {
   DEFAULT_DIAL_CODE,
   PHONE_HINT,
@@ -187,6 +188,8 @@ export default function PractitionersPage() {
     const email = form.email.trim();
     if (!name) { setFormError('Name is required'); return; }
     if (name.length > 20) { setFormError('Name must be at most 20 characters'); return; }
+    const badName = nameCharacterProblem(name);
+    if (badName) { setFormError(badName); return; }
     if (!email) { setFormError('Email is required'); return; }
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
       setFormError('That does not look like a valid email address');

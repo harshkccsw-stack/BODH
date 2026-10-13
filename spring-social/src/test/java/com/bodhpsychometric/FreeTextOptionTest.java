@@ -148,7 +148,7 @@ class FreeTextOptionTest {
         int assessmentId = JsonPath.read(assessmentBody, "$.assessmentId");
 
         String respondentBody = postJson("/api/respondents/create",
-                "{\"name\":\"__smoke__ Other Taker\",\"email\":\"other.taker@test.local\",\"dob\":\"05-05-2005\","
+                "{\"name\":\"Smoke Other Taker\",\"email\":\"other.taker@test.local\",\"dob\":\"05-05-2005\","
                         + "\"phoneCountryCode\":\"+91\",\"phone\":\"9000000001\",\"gender\":\"FEMALE\",\"isConsented\":false,\"organizationId\":null}");
         int respondentUserId = JsonPath.read(respondentBody, "$.respondentUserId");
         postJson("/api/respondent-assessments/assign",

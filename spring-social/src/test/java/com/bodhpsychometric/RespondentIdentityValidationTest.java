@@ -46,7 +46,8 @@ class RespondentIdentityValidationTest {
      * it is only the fixture colliding with itself.
      */
     private static String body(String email, String dob, String countryCode, String phone) {
-        return "{\"name\":\"__smoke__ Validation\",\"email\":\"" + email + "\","
+        // Not "__smoke__ …": underscores are refused in a name since 2026-10-13.
+        return "{\"name\":\"Smoke Validation\",\"email\":\"" + email + "\","
                 + "\"dob\":\"" + dob + "\",\"phoneCountryCode\":\"" + countryCode + "\","
                 + "\"phone\":\"" + phone + "\",\"employeeId\":null,\"gender\":\"MALE\","
                 + "\"isConsented\":false,\"organizationId\":null}";

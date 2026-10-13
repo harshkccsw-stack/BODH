@@ -5,6 +5,7 @@ import java.util.Comparator;
 import java.util.List;
 
 import com.bodhpsychometric.model.demographics.enums.DemographicFieldType;
+import com.bodhpsychometric.model.question.enums.AnswerFormat;
 
 import jakarta.persistence.CollectionTable;
 import jakarta.persistence.Column;
@@ -74,6 +75,20 @@ public class DemographicField implements java.io.Serializable {
     @Column(name = "otherOptionLabel", length = 255)
     private String otherOptionLabel;
 
+    /**
+     * NUMBER fields only (V51, whole numbers since V52): the smallest and
+     * largest number accepted, both inclusive, either one optional — null is
+     * an open end, both null is any whole number. 0 … AnswerFormat.MAX_WHOLE_NUMBER,
+     * like a Number question's range. NULL on every other type; the field
+     * flow clears both when the type is not NUMBER. Once answered, a new
+     * range must still contain every answer.
+     */
+    @Column(name = "numberMin")
+    private Long numberMin;
+
+    @Column(name = "numberMax")
+    private Long numberMax;
+
     public Long getDemographicFieldId() {
         return demographicFieldId;
     }
@@ -120,6 +135,41 @@ public class DemographicField implements java.io.Serializable {
 
     public void setOtherOptionLabel(String otherOptionLabel) {
         this.otherOptionLabel = otherOptionLabel;
+    }
+
+    public Long getNumberMin() {
+        return numberMin;
+    }
+
+    public void setNumberMin(Long numberMin) {
+        this.numberMin = numberMin;
+    }
+
+    public Long getNumberMax() {
+        return numberMax;
+    }
+
+    public void setNumberMax(Long numberMax) {
+        this.numberMax = numberMax;
+    }
+
+    /**
+     * True when {@code typed} (already trimmed) is a NUMBER answer this field
+     * accepts: a whole number in digits only — the Number question's rule,
+     * AnswerFormat.WHOLE_NUMBER (no decimal point, sign or separators, at
+     * most 15 digits) — inside the range, both ends inclusive.
+     */
+    public boolean acceptsNumber(String typed) {
+        return AnswerFormat.WHOLE_NUMBER.accepts(typed) && AnswerFormat.inRange(typed, numberMin, numberMax);
+    }
+
+    /**
+     * The range in the respondent's words — "from 18 to 60", "of 18 or more",
+     * "up to 100" — or null when there is none: AnswerFormat.rangePhrase, the
+     * Number question's wording, which the portal mirrors word for word.
+     */
+    public String numberRangePhrase() {
+        return AnswerFormat.rangePhrase(numberMin, numberMax);
     }
 
     /**

@@ -98,7 +98,7 @@ class ThankYouPageTest {
         putAssessment(assessmentId, "{" + base + ",\"contactEmail\":\"\"}", 400);
 
         int respondentUserId = JsonPath.read(postJson("/api/respondents/create",
-                "{\"name\":\"__smoke__ Thanks Taker\",\"email\":\"thanks.taker@test.local\","
+                "{\"name\":\"Smoke Thanks Taker\",\"email\":\"thanks.taker@test.local\","
                         + "\"dob\":\"08-08-2008\",\"phoneCountryCode\":\"+91\",\"phone\":\"9000000000\","
                         + "\"gender\":\"FEMALE\",\"isConsented\":false,\"organizationId\":null}"),
                 "$.respondentUserId");

@@ -128,7 +128,7 @@ class MqtScoringExportTest {
                         + "\"showTermsAndConditions\":false,\"status\":\"ACTIVE\",\"autoNext\":false}"),
                 "$.assessmentId");
         int respondentUserId = JsonPath.read(postJson("/api/respondents/create",
-                "{\"name\":\"__smoke__ Scoring Taker\",\"email\":\"scoring.taker@test.local\","
+                "{\"name\":\"Smoke Scoring Taker\",\"email\":\"scoring.taker@test.local\","
                         + "\"dob\":\"07-07-2007\",\"phoneCountryCode\":\"+91\",\"phone\":\"9000000000\",\"gender\":\"MALE\",\"isConsented\":false,"
                         + "\"organizationId\":null}"), "$.respondentUserId");
         postJson("/api/respondent-assessments/assign",
@@ -336,7 +336,7 @@ class MqtScoringExportTest {
     private int rateEveryRow(int assessmentId, String email, String dobForm, String dobIso,
             int gridId, int rowOne, int rowTwo, int column) throws Exception {
         int respondentUserId = JsonPath.read(postJson("/api/respondents/create",
-                "{\"name\":\"__smoke__ Rater\",\"email\":\"" + email + "\",\"dob\":\"" + dobForm + "\","
+                "{\"name\":\"Smoke Rater\",\"email\":\"" + email + "\",\"dob\":\"" + dobForm + "\","
                         + "\"phoneCountryCode\":\"+91\",\"phone\":\"9000000000\",\"gender\":\"FEMALE\","
                         + "\"isConsented\":false,\"organizationId\":null}"), "$.respondentUserId");
         postJson("/api/respondent-assessments/assign",
@@ -431,7 +431,7 @@ class MqtScoringExportTest {
                         + "\"showTermsAndConditions\":false,\"status\":\"ACTIVE\",\"autoNext\":false}"),
                 "$.assessmentId");
         int respondentUserId = JsonPath.read(postJson("/api/respondents/create",
-                "{\"name\":\"__smoke__ Decimal Taker\",\"email\":\"decimal.taker@test.local\","
+                "{\"name\":\"Smoke Decimal Taker\",\"email\":\"decimal.taker@test.local\","
                         + "\"dob\":\"07-07-2007\",\"phoneCountryCode\":\"+91\",\"phone\":\"9000000001\","
                         + "\"gender\":\"MALE\",\"isConsented\":false,\"organizationId\":null}"),
                 "$.respondentUserId");
@@ -500,7 +500,7 @@ class MqtScoringExportTest {
                         + "\"showTermsAndConditions\":false,\"status\":\"ACTIVE\",\"autoNext\":false}"),
                 "$.assessmentId");
         int respondentUserId = JsonPath.read(postJson("/api/respondents/create",
-                "{\"name\":\"__smoke__ Unscored Taker\",\"email\":\"unscored.taker@test.local\","
+                "{\"name\":\"Smoke Unscored Taker\",\"email\":\"unscored.taker@test.local\","
                         + "\"dob\":\"08-08-2008\",\"phoneCountryCode\":\"+91\",\"phone\":\"9000000000\",\"gender\":\"MALE\",\"isConsented\":false,"
                         + "\"organizationId\":null}"), "$.respondentUserId");
         postJson("/api/respondent-assessments/assign",
