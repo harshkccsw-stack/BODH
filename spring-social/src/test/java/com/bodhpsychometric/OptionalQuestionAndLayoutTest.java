@@ -132,7 +132,7 @@ class OptionalQuestionAndLayoutTest {
                 .andExpect(jsonPath("$.questionLayout").value("ONE_PER_PAGE"));
 
         int respondentUserId = JsonPath.read(postJson("/api/respondents/create",
-                "{\"name\":\"__smoke__ Optional Taker\",\"email\":\"optional.taker@test.local\","
+                "{\"name\":\"Smoke Optional Taker\",\"email\":\"optional.taker@test.local\","
                         + "\"dob\":\"06-06-2006\",\"phoneCountryCode\":\"+91\",\"phone\":\"9000000000\","
                         + "\"gender\":\"FEMALE\",\"isConsented\":false,\"organizationId\":null}"),
                 "$.respondentUserId");
@@ -255,7 +255,7 @@ class OptionalQuestionAndLayoutTest {
                 .andExpect(status().isBadRequest());
 
         int respondentUserId = JsonPath.read(postJson("/api/respondents/create",
-                "{\"name\":\"__smoke__ Layout Taker\",\"email\":\"layout.taker@test.local\","
+                "{\"name\":\"Smoke Layout Taker\",\"email\":\"layout.taker@test.local\","
                         + "\"dob\":\"07-07-2007\",\"phoneCountryCode\":\"+91\",\"phone\":\"9000000000\","
                         + "\"gender\":\"MALE\",\"isConsented\":false,\"organizationId\":null}"),
                 "$.respondentUserId");
@@ -318,7 +318,7 @@ class OptionalQuestionAndLayoutTest {
                         + "\"showTermsAndConditions\":false,\"status\":\"ACTIVE\",\"autoNext\":false,"
                         + "\"questionLayout\":\"ONE_PER_PAGE\"}"), "$.assessmentId");
         int respondentUserId = JsonPath.read(postJson("/api/respondents/create",
-                "{\"name\":\"__smoke__ Section Layout Taker\",\"email\":\"section.layout.taker@test.local\","
+                "{\"name\":\"Smoke Section Layout Taker\",\"email\":\"section.layout.taker@test.local\","
                         + "\"dob\":\"08-08-2008\",\"phoneCountryCode\":\"+91\",\"phone\":\"9000000000\","
                         + "\"gender\":\"MALE\",\"isConsented\":false,\"organizationId\":null}"),
                 "$.respondentUserId");

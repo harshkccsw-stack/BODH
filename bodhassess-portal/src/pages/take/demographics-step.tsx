@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { Check, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { StepShell } from '@/components/step-shell';
-import type { PortalDemographicEntry, PortalDemographicField } from '@/lib/api';
+import { demographicNumberProblem, type PortalDemographicEntry, type PortalDemographicField } from '@/lib/api';
+import { cn } from '@/lib/utils';
 
 /** The server's cap on a write-in "Other" answer (demographic_response.other_text). */
 const OTHER_TEXT_MAX = 255;
@@ -36,6 +37,10 @@ export function DemographicsStep({
   const [values, setValues] = useState<Record<string, string>>(defaultValues);
   const [ticks, setTicks] = useState<Record<string, string[]>>({});
   const [otherTexts, setOtherTexts] = useState<Record<string, string>>({});
+  // Number boxes left (blur) or submitted: their range warning shows from
+  // then on, so typing "18" does not flash "from 18 to 60" at the "1".
+  // A character that is not a digit is flagged at once, touched or not.
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -73,6 +78,12 @@ export function DemographicsStep({
     const unspecified = fields.filter((f) => otherPicked(f) && !(otherTexts[keyOf(f)] || '').trim());
     if (unspecified.length > 0) {
       setError(`Please specify your answer for: ${unspecified.map((f) => f.label).join(', ')}`);
+      return;
+    }
+    const outOfRange = fields.filter((f) => demographicNumberProblem(f, values[keyOf(f)] || '') != null);
+    if (outOfRange.length > 0) {
+      setTouched((prev) => ({ ...prev, ...Object.fromEntries(outOfRange.map((f) => [keyOf(f), true])) }));
+      setError(`Please check: ${outOfRange.map((f) => f.label).join(', ')}`);
       return;
     }
     setSaving(true);
@@ -125,7 +136,7 @@ export function DemographicsStep({
         <p className="text-[0.6875rem] font-medium uppercase tracking-wider text-primary">About you</p>
         <h2 className="text-xl font-semibold tracking-tight mt-1">Demographic Details</h2>
         <p className="text-sm text-muted-foreground mt-1">
-          We collect this once before the assessment so your results can be interpreted in context. All fields marked *
+          All fields marked *
           are required.
         </p>
       </div>
@@ -237,13 +248,45 @@ export function DemographicsStep({
                 ) : f.fieldType === 'DATE' ? (
                   <input type="date" value={value} onChange={(e) => handleChange(f, e.target.value)} className={inputClass} />
                 ) : f.fieldType === 'NUMBER' ? (
-                  <input
-                    type="number"
-                    value={value}
-                    placeholder={f.placeholder ?? undefined}
-                    onChange={(e) => handleChange(f, e.target.value)}
-                    className={inputClass}
-                  />
+                  (() => {
+                    // A whole number, digits only — the Number question's
+                    // box and rule. type="text", not "number": a number input
+                    // changes its value under a scrolling wheel, accepts "e"
+                    // and ".", and reports bad input as an empty string, so
+                    // it could never say what is wrong. A stray character
+                    // ("." "-" ",") is flagged as typed; the range only once
+                    // the box is left, so "18" does not flash a warning at "1".
+                    const found = demographicNumberProblem(f, value);
+                    const strayCharacter = !/^\s*[0-9]*\s*$/.test(value);
+                    const problem = touched[keyOf(f)] || strayCharacter ? found : null;
+                    const problemId = `demographic-problem-${f.demographicFieldId}`;
+                    return (
+                      <>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                          autoComplete="off"
+                          value={value}
+                          placeholder={f.placeholder ?? undefined}
+                          onChange={(e) => handleChange(f, e.target.value)}
+                          onBlur={() => setTouched((prev) => ({ ...prev, [keyOf(f)]: true }))}
+                          aria-invalid={problem != null}
+                          aria-describedby={problem ? problemId : undefined}
+                          className={cn(
+                            inputClass,
+                            problem &&
+                              'border-amber-400 focus:border-amber-500 focus:ring-amber-500/20 dark:border-amber-600',
+                          )}
+                        />
+                        {problem && (
+                          <p id={problemId} role="alert" className="text-xs text-amber-700 dark:text-amber-400">
+                            {problem}
+                          </p>
+                        )}
+                      </>
+                    );
+                  })()
                 ) : (
                   <input
                     value={value}

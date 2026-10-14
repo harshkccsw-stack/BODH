@@ -603,10 +603,14 @@ public class PortalAssessmentService {
         String value = entry.value().trim();
         switch (field.getFieldType()) {
             case NUMBER -> {
-                try {
-                    Double.parseDouble(value);
-                } catch (NumberFormatException e) {
-                    throw badRequest("\"" + field.getLabel() + "\" must be a number");
+                // A whole number in digits only — no decimals (user's
+                // decision, 2026-10-13), no sign — inside the range (V51/V52).
+                // Read off the live field, never the cached content, so a
+                // stale cache entry cannot let a value through.
+                if (!field.acceptsNumber(value)) {
+                    String range = field.numberRangePhrase();
+                    throw badRequest("\"" + field.getLabel() + "\" must be a whole number"
+                            + (range == null ? "" : " " + range));
                 }
             }
             case DATE -> {

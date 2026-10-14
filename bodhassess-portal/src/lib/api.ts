@@ -278,6 +278,14 @@ export interface PortalDemographicField {
    * options; picking it requires typed text. null = none.
    */
   otherOptionLabel: string | null;
+  /**
+   * NUMBER only — the inclusive whole-number range, each end optional (null
+   * or absent = no limit). A NUMBER answer is a whole number in digits only;
+   * check typed text with demographicNumberProblem, which mirrors the begin
+   * validator. Named in the warning only, like a Number question's.
+   */
+  numberMin?: number | null;
+  numberMax?: number | null;
   required: boolean;
   sortOrder: number;
 }
@@ -457,17 +465,18 @@ export const numberRangePhrase = (min?: number | null, max?: number | null): str
 };
 
 /**
- * Why a typed SHORT_ANSWER does not fit its question's format — null when it
- * does. Blank is not this function's business (required vs optional decides
- * that). WHOLE_NUMBER mirrors the submit validator: digits only (at most 15,
- * AnswerFormat.WHOLE_NUMBER_PATTERN), inside the optional range, both ends
- * included, surrounding spaces ignored as the server trims them. Part of what
- * "answered" means, like freeTextFilled.
+ * Why typed text is not a whole number the server would take — null when it
+ * is, and for blank (required vs optional decides that). Mirrors
+ * AnswerFormat.WHOLE_NUMBER on the backend: digits only (at most 15,
+ * WHOLE_NUMBER_PATTERN) — no decimal point, sign or separators — inside the
+ * optional range, both ends included, surrounding spaces ignored as the
+ * server trims them. Shared by Number questions and NUMBER demographics,
+ * which follow the same rule.
  */
-export const typedAnswerProblem = (q: PortalQuestion, text: string): string | null => {
+export const wholeNumberProblem = (text: string, min?: number | null, max?: number | null): string | null => {
   const typed = text.trim();
-  if (q.answerFormat !== 'WHOLE_NUMBER' || typed === '') return null;
-  const range = numberRangePhrase(q.answerMin, q.answerMax);
+  if (typed === '') return null;
+  const range = numberRangePhrase(min, max);
   if (!/^[0-9]+$/.test(typed)) {
     return range == null
       ? 'Enter a number — 1, 2, 3, etc. No decimal point, commas, spaces or minus sign.'
@@ -475,11 +484,27 @@ export const typedAnswerProblem = (q: PortalQuestion, text: string): string | nu
   }
   // Past 15 digits it is too big for any cap, and Number() would round it.
   const value = typed.length > 15 ? Infinity : Number(typed);
-  if ((q.answerMin != null && value < q.answerMin) || (q.answerMax != null && value > q.answerMax)) {
+  if ((min != null && value < min) || (max != null && value > max)) {
     return `Enter a number ${range}.`;
   }
   return typed.length > 15 ? 'That number is too long — 15 digits at most.' : null;
 };
+
+/**
+ * Why a typed SHORT_ANSWER does not fit its question's format — null when it
+ * does. Only WHOLE_NUMBER has a rule (wholeNumberProblem). Part of what
+ * "answered" means, like freeTextFilled.
+ */
+export const typedAnswerProblem = (q: PortalQuestion, text: string): string | null =>
+  q.answerFormat === 'WHOLE_NUMBER' ? wholeNumberProblem(text, q.answerMin, q.answerMax) : null;
+
+/**
+ * Why a typed NUMBER demographic answer would be refused by the begin
+ * validator — null when it would not, and on every other field type. Whole
+ * numbers only, same rule as a Number question (wholeNumberProblem).
+ */
+export const demographicNumberProblem = (f: PortalDemographicField, text: string): string | null =>
+  f.fieldType === 'NUMBER' ? wholeNumberProblem(text, f.numberMin, f.numberMax) : null;
 
 /** Whether this option of this question is the "Other…" row. */
 export const isFreeTextOption = (

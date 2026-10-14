@@ -169,9 +169,9 @@ class QuestionShuffleOptionsTest {
     @Test
     void aShuffledQuestionIsStablePerAttemptAndDiffersBetweenAttempts() throws Exception {
         Delivery d = buildDelivery("__smoke__ Shuffle", true);
-        Taker one = newTaker("__smoke__ Shuffle One", "shuffle.one@test.local", d.assessmentId());
-        Taker two = newTaker("__smoke__ Shuffle Two", "shuffle.two@test.local", d.assessmentId());
-        Taker three = newTaker("__smoke__ Shuffle Three", "shuffle.three@test.local", d.assessmentId());
+        Taker one = newTaker("Smoke Shuffle One", "shuffle.one@test.local", d.assessmentId());
+        Taker two = newTaker("Smoke Shuffle Two", "shuffle.two@test.local", d.assessmentId());
+        Taker three = newTaker("Smoke Shuffle Three", "shuffle.three@test.local", d.assessmentId());
 
         List<Integer> first = deliveredOrder(one.mappingId(), one.token());
 
@@ -223,7 +223,7 @@ class QuestionShuffleOptionsTest {
     @Test
     void anUnshuffledQuestionIsStillDeliveredInTheAuthoredOrder() throws Exception {
         Delivery d = buildDelivery("__smoke__ NoShuffle", false);
-        Taker taker = newTaker("__smoke__ NoShuffle One", "noshuffle.one@test.local", d.assessmentId());
+        Taker taker = newTaker("Smoke NoShuffle One", "noshuffle.one@test.local", d.assessmentId());
         Assertions.assertEquals(d.authoredOptionIds(),
                 deliveredOrder(taker.mappingId(), taker.token()),
                 "without the flag the respondent sees exactly what was authored");

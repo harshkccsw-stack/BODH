@@ -4,6 +4,8 @@ import java.time.LocalDate;
 
 import com.bodhpsychometric.dto.validation.BirthDate;
 import com.bodhpsychometric.dto.validation.E164Phone;
+import com.bodhpsychometric.dto.validation.NameRules;
+import com.bodhpsychometric.dto.validation.PersonName;
 import com.bodhpsychometric.dto.validation.PhoneFields;
 import com.bodhpsychometric.dto.validation.PhoneRules;
 import com.bodhpsychometric.model.auth.enums.Gender;
@@ -25,7 +27,15 @@ import jakarta.validation.constraints.Size;
  */
 @E164Phone
 public record RespondentRequest(
-        @NotBlank(message = "Name is required") String name,
+        /**
+         * Letters of any script, spaces, apostrophes, hyphens and full stops
+         * since 2026-10-13 ({@link NameRules}). Like the phone, this record
+         * feeds UPDATE too, so editing a respondent whose stored name breaks
+         * the rule means correcting it.
+         */
+        @NotBlank(message = "Name is required")
+        @Size(max = NameRules.MAX_LENGTH, message = NameRules.TOO_LONG_MESSAGE)
+        @PersonName String name,
         @NotBlank(message = "Email is required") @Email(message = "Email must be a valid address") String email,
         /**
          * Bounded since 2026-08-31: a real date from 1900 up to and including

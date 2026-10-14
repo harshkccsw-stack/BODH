@@ -1,10 +1,12 @@
 package com.bodhpsychometric.controller.demographics;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -25,6 +27,7 @@ import com.bodhpsychometric.dto.DemographicFieldRequest;
 import com.bodhpsychometric.dto.DemographicFieldResponse;
 import com.bodhpsychometric.model.demographics.DemographicField;
 import com.bodhpsychometric.model.demographics.enums.DemographicFieldType;
+import com.bodhpsychometric.model.question.enums.AnswerFormat;
 import com.bodhpsychometric.repository.demographics.DemographicFieldRepository;
 import com.bodhpsychometric.repository.demographics.DemographicResponseRepository;
 import com.bodhpsychometric.repository.demographics.QuestionnaireDemographicFieldRepository;
@@ -81,6 +84,9 @@ public class DemographicFieldController {
         List<String> options = normalizedOptions(request);
         String otherOptionLabel = normalizedOtherOptionLabel(request);
         String problem = choiceProblem(request.fieldType(), options, otherOptionLabel);
+        if (problem == null) {
+            problem = rangeProblem(request);
+        }
         if (problem != null) {
             return badRequest(problem);
         }
@@ -101,7 +107,9 @@ public class DemographicFieldController {
      * would leave old answers pointing at a choice that no longer exists — and
      * on a checklist, whose export has one column per choice, those ticks
      * would silently drop out of the sheet. Adding and reordering choices stay
-     * free, as does everything about a field nobody has answered yet.
+     * free, as does everything about a field nobody has answered yet. A
+     * NUMBER field's range may change freely too, as long as every answer
+     * already given still lies inside the new one.
      */
     @PutMapping("/update/{id}")
     public ResponseEntity<?> updateDemographicField(@PathVariable Long id,
@@ -109,6 +117,9 @@ public class DemographicFieldController {
         List<String> options = normalizedOptions(request);
         String otherOptionLabel = normalizedOtherOptionLabel(request);
         String problem = choiceProblem(request.fieldType(), options, otherOptionLabel);
+        if (problem == null) {
+            problem = rangeProblem(request);
+        }
         if (problem != null) {
             return badRequest(problem);
         }
@@ -137,6 +148,10 @@ public class DemographicFieldController {
                         + (locked.size() == 1 ? " has answers, so it" : " have answers, so they")
                         + " can't be renamed or removed");
             }
+        }
+        String outside = answersOutsideRange(field, request);
+        if (outside != null) {
+            return conflict(outside);
         }
         apply(field, request, options, otherOptionLabel);
         portalContentService.evictForDemographicField(id);
@@ -217,6 +232,82 @@ public class DemographicFieldController {
         return null;
     }
 
+    /**
+     * Why a NUMBER field's range cannot be saved, or null when it can — the
+     * Number question's rule (QuestionController.rangeProblem): either end
+     * may be left open, each is a whole number 0 … MAX_WHOLE_NUMBER (what the
+     * answer itself may be), and set together To must be above From — a range
+     * of one value is a question nobody needs to ask. Other types ignore both
+     * ends, as they ignore options, and apply() clears them.
+     */
+    private String rangeProblem(DemographicFieldRequest request) {
+        if (request.fieldType() != DemographicFieldType.NUMBER) {
+            return null;
+        }
+        for (BigDecimal end : new BigDecimal[] { request.numberMin(), request.numberMax() }) {
+            if (end != null && (end.stripTrailingZeros().scale() > 0 || end.signum() < 0
+                    || end.compareTo(BigDecimal.valueOf(AnswerFormat.MAX_WHOLE_NUMBER)) > 0)) {
+                return "The range's ends must be whole numbers from 0 to " + AnswerFormat.MAX_WHOLE_NUMBER;
+            }
+        }
+        Long min = wholeEnd(request.numberMin());
+        Long max = wholeEnd(request.numberMax());
+        if (min != null && max != null && max <= min) {
+            return "The range's To (" + max + ") must be greater than its From (" + min + ")";
+        }
+        return null;
+    }
+
+    /** A range end rangeProblem has passed, as the Long it is stored as; null stays null. */
+    private static Long wholeEnd(BigDecimal end) {
+        return end == null ? null : end.longValueExact();
+    }
+
+    /**
+     * Why the requested range would strand answers already given, or null
+     * when it would not: every stored value of a NUMBER field must still lie
+     * inside the range, or the data would break the field's own rule. Only
+     * looked up when the range actually changes. The values are distinct, so
+     * this lists numbers, not people. Compared as BigDecimal because answers
+     * stored before whole numbers were enforced may still be decimals.
+     */
+    private String answersOutsideRange(DemographicField field, DemographicFieldRequest request) {
+        if (request.fieldType() != DemographicFieldType.NUMBER) {
+            return null;
+        }
+        Long min = wholeEnd(request.numberMin());
+        Long max = wholeEnd(request.numberMax());
+        if (Objects.equals(field.getNumberMin(), min) && Objects.equals(field.getNumberMax(), max)) {
+            return null;
+        }
+        List<BigDecimal> outside = demographicResponseRepository
+                .findAnsweredValues(field.getDemographicFieldId()).stream()
+                .map(DemographicFieldController::parseNumber)
+                .filter(v -> v != null
+                        && ((min != null && v.compareTo(BigDecimal.valueOf(min)) < 0)
+                                || (max != null && v.compareTo(BigDecimal.valueOf(max)) > 0)))
+                .sorted()
+                .toList();
+        if (outside.isEmpty()) {
+            return null;
+        }
+        String shown = outside.stream().limit(3).map(BigDecimal::toPlainString)
+                .collect(Collectors.joining(", "))
+                + (outside.size() > 3 ? " and " + (outside.size() - 3) + " more" : "");
+        return (outside.size() == 1 ? "An answer already given (" + shown + ") falls"
+                : "Answers already given (" + shown + ") fall")
+                + " outside a range " + AnswerFormat.rangePhrase(min, max) + " — keep every answer inside the range";
+    }
+
+    /** A stored answer as a number, or null for one that is not (none should be). */
+    private static BigDecimal parseNumber(String value) {
+        try {
+            return value == null ? null : new BigDecimal(value.trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
     private void apply(DemographicField field, DemographicFieldRequest request, List<String> options,
             String otherOptionLabel) {
         field.setLabel(request.label().trim());
@@ -225,6 +316,9 @@ public class DemographicFieldController {
         field.getOptions().clear();
         field.getOptions().addAll(options);
         field.setOtherOptionLabel(otherOptionLabel);
+        boolean number = request.fieldType() == DemographicFieldType.NUMBER;
+        field.setNumberMin(number ? wholeEnd(request.numberMin()) : null);
+        field.setNumberMax(number ? wholeEnd(request.numberMax()) : null);
     }
 
     private ResponseEntity<Map<String, String>> badRequest(String message) {

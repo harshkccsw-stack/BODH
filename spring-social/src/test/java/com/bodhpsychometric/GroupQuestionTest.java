@@ -307,7 +307,7 @@ class GroupQuestionTest {
                         + "\"showTermsAndConditions\":false,\"status\":\"ACTIVE\",\"autoNext\":false}"),
                 "$.assessmentId");
         int respondentUserId = JsonPath.read(postJson("/api/respondents/create",
-                "{\"name\":\"__smoke__ Group Taker\",\"email\":\"group.taker@test.local\",\"dob\":\"05-05-2005\","
+                "{\"name\":\"Smoke Group Taker\",\"email\":\"group.taker@test.local\",\"dob\":\"05-05-2005\","
                         + "\"phoneCountryCode\":\"+91\",\"phone\":\"9000000001\",\"gender\":\"FEMALE\","
                         + "\"isConsented\":false,\"organizationId\":null}"), "$.respondentUserId");
         postJson("/api/respondent-assessments/assign",

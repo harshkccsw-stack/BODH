@@ -205,6 +205,8 @@ public record PortalQuestionnaireContent(
                                 .filter(Objects::nonNull)
                                 .toList(),
                         qdf.getDemographicField().getOtherOptionLabel(),
+                        qdf.getDemographicField().getNumberMin(),
+                        qdf.getDemographicField().getNumberMax(),
                         qdf.isRequired(),
                         qdf.getSortOrder()))
                 .toList();

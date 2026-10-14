@@ -15,7 +15,10 @@ public record DemographicFieldResponse(
         DemographicFieldType fieldType,
         String placeholder,
         List<String> options,
-        String otherOptionLabel) {
+        String otherOptionLabel,
+        /** NUMBER only: the inclusive whole-number range, either end null = open. */
+        Long numberMin,
+        Long numberMax) {
 
     public static DemographicFieldResponse from(DemographicField f) {
         return new DemographicFieldResponse(
@@ -24,6 +27,8 @@ public record DemographicFieldResponse(
                 f.getFieldType(),
                 f.getPlaceholder(),
                 List.copyOf(f.getOptions()),
-                f.getOtherOptionLabel());
+                f.getOtherOptionLabel(),
+                f.getNumberMin(),
+                f.getNumberMax());
     }
 }

@@ -4,6 +4,8 @@ import java.time.LocalDate;
 
 import com.bodhpsychometric.dto.validation.BirthDate;
 import com.bodhpsychometric.dto.validation.E164Phone;
+import com.bodhpsychometric.dto.validation.NameRules;
+import com.bodhpsychometric.dto.validation.PersonName;
 import com.bodhpsychometric.dto.validation.PhoneFields;
 import com.bodhpsychometric.dto.validation.PhoneRules;
 import com.bodhpsychometric.model.auth.enums.Gender;
@@ -25,7 +27,10 @@ import jakarta.validation.constraints.Size;
  */
 @E164Phone
 public record RegistrationSubmitRequest(
-        @NotBlank(message = "Name is required") String name,
+        /** Same rule as every other place a name is typed ({@link NameRules}). */
+        @NotBlank(message = "Name is required")
+        @Size(max = NameRules.MAX_LENGTH, message = NameRules.TOO_LONG_MESSAGE)
+        @PersonName String name,
 
         @NotBlank(message = "Email is required")
         @Email(message = "Email must be a valid address") String email,

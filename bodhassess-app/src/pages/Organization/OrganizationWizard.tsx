@@ -6,6 +6,7 @@ import {
   isValidPhone,
   phoneError,
 } from '@/lib/phone';
+import { NAME_MAX_LENGTH, nameProblem } from '@/lib/name';
 import { useEffect, useRef, useState } from 'react';
 import {
   AlertTriangle,
@@ -510,6 +511,8 @@ export default function OrganizationWizard({
       const row = rows[i];
       const at = `Respondent ${i + 1}`;
       if (!row.name.trim()) return `${at}: name is required`;
+      const badName = nameProblem(row.name);
+      if (badName) return `${at}: ${badName.charAt(0).toLowerCase()}${badName.slice(1)}`;
       const email = row.email.trim().toLowerCase();
       if (!email) return `${at}: email is required`;
       if (!EMAIL_RE.test(email)) return `${at}: "${row.email.trim()}" is not a valid email address`;
@@ -1296,6 +1299,7 @@ export default function OrganizationWizard({
                               value={row.name}
                               onChange={(e) => patchRow(row.key, { name: e.target.value })}
                               placeholder="e.g., Arjun Patel"
+                              maxLength={NAME_MAX_LENGTH}
                               className={INPUT_CLASS}
                             />
                           </div>
