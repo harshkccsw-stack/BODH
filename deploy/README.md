@@ -31,6 +31,19 @@ deploy/client/push.sh all            # api, then the admin app + portal (see bel
 deploy/client/push.sh app portal     # frontends only
 ```
 
+On Windows, the same script runs under Git Bash (it comes with Git for
+Windows). From PowerShell or cmd, use the launcher, which finds Git Bash even
+when WSL's `bash` comes first on PATH:
+
+```powershell
+deploy\client\push.cmd api           # same arguments as push.sh
+```
+
+It needs a JDK 25 (found under `C:\Program Files\...` even if `java` is not
+on PATH), Node, and the droplet's key in `~/.ssh` loading without a prompt:
+Git Bash's ssh does not use the Windows ssh-agent service. There is no rsync,
+so it copies with scp.
+
 The admin app (admin.bodh.biz) and the portal (portal.bodh.biz) are on
 DigitalOcean App Platform, which deploys the `dist/` folders COMMITTED on
 GitHub — it does not build them. So for `app`/`portal` push.sh runs

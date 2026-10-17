@@ -766,6 +766,8 @@ up). Rollback by hand: `ssh root@168.144.118.157
 /root/bodhassess-api/deploy/server/rollback.sh api`. Every deploy recreates
 the container, and `/app/uploads` is not a volume. `deploy/README.md` has the
 receiver contract; `deploy/server/` must stay identical to MemoryMesh's copy.
+On Windows (PowerShell/cmd), `deploy\client\push.cmd api` runs the same
+script under Git Bash, with the same arguments.
 
 The dashboard and portal are on DigitalOcean App Platform, which serves the
 `dist/` folders COMMITTED on GitHub `main` — it never builds. `push.sh all`

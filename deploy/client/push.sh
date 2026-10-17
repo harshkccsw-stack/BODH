@@ -25,8 +25,9 @@
 #          --no-activate     transfer only; activate later with the receiver
 #          --force           ignore a deploy/ mismatch between here and the droplet
 #
-# Works with macOS bash 3.2 and Linux bash; needs java 25 (api), node (SPAs),
-# ssh, and rsync or scp. Rollback afterwards:
+# Works with macOS bash 3.2, Linux bash and Git Bash on Windows (from cmd or
+# PowerShell: deploy\client\push.cmd, same arguments); needs java 25 (api),
+# node (SPAs), ssh, and rsync or scp. Rollback afterwards:
 #   ssh <user>@<host> <remote-dir>/deploy/server/rollback.sh api
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -34,11 +35,13 @@ cd "$ROOT"
 # shellcheck source=../project.env
 . deploy/project.env
 
-usage() { sed -n '2,24p' "$0"; }
+usage() { sed -n '2,/^set -euo pipefail/p' "$0" | grep '^#'; }
 die() { printf 'push: %s\n' "$1" >&2; exit "${2:-1}"; }
 say() { printf '\n== %s\n' "$*"; }
 need() { command -v "$1" >/dev/null 2>&1 || die "'$1' is required but not installed"; }
 sha256_of() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1"; else shasum -a 256 "$1"; fi; }
+# Git Bash hands Windows variables over as C:\..., which bash cannot append /bin/java to.
+unix_path() { if command -v cygpath >/dev/null 2>&1; then cygpath -u "$1"; else printf '%s\n' "$1"; fi; }
 
 TARGET=production; TAG=""; SKIP_BUILD=0; JAR=""; DIST=""; DRY=0; ACTIVATE=1; FORCE=0; WITH_TESTS=0
 WANT=""
@@ -96,6 +99,34 @@ remote() { if [ "$DRY" = 1 ]; then printf '   [dry-run] ssh %s %s\n' "$REMOTE" "
 # ── Preflight ────────────────────────────────────────────────────────────────
 say "preflight ($TARGET: $REMOTE:$REMOTE_DIR)"
 need ssh; need git; need tar
+# Where a JDK <major> lives when it is not first on PATH: an explicit JAVA_HOME,
+# then macOS's java_home, then the usual install roots (macOS, Linux, Windows).
+jdk_is() { [ -x "$2/bin/java" ] && "$2/bin/java" -version 2>&1 | grep -q "\"$1"; }
+find_jdk() { # <major>
+  local home
+  if [ -n "${JAVA_HOME:-}" ]; then
+    home="$(unix_path "$JAVA_HOME")"
+    if jdk_is "$1" "$home"; then printf '%s\n' "$home"; return 0; fi
+  fi
+  if [ -x /usr/libexec/java_home ]; then
+    home="$(/usr/libexec/java_home -v "$1" 2>/dev/null || true)"
+    if [ -n "$home" ] && jdk_is "$1" "$home"; then printf '%s\n' "$home"; return 0; fi
+  fi
+  for home in \
+    /Library/Java/JavaVirtualMachines/*/Contents/Home \
+    /usr/lib/jvm/* \
+    "$HOME/.sdkman/candidates/java"/* \
+    "$HOME/.jdks"/* \
+    "/c/Program Files/Eclipse Adoptium"/* \
+    "/c/Program Files/Java"/* \
+    "/c/Program Files/Microsoft"/* \
+    "/c/Program Files/Zulu"/* \
+    "/c/Program Files/Amazon Corretto"/*; do
+    [ -d "$home" ] || continue
+    if jdk_is "$1" "$home"; then printf '%s\n' "$home"; return 0; fi
+  done
+  return 1
+}
 case " $ARTIFACTS " in *" api "*)
   if [ -z "$JAR" ] && [ "$SKIP_BUILD" = 0 ]; then
     # The jar has to run on the runtime image's JRE (deploy/server/Dockerfile.runtime
@@ -103,25 +134,23 @@ case " $ARTIFACTS " in *" api "*)
     # inherited from whatever `java` happens to be first on PATH. A package manager
     # or an IDE raising the default JDK must not silently change what ships.
     #
-    # A wrong major is not fatal on its own: macOS keeps every installed JDK and
-    # java_home finds the right one even when it is not first on PATH, so the
-    # common case (default moved to 26, 25 still installed) self-heals instead of
-    # making the operator export JAVA_HOME by hand. Only a genuinely absent JDK
-    # stops the push.
+    # A wrong major is not fatal on its own: the right JDK is usually installed
+    # even when it is not first on PATH (macOS keeps every JDK; on Windows it sits
+    # under C:\Program Files), so the common case (default moved to 26, 25 still
+    # installed) self-heals instead of making the operator export JAVA_HOME by
+    # hand. No java on PATH at all is fine too (a terminal opened before the JDK
+    # was installed). Only a genuinely absent JDK stops the push.
     REQ_JAVA="${JAVA_VERSION:-25}"
-    FOUND_JAVA="$(java -version 2>&1 | head -1)"
+    FOUND_JAVA="no java"
+    if command -v java >/dev/null 2>&1; then FOUND_JAVA="$(java -version 2>&1 | head -1)"; fi
     case "$FOUND_JAVA" in
       *"\"$REQ_JAVA"*) ;;
       *)
-        JH=""
-        [ -x /usr/libexec/java_home ] && JH="$(/usr/libexec/java_home -v "$REQ_JAVA" 2>/dev/null || true)"
-        if [ -n "$JH" ] && [ -x "$JH/bin/java" ]; then
-          export JAVA_HOME="$JH"
-          PATH="$JAVA_HOME/bin:$PATH"; export PATH
-          echo "   java: shell default is $FOUND_JAVA — building with JDK $REQ_JAVA at $JAVA_HOME"
-        else
-          die "java $REQ_JAVA is required to build the jar (found $FOUND_JAVA, and no JDK $REQ_JAVA installed) — install it, or set JAVA_HOME to one"
-        fi ;;
+        JH="$(find_jdk "$REQ_JAVA")" \
+          || die "java $REQ_JAVA is required to build the jar (found $FOUND_JAVA, and no JDK $REQ_JAVA in JAVA_HOME or the usual install roots) — install it, or set JAVA_HOME to one"
+        export JAVA_HOME="$JH"
+        PATH="$JAVA_HOME/bin:$PATH"; export PATH
+        echo "   java: shell default is $FOUND_JAVA — building with JDK $REQ_JAVA at $JAVA_HOME" ;;
     esac
     echo "   java: $(java -version 2>&1 | head -1)"
   fi ;;
@@ -132,13 +161,20 @@ for a in $ARTIFACTS; do
 done
 HAVE_RSYNC=0
 if [ -n "$DROPLET_ARTIFACTS" ]; then
-  ssh_ true || die "cannot ssh to $REMOTE (SSH_OPTS='$SSH_OPTS')"
+  ssh_ true || die "cannot ssh to $REMOTE (SSH_OPTS='$SSH_OPTS'). It runs with BatchMode, so the key
+       must load without a prompt: an ssh-agent, or a key without a passphrase. On
+       Windows this is Git Bash's ssh, which does not see the Windows ssh-agent service."
   if command -v rsync >/dev/null 2>&1 && ssh_ 'command -v rsync >/dev/null'; then HAVE_RSYNC=1; fi
 
   # The receiver on the droplet must match this checkout: artifact pushes need
-  # no `git pull` there, but changes to deploy/, compose or nginx do.
-  local_sums()  { for f in deploy/project.env deploy/server/*; do printf '%s %s\n' "$(sha256_of "$f" | cut -d' ' -f1)" "$(basename "$f")"; done; }
-  remote_sums() { ssh_ "cd '$REMOTE_DIR' && for f in deploy/project.env deploy/server/*; do printf '%s %s\n' \"\$(sha256sum \"\$f\" | cut -d' ' -f1)\" \"\$(basename \"\$f\")\"; done"; }
+  # no `git pull` there, but changes to deploy/, compose or nginx do. Hashed
+  # without CRs: a Windows checkout (core.autocrlf) holds the same files with
+  # CRLF endings, and the droplet's are LF. Both lists are sorted here in one
+  # fixed order, because the glob's order follows the locale: Git Bash's
+  # en_US.UTF-8 files Dockerfile.runtime between deploy-*.sh, while macOS and
+  # the droplet put it first.
+  local_sums()  { for f in deploy/project.env deploy/server/*; do printf '%s %s\n' "$(tr -d '\r' < "$f" | sha256_of - | cut -d' ' -f1)" "$(basename "$f")"; done | LC_ALL=C sort -k2; }
+  remote_sums() { ssh_ "cd '$REMOTE_DIR' && for f in deploy/project.env deploy/server/*; do printf '%s %s\n' \"\$(sha256sum \"\$f\" | cut -d' ' -f1)\" \"\$(basename \"\$f\")\"; done" | LC_ALL=C sort -k2; }
   if ! diff <(local_sums) <(remote_sums) >/dev/null 2>&1; then
     if [ "$FORCE" = 1 ]; then
       echo "   warning: deploy/ on the droplet differs from this checkout (--force given)"
@@ -221,8 +257,12 @@ stage_spa() { # <name>
     if [ "$SKIP_BUILD" = 0 ]; then
       say "building $dir (VITE_API_URL=$PUBLIC_API_URL VITE_BASE_PATH=$bp)"
       # Real environment variables outrank any stray .env in the SPA dir.
+      # MSYS2_ENV_CONV_EXCL: Git Bash rewrites every path-looking variable it
+      # hands a Windows program, so VITE_BASE_PATH=/portal/ would reach Vite as
+      # "C:/Program Files/Git/portal/". Ignored everywhere else.
       (cd "$dir" && npm ci --no-audit --no-fund \
-        && VITE_API_URL="$PUBLIC_API_URL" VITE_PORTAL_URL="${PUBLIC_PORTAL_URL:-}" VITE_BASE_PATH="$bp" npm run build)
+        && MSYS2_ENV_CONV_EXCL=VITE_ \
+           VITE_API_URL="$PUBLIC_API_URL" VITE_PORTAL_URL="${PUBLIC_PORTAL_URL:-}" VITE_BASE_PATH="$bp" npm run build)
     fi
     dist="$dir/dist"
   fi
@@ -245,7 +285,14 @@ build_app_platform_spa() { # <name>
   [ -n "$dir" ] && [ -d "$dir" ] || die "SPA_${name}_DIR is not set to a directory in deploy/targets/$TARGET.env"
   if [ "$SKIP_BUILD" = 0 ]; then
     say "building $dir for App Platform (npm run build:production)"
-    [ -d "$dir/node_modules" ] || (cd "$dir" && npm ci --no-audit --no-fund)
+    # package-lock.json is gitignored in these SPAs, so node_modules is only as
+    # fresh as the last install on THIS machine (and npm ci, which needs a lock,
+    # cannot set it up at all). A dependency added since then fails tsc on every
+    # file that imports it; npm ls notices that, npm install brings it in.
+    if ! (cd "$dir" && npm ls --depth=0 >/dev/null 2>&1); then
+      say "installing $dir dependencies (node_modules is missing or behind package.json)"
+      (cd "$dir" && npm install --no-audit --no-fund)
+    fi
     (cd "$dir" && npm run build:production)
     # tsc -b rewrites a tracked build cache; it is not part of the release.
     git checkout -q -- "$dir"/*.tsbuildinfo 2>/dev/null || true
