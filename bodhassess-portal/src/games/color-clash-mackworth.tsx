@@ -924,21 +924,11 @@ function ColorClash({
 
         {(showHud || allowPause) && (
           <div style={styles.headerRight}>
+            {/* Only the timer stays up here: the running score sits under the word, see scoreStrip. */}
             {showHud && (
-              <div style={styles.hudGroup}>
-                <div style={styles.scoreRow}>
-                  SCORE <span style={styles.scoreValue}>{score}</span>
-                </div>
-                <div style={styles.scoreRow}>
-                  WRONG <span style={styles.scoreValue}>{wrongCount}</span>
-                </div>
-                <div style={styles.scoreRow}>
-                  MISSED <span style={styles.scoreValue}>{missCount}</span>
-                </div>
-                <div style={{ ...styles.timerBox, ...(displayTime <= TIMER_WARN_SECONDS ? styles.timerBoxWarn : {}) }}>
-                  <span style={styles.timerLabel}>TIME</span>
-                  <span style={{ ...styles.timerValue, minWidth: '2ch' }}>{displayTime}</span>
-                </div>
+              <div style={{ ...styles.timerBox, ...(displayTime <= TIMER_WARN_SECONDS ? styles.timerBoxWarn : {}) }}>
+                <span style={styles.timerLabel}>TIME</span>
+                <span style={{ ...styles.timerValue, minWidth: '2ch' }}>{displayTime}</span>
               </div>
             )}
             {allowPause && (
@@ -964,6 +954,22 @@ function ColorClash({
         <main style={styles.clashMain}>
           <div style={{ ...styles.word, color: inkCss }}>{wordText}</div>
         </main>
+
+        {/* The HUD groups' running score: under the word, above the options, clear of both.
+            Stacked above the blank flash so it holds still between rounds, as it did in the header. */}
+        {showHud && (
+          <div style={styles.scoreStrip}>
+            <div style={styles.scoreRow}>
+              SCORE <span style={styles.scoreValue}>{score}</span>
+            </div>
+            <div style={styles.scoreRow}>
+              WRONG <span style={styles.scoreValue}>{wrongCount}</span>
+            </div>
+            <div style={styles.scoreRow}>
+              MISSED <span style={styles.scoreValue}>{missCount}</span>
+            </div>
+          </div>
+        )}
 
         <footer style={styles.clashFooter}>
           {options.map((name) => {
@@ -1312,21 +1318,11 @@ function MackworthClock({
 
         {(showHud || allowPause) && (
           <div style={styles.headerRight}>
+            {/* Only the timer stays up here: the running score sits under the clock, see scoreStrip. */}
             {showHud && (
-              <div style={styles.hudGroup}>
-                <div style={styles.scoreRow}>
-                  SCORE <span style={styles.scoreValue}>{hits}</span>
-                </div>
-                <div style={styles.scoreRow}>
-                  WRONG <span style={styles.scoreValue}>{falseAlarms}</span>
-                </div>
-                <div style={styles.scoreRow}>
-                  MISSED <span style={styles.scoreValue}>{omissions}</span>
-                </div>
-                <div style={styles.timerBox}>
-                  <span style={styles.timerLabel}>TIME</span>
-                  <span style={{ ...styles.timerValue, minWidth: '4ch' }}>{formatTime(timeLeft)}</span>
-                </div>
+              <div style={styles.timerBox}>
+                <span style={styles.timerLabel}>TIME</span>
+                <span style={{ ...styles.timerValue, minWidth: '4ch' }}>{formatTime(timeLeft)}</span>
               </div>
             )}
             {allowPause && (
@@ -1350,6 +1346,21 @@ function MackworthClock({
         </p>
         <ClockFace angleDeg={angleDeg} />
       </main>
+
+      {/* The HUD groups' running score: under the clock, above the button, clear of both. */}
+      {showHud && (
+        <div style={styles.scoreStrip}>
+          <div style={styles.scoreRow}>
+            SCORE <span style={styles.scoreValue}>{hits}</span>
+          </div>
+          <div style={styles.scoreRow}>
+            WRONG <span style={styles.scoreValue}>{falseAlarms}</span>
+          </div>
+          <div style={styles.scoreRow}>
+            MISSED <span style={styles.scoreValue}>{omissions}</span>
+          </div>
+        </div>
+      )}
 
       <footer style={styles.clockFooter}>
         <button
@@ -1912,10 +1923,22 @@ const styles: Record<string, CSSProperties> = {
     justifyContent: 'flex-end',
     gap: '8px 16px',
   },
-  hudGroup: { display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px 16px' },
   partTitle: { fontSize: 15, letterSpacing: 3, color: '#8a8578', textTransform: 'uppercase' },
   scoreRow: { fontFamily: "'Consolas', 'Courier New', monospace", fontSize: 13, color: '#8a8578' },
   scoreValue: { color: '#1a1a1a', fontSize: 16 },
+  // The running score for the HUD groups (3, 6, 9), under the word / clock and above the answer
+  // controls, clear of both: the margin adds to the footer's own padding. zIndex lifts it above
+  // Color Clash's blankOverlay (5) so the figures hold still through the flash.
+  scoreStrip: {
+    position: 'relative',
+    zIndex: 6,
+    display: 'flex',
+    justifyContent: 'center',
+    flexWrap: 'wrap',
+    gap: '8px 28px',
+    padding: '0 28px',
+    marginBottom: 'clamp(4px, 1.5vw, 10px)',
+  },
   timerBox: {
     display: 'flex',
     alignItems: 'baseline',

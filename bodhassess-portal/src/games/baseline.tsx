@@ -414,8 +414,8 @@ export default function Baseline({ onComplete, suspended }: GameProps) {
             You'll see a block of letters, four rows of eight, drawn at random from A to Z.
           </p>
           <p style={styles.body}>
-            One letter is named at the top of the screen. Click every copy of that letter and leave
-            the rest alone.
+            One letter is named at the top of the screen. Click every copy of that letter{' '}
+            <b>in the whole grid.</b>
           </p>
           <div style={styles.exampleRow}>
             <Example letter="K" caption="Target is K" good />
@@ -555,7 +555,8 @@ const PREVIEW_TARGET = 'K';
 const PREVIEW_ROWS = [
   ['R', 'K', 'M', 'K', 'W', 'B', 'K', 'T'],
   ['K', 'D', 'K', 'S', 'V', 'K', 'L', 'P'],
-  ['N', 'Q', 'K', 'K', 'F', 'H', 'K', 'Z'],
+  // Step 3's arrow lands on column 6 of this row: it must never be the target letter.
+  ['N', 'Q', 'K', 'K', 'F', 'H', 'S', 'Z'],
   ['K', 'X', 'B', 'K', 'R', 'K', 'M', 'Y'],
 ];
 /** Cells drawn as already clicked, as "row,col" — shows what a hit looks like. */
